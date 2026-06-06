@@ -1,0 +1,17 @@
+.DS_Store
+# Compiled native extension
+*.bundle
+*.so
+*.dylib
+
+# Rust build artifacts
+target/
+
+# Local runtime/proof artifacts
+tmp/
+out/
+data/
+*.igm
+*.log
+
+.idea

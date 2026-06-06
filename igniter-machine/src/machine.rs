@@ -1,0 +1,368 @@
+use crate::backend::{InMemoryBackend, RemoteTcpBackend, RocksDBBackend, TBackend};
+use crate::bridge::MachineVMBackendAdapter;
+use crate::errors::EngineError;
+use crate::fact::{Fact, Observation};
+use crate::registry::ContractRegistry;
+use crate::wal::WALWriter;
+
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use igniter_compiler::assembler::Assembler;
+use igniter_compiler::classifier::Classifier;
+use igniter_compiler::emitter::Emitter;
+use igniter_compiler::lexer::Lexer;
+use igniter_compiler::monomorphizer::monomorphize_program;
+use igniter_compiler::parser::Parser;
+use igniter_compiler::typechecker::TypeChecker;
+
+use igniter_vm::compiler::Compiler as VMCompiler;
+use igniter_vm::value::Value as VMValue;
+use igniter_vm::vm::VM;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct SemanticImage {
+    magic: String,
+    version: String,
+    contracts: HashMap<String, serde_json::Value>,
+    facts: Vec<Fact>,
+    observations: Vec<Observation>,
+}
+
+pub struct IgniterMachine {
+    pub storage: Arc<dyn TBackend>,
+    pub wal: Option<Arc<WALWriter>>,
+    pub registry: Arc<RwLock<ContractRegistry>>,
+    pub observations: Arc<RwLock<Vec<Observation>>>,
+    pub backend_label: String,
+}
+
+impl IgniterMachine {
+    pub fn new(data_dir: Option<PathBuf>, backend_type: &str) -> Result<Self, EngineError> {
+        let registry = Arc::new(RwLock::new(ContractRegistry::new()));
+        let observations = Arc::new(RwLock::new(Vec::new()));
+
+        let storage: Arc<dyn TBackend> = match backend_type {
+            "in_memory" => Arc::new(InMemoryBackend::new()),
+            "rocksdb" => {
+                let path = data_dir.clone().unwrap_or_else(|| PathBuf::from("./data"));
+                Arc::new(RocksDBBackend::new(path)?)
+            }
+            "remote_tcp" => {
+                let addr = "127.0.0.1:7419".to_string();
+                Arc::new(RemoteTcpBackend::new(addr))
+            }
+            other if other.starts_with("remote_tcp:") => {
+                let addr = other.trim_start_matches("remote_tcp:").to_string();
+                Arc::new(RemoteTcpBackend::new(addr))
+            }
+            _ => {
+                return Err(EngineError::StorageError(format!(
+                    "Unknown backend type: {}",
+                    backend_type
+                )))
+            }
+        };
+
+        let wal = if let Some(dir) = &data_dir {
+            let wal_path = dir.join("machine.wal");
+            let wal_writer = Arc::new(WALWriter::new(&wal_path)?);
+            let replayed_facts = wal_writer.replay()?;
+            for fact in replayed_facts {
+                futures::executor::block_on(storage.write_fact(fact))?;
+            }
+            Some(wal_writer)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            storage,
+            wal,
+            registry,
+            observations,
+            backend_label: backend_type.to_string(),
+        })
+    }
+
+    pub fn backend_type(&self) -> &str {
+        &self.backend_label
+    }
+
+    pub fn load_contract_source(
+        &self,
+        source_code: &str,
+        contract_name: &str,
+    ) -> Result<(), EngineError> {
+        let mut lexer = Lexer::new(source_code);
+        let tokens = lexer.tokenize();
+
+        let mut parser = Parser::new(tokens);
+        let mut parsed = parser.parse();
+        if !parsed.parse_errors.is_empty() {
+            return Err(EngineError::CompilationError(format!(
+                "Parse errors: {:?}",
+                parsed.parse_errors
+            )));
+        }
+
+        monomorphize_program(&mut parsed);
+
+        let classifier = Classifier::new();
+        let sample_input = serde_json::json!({});
+        let classified = classifier.classify(&parsed, &sample_input);
+        if classified.pass_result != "ok" {
+            return Err(EngineError::CompilationError(format!(
+                "Classification failed: {:?}",
+                classified.oof_log
+            )));
+        }
+
+        let typechecker = TypeChecker::new();
+        let typed = typechecker.typecheck(&classified, &parsed.functions);
+        if typed.pass_result != "ok" {
+            return Err(EngineError::CompilationError(format!(
+                "Typechecking failed: {:?}",
+                typed.type_errors
+            )));
+        }
+
+        let emitter = Emitter::new();
+        let emit_res = emitter.emit_typed(&typed);
+
+        let assembler = Assembler::new();
+        let temp_dir =
+            std::env::temp_dir().join(format!("igniter_compile_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).map_err(|e| EngineError::IOError(e.to_string()))?;
+
+        let _manifest = assembler
+            .assemble(&emit_res, temp_dir.to_str().unwrap())
+            .map_err(|e| EngineError::CompilationError(e.to_string()))?;
+
+        let contract_id = contract_name.to_string();
+        let contract_file_path = temp_dir
+            .join("contracts")
+            .join(format!("{}.json", contract_id));
+        if !contract_file_path.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            return Err(EngineError::CompilationError(format!(
+                "Compiled contract file not found for {}",
+                contract_id
+            )));
+        }
+
+        let content = std::fs::read_to_string(&contract_file_path)
+            .map_err(|e| EngineError::IOError(e.to_string()))?;
+        let contract_json: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        self.registry.write().register(contract_id, contract_json);
+        Ok(())
+    }
+
+    /// Compile source for diagnostics only — does NOT register the contract.
+    /// Returns list of (rule, message, severity, line, col) tuples.
+    pub fn check_source(
+        source_code: &str,
+    ) -> Vec<(String, String, String, Option<u32>, Option<u32>)> {
+        let mut lexer = Lexer::new(source_code);
+        let tokens = lexer.tokenize();
+
+        let mut parser = Parser::new(tokens);
+        let mut parsed = parser.parse();
+
+        let mut diags: Vec<(String, String, String, Option<u32>, Option<u32>)> = Vec::new();
+
+        // Parse errors
+        for e in &parsed.parse_errors {
+            let severity = if e.severity == "error" {
+                "error"
+            } else {
+                "warning"
+            };
+            diags.push((
+                e.rule.clone(),
+                e.message.clone(),
+                severity.to_string(),
+                Some(e.line as u32),
+                Some(e.col as u32),
+            ));
+        }
+
+        if parsed.parse_errors.iter().any(|e| e.severity == "error") {
+            return diags;
+        }
+
+        monomorphize_program(&mut parsed);
+
+        let classifier = Classifier::new();
+        let classified = classifier.classify(&parsed, &serde_json::json!({}));
+
+        // OOF log from classifier (ClassifierDiagnostic: rule, message, node, line — no col, no severity)
+        for oof in &classified.oof_log {
+            diags.push((
+                oof.rule.clone(),
+                oof.message.clone(),
+                "error".to_string(),
+                oof.line.map(|l| l as u32),
+                None,
+            ));
+        }
+
+        let typechecker = TypeChecker::new();
+        let typed = typechecker.typecheck(&classified, &parsed.functions);
+
+        // Type errors (ClassifierDiagnostic: rule, message, node, line — no col, no severity)
+        for e in &typed.type_errors {
+            diags.push((
+                e.rule.clone(),
+                e.message.clone(),
+                if e.rule.starts_with("OOF-") {
+                    "error"
+                } else {
+                    "warning"
+                }
+                .to_string(),
+                e.line.map(|l| l as u32),
+                None,
+            ));
+        }
+
+        diags
+    }
+
+    pub async fn dispatch(
+        &self,
+        contract_name: &str,
+        inputs: serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        let contract_json = {
+            let registry_lock = self.registry.read();
+            registry_lock.get(contract_name).cloned()
+        };
+
+        let contract_json = match contract_json {
+            Some(c) => c,
+            None => return Err(EngineError::NotFound),
+        };
+
+        let mut vm_compiler = VMCompiler::new();
+        let compiled_contract = vm_compiler
+            .compile(&contract_json)
+            .map_err(|e| EngineError::VMExecutionError(e))?;
+
+        let adapter = Arc::new(MachineVMBackendAdapter::new(
+            self.storage.clone(),
+            self.observations.clone(),
+        ));
+        let vm = VM::new(Some(adapter));
+
+        let mut vm_inputs = HashMap::new();
+        if let Some(obj) = inputs.as_object() {
+            for (k, v) in obj {
+                vm_inputs.insert(k.clone(), VMValue::from_json(v));
+            }
+        }
+
+        let mut temporal_context = HashMap::new();
+        // Setup contract modifier inside inputs/temporal_context
+        let modifier = contract_json
+            .get("modifier")
+            .and_then(|m| m.as_str())
+            .unwrap_or("pure");
+        temporal_context.insert(
+            "contract_modifier".to_string(),
+            VMValue::String(Arc::from(modifier)),
+        );
+
+        let output_val = vm
+            .execute(&compiled_contract, &vm_inputs, &temporal_context)
+            .await
+            .map_err(|e| EngineError::VMExecutionError(e))?;
+
+        Ok(output_val.to_json())
+    }
+
+    pub async fn write_fact(&self, fact: Fact) -> Result<(), EngineError> {
+        if let Some(ref wal) = self.wal {
+            wal.append(&fact)?;
+        }
+        self.storage.write_fact(fact).await
+    }
+
+    pub async fn read_fact(
+        &self,
+        store: &str,
+        key: &str,
+        as_of: f64,
+    ) -> Result<Option<Fact>, EngineError> {
+        self.storage.read_as_of(store, key, as_of).await
+    }
+
+    pub fn checkpoint(&self, path: &Path) -> Result<(), EngineError> {
+        let registry_contracts = self.registry.read().contracts.clone();
+        let observations = self.observations.read().clone();
+        let facts = futures::executor::block_on(self.storage.all_facts())?;
+
+        let image = SemanticImage {
+            magic: "IGM\x01".to_string(),
+            version: "0.1.0".to_string(),
+            contracts: registry_contracts,
+            facts,
+            observations,
+        };
+
+        let bytes = rmp_serde::to_vec(&image)
+            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
+
+        std::fs::write(path, bytes).map_err(|e| EngineError::IOError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub fn resume(
+        path: &Path,
+        data_dir: Option<PathBuf>,
+        backend_type: &str,
+    ) -> Result<Self, EngineError> {
+        let bytes = std::fs::read(path).map_err(|e| EngineError::IOError(e.to_string()))?;
+
+        let image: SemanticImage = rmp_serde::from_slice(&bytes)
+            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
+
+        if image.magic != "IGM\x01" {
+            return Err(EngineError::SerializationError(
+                "Invalid magic bytes in image".to_string(),
+            ));
+        }
+
+        let machine = Self::new(data_dir, backend_type)?;
+
+        // Restore registry
+        {
+            let mut reg = machine.registry.write();
+            for (k, v) in image.contracts {
+                reg.register(k, v);
+            }
+        }
+
+        // Restore observations
+        {
+            let mut obs = machine.observations.write();
+            *obs = image.observations;
+        }
+
+        // Restore facts into storage
+        for fact in image.facts {
+            futures::executor::block_on(machine.storage.write_fact(fact))?;
+        }
+
+        Ok(machine)
+    }
+}

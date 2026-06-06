@@ -1,0 +1,8 @@
+# macOS requires -undefined dynamic_lookup for Ruby C extensions (cdylib).
+# Ruby symbols (rb_define_class, etc.) are resolved at runtime when the
+# extension is loaded into the Ruby process — not at link time.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
