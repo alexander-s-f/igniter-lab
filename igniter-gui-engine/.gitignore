@@ -1,0 +1,14 @@
+.DS_Store
+out/
+tmp/
+log/
+coverage/
+pkg/
+.bundle/
+.yardoc/
+_yardoc/
+.idea
+.rubocop_cache/
+.claude/worktrees/
+*.gem
+*.log

@@ -1,0 +1,126 @@
+{
+  "view_id": "igniter.lab.dashboard",
+  "canvas": {
+    "width": 1024,
+    "height": 768
+  },
+  "slots": {
+    "warnings_count": {
+      "type": "integer",
+      "contract_ref": "compiler.warnings_count"
+    },
+    "selected_tab": {
+      "type": "string",
+      "contract_ref": "ui_context.tab"
+    }
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "type": "container",
+      "layout": { "type": "flex", "direction": "horizontal" },
+      "style": {
+        "width": 1024,
+        "height": 768,
+        "margin": 0,
+        "padding": 0
+      }
+    },
+    {
+      "id": "sidebar",
+      "type": "container",
+      "parent": "root",
+      "layout": { "type": "flex", "direction": "vertical" },
+      "style": {
+        "width": 240,
+        "height": 768,
+        "padding": 20,
+        "margin": 0
+      }
+    },
+    {
+      "id": "content_area",
+      "type": "container",
+      "parent": "root",
+      "layout": { "type": "flex", "direction": "vertical" },
+      "style": {
+        "width": 784,
+        "height": 768,
+        "padding": 30,
+        "margin": 0
+      }
+    },
+    {
+      "id": "logo",
+      "type": "rect",
+      "parent": "sidebar",
+      "style": {
+        "width": 200,
+        "height": 60,
+        "margin": 10,
+        "padding": 0
+      },
+      "fill": "#ff6a3d"
+    },
+    {
+      "id": "nav_item_1",
+      "type": "rounded_rect",
+      "parent": "sidebar",
+      "style": {
+        "width": 200,
+        "height": 40,
+        "margin": 5,
+        "padding": 8
+      },
+      "rx": 4,
+      "ry": 4,
+      "fill": "#221b15",
+      "interaction_intents": {
+        "on_click": {
+          "intent": "select_tab",
+          "params": { "tab": "overview" }
+        }
+      }
+    },
+    {
+      "id": "nav_text_1",
+      "type": "text",
+      "parent": "nav_item_1",
+      "style": {
+        "width": 180,
+        "height": 24,
+        "margin": 0,
+        "padding": 0
+      },
+      "content": "Overview",
+      "font": "monospace",
+      "size": 14,
+      "fill": "#e7ddd2"
+    },
+    {
+      "id": "warning_badge",
+      "type": "circle",
+      "parent": "content_area",
+      "style": {
+        "width": 40,
+        "height": 40,
+        "margin": 15,
+        "padding": 0
+      },
+      "r": 20,
+      "fill": "#ff3333",
+      "display_rules": [
+        ["style", ["gt", ["slot", "warnings_count"], 0],
+          { "visible": true },
+          { "visible": false }]
+      ]
+    }
+  ],
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}

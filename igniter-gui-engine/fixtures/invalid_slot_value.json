@@ -1,0 +1,12 @@
+{
+  "warnings_count": 5,
+  "selected_tab": "overview",
+  "secret_admin_key": "unauthorized_data_leak",
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}

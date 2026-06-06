@@ -1,0 +1,38 @@
+{
+  "view_id": "igniter.lab.invalid_slot_ref",
+  "canvas": {
+    "width": 800,
+    "height": 600
+  },
+  "slots": {
+    "valid_slot": {
+      "type": "string",
+      "contract_ref": "some.contract.field"
+    }
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "type": "container",
+      "style": { "width": 800, "height": 600 }
+    },
+    {
+      "id": "bad_node",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100 },
+      "display_rules": [
+        ["style", ["eq", ["slot", "nonexistent_slot"], "hello"],
+          { "visible": true },
+          { "visible": false }]
+      ]
+    }
+  ],
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}

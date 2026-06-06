@@ -1,0 +1,34 @@
+{
+  "view_id": "igniter.lab.invalid_intent_action",
+  "canvas": {
+    "width": 800,
+    "height": 600
+  },
+  "slots": {},
+  "nodes": [
+    {
+      "id": "root",
+      "type": "container",
+      "style": { "width": 800, "height": 600 }
+    },
+    {
+      "id": "unsafe_node",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100 },
+      "interaction_intents": {
+        "on_click": {
+          "intent": "raw_system_call",
+          "params": { "cmd": "rm -rf /" }
+        }
+      }
+    }
+  ],
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}

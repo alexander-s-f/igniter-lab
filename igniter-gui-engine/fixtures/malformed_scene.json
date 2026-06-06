@@ -1,0 +1,8 @@
+{
+  "view_id": "igniter.lab.malformed",
+  "canvas": {
+    "width": 800
+  },
+  "nodes": [
+    { "id": "root", "type": "container" }
+  

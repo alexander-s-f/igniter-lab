@@ -1,0 +1,72 @@
+{
+  "view_id": "igniter.lab.overlap_scene",
+  "canvas": {
+    "width": 800,
+    "height": 600
+  },
+  "slots": {},
+  "nodes": [
+    {
+      "id": "root",
+      "type": "container",
+      "style": { "width": 800, "height": 600 }
+    },
+    {
+      "id": "box1",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100, "margin": 100 },
+      "interaction_intents": {
+        "on_click": {
+          "intent": "select_tab",
+          "params": { "box_id": "box1" }
+        }
+      }
+    },
+    {
+      "id": "box2",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100, "margin": 100 },
+      "interaction_intents": {
+        "on_click": {
+          "intent": "select_tab",
+          "params": { "box_id": "box2" }
+        }
+      }
+    },
+    {
+      "id": "box3",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100, "margin": 100 },
+      "z_index": -1,
+      "interaction_intents": {
+        "on_click": {
+          "intent": "select_tab",
+          "params": { "box_id": "box3" }
+        }
+      }
+    },
+    {
+      "id": "box4",
+      "type": "rect",
+      "parent": "root",
+      "style": { "width": 100, "height": 100, "margin": 100 },
+      "z_index": 5,
+      "interaction_intents": {
+        "on_click": {
+          "intent": "select_tab",
+          "params": { "box_id": "box4" }
+        }
+      }
+    }
+  ],
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}

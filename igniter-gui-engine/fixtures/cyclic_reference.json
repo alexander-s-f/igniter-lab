@@ -1,0 +1,35 @@
+{
+  "view_id": "igniter.lab.cyclic_reference",
+  "canvas": {
+    "width": 800,
+    "height": 600
+  },
+  "slots": {},
+  "nodes": [
+    {
+      "id": "root",
+      "type": "container",
+      "parent": "child2",
+      "style": { "width": 800, "height": 600 }
+    },
+    {
+      "id": "child1",
+      "type": "container",
+      "parent": "root",
+      "style": { "width": 400, "height": 400 }
+    },
+    {
+      "id": "child2",
+      "type": "container",
+      "parent": "child1",
+      "style": { "width": 200, "height": 200 }
+    }
+  ],
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ]
+}
