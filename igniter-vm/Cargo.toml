@@ -1,0 +1,24 @@
+[package]
+name = "igniter_vm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "igniter_vm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "igniter-vm"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+sha2 = "0.10"
+hex = "0.4"
+crc32fast = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+igniter_stdlib = { path = "../igniter-stdlib" }
