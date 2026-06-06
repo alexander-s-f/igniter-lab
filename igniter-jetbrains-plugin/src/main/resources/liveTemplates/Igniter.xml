@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templateSet group="Igniter">
+
+    <template name="contract"
+              value="contract $NAME$ {&#10;  input $INPUT$: $INPUT_TYPE$&#10;  output $OUTPUT$: $OUTPUT_TYPE$&#10;&#10;  $END$&#10;}"
+              description="Contract scaffold"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME"         expression="" defaultValue="&quot;MyContract&quot;" alwaysStopAt="true"/>
+        <variable name="INPUT"        expression="" defaultValue="&quot;value&quot;"     alwaysStopAt="true"/>
+        <variable name="INPUT_TYPE"   expression="" defaultValue="&quot;Integer&quot;"   alwaysStopAt="true"/>
+        <variable name="OUTPUT"       expression="" defaultValue="&quot;result&quot;"    alwaysStopAt="true"/>
+        <variable name="OUTPUT_TYPE"  expression="" defaultValue="&quot;Integer&quot;"   alwaysStopAt="true"/>
+        <variable name="END"          expression="" defaultValue=""                       alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="def"
+              value="def $NAME$($PARAMS$): $RETURN_TYPE$ {&#10;  $BODY$&#10;  $END$&#10;}"
+              description="Function definition scaffold"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME"        expression="" defaultValue="&quot;myFn&quot;"    alwaysStopAt="true"/>
+        <variable name="PARAMS"      expression="" defaultValue=""                    alwaysStopAt="true"/>
+        <variable name="RETURN_TYPE" expression="" defaultValue="&quot;Integer&quot;" alwaysStopAt="true"/>
+        <variable name="BODY"        expression="" defaultValue=""                    alwaysStopAt="true"/>
+        <variable name="END"         expression="" defaultValue=""                    alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="loop"
+              value="loop $NAME$ in $COLLECTION$ max_steps: $MAX$ {&#10;  $END$&#10;}"
+              description="Bounded loop"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME"       expression="" defaultValue="&quot;item&quot;"  alwaysStopAt="true"/>
+        <variable name="COLLECTION" expression="" defaultValue="&quot;items&quot;" alwaysStopAt="true"/>
+        <variable name="MAX"        expression="" defaultValue="&quot;100&quot;"   alwaysStopAt="true"/>
+        <variable name="END"        expression="" defaultValue=""                   alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="sloop"
+              value="loop $NAME$ in clock.every($INTERVAL$.seconds) {&#10;  $END$&#10;}"
+              description="Scheduled/clock loop"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME"     expression="" defaultValue="&quot;tick&quot;" alwaysStopAt="true"/>
+        <variable name="INTERVAL" expression="" defaultValue="&quot;60&quot;"   alwaysStopAt="true"/>
+        <variable name="END"      expression="" defaultValue=""                  alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="compute"
+              value="compute $NAME$ = $EXPR$"
+              description="Compute node"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="&quot;result&quot;" alwaysStopAt="true"/>
+        <variable name="EXPR" expression="" defaultValue="&quot;0&quot;"      alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="input"
+              value="input $NAME$: $TYPE$"
+              description="Input declaration"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="&quot;value&quot;"   alwaysStopAt="true"/>
+        <variable name="TYPE" expression="" defaultValue="&quot;Integer&quot;" alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="output"
+              value="output $NAME$: $TYPE$"
+              description="Output declaration"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="&quot;result&quot;"  alwaysStopAt="true"/>
+        <variable name="TYPE" expression="" defaultValue="&quot;Integer&quot;" alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="read"
+              value="read $NAME$: $TYPE$ from TBackend lifecycle: :$LIFECYCLE$"
+              description="Read node with backend and lifecycle"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME"      expression="" defaultValue="&quot;record&quot;"  alwaysStopAt="true"/>
+        <variable name="TYPE"      expression="" defaultValue="&quot;Integer&quot;" alwaysStopAt="true"/>
+        <variable name="LIFECYCLE" expression="" defaultValue="&quot;local&quot;"   alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+    <template name="invariant"
+              value="invariant $NAME$ predicate: $PRED$ severity: :$SEV$"
+              description="Invariant assertion"
+              toReformat="true"
+              toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="&quot;check&quot;"  alwaysStopAt="true"/>
+        <variable name="PRED" expression="" defaultValue="&quot;true&quot;"   alwaysStopAt="true"/>
+        <variable name="SEV"  expression="" defaultValue="&quot;error&quot;"  alwaysStopAt="true"/>
+        <context><option name="IGNITER" value="true"/></context>
+    </template>
+
+</templateSet>

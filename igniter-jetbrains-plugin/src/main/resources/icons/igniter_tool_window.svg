@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13 13" width="13" height="13">
+  <!-- Placeholder icon for the Igniter tool window — replace with final artwork -->
+  <circle cx="6.5" cy="6.5" r="5.5" fill="#F05A28" opacity="0.9"/>
+  <text x="3.5" y="9.5" font-family="monospace" font-size="6" font-weight="bold" fill="white">ig</text>
+</svg>

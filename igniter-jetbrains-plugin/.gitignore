@@ -1,0 +1,12 @@
+.DS_Store
+.idea/
+.gradle/
+build/
+out/
+tmp/
+*.log
+*.tmp
+*.bundle
+*.so
+*.dylib
+target/

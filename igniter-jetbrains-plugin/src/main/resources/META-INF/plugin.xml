@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<idea-plugin>
+
+    <!-- ================================================================== -->
+    <!-- Identity                                                             -->
+    <!-- ================================================================== -->
+    <id>com.igniter.plugin</id>
+    <name>Igniter Language</name>
+    <vendor email="hello@igniter-lang.dev" url="https://igniter-lang.dev">Igniter</vendor>
+    <version>0.1.0</version>
+
+    <description><![CDATA[
+        <p>JetBrains IDE support for <b>Igniter</b> — a contract-native language for declaring
+        and executing validated dependency graphs.</p>
+        <ul>
+          <li>Syntax highlighting for <code>.ig</code> files</li>
+          <li>Structure view (contracts, defs, inputs, outputs)</li>
+          <li>Compiler integration with OOF diagnostic annotations</li>
+          <li>Compiler output / Observations / Semantic IR tool window</li>
+          <li>Settings page under Languages &amp; Frameworks &gt; Igniter</li>
+        </ul>
+    ]]></description>
+
+    <!-- ================================================================== -->
+    <!-- Dependencies                                                         -->
+    <!-- ================================================================== -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <!--
+        Optional Ruby plugin dependency.  When the Ruby plugin is present the
+        igniter-ruby.xml config (not yet created) can wire Ruby-specific
+        extensions (e.g. `.ig` file associations from .rb interop files).
+        <depends optional="true" config-file="igniter-ruby.xml">org.jetbrains.plugins.ruby</depends>
+    -->
+
+    <!-- ================================================================== -->
+    <!-- Extensions                                                           -->
+    <!-- ================================================================== -->
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- File type -->
+        <fileType
+            name="Igniter Contract"
+            implementationClass="com.igniter.plugin.lang.IgniterFileType"
+            fieldName="INSTANCE"
+            language="Igniter"
+            extensions="ig"/>
+
+        <!-- Language -->
+        <lang.parserDefinition
+            language="Igniter"
+            implementationClass="com.igniter.plugin.lang.IgniterParserDefinition"/>
+
+        <!-- Syntax highlighting -->
+        <lang.syntaxHighlighterFactory
+            language="Igniter"
+            implementationClass="com.igniter.plugin.lang.IgniterSyntaxHighlighterFactory"/>
+
+        <!-- Color settings page -->
+        <colorSettingsPage
+            implementation="com.igniter.plugin.lang.IgniterColorSettingsPage"/>
+
+        <!-- Structure view -->
+        <lang.psiStructureViewFactory
+            language="Igniter"
+            implementationClass="com.igniter.plugin.lang.IgniterStructureViewFactory"/>
+
+        <!-- External annotator (compiler diagnostics) -->
+        <externalAnnotator
+            language="Igniter"
+            implementationClass="com.igniter.plugin.compiler.IgniterExternalAnnotator"/>
+
+        <!-- Application service: compiler -->
+        <applicationService
+            serviceImplementation="com.igniter.plugin.compiler.IgniterCompilerService"/>
+
+        <!-- Application service: settings -->
+        <applicationService
+            serviceImplementation="com.igniter.plugin.settings.IgniterSettings"/>
+
+        <!-- Settings configurable -->
+        <applicationConfigurable
+            parentId="language"
+            instance="com.igniter.plugin.settings.IgniterSettingsConfigurable"
+            id="com.igniter.plugin.settings.IgniterSettingsConfigurable"
+            displayName="Igniter"/>
+
+        <!-- Tool window -->
+        <toolWindow
+            id="Igniter"
+            anchor="right"
+            icon="/icons/igniter_tool_window.svg"
+            factoryClass="com.igniter.plugin.toolwindow.IgniterToolWindowFactory"
+            doNotActivateOnStart="true"/>
+
+        <!-- Notification group -->
+        <notificationGroup
+            id="Igniter Compiler"
+            displayType="BALLOON"
+            key="notification.group.compiler"/>
+
+        <!-- Brace matching -->
+        <lang.braceMatcher
+            language="Igniter"
+            implementationClass="com.igniter.plugin.lang.IgniterBraceMatcher"/>
+
+        <!-- Commenter -->
+        <lang.commenter
+            language="Igniter"
+            implementationClass="com.igniter.plugin.lang.IgniterCommenter"/>
+
+        <!-- Live template context -->
+        <liveTemplateContext
+            contextId="IGNITER"
+            implementation="com.igniter.plugin.lang.IgniterTemplateContext"/>
+
+        <!-- Completion -->
+        <completion.contributor
+            language="Igniter"
+            implementationClass="com.igniter.plugin.completion.IgniterCompletionContributor"/>
+
+        <!-- Symbol Index -->
+        <fileBasedIndex implementation="com.igniter.plugin.index.IgniterSymbolIndex"/>
+
+        <!-- References (Ctrl+Click) -->
+        <psi.referenceContributor
+            language="Igniter"
+            implementation="com.igniter.plugin.references.IgniterReferenceContributor"/>
+
+    </extensions>
+
+    <!-- ================================================================== -->
+    <!-- Actions                                                              -->
+    <!-- ================================================================== -->
+    <actions>
+        <action
+            id="Igniter.CompileFile"
+            class="com.igniter.plugin.actions.CompileIgniterFileAction"
+            text="Compile .ig File"
+            description="Compile the current Igniter source file">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F9"/>
+        </action>
+
+        <action
+            id="Igniter.ShowSemanticIR"
+            class="com.igniter.plugin.actions.ShowSemanticIRAction"
+            text="Show Semantic IR"
+            description="Open the semantic_ir_program.json artifact for this .ig file">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+
+</idea-plugin>
