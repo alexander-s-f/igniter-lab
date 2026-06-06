@@ -1,0 +1,115 @@
+{
+  "contract_id": "availability_projection",
+  "name": "AvailabilityProjection",
+  "fragment_class": "escape",
+  "escape_set": ["stream_collection"],
+  "lifecycle": "window",
+  "input_ports": [
+    { "name": "technician_id", "type_tag": "String",  "lifecycle": "local",   "required": true },
+    { "name": "date",          "type_tag": "String",  "lifecycle": "local",   "required": true }
+  ],
+  "output_ports": [
+    { "name": "available_slots", "type_tag": "Collection[TimeSlot]", "lifecycle": "window",   "required": true },
+    { "name": "snapshot",        "type_tag": "AvailabilitySnapshot", "lifecycle": "durable",  "required": false }
+  ],
+  "temporal_window": {
+    "name": "availability[technician, day]",
+    "kind": "calendar",
+    "unit": "day",
+    "boundary_key": null,
+    "close_trigger": "ttl_expired",
+    "detail_retain": "24h",
+    "snapshot_schedule": {
+      "frequency": "on_close",
+      "horizon": {
+        "as_of": "day_end",
+        "fact_scope": ["geo_signal/*"],
+        "consistency": "strong",
+        "rule_version": null,
+        "is_live": false
+      },
+      "type_tag": "AvailabilitySnapshot",
+      "store_as": "availability_snapshot[technician, day]"
+    }
+  },
+  "compute_nodes": [
+    {
+      "node_id": "node_geo_signals",
+      "name": "geo_signals",
+      "kind": "read",
+      "fragment_class": "escape",
+      "escape_name": "stream_collection",
+      "type_tag": "Collection[GeoSignal]",
+      "lifecycle": "window",
+      "obs_kind": "fact_observation",
+      "dependencies": ["input:technician_id", "input:date"],
+      "expression": {
+        "kind": "tbackend_read",
+        "subject_template": "geo_signal/{technician_id}/{date}",
+        "lifecycle": "window"
+      }
+    },
+    {
+      "node_id": "node_schedule",
+      "name": "schedule",
+      "kind": "read",
+      "fragment_class": "core",
+      "escape_name": null,
+      "type_tag": "ScheduleFact",
+      "lifecycle": "durable",
+      "obs_kind": "fact_observation",
+      "dependencies": ["input:technician_id", "input:date"],
+      "expression": {
+        "kind": "tbackend_read",
+        "subject_template": "schedule/{technician_id}/{date}",
+        "lifecycle": "durable"
+      }
+    },
+    {
+      "node_id": "node_available_slots",
+      "name": "available_slots",
+      "kind": "compute",
+      "fragment_class": "core",
+      "escape_name": null,
+      "type_tag": "Collection[TimeSlot]",
+      "lifecycle": "window",
+      "obs_kind": "value_observation",
+      "dependencies": ["node_geo_signals", "node_schedule"],
+      "expression": {
+        "kind": "apply",
+        "operator": "compute_slots",
+        "operands": [
+          { "kind": "ref", "name": "geo_signals" },
+          { "kind": "ref", "name": "schedule" }
+        ]
+      }
+    },
+    {
+      "node_id": "node_snapshot",
+      "name": "snapshot",
+      "kind": "snapshot",
+      "fragment_class": "core",
+      "type_tag": "AvailabilitySnapshot",
+      "lifecycle": "durable",
+      "obs_kind": "value_observation",
+      "dependencies": ["node_available_slots"],
+      "expression": {
+        "kind": "apply",
+        "operator": "build_snapshot",
+        "operands": [
+          { "kind": "ref", "name": "available_slots" },
+          { "kind": "ref", "name": "technician_id" },
+          { "kind": "ref", "name": "date" }
+        ]
+      }
+    }
+  ],
+  "type_signature": {
+    "inputs":  { "technician_id": "String", "date": "String" },
+    "outputs": {
+      "available_slots": "Collection[TimeSlot]",
+      "snapshot":        "AvailabilitySnapshot"
+    }
+  },
+  "artifact_hash": "sha256:9b3e1c7a5f2d4086b1a8c3e9f7d5b2a4c8e1f3a7d2b9c5e8f1a3d7c9b4e2f6"
+}

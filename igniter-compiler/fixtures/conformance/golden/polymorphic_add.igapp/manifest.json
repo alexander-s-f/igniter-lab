@@ -1,0 +1,67 @@
+{
+  "program_id": "prog_polymorphic_add_semanticir_proof",
+  "artifact_hash": "sha256:26336b7f5103859c4ce6f06981c7323770e4e4ca64dbe019b53b761521993600",
+  "language_version": "0.1.0",
+  "grammar_version": "polymorphic-v0",
+  "schema_version": "1.0.0",
+  "axiom_descriptor_ref": "1.0.0",
+  "format": "igapp_dir",
+  "compiled_at": "2026-05-06T00:00:00Z",
+  "source": {
+    "source_path": "igniter-lang/source/polymorphic_add.ig",
+    "parsed_program_ref": "igniter-lang/source/polymorphic_add.parsed_program.expected.json",
+    "source_hash": "sha256:49ae94eca6a4b50da2910af861d204d7a778a6c298dca8948ff60e79c249ee34"
+  },
+  "semantic_ir_ref": "semantic_ir.json",
+  "specialization_manifest_ref": "specialization_manifest.json",
+  "classified_metadata_ref": "classified_ast.json",
+  "contracts": [
+    "Lang.Examples.PolymorphicAdd.Add[Integer]",
+    "Lang.Examples.PolymorphicAdd.Add[Float]"
+  ],
+  "contract_files": {
+    "Lang.Examples.PolymorphicAdd.Add[Integer]": "contracts/add_integer.json",
+    "Lang.Examples.PolymorphicAdd.Add[Float]": "contracts/add_float.json"
+  },
+  "specializations": [
+    {
+      "contract": "Add",
+      "type_args": {
+        "T": "Integer"
+      },
+      "requested_by": "build",
+      "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Integer]"
+    },
+    {
+      "contract": "Add",
+      "type_args": {
+        "T": "Float"
+      },
+      "requested_by": "build",
+      "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]"
+    }
+  ],
+  "metadata_only_templates": [
+    "Lang.Examples.PolymorphicAdd.Add"
+  ],
+  "fragment_class": "core",
+  "schema_descriptor": {
+    "trait_bounds": [
+      {
+        "param": "T",
+        "constraint": "Additive",
+        "resolved_as": "Integer",
+        "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Integer]"
+      },
+      {
+        "param": "T",
+        "constraint": "Additive",
+        "resolved_as": "Float",
+        "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]"
+      }
+    ],
+    "migrations": []
+  },
+  "warnings": [],
+  "diagnostics": []
+}

@@ -1,0 +1,55 @@
+{
+  "program_id": "prog_a3f8c2e1d7b4509a",
+  "axiom_version": "1.0.0",
+  "grammar_version": "0.1.0",
+  "source_hash": "sha256:hand_authored_no_source",
+  "contracts": [
+    {
+      "contract_id": "add",
+      "name": "Add",
+      "fragment_class": "core",
+      "escape_set": [],
+      "input_ports": ["a:Integer", "b:Integer"],
+      "output_ports": ["sum:Integer"],
+      "compute_nodes": ["node_sum"],
+      "lifecycle": "session"
+    }
+  ],
+  "dependency_graph": {
+    "nodes": ["input:a", "input:b", "node_sum", "output:sum"],
+    "edges": [
+      { "from": "input:a",   "to": "node_sum",    "kind": "data" },
+      { "from": "input:b",   "to": "node_sum",    "kind": "data" },
+      { "from": "node_sum",  "to": "output:sum",  "kind": "data" }
+    ]
+  },
+  "evaluation_targets": [
+    {
+      "name": "sum",
+      "contract_id": "add",
+      "output_ports": ["sum"],
+      "as_projection": null
+    }
+  ],
+  "temporal_requirements": {
+    "requires_as_of": true,
+    "requires_replay": false,
+    "requires_snapshot": false,
+    "min_consistency": "strong",
+    "windows": [],
+    "slices": []
+  },
+  "lifecycle_requirements": {
+    "min_lifecycle": "local",
+    "has_audit": false,
+    "has_window": false
+  },
+  "capability_requirements": {
+    "required_caps": [],
+    "effect_kinds": []
+  },
+  "effect_declarations": [],
+  "ffi_requirements": [],
+  "projection_descriptors": [],
+  "boundary_descriptors": []
+}

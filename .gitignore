@@ -10,3 +10,43 @@
 **/config/credentials.local.yml
 .rubocop_cache/
 .claude/worktrees/
+
+# Generated proof/runtime output
+out/
+**/out/
+**/out_conformance_test/
+
+# Rust / native build output
+target/
+**/target/
+
+# JavaScript / Svelte / Tauri build output
+node_modules/
+**/node_modules/
+.svelte-kit/
+**/.svelte-kit/
+build/
+**/build/
+
+# Gradle / IDE / local tool state
+.gradle/
+**/.gradle/
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+.claude/
+**/.claude/
+
+# Local machine residue
+.DS_Store
+**/.DS_Store
+*.log
+*.wal
+tmp/
+**/tmp/
+Users/
+**/Users/
+
+# Local scratch inputs
+scratch_inputs.json

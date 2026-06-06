@@ -1,0 +1,82 @@
+{
+  "contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]",
+  "name": "Add[Float]",
+  "specialization_of": "Lang.Examples.PolymorphicAdd.Add",
+  "type_args": {
+    "T": "Float"
+  },
+  "fragment_class": "core",
+  "escape_set": [],
+  "lifecycle": "session",
+  "input_ports": [
+    {
+      "name": "a",
+      "type_tag": "Float",
+      "lifecycle": "local",
+      "required": true
+    },
+    {
+      "name": "b",
+      "type_tag": "Float",
+      "lifecycle": "local",
+      "required": true
+    }
+  ],
+  "output_ports": [
+    {
+      "name": "sum",
+      "type_tag": "Float",
+      "lifecycle": "session",
+      "required": true
+    }
+  ],
+  "compute_nodes": [
+    {
+      "node_id": "node_sum",
+      "name": "sum",
+      "kind": "compute",
+      "fragment_class": "core",
+      "type_tag": "Float",
+      "lifecycle": "session",
+      "obs_kind": "value_observation",
+      "dependencies": [
+        "input:a",
+        "input:b"
+      ],
+      "expression": {
+        "kind": "apply",
+        "operator": "stdlib.float.add",
+        "resolved_impl": "Additive[Float]",
+        "type_args": [
+          "Float"
+        ],
+        "operands": [
+          {
+            "kind": "ref",
+            "name": "a"
+          },
+          {
+            "kind": "ref",
+            "name": "b"
+          }
+        ]
+      }
+    }
+  ],
+  "implements": [
+    {
+      "shape": "AddShape[Float]",
+      "check": "passed"
+    }
+  ],
+  "type_signature": {
+    "inputs": {
+      "a": "Float",
+      "b": "Float"
+    },
+    "outputs": {
+      "sum": "Float"
+    }
+  },
+  "artifact_hash": "sha256:26336b7f5103859c4ce6f06981c7323770e4e4ca64dbe019b53b761521993600"
+}

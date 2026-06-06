@@ -1,0 +1,1 @@
+{ "projections": [{ "name": "availability[technician, day]", "mode": "reproducible" }], "boundaries": [{ "window_name": "availability[technician, day]", "kind": "calendar", "unit": "day" }] }

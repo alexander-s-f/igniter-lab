@@ -1,0 +1,20 @@
+{
+  "program_id": "prog_a3f8c2e1d7b4509a",
+  "artifact_hash": "sha256:4e2a1b9c7f3d5086e1a4c2b8f9d7e3a5c1b4f2e8a9d7c3b5f1e2a4d8c7b9f3",
+  "language_version": "0.1.0",
+  "grammar_version": "0.1.0",
+  "schema_version": "1.0.0",
+  "axiom_descriptor_ref": "1.0.0",
+  "format": "igapp_dir",
+  "compiled_at": "2026-05-05T17:00:00Z",
+  "contracts": ["add"],
+  "fragment_class": "core",
+  "schema_descriptor": {
+    "trait_bounds": [
+      { "param": "T", "constraint": "Additive", "resolved_as": "Integer" }
+    ],
+    "migrations": []
+  },
+  "warnings": [],
+  "diagnostics": []
+}

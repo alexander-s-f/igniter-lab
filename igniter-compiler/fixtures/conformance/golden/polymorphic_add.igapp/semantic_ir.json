@@ -1,0 +1,327 @@
+{
+  "kind": "semantic_ir",
+  "program_id": "prog_polymorphic_add_semanticir_proof",
+  "axiom_version": "1.0.0",
+  "grammar_version": "polymorphic-v0",
+  "source_hash": "sha256:49ae94eca6a4b50da2910af861d204d7a778a6c298dca8948ff60e79c249ee34",
+  "contracts": [
+    {
+      "contract_id": "Lang.Examples.PolymorphicAdd.Add[Integer]",
+      "name": "Add[Integer]",
+      "specialization_of": "Lang.Examples.PolymorphicAdd.Add",
+      "type_args": {
+        "T": "Integer"
+      },
+      "fragment_class": "core",
+      "escape_set": [],
+      "input_ports": [
+        {
+          "name": "a",
+          "type_tag": "Integer",
+          "lifecycle": "local"
+        },
+        {
+          "name": "b",
+          "type_tag": "Integer",
+          "lifecycle": "local"
+        }
+      ],
+      "compute_nodes": [
+        {
+          "node_id": "node_sum",
+          "name": "sum",
+          "type_tag": "Integer",
+          "lifecycle": "session",
+          "expression": {
+            "kind": "apply",
+            "operator": "stdlib.integer.add",
+            "resolved_impl": "Additive[Integer]",
+            "type_args": [
+              "Integer"
+            ],
+            "operands": [
+              {
+                "kind": "ref",
+                "name": "a"
+              },
+              {
+                "kind": "ref",
+                "name": "b"
+              }
+            ]
+          }
+        }
+      ],
+      "output_ports": [
+        {
+          "name": "sum",
+          "type_tag": "Integer",
+          "lifecycle": "session"
+        }
+      ],
+      "dependency_graph": {
+        "nodes": [
+          "input:a",
+          "input:b",
+          "node_sum",
+          "output:sum"
+        ],
+        "edges": [
+          {
+            "from": "input:a",
+            "to": "node_sum",
+            "kind": "data"
+          },
+          {
+            "from": "input:b",
+            "to": "node_sum",
+            "kind": "data"
+          },
+          {
+            "from": "node_sum",
+            "to": "output:sum",
+            "kind": "data"
+          }
+        ]
+      },
+      "evaluation_targets": [
+        {
+          "name": "sum",
+          "contract_id": "Lang.Examples.PolymorphicAdd.Add[Integer]",
+          "output_ports": [
+            "sum"
+          ],
+          "as_projection": null
+        }
+      ],
+      "temporal_requirements": {
+        "requires_as_of": true,
+        "requires_replay": false,
+        "requires_snapshot": false,
+        "min_consistency": "strong",
+        "windows": [],
+        "slices": []
+      },
+      "lifecycle_requirements": {
+        "min_lifecycle": "local",
+        "has_audit": false,
+        "has_window": false
+      },
+      "capability_requirements": {
+        "required_caps": [],
+        "effect_kinds": []
+      },
+      "effect_declarations": [],
+      "ffi_requirements": [],
+      "projection_descriptors": [],
+      "boundary_descriptors": [],
+      "shapes": {
+        "AddShape[Integer]": {
+          "input_ports": [
+            {
+              "name": "a",
+              "type_tag": "Integer"
+            },
+            {
+              "name": "b",
+              "type_tag": "Integer"
+            }
+          ],
+          "output_ports": [
+            {
+              "name": "sum",
+              "type_tag": "Integer"
+            }
+          ]
+        }
+      },
+      "implements": [
+        {
+          "shape": "AddShape[Integer]",
+          "check": "passed"
+        }
+      ]
+    },
+    {
+      "contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]",
+      "name": "Add[Float]",
+      "specialization_of": "Lang.Examples.PolymorphicAdd.Add",
+      "type_args": {
+        "T": "Float"
+      },
+      "fragment_class": "core",
+      "escape_set": [],
+      "input_ports": [
+        {
+          "name": "a",
+          "type_tag": "Float",
+          "lifecycle": "local"
+        },
+        {
+          "name": "b",
+          "type_tag": "Float",
+          "lifecycle": "local"
+        }
+      ],
+      "compute_nodes": [
+        {
+          "node_id": "node_sum",
+          "name": "sum",
+          "type_tag": "Float",
+          "lifecycle": "session",
+          "expression": {
+            "kind": "apply",
+            "operator": "stdlib.float.add",
+            "resolved_impl": "Additive[Float]",
+            "type_args": [
+              "Float"
+            ],
+            "operands": [
+              {
+                "kind": "ref",
+                "name": "a"
+              },
+              {
+                "kind": "ref",
+                "name": "b"
+              }
+            ]
+          }
+        }
+      ],
+      "output_ports": [
+        {
+          "name": "sum",
+          "type_tag": "Float",
+          "lifecycle": "session"
+        }
+      ],
+      "dependency_graph": {
+        "nodes": [
+          "input:a",
+          "input:b",
+          "node_sum",
+          "output:sum"
+        ],
+        "edges": [
+          {
+            "from": "input:a",
+            "to": "node_sum",
+            "kind": "data"
+          },
+          {
+            "from": "input:b",
+            "to": "node_sum",
+            "kind": "data"
+          },
+          {
+            "from": "node_sum",
+            "to": "output:sum",
+            "kind": "data"
+          }
+        ]
+      },
+      "evaluation_targets": [
+        {
+          "name": "sum",
+          "contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]",
+          "output_ports": [
+            "sum"
+          ],
+          "as_projection": null
+        }
+      ],
+      "temporal_requirements": {
+        "requires_as_of": true,
+        "requires_replay": false,
+        "requires_snapshot": false,
+        "min_consistency": "strong",
+        "windows": [],
+        "slices": []
+      },
+      "lifecycle_requirements": {
+        "min_lifecycle": "local",
+        "has_audit": false,
+        "has_window": false
+      },
+      "capability_requirements": {
+        "required_caps": [],
+        "effect_kinds": []
+      },
+      "effect_declarations": [],
+      "ffi_requirements": [],
+      "projection_descriptors": [],
+      "boundary_descriptors": [],
+      "shapes": {
+        "AddShape[Float]": {
+          "input_ports": [
+            {
+              "name": "a",
+              "type_tag": "Float"
+            },
+            {
+              "name": "b",
+              "type_tag": "Float"
+            }
+          ],
+          "output_ports": [
+            {
+              "name": "sum",
+              "type_tag": "Float"
+            }
+          ]
+        }
+      },
+      "implements": [
+        {
+          "shape": "AddShape[Float]",
+          "check": "passed"
+        }
+      ]
+    }
+  ],
+  "shape_descriptors": {
+    "AddShape[Integer]": {
+      "input_ports": [
+        {
+          "name": "a",
+          "type_tag": "Integer"
+        },
+        {
+          "name": "b",
+          "type_tag": "Integer"
+        }
+      ],
+      "output_ports": [
+        {
+          "name": "sum",
+          "type_tag": "Integer"
+        }
+      ]
+    },
+    "AddShape[Float]": {
+      "input_ports": [
+        {
+          "name": "a",
+          "type_tag": "Float"
+        },
+        {
+          "name": "b",
+          "type_tag": "Float"
+        }
+      ],
+      "output_ports": [
+        {
+          "name": "sum",
+          "type_tag": "Float"
+        }
+      ]
+    }
+  },
+  "lowering_invariants": [
+    "SIR-1:no_type_variables",
+    "SIR-2:no_unresolved_trait_method_calls",
+    "SIR-3:no_generic_contractir",
+    "SIR-4:concrete_resolved_impl"
+  ]
+}

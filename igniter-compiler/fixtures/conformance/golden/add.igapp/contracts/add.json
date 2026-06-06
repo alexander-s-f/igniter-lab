@@ -1,0 +1,39 @@
+{
+  "contract_id": "add",
+  "name": "Add",
+  "fragment_class": "core",
+  "escape_set": [],
+  "lifecycle": "session",
+  "input_ports": [
+    { "name": "a", "type_tag": "Integer", "lifecycle": "local", "required": true },
+    { "name": "b", "type_tag": "Integer", "lifecycle": "local", "required": true }
+  ],
+  "output_ports": [
+    { "name": "sum", "type_tag": "Integer", "lifecycle": "session", "required": true }
+  ],
+  "compute_nodes": [
+    {
+      "node_id": "node_sum",
+      "name": "sum",
+      "kind": "compute",
+      "fragment_class": "core",
+      "type_tag": "Integer",
+      "lifecycle": "session",
+      "obs_kind": "value_observation",
+      "dependencies": ["input:a", "input:b"],
+      "expression": {
+        "kind": "apply",
+        "operator": "stdlib.integer.add",
+        "operands": [
+          { "kind": "ref", "name": "a" },
+          { "kind": "ref", "name": "b" }
+        ]
+      }
+    }
+  ],
+  "type_signature": {
+    "inputs":  { "a": "Integer", "b": "Integer" },
+    "outputs": { "sum": "Integer" }
+  },
+  "artifact_hash": "sha256:4e2a1b9c7f3d5086e1a4c2b8f9d7e3a5c1b4f2e8a9d7c3b5f1e2a4d8c7b9f3"
+}

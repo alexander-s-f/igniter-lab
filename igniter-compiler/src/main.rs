@@ -1,0 +1,307 @@
+use igniter_compiler::lexer::Lexer;
+use igniter_compiler::parser::Parser;
+use igniter_compiler::classifier::Classifier;
+use igniter_compiler::typechecker::TypeChecker;
+use igniter_compiler::form_registry::FormRegistry;
+use igniter_compiler::form_resolver::FormResolver;
+use igniter_compiler::emitter::Emitter;
+use igniter_compiler::assembler::Assembler;
+
+use serde_json::{json, Value, Map};
+use sha2::{Sha256, Digest};
+use std::env;
+use std::fs;
+use std::path::Path;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: igc compile SOURCE --out OUT.igapp");
+        std::process::exit(1);
+    }
+
+    let command = &args[1];
+    if command != "compile" {
+        eprintln!("Unsupported command: {}", command);
+        std::process::exit(1);
+    }
+
+    if args.len() < 5 || args[3] != "--out" {
+        eprintln!("Usage: igc compile SOURCE --out OUT.igapp");
+        std::process::exit(1);
+    }
+
+    let source_path = &args[2];
+    let out_path = &args[4];
+
+    // Optional --compiler-profile-source
+    let mut profile_source = None;
+    let mut i = 5;
+    while i < args.len() {
+        if args[i] == "--compiler-profile-source" {
+            if i + 1 < args.len() {
+                let p = &args[i + 1];
+                if let Ok(content) = fs::read_to_string(p) {
+                    if let Ok(val) = serde_json::from_str(&content) {
+                        profile_source = Some(val);
+                    }
+                }
+                i += 2;
+            } else {
+                eprintln!("--compiler-profile-source requires a path");
+                std::process::exit(1);
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    match run_compiler(source_path, out_path, profile_source) {
+        Ok(ok) => {
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        Err(err) => {
+            eprintln!("Internal compiler error: {}", err);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
+    let source_content = fs::read_to_string(source_path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(source_content.as_bytes());
+    let source_hash = format!("sha256:{:x}", hasher.finalize());
+
+    // 0. Lex
+    let mut lexer = Lexer::new(&source_content);
+    let tokens = lexer.tokenize();
+
+    // 1. Parse
+    let mut parser = Parser::new(tokens);
+    let mut parsed = parser.parse();
+    parsed.source_path = Some(source_path.to_string());
+    parsed.source_hash = Some(source_hash.clone());
+
+    // 1.5 Monomorphize
+    igniter_compiler::monomorphizer::monomorphize_program(&mut parsed);
+
+    if !parsed.parse_errors.is_empty() {
+        // Parse failure
+        let mut report = Map::new();
+        report.insert("kind".to_string(), Value::String("compilation_report".to_string()));
+        report.insert("format_version".to_string(), Value::String("0.1.0".to_string()));
+        
+        let report_id = format!("compilation_report/{}", &source_hash.trim_start_matches("sha256:")[0..16]);
+        report.insert("program_id".to_string(), Value::String(report_id));
+        report.insert("grammar_version".to_string(), Value::String(parsed.grammar_version.clone()));
+        report.insert("source_hash".to_string(), Value::String(source_hash.clone()));
+        report.insert("source_path".to_string(), Value::String(source_path.to_string()));
+        report.insert("pass_result".to_string(), Value::String("error".to_string()));
+
+        let mut stages = Map::new();
+        stages.insert("parse".to_string(), Value::String("error".to_string()));
+        stages.insert("classify".to_string(), Value::String("skipped".to_string()));
+        stages.insert("typecheck".to_string(), Value::String("skipped".to_string()));
+        stages.insert("emit".to_string(), Value::String("skipped".to_string()));
+        report.insert("stages".to_string(), Value::Object(stages));
+
+        let diag_vals: Vec<Value> = parsed.parse_errors.iter().map(|d| {
+            let mut m = Map::new();
+            m.insert("rule".to_string(), Value::String(d.rule.clone()));
+            m.insert("severity".to_string(), Value::String("error".to_string()));
+            m.insert("message".to_string(), Value::String(d.message.clone()));
+            m.insert("node".to_string(), Value::String("parse".to_string()));
+            m.insert("line".to_string(), Value::Number(d.line.into()));
+            Value::Object(m)
+        }).collect();
+        report.insert("diagnostics".to_string(), Value::Array(diag_vals));
+        report.insert("semantic_ir_ref".to_string(), Value::Null);
+
+        let report_val = Value::Object(report);
+        let report_path = report_path_for(out_path);
+        fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
+        fs::write(&report_path, serde_json::to_string_pretty(&report_val)? + "\n")?;
+
+        let result = json!({
+            "kind": "compiler_result",
+            "format_version": "0.1.0",
+            "status": "error",
+            "program_id": Value::Null,
+            "source_path": source_path,
+            "source_hash": source_hash,
+            "grammar_version": parsed.grammar_version,
+            "stages": {
+                "parse": "error",
+                "classify": "skipped",
+                "typecheck": "skipped",
+                "emit": "skipped",
+                "assemble": "skipped"
+            },
+            "igapp_path": Value::Null,
+            "contracts": [],
+            "compilation_report_path": report_path,
+            "diagnostics": report_val.get("diagnostics").unwrap(),
+            "warnings": []
+        });
+
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(false);
+    }
+
+    // 2. Classify
+    let classifier = Classifier::new();
+    let sample_input = json!({});
+    let classified = classifier.classify(&parsed, &sample_input);
+
+    // 3. TypeCheck
+    let typechecker = TypeChecker::new();
+    let typed = typechecker.typecheck(&classified, &parsed.functions);
+
+    // 3.5 Form resolution pass
+    let form_registry = FormRegistry::build_from_program(&parsed);
+    let resolved_program = FormResolver::resolve(&typed, &form_registry);
+
+    // Collect ALL form diagnostics (errors + warnings) for injection
+    let form_all_diags: Vec<serde_json::Value> = resolved_program.diagnostics
+        .iter()
+        .chain(form_registry.diagnostics.iter())
+        .map(|fd| serde_json::json!({
+            "rule":     fd.code,
+            "severity": fd.severity,
+            "message":  fd.message,
+            "node":     format!("form_resolver/{}", fd.contract),
+        }))
+        .collect();
+    let form_error_diags: Vec<serde_json::Value> = form_all_diags.iter()
+        .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error"))
+        .cloned()
+        .collect();
+
+    let form_table = form_registry.to_form_table(parsed.module.as_deref());
+    let resolved_json = serde_json::to_value(&resolved_program).ok();
+
+    // 4. Emit
+    let emitter = Emitter::new();
+    let mut emit_res = emitter.emit_typed(&typed);
+    emit_res.form_table = Some(form_table);
+    emit_res.resolved_program = resolved_json;
+    emitter.apply_form_lowering(&mut emit_res);
+
+    // Inject all form diagnostics into compilation report (P7/P9 fail-closed evidence)
+    if !form_all_diags.is_empty() {
+        if let Some(report) = emit_res.compilation_report.as_object_mut() {
+            let mut all_diags = report.get("diagnostics")
+                .and_then(|d| d.as_array()).cloned().unwrap_or_default();
+            all_diags.extend(form_all_diags.iter().cloned());
+            report.insert("diagnostics".to_string(), serde_json::Value::Array(all_diags));
+            if !form_error_diags.is_empty() {
+                if report.get("pass_result").and_then(|p| p.as_str()) == Some("ok") {
+                    report.insert("pass_result".to_string(), serde_json::Value::String("oof".to_string()));
+                }
+            }
+        }
+    }
+
+    // ok includes form errors (injected above)
+    let has_form_errors = !form_error_diags.is_empty();
+    let ok = typed.pass_result == "ok" && classified.pass_result == "ok"
+          && parsed.parse_errors.is_empty() && !has_form_errors;
+
+    if !ok {
+        // Refusal / OOF case
+        let report_path = report_path_for(out_path);
+        fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
+        fs::write(&report_path, serde_json::to_string_pretty(&emit_res.compilation_report)? + "\n")?;
+
+        // Always write form_table and resolution trace even on oof (sidecar evidence)
+        if let Some(ft) = &emit_res.form_table {
+            let ft_path = report_path.replace(".compilation_report.json", ".form_table.json");
+            let _ = fs::write(&ft_path, serde_json::to_string_pretty(ft)? + "\n");
+        }
+        if let Some(rt) = &emit_res.resolved_program {
+            let rt_path = report_path.replace(".compilation_report.json", ".form_resolution_trace.json");
+            let _ = fs::write(&rt_path, serde_json::to_string_pretty(rt)? + "\n");
+        }
+
+        let errors: Vec<Value> = emit_res.compilation_report.get("diagnostics").unwrap().as_array().unwrap()
+            .iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) != Some("warning")).cloned().collect();
+        let warnings: Vec<Value> = emit_res.compilation_report.get("diagnostics").unwrap().as_array().unwrap()
+            .iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("warning")).cloned().collect();
+
+        let result = json!({
+            "kind": "compiler_result",
+            "format_version": "0.1.0",
+            "status": "oof",
+            "program_id": Value::Null,
+            "source_path": source_path,
+            "source_hash": source_hash,
+            "grammar_version": parsed.grammar_version,
+            "stages": {
+                "parse": "ok",
+                "classify": "ok",
+                "typecheck": "oof",
+                "emit": "skipped",
+                "assemble": "skipped"
+            },
+            "igapp_path": Value::Null,
+            "contracts": [],
+            "compilation_report_path": report_path,
+            "diagnostics": errors,
+            "warnings": warnings
+        });
+
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(false);
+    }
+
+    // 5. Assemble
+    let assembler = Assembler::new();
+    let manifest = assembler.assemble(&emit_res, out_path)?;
+
+    let contract_ids = manifest.get("contracts").unwrap().as_array().unwrap();
+    let program_id = manifest.get("program_id").unwrap().as_str().unwrap().to_string();
+    let comp_report_ref = manifest.get("compilation_report_ref").unwrap().as_str().unwrap().to_string();
+    let sem_ir_ref = manifest.get("semantic_ir_ref").unwrap().as_str().unwrap().to_string();
+
+    let result = json!({
+        "kind": "compiler_result",
+        "format_version": "0.1.0",
+        "status": "ok",
+        "program_id": program_id,
+        "source_path": source_path,
+        "source_hash": source_hash,
+        "grammar_version": parsed.grammar_version,
+        "stages": {
+            "parse": "ok",
+            "classify": "ok",
+            "typecheck": "ok",
+            "emit": "ok",
+            "assemble": "ok"
+        },
+        "igapp_path": out_path,
+        "compilation_report_ref": comp_report_ref,
+        "semantic_ir_ref": sem_ir_ref,
+        "contracts": contract_ids,
+        "diagnostics": [],
+        "warnings": form_all_diags.iter()
+            .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("warning"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        "runtime_smoke": Value::Null
+    });
+
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(true)
+}
+
+fn report_path_for(out_path: &str) -> String {
+    if out_path.ends_with(".igapp") {
+        let prefix = &out_path[0..out_path.len() - 6];
+        format!("{}.compilation_report.json", prefix)
+    } else {
+        format!("{}.compilation_report.json", out_path)
+    }
+}

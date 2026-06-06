@@ -1,0 +1,13 @@
+{
+  "fragment_class": "core",
+  "pass0_version": "0.1.0",
+  "contracts": ["Add"],
+  "oof_count": 0,
+  "oof_nodes": [],
+  "nodes": {
+    "input:a":   { "node_id": "input:a",   "kind": "input",   "fragment": "core", "escape_name": null, "oof_reason": null },
+    "input:b":   { "node_id": "input:b",   "kind": "input",   "fragment": "core", "escape_name": null, "oof_reason": null },
+    "node_sum":  { "node_id": "node_sum",  "kind": "compute", "fragment": "core", "escape_name": null, "oof_reason": null },
+    "output:sum":{ "node_id": "output:sum","kind": "output",  "fragment": "core", "escape_name": null, "oof_reason": null }
+  }
+}

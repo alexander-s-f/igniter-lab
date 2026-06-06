@@ -1,0 +1,130 @@
+{
+  "kind": "classified_metadata",
+  "metadata_only": true,
+  "module": "Lang.Examples.PolymorphicAdd",
+  "source_path": "igniter-lang/source/polymorphic_add.ig",
+  "parsed_program_ref": "igniter-lang/source/polymorphic_add.parsed_program.expected.json",
+  "source_hash": "sha256:49ae94eca6a4b50da2910af861d204d7a778a6c298dca8948ff60e79c249ee34",
+  "fragment_class": "core",
+  "pass0_version": "polymorphic-v0",
+  "loadable_contracts": [
+    "Lang.Examples.PolymorphicAdd.Add[Integer]",
+    "Lang.Examples.PolymorphicAdd.Add[Float]"
+  ],
+  "generic_templates": [
+    {
+      "contract_id": "Lang.Examples.PolymorphicAdd.Add",
+      "name": "Add",
+      "loadable": false,
+      "fragment_class": "generic_pending",
+      "type_params": [
+        {
+          "name": "T",
+          "bounds": [
+            {
+              "trait_ref": {
+                "name": "Additive",
+                "type_args": [
+                  "T"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "implements": {
+        "name": "AddShape",
+        "type_args": [
+          "T"
+        ]
+      },
+      "body": [
+        {
+          "kind": "compute",
+          "name": "sum",
+          "expr": {
+            "kind": "call",
+            "fn": "add",
+            "args": [
+              {
+                "kind": "ref",
+                "name": "a"
+              },
+              {
+                "kind": "ref",
+                "name": "b"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "trait_env": {
+    "Additive": {
+      "name": "Additive",
+      "type_params": [
+        "T"
+      ],
+      "methods": [
+        {
+          "name": "add",
+          "params": [
+            {
+              "name": "a",
+              "type_annotation": "T"
+            },
+            {
+              "name": "b",
+              "type_annotation": "T"
+            }
+          ],
+          "return_type": "T"
+        }
+      ]
+    }
+  },
+  "impl_env": {
+    "Additive[Integer]": {
+      "trait_name": "Additive",
+      "concrete_type": "Integer",
+      "kind": "using",
+      "operator_ref": "stdlib.numeric.add",
+      "fragment_class": "core",
+      "coherence": "passed"
+    },
+    "Additive[Float]": {
+      "trait_name": "Additive",
+      "concrete_type": "Float",
+      "kind": "using",
+      "operator_ref": "stdlib.numeric.add",
+      "fragment_class": "core",
+      "coherence": "passed"
+    }
+  },
+  "shape_env": {
+    "AddShape": {
+      "name": "AddShape",
+      "type_params": [
+        "T"
+      ],
+      "input_ports": [
+        {
+          "name": "a",
+          "type_ann": "T"
+        },
+        {
+          "name": "b",
+          "type_ann": "T"
+        }
+      ],
+      "output_ports": [
+        {
+          "name": "sum",
+          "type_ann": "T"
+        }
+      ]
+    }
+  },
+  "classify_errors": []
+}

@@ -1,0 +1,30 @@
+{
+  "temporal": {
+    "requires_as_of": true,
+    "requires_replay": false,
+    "requires_snapshot": false,
+    "min_consistency": "strong",
+    "windows": [],
+    "slices": []
+  },
+  "lifecycle": {
+    "min_lifecycle": "local",
+    "has_audit": false,
+    "has_window": false
+  },
+  "capabilities": {
+    "required_caps": [],
+    "effect_kinds": []
+  },
+  "effects": [],
+  "ffi": [],
+  "required_tbackend_caps": {
+    "read_as_of": true,
+    "append_atomic": true,
+    "replay_enabled": false,
+    "snapshot_enabled": false,
+    "compact_enabled": false,
+    "subscribe_enabled": false,
+    "consistency": "strong"
+  }
+}

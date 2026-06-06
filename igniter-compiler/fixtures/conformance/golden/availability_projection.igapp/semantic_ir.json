@@ -1,0 +1,106 @@
+{
+  "program_id": "prog_avail_b7c3d9e1f2a4085b",
+  "axiom_version": "1.0.0",
+  "grammar_version": "0.1.0",
+  "source_hash": "sha256:hand_authored_availability_no_source",
+  "contracts": [
+    {
+      "contract_id": "availability_projection",
+      "name": "AvailabilityProjection",
+      "fragment_class": "escape",
+      "escape_set": ["stream_collection"],
+      "input_ports": ["technician_id:String", "date:String"],
+      "output_ports": ["available_slots:Collection[TimeSlot]", "snapshot:AvailabilitySnapshot"],
+      "compute_nodes": ["node_geo_signals", "node_schedule", "node_available_slots", "node_snapshot"],
+      "lifecycle": "window",
+      "temporal_window": "availability[technician, day]"
+    }
+  ],
+  "dependency_graph": {
+    "nodes": [
+      "input:technician_id", "input:date",
+      "node_geo_signals", "node_schedule",
+      "node_available_slots", "node_snapshot",
+      "output:available_slots", "output:snapshot"
+    ],
+    "edges": [
+      { "from": "input:technician_id", "to": "node_geo_signals",    "kind": "data" },
+      { "from": "input:date",          "to": "node_geo_signals",    "kind": "data" },
+      { "from": "input:technician_id", "to": "node_schedule",       "kind": "data" },
+      { "from": "input:date",          "to": "node_schedule",       "kind": "data" },
+      { "from": "node_geo_signals",    "to": "node_available_slots","kind": "data" },
+      { "from": "node_schedule",       "to": "node_available_slots","kind": "data" },
+      { "from": "node_available_slots","to": "node_snapshot",       "kind": "data" },
+      { "from": "input:technician_id", "to": "node_snapshot",       "kind": "data" },
+      { "from": "input:date",          "to": "node_snapshot",       "kind": "data" },
+      { "from": "node_available_slots","to": "output:available_slots","kind": "data" },
+      { "from": "node_snapshot",       "to": "output:snapshot",     "kind": "data" }
+    ]
+  },
+  "evaluation_targets": [
+    {
+      "name": "available_slots",
+      "contract_id": "availability_projection",
+      "output_ports": ["available_slots"],
+      "as_projection": {
+        "name": "availability[technician, day]",
+        "type_tag": "AvailabilitySnapshot",
+        "horizon": { "as_of": "day_end", "consistency": "strong", "is_live": false }
+      }
+    }
+  ],
+  "temporal_requirements": {
+    "requires_as_of": true,
+    "requires_replay": false,
+    "requires_snapshot": true,
+    "min_consistency": "strong",
+    "windows": [
+      {
+        "name": "availability[technician, day]",
+        "kind": "calendar",
+        "unit": "day",
+        "close_trigger": "ttl_expired",
+        "detail_retain": "24h",
+        "snapshot_schedule": { "frequency": "on_close", "store_as": "availability_snapshot[technician, day]" }
+      }
+    ],
+    "slices": [
+      {
+        "name": "availability_snapshot[technician, day]",
+        "type_tag": "AvailabilitySnapshot",
+        "lifecycle": "durable",
+        "reproducible": true
+      }
+    ]
+  },
+  "lifecycle_requirements": {
+    "min_lifecycle": "window",
+    "has_audit": false,
+    "has_window": true
+  },
+  "capability_requirements": {
+    "required_caps": [],
+    "effect_kinds": ["read"]
+  },
+  "effect_declarations": [],
+  "ffi_requirements": [],
+  "projection_descriptors": [
+    {
+      "name": "availability[technician, day]",
+      "contract_id": "availability_projection",
+      "type_tag": "AvailabilitySnapshot",
+      "horizon": { "as_of": "day_end", "consistency": "strong", "is_live": false },
+      "mode": "reproducible"
+    }
+  ],
+  "boundary_descriptors": [
+    {
+      "window_name": "availability[technician, day]",
+      "kind": "calendar",
+      "unit": "day",
+      "close_trigger": "ttl_expired",
+      "receipt_kind": "receipt_observation",
+      "on_missing_receipt": "promote"
+    }
+  ]
+}

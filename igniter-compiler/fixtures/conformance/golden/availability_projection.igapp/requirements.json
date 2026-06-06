@@ -1,0 +1,30 @@
+{
+  "temporal": {
+    "requires_as_of": true,
+    "requires_replay": false,
+    "requires_snapshot": true,
+    "min_consistency": "strong",
+    "windows": [{ "name": "availability[technician, day]", "kind": "calendar", "unit": "day" }],
+    "slices": [{ "name": "availability_snapshot[technician, day]", "lifecycle": "durable" }]
+  },
+  "lifecycle": {
+    "min_lifecycle": "window",
+    "has_audit": false,
+    "has_window": true
+  },
+  "capabilities": {
+    "required_caps": [],
+    "effect_kinds": ["read"]
+  },
+  "effects": [],
+  "ffi": [],
+  "required_tbackend_caps": {
+    "read_as_of": true,
+    "append_atomic": true,
+    "replay_enabled": false,
+    "snapshot_enabled": true,
+    "compact_enabled": true,
+    "subscribe_enabled": false,
+    "consistency": "strong"
+  }
+}

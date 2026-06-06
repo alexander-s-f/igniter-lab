@@ -1,0 +1,24 @@
+{
+  "kind": "specialization_manifest",
+  "grammar_version": "polymorphic-v0",
+  "module": "Lang.Examples.PolymorphicAdd",
+  "source_hash": "sha256:49ae94eca6a4b50da2910af861d204d7a778a6c298dca8948ff60e79c249ee34",
+  "specializations": [
+    {
+      "contract": "Add",
+      "type_args": {
+        "T": "Integer"
+      },
+      "requested_by": "build",
+      "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Integer]"
+    },
+    {
+      "contract": "Add",
+      "type_args": {
+        "T": "Float"
+      },
+      "requested_by": "build",
+      "emitted_contract_id": "Lang.Examples.PolymorphicAdd.Add[Float]"
+    }
+  ]
+}
