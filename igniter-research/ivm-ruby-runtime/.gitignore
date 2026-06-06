@@ -1,0 +1,26 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+*.gem
+/spec/reports/
+/tmp/
+.idea
+/playgrounds/*
+!/playgrounds/README.md
+**/config/credentials.local.yml
+.rubocop_cache/
+.claude/worktrees/
+# Research proof output and native artifacts
+out/
+*.igbin
+*.dylib
+*.so
+*.bundle
+
+# Local machine residue
+.DS_Store
+*.log
+*.wal

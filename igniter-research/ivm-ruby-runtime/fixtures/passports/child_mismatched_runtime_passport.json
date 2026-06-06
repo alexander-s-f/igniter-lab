@@ -1,0 +1,16 @@
+{
+  "runtime_implementation_id": "igniter.delegated.incompatible_runtime.v0",
+  "backend_implementation_id": "none",
+  "consumer_surface_id": "igniter-lab",
+  "surface_dimension": "runtime",
+  "artifact_kind": "igapp_dir",
+  "artifact_digest": "sha256:child-read-only-digest-12345",
+  "required_capabilities": {
+    "io_child": {
+      "sandbox_dir": "./igniter-stdlib/out/io_capability_delegation_sandbox/sub",
+      "allowed_absolute_paths": [],
+      "read_allowed": true,
+      "write_allowed": false
+    }
+  }
+}
