@@ -25,7 +25,7 @@ accepts them.
 | [`igniter-design-system`](./igniter-design-system/) | HTML/assets | Lab design-system sketches and visual direction. |
 | [`igniter-tbackend`](./igniter-tbackend/) | Rust / Ruby | Experimental temporal backend and storage pressure surface. |
 | [`igniter-apps`](./igniter-apps/) | Mixed | Small lab applications and product-pressure sketches. |
-| [`lab-docs`](./lab-docs/) | Markdown | Frontier notes, proof summaries, handoff docs, and research packets. |
+| [`lab-docs`](./lab-docs/) | Markdown | Frontier notes, proof summaries, status reports, pressure packages, and research packets. |
 | [`.agents`](./.agents/) | Markdown | Lab agent handoff cards and return packets. |
 
 ## Quick Start

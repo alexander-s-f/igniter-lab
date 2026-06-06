@@ -1,0 +1,17 @@
+.DS_Store
+
+/.bundle/
+/coverage/
+/pkg/
+/tmp/
+/out/
+/dist/
+/build/
+/.site/
+
+*.gem
+*.log
+
+.idea/
+.rubocop_cache/
+.claude/
