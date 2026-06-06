@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #15110d;
+  --color-ink-1: #1a1510;
+  --color-ink-2: #221b15;
+  --color-ink-line: #2b221b;
+
+  --color-ignite: #ff6a3d;
+  --color-ember: #ffb07a;
+  --color-amber: #f0a868;
+
+  --color-warm-3: #e7ddd2;
+  --color-warm: #9a8a7c;
+
+  --color-core: #5db87a;
+  --color-escape: #f0a868;
+  --color-temporal: #5ec8d8;
+  --color-oof: #d9694a;
+}
+
+:root {
+  /* ground & structure */
+  --ink: #15110d;
+  --ink-1: #1a1510;
+  --ink-2: #221b15;
+  --ink-3: #2b221b;
+  --line: #3a2f26;
+  --line-2: #4d4035;
+  /* warm greys */
+  --grey: #9a8a7c;
+  --grey-2: #c4b6a8;
+  --grey-3: #e7ddd2;
+  /* the fire */
+  --ignite: #ff6a3d;
+  --ember: #ffb07a;
+  --ember-soft: #ff7a45;
+  --amber: #f0a868;
+  /* light */
+  --paper: #f5f1ea;
+  --paper-ink: #2a2018;
+  /* signal greens/reds for spec ticks */
+  --ok: #7bbf8a;
+  --no: #d9694a;
+  /* type */
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--ink);
+  color: var(--grey-3);
+  font-family: var(--mono);
+}
+
+/* the asterisk dot field that ties the brand together */
+.ig-field {
+  background-color: var(--ink);
+  background-image: radial-gradient(circle at center, rgba(154,138,124,.06) 1px, transparent 1.4px);
+  background-size: 30px 30px;
+}
+
+/* wordmark */
+.wm {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.wm .ig { color: var(--grey-3); }
+.wm .dash { color: var(--ignite); }
+.wm .lang { color: var(--grey); }
+
+.wm.on-light .ig { color: var(--paper-ink); }
+.wm.on-light .lang { color: #8a7964; }
+
+/* kicker / mono labels */
+.kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.kicker .dot { color: var(--ignite); }
