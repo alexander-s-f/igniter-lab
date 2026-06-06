@@ -1,0 +1,19 @@
+# Compiled native extension
+*.bundle
+*.so
+*.dylib
+
+.idea
+# Rust build artifacts
+target/
+
+# rake-compiler build directory
+tmp/
+# Runtime data and proof output
+out/
+data/
+*.log
+*.wal
+
+# Local machine residue
+.DS_Store

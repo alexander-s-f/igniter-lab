@@ -1,0 +1,242 @@
+// src/kernel.rs
+// TBackend Packet Profile and Kernel Modularization Core
+
+use crate::pure_core::{ShardedFactLog, FileBackend};
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+// ── StoreEngine Domain Model ──────────────────────────────────────────────────
+
+pub struct StoreEngine {
+    pub log: Arc<ShardedFactLog>,
+    pub wal: Option<Arc<FileBackend>>,
+}
+
+pub fn is_valid_store_name(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+// ── Service Extensibility Trait Primitives ──────────────────────────────────
+
+pub trait BackgroundService: Send + Sync {
+    fn start(&self, kernel: Arc<ServerKernel>) -> Result<(), String>;
+    #[allow(dead_code)]
+    fn stop(&self);
+}
+
+pub trait RequestMiddleware: Send + Sync {
+    fn before_request(&self, req: &mut serde_json::Value, kernel: &ServerKernel) -> Result<(), String>;
+    fn after_response(&self, req: &serde_json::Value, resp: &mut serde_json::Value, kernel: &ServerKernel);
+}
+
+
+// ── Registry Implementations ────────────────────────────────────────────────
+
+pub type CommandHandler = Arc<dyn Fn(&serde_json::Value, &ServerKernel) -> serde_json::Value + Send + Sync>;
+
+#[derive(Clone)]
+pub struct CommandRegistry {
+    pub routes: HashMap<String, CommandHandler>,
+}
+
+impl CommandRegistry {
+    pub fn new() -> Self {
+        Self { routes: HashMap::new() }
+    }
+
+    pub fn register(&mut self, op: &str, handler: CommandHandler) {
+        self.routes.insert(op.to_string(), handler);
+    }
+
+    pub fn call(&self, op: &str, req: &serde_json::Value, kernel: &ServerKernel) -> Option<serde_json::Value> {
+        self.routes.get(op).map(|handler| handler(req, kernel))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct MiddlewareChain {
+    pub middlewares: Vec<Arc<dyn RequestMiddleware>>,
+}
+
+impl MiddlewareChain {
+    pub fn new() -> Self {
+        Self { middlewares: Vec::new() }
+    }
+
+    pub fn register(&mut self, middleware: Arc<dyn RequestMiddleware>) {
+        self.middlewares.push(middleware);
+    }
+}
+
+// ── The Server Kernel (Assembly Stage Container) ─────────────────────────────
+
+pub struct ServerKernel {
+    pub host: String,
+    pub port: u16,
+    pub engines: Arc<RwLock<HashMap<String, Arc<StoreEngine>>>>,
+    pub data_dir: Option<String>,
+    pub pool_size: usize,
+    pub auth_enabled: bool,
+
+    // Active extensible registries
+    pub command_registry: Arc<RwLock<CommandRegistry>>,
+    pub middleware_chain: Arc<RwLock<MiddlewareChain>>,
+    pub background_services: Arc<RwLock<Vec<Box<dyn BackgroundService>>>>,
+}
+
+impl ServerKernel {
+    pub fn new(host: String, port: u16, data_dir: Option<String>, pool_size: usize, auth_enabled: bool) -> Self {
+        Self {
+            host,
+            port,
+            engines: Arc::new(RwLock::new(HashMap::new())),
+            data_dir,
+            pool_size,
+            auth_enabled,
+            command_registry: Arc::new(RwLock::new(CommandRegistry::new())),
+            middleware_chain: Arc::new(RwLock::new(MiddlewareChain::new())),
+            background_services: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// Thread-safe dynamic resolver to get or load/warm-up a database store engine.
+    pub fn get_or_create_engine(&self, store_name: &str) -> Option<Arc<StoreEngine>> {
+        if !is_valid_store_name(store_name) {
+            return None;
+        }
+        {
+            let map = self.engines.read();
+            if let Some(engine) = map.get(store_name) {
+                return Some(engine.clone());
+            }
+        }
+        let mut map = self.engines.write();
+        if let Some(engine) = map.get(store_name) {
+            return Some(engine.clone());
+        }
+
+        let log = Arc::new(ShardedFactLog::new());
+        let wal = if let Some(ref dir) = self.data_dir {
+            let path = format!("{}/{}.wal", dir, store_name);
+            match FileBackend::new_pure(&path) {
+                Ok(fb) => {
+                    let wal_arc = Arc::new(fb);
+                    if let Ok(facts) = wal_arc.replay_pure() {
+                        for fact in facts {
+                            log.push(fact);
+                        }
+                    }
+                    Some(wal_arc)
+                }
+                Err(e) => {
+                    println!("[TBackend Server] Error initializing WAL file for {}: {}", store_name, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let engine = Arc::new(StoreEngine { log, wal });
+        map.insert(store_name.to_string(), engine.clone());
+        Some(engine)
+    }
+}
+
+// ── Packs & Manifest Contracts ──────────────────────────────────────────────
+
+pub struct PackManifest {
+    pub name: &'static str,
+    pub requires_packs: Vec<&'static str>,
+    pub provides_capabilities: Vec<&'static str>,
+    pub requires_capabilities: Vec<&'static str>,
+}
+
+pub trait ServerPack: Send + Sync {
+    fn manifest(&self) -> PackManifest;
+    fn install_into(&self, kernel: &mut ServerKernel) -> Result<(), String>;
+}
+
+// ── Compiled Server Profile ──────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct ServerProfile {
+    pub fingerprint: String,
+    pub active_packs: Vec<&'static str>,
+    pub command_registry: CommandRegistry,
+    pub middleware_chain: MiddlewareChain,
+}
+
+pub struct ProfileAssembler {
+    installed_packs: Vec<Box<dyn ServerPack>>,
+}
+
+impl ProfileAssembler {
+    pub fn new() -> Self {
+        Self { installed_packs: Vec::new() }
+    }
+
+    pub fn register_pack(&mut self, pack: Box<dyn ServerPack>) {
+        self.installed_packs.push(pack);
+    }
+
+    pub fn finalize(self, mut kernel: ServerKernel) -> Result<(ServerProfile, ServerKernel), String> {
+        // 1. Recursive Dependency & Capabilities Completeness Verification
+        for pack in &self.installed_packs {
+            let manifest = pack.manifest();
+            
+            // Validate required packs are loaded
+            for req in &manifest.requires_packs {
+                let found = self.installed_packs.iter().any(|p| p.manifest().name == *req);
+                if !found {
+                    return Err(format!(
+                        "Completeness Error: Pack '{}' requires pack '{}', but it is missing from configuration.",
+                        manifest.name, req
+                    ));
+                }
+            }
+
+            // Validate required capabilities are supplied by at least one package
+            for req_cap in &manifest.requires_capabilities {
+                let found = self.installed_packs.iter().any(|p| {
+                    p.manifest().provides_capabilities.contains(req_cap)
+                });
+                if !found {
+                    return Err(format!(
+                        "Completeness Error: Pack '{}' requires capability '{}', but no registered pack provides it.",
+                        manifest.name, req_cap
+                    ));
+                }
+            }
+        }
+
+        // 2. Perform mounts (run install_into on each pack)
+        for pack in &self.installed_packs {
+            pack.install_into(&mut kernel)?;
+        }
+
+        // 3. Compute Cryptographic Configuration Fingerprint (using blake3)
+        let mut hasher = blake3::Hasher::new();
+        // Add names of active packs deterministically
+        let mut sorted_packs: Vec<&'static str> = self.installed_packs.iter().map(|p| p.manifest().name).collect();
+        sorted_packs.sort();
+        for name in &sorted_packs {
+            hasher.update(name.as_bytes());
+        }
+        let fingerprint = hasher.finalize().to_hex().to_string();
+
+        let active_packs = self.installed_packs.iter().map(|p| p.manifest().name).collect();
+        let cmd_reg = kernel.command_registry.read().clone();
+        let mid_chain = kernel.middleware_chain.read().clone();
+
+        let profile = ServerProfile {
+            fingerprint,
+            active_packs,
+            command_registry: cmd_reg,
+            middleware_chain: mid_chain,
+        };
+
+        Ok((profile, kernel))
+    }
+}
