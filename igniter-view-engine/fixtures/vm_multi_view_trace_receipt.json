@@ -1,0 +1,28 @@
+{
+  "transaction_id": "tx_mock_multi_view_999",
+  "contract_name": "multi_view_coordinator",
+  "status": "success",
+  "outputs": {
+    "has_warnings": true,
+    "query": "testing multi-view routing",
+    "total": 1,
+    "results": [
+      {
+        "id": "res_1",
+        "title": "Verified Multi-view Projection",
+        "status": "ok",
+        "score": 100
+      }
+    ],
+    "unrelated_leak": "this should not be received by any view"
+  },
+  "diagnostics": {
+    "compilation_stage": "classify",
+    "verification_duration_ms": 25
+  },
+  "timestamp": "2026-06-06T11:25:00Z",
+  "target_views": [
+    "igniter.lab.tabs_panel",
+    "igniter.lab.results_panel"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "trace_id": "tx_mock_12345_diagnostics",
+  "contract_id": "diagnostics",
+  "status": "success",
+  "outputs": {
+    "has_warnings": true,
+    "error_count": 0,
+    "warning_list": []
+  },
+  "diagnostics": {
+    "compilation_stage": "classify",
+    "verification_duration_ms": 12
+  },
+  "slot_values": {
+    "has_warnings": true
+  },
+  "view_id": null,
+  "view_ids": [
+    "igniter.lab.tabs_panel"
+  ]
+}

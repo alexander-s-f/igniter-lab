@@ -1,0 +1,22 @@
+# fixtures/malformed.igv
+#
+# EXPECTED TO FAIL COMPILATION — NameError test for IGV-P3-10.
+#
+# Calls `undefined_igv_method_xyz` which is not a valid DSL method.
+# The Ruby NameError is caught by IgvCompiler and recorded as a name_error
+# diagnostic. No artifact is produced.
+#
+# This simulates a developer typo or completely invalid DSL usage.
+#
+# Status: experimental · lab-only · intentional-compile-failure · no-canon
+
+view "igniter.lab.malformed_test" do
+  state :x, type: "string", default: "a"
+
+  element :thing do
+    classes "thing"
+
+    # This method does not exist in the DSL — NameError at eval time.
+    undefined_igv_method_xyz :some_arg
+  end
+end

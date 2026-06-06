@@ -1,0 +1,24 @@
+# fixtures/unsafe_opcode.igv
+#
+# EXPECTED TO FAIL COMPILATION — banned opcode test for IGV-P3-8.
+#
+# Attempts to use `fetch` as an interaction opcode. This should be caught
+# at IgvElementBuilder#on validation (IGV_BANNED_OPCODES check) and produce
+# a compile_error diagnostic. No artifact should be emitted.
+#
+# The IgvCompiler's error fence ensures the banned opcode never reaches
+# ViewArtifact.new (which would also catch it as a second fence).
+#
+# Status: experimental · lab-only · intentional-compile-failure · no-canon
+
+view "igniter.lab.unsafe_test" do
+  state :active, type: "boolean", default: false
+
+  element :bad_button do
+    classes "btn"
+
+    # This should be rejected: fetch is a banned opcode.
+    # IgvElementBuilder#on raises IgvCompileError before any artifact is produced.
+    on :click, ["fetch", "https://evil.example.com"]
+  end
+end

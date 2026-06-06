@@ -1,0 +1,78 @@
+# playgrounds/igniter-lab/igniter-view-engine/fixtures/results_panel.igv
+#
+# P5 collection fixture — search results panel with repeated item rendering.
+#
+# Demonstrates:
+#   - collection DSL keyword (P5 lab-only extension)
+#   - status-based per-item styling via display :match rule
+#   - sort button active state via display :style + on :click
+#   - empty state toggle via slot reference
+#   - result_item element reused as collection template
+#
+# Status: lab-only · no-canon · no-public-api · no-stable-syntax
+
+view "igniter.lab.results_panel" do
+  state :sort_by, type: "string", default: "score"
+
+  slot :results, type: "array",   from: "search.results"
+  slot :query,   type: "string",  from: "search.query"
+  slot :total,   type: "integer", from: "search.total"
+
+  # Collection declaration (P5) — repeated result_item instances from :results slot.
+  collection :results_list,
+             slot:         :results,
+             item_element: :result_item,
+             item_key:     :id do
+    container_classes "results-list flex flex-col gap-2 mt-4"
+    container_tag "ul"
+    item_tag "li"
+  end
+
+  # Repeated item element — params come from each results array entry.
+  element :result_item do
+    classes "result-item p-3 rounded-lg border transition-colors list-none"
+    param :id,     type: "string"
+    param :title,  type: "string"
+    param :status, type: "string"
+    param :score,  type: "integer"
+    display :match,
+            subject: param(:status),
+            cases: {
+              "ok"      => { c: "border-ok bg-ok-5 text-ink-1" },
+              "warning" => { c: "border-warn bg-warn-5 text-ink-1" },
+              "error"   => { c: "border-oof bg-oof-5 text-ink-1" }
+            },
+            default: { c: "border-line bg-ink-2 text-grey" }
+  end
+
+  # Sort button — highlights active sort target.
+  element :sort_btn do
+    classes "sort-btn px-3 py-1 text-xs font-mono rounded cursor-pointer transition-colors"
+    param :target, type: "string"
+    display :style,
+            condition: eq(ui_state(:sort_by), param(:target)),
+            on_true:   { c: "bg-ignite text-ink-1 font-bold", a: { selected: "true" } },
+            on_false:  { c: "text-grey hover:text-grey-2", a: { selected: "false" } }
+    on :click, set_ui_state(:sort_by, param(:target))
+  end
+
+  # Results header — shown only when a query is active.
+  element :results_header do
+    classes "results-header text-xs font-mono text-grey mb-2"
+    display :style,
+            condition: slot(:query),
+            on_true:   { c: "block" },
+            on_false:  { c: "hidden" }
+  end
+
+  # Empty notice — shown when results slot is nil/absent.
+  # Note: results_empty condition uses slot reference for display rule.
+  element :empty_notice do
+    classes "empty-notice p-4 text-xs font-mono text-grey text-center rounded border border-line border-dashed"
+  end
+
+  # Sort controls container.
+  element :sort_controls do
+    classes "sort-controls flex gap-2 text-xs font-mono mb-3"
+  end
+end

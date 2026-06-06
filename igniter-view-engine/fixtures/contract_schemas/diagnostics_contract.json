@@ -1,0 +1,17 @@
+{
+  "_comment": "Lab-only contract schema for diagnostics contract (used by tabs_panel.igv has_warnings slot).",
+  "_status": "experimental · lab-only · no-canon",
+  "contract_id": "diagnostics",
+  "outputs": {
+    "has_warnings": { "type": "boolean" },
+    "error_count":  { "type": "integer" },
+    "warning_list": {
+      "type": "array",
+      "item_fields": {
+        "code":    { "type": "string", "required": true  },
+        "message": { "type": "string", "required": true  },
+        "level":   { "type": "string", "required": false }
+      }
+    }
+  }
+}

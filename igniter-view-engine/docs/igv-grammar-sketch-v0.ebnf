@@ -1,0 +1,424 @@
+(* ============================================================================ *)
+(* igv-grammar-sketch-v0.ebnf                                                  *)
+(*                                                                              *)
+(* .igv View DSL — Portable Grammar Sketch, Version 0                          *)
+(*                                                                              *)
+(* Track:  lab-igniter-view-dsl-grammar-and-portability-boundary-v0            *)
+(* Card:   LAB-IGNITER-VIEW-FRAMEWORK-P4                                        *)
+(* Date:   2026-06-06                                                           *)
+(*                                                                              *)
+(* Status: DESIGN SKETCH — experimental · lab-only · no-canon · no-public-api  *)
+(*         This grammar describes the abstract shape of the .igv DSL.           *)
+(*         It is NOT an implementation, NOT a language specification,           *)
+(*         and makes NO canonical syntax claim.                                 *)
+(*                                                                              *)
+(* Notation: ISO/IEC 14977 EBNF with line comments marked (* ... *).           *)
+(*   Terminal  strings are quoted with single quotes (e.g. 'view').             *)
+(*   Non-terminals are lowercase_with_underscores.                              *)
+(*   Optional:  [  a  ]                                                         *)
+(*   Repetition: {  a  }   (zero or more)                                       *)
+(*   Repetition: {  a  }+  (one or more — extended notation)                   *)
+(*   Choice:     a | b                                                          *)
+(*   Group:      (  a  )                                                        *)
+(*                                                                              *)
+(* Target:  The ViewArtifact JSON shape proven by IVF-P1/P2/P3.                *)
+(*   A conforming parser emits ViewArtifact JSON (or equivalent AST).          *)
+(*   No runtime changes. No new schema fields.                                  *)
+(*                                                                              *)
+(* Portability note:                                                            *)
+(*   The grammar is language-agnostic. The P3 Ruby `instance_eval` prototype   *)
+(*   is one implementation of this grammar's semantics. A future grammar-based  *)
+(*   parser (Rust, Go, TypeScript, Ruby PEG, etc.) would implement this same   *)
+(*   abstract shape with language-appropriate surface syntax.                   *)
+(* ============================================================================ *)
+
+
+(* ── FILE ─────────────────────────────────────────────────────────────────── *)
+
+igv_file     = view_decl ;
+
+(* A .igv file contains exactly one `view` declaration.                        *)
+(* Multiple views per file are RESERVED for future consideration.              *)
+
+
+(* ── VIEW DECLARATION ────────────────────────────────────────────────────────*)
+
+view_decl    = 'view' , view_id , 'do' , view_body , 'end' ;
+
+view_id      = quoted_string ;
+(* Dot-namespaced identifier: "igniter.lab.tabs_panel"                         *)
+(* Convention: reverse-domain notation. Validation: parser SHOULD warn on      *)
+(* spaces; parser MUST NOT accept empty string.                                *)
+
+
+(* ── VIEW BODY ───────────────────────────────────────────────────────────────*)
+
+view_body    = { view_stmt } ;
+
+view_stmt    = state_decl
+             | slot_decl
+             | element_def
+             ;
+
+
+(* ── STATE DECLARATION ───────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Declares a mutable UIState field. UIState is local to the component and    *)
+(* is mutated ONLY by whitelisted interaction rule opcodes.                    *)
+(*                                                                              *)
+(* Example:  state :active_tab, type: "string", default: "overview"            *)
+
+state_decl   = 'state' , symbol , state_opts ;
+
+state_opts   = ',' , 'type:' , type_lit
+             , [ ',' , 'default:' , literal ]
+             ;
+
+(* The `default` is optional. If absent, the runtime uses nil.                 *)
+(* `type_lit` constrains the declared type for static analysis tools only —    *)
+(* runtime does NOT enforce type at this version.                               *)
+
+
+(* ── SLOT DECLARATION ────────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Declares a read-only slot injected by the host page from a contract output. *)
+(* Slots MUST NOT be targets of interaction rule instructions (enforced by      *)
+(* ViewArtifact.validate! as a build-time fence).                              *)
+(*                                                                              *)
+(* Example:  slot :has_warnings, type: "boolean", from: "diagnostics.has_warnings" *)
+
+slot_decl    = 'slot' , symbol , slot_opts ;
+
+slot_opts    = ',' , 'type:' , type_lit
+             , ',' , 'from:' , quoted_string
+             ;
+
+(* `from` is a REQUIRED contract output reference path.                         *)
+(* Format: "contract_name.output_key" — semantics TBD by Igniter-Lang spec.    *)
+(* A grammar-based parser MUST error if `from:` is absent.                     *)
+(* The Ruby DSL prototype enforces this (IgvCompileError if from: missing).    *)
+
+
+(* ── ELEMENT DEFINITION ──────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Defines a named, repeatable UI element. Each element in the rendered HTML   *)
+(* carries `data-ig-element="name"`, consumed by the JS runtime.               *)
+(*                                                                              *)
+(* Example:                                                                     *)
+(*   element :tab_btn do                                                        *)
+(*     classes "tab-btn px-4 py-2"                                             *)
+(*     param :id, type: "string"                                                *)
+(*     display :style, condition: eq(ui_state(:active_tab), param(:id)), ...   *)
+(*     on :click, set_ui_state(:active_tab, param(:id))                        *)
+(*   end                                                                        *)
+
+element_def  = 'element' , symbol , 'do' , element_body , 'end' ;
+
+element_body = { element_stmt } ;
+
+element_stmt = classes_stmt
+             | param_decl
+             | display_stmt
+             | on_stmt
+             ;
+
+
+(* ── CLASSES STATEMENT ───────────────────────────────────────────────────────*)
+
+classes_stmt = 'classes' , quoted_string ;
+
+(* Sets `static_classes`: always-applied CSS class string (SSR + client).      *)
+(* Dynamic classes come from `display` rules; static classes are additive.     *)
+
+
+(* ── PARAM DECLARATION (element header) ──────────────────────────────────────*)
+(*                                                                              *)
+(* GRAMMAR CONTEXT: param_decl appears at the top of element_body BEFORE       *)
+(* any display or on statements that reference param expressions.               *)
+(*                                                                              *)
+(* Effect: adds key → type entry to node_params_schema in the artifact.        *)
+(*                                                                              *)
+(* Example:  param :id, type: "string"                                         *)
+(*                                                                              *)
+(* DISAMBIGUATION NOTE:                                                         *)
+(*   In the grammar, `param_decl` (declaration, in element_body at statement   *)
+(*   position) and `param_expr` (expression, inside condition/instruction) are  *)
+(*   distinct productions. The Ruby DSL prototype overloads the keyword `param` *)
+(*   by presence of `type:` kwarg. A grammar-based parser resolves this via    *)
+(*   production context: param at statement-level → param_decl;                *)
+(*   param inside expr → param_expr.                                           *)
+
+param_decl   = 'param' , symbol , ',' , 'type:' , type_lit ;
+
+(* Ordering note: a SHOULD rule (not MUST) — parsers SHOULD warn if param_expr *)
+(* references a param symbol not declared in a preceding param_decl.           *)
+
+
+(* ── DISPLAY RULE ────────────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Adds a display rule to the element. Evaluated as a pure function:           *)
+(*   (UIState, SlotValues, NodeParams) → class/aria/data patch                 *)
+(*                                                                              *)
+(* Two kinds: :style (binary condition) and :match (N-way dispatch).           *)
+
+display_stmt = 'display' , display_kind , ',' , display_opts ;
+
+display_kind = ':style'
+             | ':match'
+             ;
+
+display_opts = style_opts
+             | match_opts
+             ;
+
+
+(* ── STYLE DISPLAY RULE ──────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* ["style", condition, trueEffect, falseEffect]  →  ViewArtifact JSON         *)
+(*                                                                              *)
+(* Example:                                                                     *)
+(*   display :style,                                                            *)
+(*           condition: eq(ui_state(:active_tab), param(:id)),                 *)
+(*           on_true:   { c: "bg-ignite", a: { selected: "true" } },           *)
+(*           on_false:  { c: "text-grey", a: { selected: "false" } }           *)
+
+style_opts   = 'condition:' , expr
+             , ',' , 'on_true:'  , effect
+             , ',' , 'on_false:' , effect
+             ;
+
+
+(* ── MATCH DISPLAY RULE ──────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* ["match", subject, casesMap, defaultEffect]  →  ViewArtifact JSON           *)
+(*                                                                              *)
+(* Example:                                                                     *)
+(*   display :match,                                                            *)
+(*           subject: ui_state(:mode),                                         *)
+(*           cases:   { "edit" => { c: "editable" }, "view" => { c: "ro" } }, *)
+(*           default: { c: "unknown" }                                         *)
+
+match_opts   = 'subject:' , expr
+             , ',' , 'cases:'   , case_map
+             , [ ',' , 'default:' , effect ]
+             ;
+
+
+(* ── EFFECTS ─────────────────────────────────────────────────────────────────*)
+
+effect       = nil_lit | effect_map ;
+
+effect_map   = '{' , effect_entry , { ',' , effect_entry } , '}' ;
+
+effect_entry = classes_effect
+             | aria_effect
+             | data_effect
+             ;
+
+classes_effect = 'c:' , quoted_string ;
+(* Space-delimited CSS class string. Applied additively to static_classes.      *)
+
+aria_effect    = 'a:' , attr_hash ;
+(* Aria attributes. Keys become aria-{key}; values must be strings or booleans.*)
+
+data_effect    = 'd:' , attr_hash ;
+(* Data attributes. Keys become data-{key}; values must be strings.             *)
+
+attr_hash    = '{' , attr_entry , { ',' , attr_entry } , '}' ;
+
+attr_entry   = symbol_key , ':' , (quoted_string | bool_lit) ;
+
+
+(* ── CASE MAP (for :match rules) ─────────────────────────────────────────────*)
+
+case_map     = '{' , case_entry , { ',' , case_entry } , '}' ;
+
+case_entry   = (quoted_string | symbol) , '=>' , effect ;
+
+
+(* ── INTERACTION RULE ────────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Binds an event to one or more UIState mutation instructions.                 *)
+(* ONLY the three whitelisted opcodes are valid. Anything else is a            *)
+(* MUST-error at parse/compile time.                                           *)
+(*                                                                              *)
+(* Example:  on :click, set_ui_state(:active_tab, param(:id))                  *)
+
+on_stmt      = 'on' , symbol , ',' , instruction , { ',' , instruction } ;
+
+instruction  = set_instr
+             | toggle_instr
+             | clear_instr
+             ;
+(* NOTE: set/toggle/clear are the COMPLETE whitelist. Any other identifier     *)
+(* at instruction position is a MUST-error: "unknown opcode".                  *)
+(* Banned opcodes (fetch, eval, dispatch, ...) are a named subset of the error *)
+(* class — the error message SHOULD name the banned opcode explicitly.         *)
+
+set_instr    = 'set_ui_state'    , '(' , symbol , ',' , expr , ')' ;
+toggle_instr = 'toggle_ui_state' , '(' , symbol , ')' ;
+clear_instr  = 'clear_ui_state'  , '(' , symbol , ')' ;
+
+(* Instruction target MUST be declared in a `state` declaration in the        *)
+(* enclosing view (MUST-error). Slot keys are rejected as targets because they *)
+(* are read-only (ViewArtifact.validate! enforces this as build-time fence).   *)
+
+
+(* ── EXPRESSIONS ─────────────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Expression context: condition: (style/match), subject: (match),             *)
+(* on_true/on_false is NOT an expression (it's an effect_map).                 *)
+(* Instruction value argument (3rd arg to set_ui_state): IS an expression.    *)
+(*                                                                              *)
+(* Expressions have no side effects. They reference:                           *)
+(*   ui_state — current UIState values (mutable by instructions, read here)   *)
+(*   param    — element-level node params (injected via data-ig-param)         *)
+(*   slot     — read-only contract-injected values                             *)
+(*   literals — inlined constant values                                        *)
+
+expr         = atom_expr
+             | binary_expr
+             | unary_expr
+             ;
+
+atom_expr    = ui_state_expr
+             | param_expr
+             | slot_expr
+             | literal
+             ;
+
+ui_state_expr = 'ui_state' , '(' , symbol , ')' ;
+(* Reference to declared UIState key. Grammar-based parser SHOULD warn if the  *)
+(* symbol is not declared in a preceding `state` declaration.                  *)
+
+param_expr    = 'param' , '(' , symbol , ')' ;
+(* Reference to element's node param. Grammar-based parser SHOULD warn if the  *)
+(* symbol is not declared in a preceding `param` declaration in same element.  *)
+(*                                                                              *)
+(* DISAMBIGUATION: param_expr (expression position, no type: arg) vs           *)
+(* param_decl (statement position, with type: arg). The grammar resolves this  *)
+(* by production context — see param_decl note above.                          *)
+
+slot_expr     = 'slot' , '(' , symbol , ')' ;
+(* Reference to declared read-only slot. Grammar-based parser MUST error if    *)
+(* the symbol is not declared in a `slot` declaration in the enclosing view.  *)
+(* NOTE: This is a MUST-error in grammar route, vs WARNING in Ruby DSL route.  *)
+(* See Section 3 of the design doc for the dual-policy rationale.              *)
+(*                                                                              *)
+(* DISAMBIGUATION: slot_expr (expression) vs slot_decl (view-level statement). *)
+(* slot_decl has `type:` and `from:` args; slot_expr has only a symbol.       *)
+(* Context makes these unambiguous in a grammar.                               *)
+
+binary_expr   = bin_op , '(' , expr , ',' , expr , ')' ;
+
+bin_op        = 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'and_' | 'or_' ;
+
+unary_expr    = 'not_' , '(' , expr , ')' ;
+
+
+(* ── TYPES AND LITERALS ──────────────────────────────────────────────────────*)
+
+type_lit     = '"string"' | '"boolean"' | '"number"' | '"integer"' ;
+(* type_lit values map to JSON Schema primitive types.                          *)
+(* Used in: state_opts, slot_opts, param_decl.                                 *)
+(* Type enforcement at runtime: NOT implemented in P1-P3. Static analysis only.*)
+
+literal      = quoted_string | number | bool_lit | nil_lit ;
+
+bool_lit     = 'true' | 'false' ;
+
+nil_lit      = 'nil' ;
+(* Alias `null` MAY be accepted by lenient parsers (portability note).         *)
+
+quoted_string = '"' , { char } , '"' ;
+(* Double-quoted strings only. Single-quoted strings are NOT in this grammar.  *)
+(* Escape sequences: \" \\ \n \t — minimal ASCII set.                          *)
+
+number       = [ '-' ] , digit+ , [ '.' , digit+ ] ;
+
+symbol       = ':' , identifier ;
+(* Ruby-style symbol. In a language-agnostic host, this MAY be expressed as   *)
+(* a bare identifier, an atom, or a keyword argument name.                     *)
+
+symbol_key   = ':' , identifier ;
+(* Same production as symbol; named separately for semantic clarity in effects.*)
+
+identifier   = ( alpha | '_' ) , { alphanum | '_' } ;
+
+alpha        = 'a'..'z' | 'A'..'Z' ;
+alphanum     = alpha | digit ;
+digit        = '0'..'9' ;
+char         = (* any UTF-8 character except '"' and unescaped '\' *) ;
+
+
+(* ── BANNED OPCODE POLICY ────────────────────────────────────────────────────*)
+(*                                                                              *)
+(* The following identifiers at instruction position are explicitly BANNED.    *)
+(* A conforming parser MUST produce a named error that includes the opcode.    *)
+(* They are NEVER valid, even as future reserved words.                        *)
+(*                                                                              *)
+(* banned_opcode ::= 'fetch' | 'dispatch' | 'boot' | 'watch' | 'persistence'  *)
+(*                 | 'eval'  | 'innerHTML' | 'localStorage' | 'sessionStorage' *)
+(*                 | 'ajax'  | 'xhr'       | 'import'       | 'require' ;      *)
+(*                                                                              *)
+(* (Note: `ajax` and `xhr` are added in the grammar sketch vs the P3 runtime   *)
+(* list — they were implicit through `fetch` but are named explicitly here.)   *)
+(*                                                                              *)
+(* Error message format (SHOULD): "Banned opcode '{op}' is not permitted in    *)
+(*   interaction rules. Allowed: set_ui_state, toggle_ui_state, clear_ui_state."*)
+
+
+(* ── SOURCE MAP ANNOTATION ───────────────────────────────────────────────────*)
+(*                                                                              *)
+(* Each grammar node MAY carry source location metadata:                       *)
+(*                                                                              *)
+(*   source_loc = { file: string, line: integer, col: integer }                *)
+(*                                                                              *)
+(* Compiler-to-artifact trace:                                                 *)
+(*   view_decl     → artifact root                                             *)
+(*   state_decl    → artifact.ui_states["key"]                                *)
+(*   slot_decl     → artifact.slots["key"]                                     *)
+(*   element_def   → artifact.elements[i]                                      *)
+(*   classes_stmt  → artifact.elements[i].static_classes                       *)
+(*   param_decl    → artifact.elements[i].node_params_schema["key"]            *)
+(*   display_stmt  → artifact.elements[i].display_rules[j]                    *)
+(*   on_stmt       → artifact.elements[i].interaction_rules[j]                *)
+(*   instruction   → artifact.elements[i].interaction_rules[j][2][k]          *)
+(*                                                                              *)
+(* Source map enables:                                                          *)
+(*   - IDE "go to definition" (symbol to declaration)                          *)
+(*   - Error messages with file:line:col                                       *)
+(*   - "Jump from artifact rule to .igv source" in debuggers                   *)
+
+
+(* ── WELL-FORMEDNESS CONSTRAINTS (semantic, not syntactic) ───────────────────*)
+(*                                                                              *)
+(* MUST-error (compile failure, no artifact):                                  *)
+(*   WF-1:  view_id must be non-empty.                                         *)
+(*   WF-2:  state and slot declarations must have disjoint symbol sets.        *)
+(*   WF-3:  slot instruction target in on_stmt (slot mutation) is MUST-error.  *)
+(*   WF-4:  instruction opcode not in whitelist → MUST-error.                  *)
+(*   WF-5:  banned opcode at instruction position → MUST-error (named).        *)
+(*   WF-6:  slot_expr references symbol not declared in slot_decl → MUST-error *)
+(*          (grammar route). See below for dual-policy rationale.              *)
+(*   WF-7:  slot_decl without `from:` → MUST-error.                           *)
+(*   WF-8:  view_decl missing → MUST-error (file has no view).                *)
+(*                                                                              *)
+(* SHOULD-warning (artifact produced, diagnostic emitted):                     *)
+(*   WW-1:  param_expr references symbol not in preceding param_decl.          *)
+(*   WW-2:  ui_state_expr references symbol not in preceding state_decl.       *)
+(*   WW-3:  element_def has no classes_stmt (empty static_classes).            *)
+(*                                                                              *)
+(* DUAL POLICY — slot_expr undeclared slot:                                    *)
+(*   Grammar route (new parser):   WF-6 above — MUST-error.                   *)
+(*   Ruby DSL route (existing):    WW-4 (warning) — artifact produced.         *)
+(*   Rationale: a grammar-based parser has full view context at parse time and  *)
+(*   can enforce this cheaply. The Ruby DSL prototype uses warning-only to       *)
+(*   preserve development ergonomics. The two policies are compatible across    *)
+(*   the lab boundary because they produce the same VALID artifacts for valid   *)
+(*   inputs; they differ only in behavior on invalid inputs.                   *)
+
+
+(* ============================================================================ *)
+(* END OF igv-grammar-sketch-v0.ebnf                                           *)
+(* ============================================================================ *)

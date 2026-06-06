@@ -1,0 +1,58 @@
+# fixtures/tabs.igv
+#
+# Tabs component — .igv DSL fixture for LAB-IGNITER-VIEW-FRAMEWORK-P3.
+# Semantically identical to fixtures/tabs_artifact.rb (P1/P2 fixture).
+# Should compile to the same ViewArtifact digest:
+#   sha256:ed8ab03d35487fa14bca3598402670feae7e2962c39581dcbc942ea16456c404
+#
+# Status: experimental · lab-only · no-canon · no-public-api · no-stable-syntax
+
+view "igniter.lab.tabs_panel" do
+  # ── UIState ──────────────────────────────────────────────────────────────
+  # Which tab is currently active. Mutable via interaction_rules only.
+  state :active_tab, type: "string", default: "overview"
+
+  # ── Slots ─────────────────────────────────────────────────────────────────
+  # Read-only. Injected by host page from contract execution receipt.
+  # View runtime never fetches this — host calls component.updateSlots(...).
+  slot :has_warnings, type: "boolean", from: "diagnostics.has_warnings"
+
+  # ── Element: tab_btn ─────────────────────────────────────────────────────
+  # One button per tab. Active tab gets ignite styling + aria-selected=true.
+  # node_param :id distinguishes which tab this button represents.
+  element :tab_btn do
+    classes "tab-btn px-4 py-2 text-xs font-mono rounded-t transition-colors"
+    param :id, type: "string"
+
+    display :style,
+            condition: eq(ui_state(:active_tab), param(:id)),
+            on_true:   { c: "bg-ignite text-ink-1 font-bold", a: { selected: "true" } },
+            on_false:  { c: "text-grey hover:text-grey-2", a: { selected: "false" } }
+
+    on :click, set_ui_state(:active_tab, param(:id))
+  end
+
+  # ── Element: tab_panel ───────────────────────────────────────────────────
+  # Panel content. Shown (block) when its :id matches active_tab, hidden otherwise.
+  element :tab_panel do
+    classes "tab-panel p-4 bg-ink-1 border border-line rounded mt-2"
+    param :id, type: "string"
+
+    display :style,
+            condition: eq(ui_state(:active_tab), param(:id)),
+            on_true:   { c: "block" },
+            on_false:  { c: "hidden" }
+  end
+
+  # ── Element: warning_banner ───────────────────────────────────────────────
+  # Slot-driven: shows oof (error) styling when contract reports has_warnings=true.
+  # No node params. No interaction rules.
+  element :warning_banner do
+    classes "warning-banner text-xs font-mono px-3 py-2 rounded"
+
+    display :style,
+            condition: slot(:has_warnings),
+            on_true:   { c: "block border border-oof bg-oof-5 text-oof" },
+            on_false:  { c: "hidden" }
+  end
+end

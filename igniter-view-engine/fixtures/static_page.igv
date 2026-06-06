@@ -1,0 +1,25 @@
+# fixtures/static_page.igv
+#
+# Static page — .igv DSL fixture for IGV-P3 (proof: no UIState, no slots).
+# Demonstrates the simplest valid .igv: elements with static classes only.
+# No interaction rules, no display rules, no state, no slots.
+#
+# Status: experimental · lab-only · no-canon · no-public-api · no-stable-syntax
+
+view "igniter.lab.static_page" do
+  element :hero_section do
+    classes "hero px-8 py-16 bg-ink-1 text-center"
+  end
+
+  element :hero_heading do
+    classes "heading text-4xl font-mono text-ignite font-bold mb-4"
+  end
+
+  element :hero_subtext do
+    classes "subtext text-lg font-mono text-grey-2 max-w-prose mx-auto"
+  end
+
+  element :cta_button do
+    classes "btn px-6 py-2 bg-ignite text-ink-1 rounded font-mono text-sm"
+  end
+end

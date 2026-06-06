@@ -1,0 +1,18 @@
+{
+  "_comment": "Lab-only contract schema fixture for search contract. Matches results_panel.igv slots exactly.",
+  "_status": "experimental · lab-only · no-canon · no-public-api · no-stable-schema",
+  "contract_id": "search",
+  "outputs": {
+    "results": {
+      "type": "array",
+      "item_fields": {
+        "id":     { "type": "string",  "required": true  },
+        "title":  { "type": "string",  "required": true  },
+        "status": { "type": "string",  "required": true  },
+        "score":  { "type": "integer", "required": false }
+      }
+    },
+    "query": { "type": "string"  },
+    "total": { "type": "integer" }
+  }
+}

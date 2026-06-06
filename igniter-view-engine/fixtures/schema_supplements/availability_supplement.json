@@ -1,0 +1,15 @@
+{
+  "_comment": "Lab supplement for 'AvailabilityProjection' contract. Adds item_fields to 'available_slots' array output (TimeSlot struct). Used to prove supplement overlay for non-search contracts and opaque struct type handling.",
+  "_status": "experimental · lab-only · no-canon · no-public-api · no-stable-schema",
+  "contract_id": "AvailabilityProjection",
+  "supplements": {
+    "available_slots": {
+      "item_fields": {
+        "slot_id":    { "type": "string",  "required": true  },
+        "start_at":   { "type": "string",  "required": true  },
+        "end_at":     { "type": "string",  "required": true  },
+        "duration_m": { "type": "integer", "required": false }
+      }
+    }
+  }
+}

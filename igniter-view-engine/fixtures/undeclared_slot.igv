@@ -1,0 +1,33 @@
+# fixtures/undeclared_slot.igv
+#
+# WARNING-PRODUCING FIXTURE — undeclared slot reference test for IGV-P3-10b.
+#
+# References `slot(:nonexistent_slot)` in a display rule, but this slot is NOT
+# declared at the view level via `slot :nonexistent_slot, ...`.
+#
+# Expected compiler behaviour:
+#   - Artifact IS produced (warning-only, not compile error)
+#   - diagnostics includes { type: "undeclared_slot_reference", key: "nonexistent_slot" }
+#   - At runtime, the P2 filterSlotValues guard ensures this evaluates nil (falsy branch)
+#
+# This mirrors the P2 digest-mismatch warning-only stance: the content is
+# usable but the developer gets a clear diagnostic to fix the issue.
+#
+# Status: experimental · lab-only · intentional-warning · no-canon
+
+view "igniter.lab.undeclared_slot_test" do
+  state :active, type: "boolean", default: false
+
+  # Note: no `slot :nonexistent_slot` declaration here!
+
+  element :banner do
+    classes "banner px-4 py-2"
+
+    # References a slot that is not declared at the view level.
+    # The compiler warns; the artifact is still produced.
+    display :style,
+            condition: slot(:nonexistent_slot),
+            on_true:   { c: "block text-oof" },
+            on_false:  { c: "hidden" }
+  end
+end

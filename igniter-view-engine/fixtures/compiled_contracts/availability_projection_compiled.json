@@ -1,0 +1,53 @@
+{
+  "_comment": "Lab-only copy of igniter-compiler/out/availability_projection.igapp/contracts/availability_projection.json. Used in P7 extraction proofs for Collection[X] and object type normalization.",
+  "_status": "experimental · lab-only · no-canon · no-public-api · no-stable-schema",
+  "artifact_hash": "sha256:lab-avail-proj-p7-copy",
+  "capabilities": [],
+  "compute_nodes": [],
+  "contract_id": "AvailabilityProjection",
+  "effects": [],
+  "escape_set": [],
+  "fragment_class": "core",
+  "input_ports": [
+    {
+      "lifecycle": "local",
+      "name": "date",
+      "required": true,
+      "type_tag": "String"
+    },
+    {
+      "lifecycle": "local",
+      "name": "technician_id",
+      "required": true,
+      "type_tag": "String"
+    }
+  ],
+  "lifecycle": "session",
+  "modifier": "pure",
+  "name": "AvailabilityProjection",
+  "output_ports": [
+    {
+      "lifecycle": "window",
+      "name": "available_slots",
+      "required": true,
+      "type_tag": "Collection[TimeSlot]"
+    },
+    {
+      "lifecycle": "durable",
+      "name": "snap",
+      "required": true,
+      "type_tag": "AvailabilitySnapshot"
+    }
+  ],
+  "source_contract_ref": "contract/AvailabilityProjection/sha256:lab-p7-copy",
+  "type_signature": {
+    "inputs": {
+      "date": "String",
+      "technician_id": "String"
+    },
+    "outputs": {
+      "available_slots": "Collection[TimeSlot]",
+      "snap": "AvailabilitySnapshot"
+    }
+  }
+}

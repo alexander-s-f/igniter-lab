@@ -1,0 +1,53 @@
+{
+  "_comment": "Lab-only synthetic compiled contract fixture. Matches the compiled .igapp contract JSON format. NOT produced by running the Igniter compiler — hand-crafted for P7 extraction proof. Represents a 'search' contract with results/query/total outputs.",
+  "_status": "experimental · lab-only · no-canon · no-public-api · no-stable-schema",
+  "artifact_hash": "sha256:lab-synthetic-search-p7-001",
+  "capabilities": [],
+  "compute_nodes": [],
+  "contract_id": "search",
+  "effects": [],
+  "escape_set": [],
+  "fragment_class": "core",
+  "input_ports": [
+    {
+      "lifecycle": "local",
+      "name": "query_text",
+      "required": true,
+      "type_tag": "String"
+    }
+  ],
+  "lifecycle": "session",
+  "modifier": "pure",
+  "name": "search",
+  "output_ports": [
+    {
+      "lifecycle": "session",
+      "name": "results",
+      "required": true,
+      "type_tag": "Collection[SearchResult]"
+    },
+    {
+      "lifecycle": "session",
+      "name": "query",
+      "required": true,
+      "type_tag": "String"
+    },
+    {
+      "lifecycle": "session",
+      "name": "total",
+      "required": true,
+      "type_tag": "Integer"
+    }
+  ],
+  "source_contract_ref": "contract/search/sha256:lab-synthetic",
+  "type_signature": {
+    "inputs": {
+      "query_text": "String"
+    },
+    "outputs": {
+      "results": "Collection[SearchResult]",
+      "query": "String",
+      "total": "Integer"
+    }
+  }
+}

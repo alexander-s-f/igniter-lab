@@ -1,0 +1,15 @@
+{
+  "_comment": "Lab supplement for 'search' contract. Adds item_fields to the 'results' array output — closing the P7 structural gap (compiled format does not carry item_fields). Matches search_contract.json fixture exactly for comparison proofs.",
+  "_status": "experimental · lab-only · no-canon · no-public-api · no-stable-schema",
+  "contract_id": "search",
+  "supplements": {
+    "results": {
+      "item_fields": {
+        "id":     { "type": "string",  "required": true  },
+        "title":  { "type": "string",  "required": true  },
+        "status": { "type": "string",  "required": true  },
+        "score":  { "type": "integer", "required": false }
+      }
+    }
+  }
+}

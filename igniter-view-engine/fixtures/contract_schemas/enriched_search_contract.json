@@ -1,0 +1,19 @@
+{
+  "_comment": "Lab-only. Same as search_contract but with extra item fields (created_at, author) not in result_item node_params_schema. Used to prove extra_item_field warning policy.",
+  "_status": "experimental · lab-only · no-canon",
+  "contract_id": "enriched_search",
+  "outputs": {
+    "results": {
+      "type": "array",
+      "item_fields": {
+        "id":         { "type": "string",  "required": true  },
+        "title":      { "type": "string",  "required": true  },
+        "status":     { "type": "string",  "required": true  },
+        "score":      { "type": "integer", "required": false },
+        "created_at": { "type": "string",  "required": false },
+        "author":     { "type": "string",  "required": false }
+      }
+    },
+    "query": { "type": "string" }
+  }
+}
