@@ -1,0 +1,62 @@
+/* Igniter-Lang — brand tokens & shared primitives */
+:root{
+  /* ground & structure */
+  --ink:#15110d;
+  --ink-1:#1a1510;
+  --ink-2:#221b15;
+  --ink-3:#2b221b;
+  --line:#3a2f26;
+  --line-2:#4d4035;
+  /* warm greys */
+  --grey:#9a8a7c;
+  --grey-2:#c4b6a8;
+  --grey-3:#e7ddd2;
+  /* the fire */
+  --ignite:#ff6a3d;
+  --ember:#ffb07a;
+  --ember-soft:#ff7a45;
+  --amber:#f0a868;
+  /* light */
+  --paper:#f5f1ea;
+  --paper-ink:#2a2018;
+  /* signal greens/reds for spec ticks */
+  --ok:#7bbf8a;
+  --no:#d9694a;
+  /* type */
+  --mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+*{box-sizing:border-box;}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+
+/* the asterisk dot field that ties the brand together */
+.ig-field{
+  background-color:var(--ink);
+  background-image:radial-gradient(circle at center, rgba(154,138,124,.06) 1px, transparent 1.4px);
+  background-size:30px 30px;
+}
+
+/* wordmark */
+.wm{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;line-height:1;white-space:nowrap;}
+.wm .ig{color:var(--grey-3);}
+.wm .dash{color:var(--ignite);}
+.wm .lang{color:var(--grey);}
+.wm.on-light .ig{color:var(--paper-ink);}
+.wm.on-light .lang{color:#8a7964;}
+
+/* kicker / mono labels */
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--grey);}
+.kicker .dot{color:var(--ignite);}
+
+/* registration frame with amber corner ticks */
+.reg{position:relative;border:1px solid var(--line);background:var(--ink-1);}
+.reg::before,.reg::after{content:"";position:absolute;width:9px;height:9px;pointer-events:none;}
+.reg::before{top:-1px;left:-1px;border-top:1px solid var(--amber);border-left:1px solid var(--amber);}
+.reg::after{bottom:-1px;right:-1px;border-bottom:1px solid var(--amber);border-right:1px solid var(--amber);}
+.reg>.tr,.reg>.bl{position:absolute;width:9px;height:9px;pointer-events:none;}
+.reg>.tr{top:-1px;right:-1px;border-top:1px solid var(--amber);border-right:1px solid var(--amber);}
+.reg>.bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--amber);border-left:1px solid var(--amber);}
+
+/* the mark itself */
+.mk{display:block;aspect-ratio:1/1;overflow:visible;}

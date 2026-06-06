@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Igniter-Lang — Brand System v0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="assets/ig-brand.css" rel="stylesheet">
+<style>
+body{margin:0;color:var(--grey-2);font-family:var(--sans);font-size:15px;line-height:1.6;}
+.wrap{max-width:1180px;margin:0 auto;padding:0 40px;}
+.rule{height:1px;background:var(--line);border:0;margin:0;}
+a{color:var(--ember);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+section{padding:84px 0;}
+.sechead{display:flex;align-items:baseline;gap:18px;margin-bottom:42px;}
+.sechead .num{font-family:var(--mono);font-size:12px;color:var(--ignite);letter-spacing:.1em;}
+.sechead h2{font-family:var(--mono);font-weight:600;font-size:19px;letter-spacing:.02em;color:var(--grey-3);margin:0;}
+.sechead .meta{margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);}
+
+/* masthead */
+.top{display:flex;align-items:center;justify-content:space-between;padding:20px 40px;border-bottom:1px solid var(--line);}
+.top .l,.top .r{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);}
+.top .r span{color:var(--ignite);}
+.top .nav{display:flex;gap:22px;}
+.top .nav a{color:var(--grey);}
+.top .nav a:hover{color:var(--grey-3);text-decoration:none;}
+
+/* hero */
+.hero{padding:96px 0 84px;position:relative;overflow:hidden;}
+.hero-grid{position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:60px 60px;opacity:.16;mask-image:radial-gradient(ellipse 70% 70% at 28% 50%, #000 30%, transparent 78%);}
+.lockup-hero{display:flex;align-items:center;gap:46px;position:relative;}
+.lockup-hero .mk{width:172px;flex:none;filter:drop-shadow(0 0 44px rgba(255,106,61,.22));}
+.hero .wm{font-size:56px;}
+.hero .tagline{font-size:19px;color:var(--grey-2);margin-top:22px;max-width:40ch;line-height:1.5;}
+.hero .ecl{margin-top:16px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--grey);}
+.hero .ecl b{color:var(--amber);font-weight:500;}
+
+/* the mark feature */
+.mark-feature{display:grid;grid-template-columns:1.05fr 1fr;gap:54px;align-items:center;}
+.mark-stage{padding:56px;display:flex;align-items:center;justify-content:center;position:relative;}
+.mark-stage .mk{width:240px;filter:drop-shadow(0 0 30px rgba(255,106,61,.18));}
+.ann{position:absolute;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--grey);text-transform:uppercase;}
+.ann .v{color:var(--amber);}
+.copy p{margin:0 0 18px;color:var(--grey-2);}
+.copy p.lead{font-size:18px;color:var(--grey-3);line-height:1.5;}
+.copy b{color:var(--grey-3);}
+.legend{margin-top:26px;display:grid;gap:14px;}
+.legend-row{display:grid;grid-template-columns:18px 1fr;gap:14px;align-items:start;}
+.legend-row .gl{width:14px;height:14px;margin-top:3px;border-radius:50%;}
+.legend-row .gl.ig{background:var(--ignite);box-shadow:0 0 10px rgba(255,106,61,.6);}
+.legend-row .gl.pe{background:var(--paper);}
+.legend-row .gl.ar{background:transparent;border:3px solid var(--ignite);}
+.legend-row b{color:var(--grey-3);font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:.02em;}
+.legend-row span{display:block;font-size:13.5px;color:var(--grey);}
+
+/* original vs oval */
+.canon{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.canon-cell{padding:36px 34px 30px;display:flex;flex-direction:column;align-items:center;text-align:center;}
+.canon-cell .badge{position:absolute;top:14px;right:14px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  padding:3px 9px;border-radius:2px;font-weight:600;}
+.canon-cell .badge.pri{background:var(--ignite);color:var(--ink);}
+.canon-cell .badge.der{background:transparent;color:var(--grey);border:1px solid var(--line-2);}
+.canon-cell .mk{width:138px;margin:18px 0 26px;filter:drop-shadow(0 0 26px rgba(255,106,61,.16));}
+.canon-cell h3{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--grey-3);margin:0 0 8px;}
+.canon-cell p{font-size:13.5px;color:var(--grey);margin:0 0 18px;line-height:1.55;max-width:34ch;}
+.canon-cell .use{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--grey-2);border-top:1px solid var(--line);padding-top:16px;width:100%;margin-top:auto;}
+.canon-cell .use b{color:var(--ember);font-weight:500;}
+.subprod{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:22px;}
+.sp{padding:24px 18px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;}
+.sp .mk{width:54px;}
+.sp .nm{font-family:var(--mono);font-size:12.5px;color:var(--grey-3);font-weight:600;}
+.sp .ds{font-size:11.5px;color:var(--grey);line-height:1.45;}
+
+/* construction */
+.cons-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.cons-cell{padding:36px;display:flex;flex-direction:column;}
+.cons-cell .lab{margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;}
+.cons-cell .lab .t{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--grey-2);}
+.cons-cell .lab .x{font-family:var(--mono);font-size:11px;color:var(--grey);}
+.cons-stage{flex:1;display:flex;align-items:center;justify-content:center;padding:14px 0;position:relative;}
+.grid-mk{position:relative;width:230px;}
+.grid-mk .mk{width:100%;position:relative;z-index:2;}
+.grid-mk .net{position:absolute;inset:0;z-index:1;pointer-events:none;}
+.clearbox{position:relative;width:230px;padding:34px;}
+.clearbox .inner{border:1px dashed var(--line-2);}
+.clearbox .mk{width:100%;display:block;}
+.clear-cap{position:absolute;font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.08em;}
+.cons-note{font-size:13px;color:var(--grey);margin-top:18px;line-height:1.55;}
+.cons-note code{font-family:var(--mono);color:var(--ember);font-size:12px;}
+
+/* lockups */
+.lock-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:22px;}
+.lock-cell{display:flex;flex-direction:column;min-height:200px;}
+.lock-cell .head{display:flex;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);}
+.lock-cell .head .t{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey-2);}
+.lock-cell .head .d{font-family:var(--mono);font-size:11px;color:var(--grey);}
+.lock-cell .body{flex:1;display:flex;align-items:center;justify-content:center;padding:40px;}
+.lock-h{display:flex;align-items:center;gap:22px;}
+.lock-h .mk{width:72px;flex:none;}
+.lock-h .wm{font-size:30px;}
+.lock-h .sub{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);margin-top:7px;}
+.lock-s{display:flex;flex-direction:column;align-items:center;gap:18px;}
+.lock-s .mk{width:82px;}
+.lock-s .wm{font-size:26px;}
+.lock-icon{display:flex;flex-direction:column;align-items:center;gap:16px;}
+.lock-icon .mk{width:92px;}
+
+/* reversal */
+.rev-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+.rev{padding:46px 30px 22px;display:flex;flex-direction:column;align-items:center;gap:22px;border:1px solid var(--line);}
+.rev .mk{width:96px;}
+.rev .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;}
+.rev.ink{background:var(--ink);} .rev.ink .cap{color:var(--grey);}
+.rev.amber{background:var(--amber);border-color:#c98a4e;} .rev.amber .cap{color:#7a4a28;}
+.rev.paper{background:var(--paper);border-color:#d8cdbd;} .rev.paper .cap{color:#8a7964;}
+.rev .wm{font-size:21px;}
+.rev.amber .wm .ig{color:#1a1109;} .rev.amber .wm .dash{color:#7a2f10;} .rev.amber .wm .lang{color:#6a4226;}
+.rev.paper .wm .ig{color:#2a2018;} .rev.paper .wm .dash{color:var(--ignite);} .rev.paper .wm .lang{color:#8a7964;}
+
+/* sizes */
+.sizes{display:flex;align-items:flex-end;gap:40px;flex-wrap:wrap;padding:44px 40px;}
+.size-item{display:flex;flex-direction:column;align-items:center;gap:14px;}
+.size-item .mk{display:block;}
+.size-item .px{font-family:var(--mono);font-size:11px;color:var(--grey);letter-spacing:.06em;}
+.size-item .px b{color:var(--ember);font-weight:500;}
+.size-divider{width:1px;align-self:stretch;background:var(--line);margin:0 6px;}
+.sizes-note{font-size:13px;color:var(--grey);max-width:32ch;line-height:1.55;}
+
+/* palette */
+.pal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);}
+.sw{display:flex;flex-direction:column;border-right:1px solid var(--line);}
+.sw:last-child{border-right:0;}
+.sw .chip{height:128px;}
+.sw .info{padding:16px 16px 18px;background:var(--ink-1);border-top:1px solid var(--line);}
+.sw .nm{font-family:var(--mono);font-size:12px;color:var(--grey-3);font-weight:600;letter-spacing:.02em;}
+.sw .role{font-size:12px;color:var(--grey);margin-top:3px;}
+.sw .hex{font-family:var(--mono);font-size:11px;color:var(--grey);margin-top:12px;letter-spacing:.04em;}
+.sw .okl{font-family:var(--mono);font-size:10px;color:var(--line-2);margin-top:3px;letter-spacing:.02em;}
+.pal-foot{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:22px;}
+.pal-foot .pf{padding:18px 20px;}
+.pal-foot .pf .t{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;}
+.pal-foot .pf .v{font-size:13px;color:var(--grey-2);line-height:1.5;}
+.pal-foot .pf .v b{color:var(--ember);font-weight:500;}
+
+/* wordmark */
+.word-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.word-cell{padding:34px 36px;}
+.word-cell .t{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);margin-bottom:24px;}
+.word-spec{display:flex;flex-direction:column;gap:16px;}
+.word-spec .wm{font-size:42px;}
+.chip-code{font-family:var(--mono);font-size:17px;background:var(--ink-2);border:1px solid var(--line);padding:10px 16px;color:var(--grey-2);border-radius:3px;display:inline-block;}
+.chip-code .ns{color:var(--ignite);}
+.chip-code .mut{color:var(--grey);}
+.word-rules{display:flex;flex-direction:column;gap:14px;}
+.wr{display:grid;grid-template-columns:20px 1fr;gap:12px;font-size:13.5px;align-items:start;}
+.wr .y{color:var(--ok);font-family:var(--mono);} .wr .n{color:var(--no);font-family:var(--mono);}
+.wr code{font-family:var(--mono);color:var(--grey-3);background:var(--ink-2);padding:1px 7px;border-radius:3px;font-size:12.5px;}
+.wr span{color:var(--grey);}
+
+/* voice */
+.voice-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.voice-cell{padding:30px 32px;}
+.voice-cell .t{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:20px;}
+.voice-cell.yes .t{color:var(--ok);} .voice-cell.no .t{color:var(--no);}
+.voice-line{display:grid;grid-template-columns:18px 1fr;gap:12px;margin-bottom:16px;align-items:start;}
+.voice-line .m{font-family:var(--mono);font-size:13px;}
+.voice-cell.yes .m{color:var(--ok);} .voice-cell.no .m{color:var(--no);}
+.voice-line p{margin:0;font-size:14px;color:var(--grey-2);line-height:1.5;}
+.voice-line p b{color:var(--grey-3);font-weight:600;}
+
+footer{padding:50px 0 70px;}
+.foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;}
+.foot .l{display:flex;align-items:center;gap:16px;}
+.foot .l .mk{width:34px;}
+.foot .l .wm{font-size:16px;}
+.foot .meta{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);text-align:right;line-height:1.8;}
+
+@media (max-width:880px){
+  .wrap{padding:0 22px;}
+  .mark-feature,.lock-grid,.cons-grid,.word-grid,.canon,.voice-grid{grid-template-columns:1fr;}
+  .rev-grid{grid-template-columns:1fr;}
+  .pal-grid,.subprod{grid-template-columns:repeat(2,1fr);}
+  .hero .wm{font-size:38px;}
+  .lockup-hero{flex-direction:column;align-items:flex-start;gap:30px;}
+  .top .nav{display:none;}
+}
+</style>
+</head>
+<body class="ig-field">
+
+<div class="top">
+  <div class="l">igniter-lang</div>
+  <div class="nav">
+    <a href="Igniter-Lang Landing.html">landing</a>
+    <a href="Igniter-Lang README.html">readme</a>
+    <a href="Igniter-Lang Final Candidates.html">candidates</a>
+  </div>
+  <div class="r">brand system · <span>v0.2</span> · 2026</div>
+</div>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-grid"></div>
+    <div class="kicker"><span class="dot">◆</span>&nbsp;&nbsp;THE SPARK · VISUAL IDENTITY</div>
+    <div class="lockup-hero" style="margin-top:40px;">
+      <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+      <div>
+        <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+        <p class="tagline">A friendly little language where every computation is <b style="color:var(--grey-3)">declared</b>, <b style="color:var(--grey-3)">observable</b>, and <b style="color:var(--grey-3)">time-aware</b> — and the brand is just one honest spark.</p>
+        <div class="ecl">ember on ink · <b>IBM Plex Mono</b> · one mark, two forms</div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §01 THE MARK -->
+  <section>
+    <div class="sechead"><span class="num">§01</span><h2>The Spark</h2><span class="meta">six arms · one hot core</span></div>
+    <div class="mark-feature">
+      <div class="reg mark-stage">
+        <span class="tr"></span><span class="bl"></span>
+        <span class="ann" style="top:26px;left:34px;">arm <span class="v">×6</span></span>
+        <span class="ann" style="top:50%;right:30px;transform:translateY(-50%);">core <span class="v">⌀18</span></span>
+        <span class="ann" style="bottom:28px;left:34px;">pearl <span class="v">r3.8</span></span>
+        <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+      </div>
+      <div class="copy">
+        <p class="lead">It's the moment something catches. Six arms throwing off heat, a white-hot center, a calm pearl at the middle that says the fire is under control.</p>
+        <p>Igniter takes loose intent and <b>ignites</b> it into a typed, observable program. The mark is that ignition, made simple enough to draw from memory: an asterisk that also happens to be a star, a spark, and — if you squint — a <b>tiny огонёк</b>. No diagram to decode, no story to read. Just warmth and precision in the same shape.</p>
+        <div class="legend">
+          <div class="legend-row"><span class="gl ig"></span><div><b>The six arms</b><span>Ignition radiating outward. Always Ignition orange, always rounded — never sharp, never cold.</span></div></div>
+          <div class="legend-row"><span class="gl ar"></span><div><b>The hot core</b><span>A small ember gradient. The brightest point in the whole system — earned, used once.</span></div></div>
+          <div class="legend-row"><span class="gl pe"></span><div><b>The pearl</b><span>A still white center. Control. The reason you trust a flame you built on purpose.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §02 ORIGINAL VS OVAL -->
+  <section>
+    <div class="sechead"><span class="num">§02</span><h2>One Mark, Two Forms</h2><span class="meta">canon · derivative</span></div>
+    <div class="canon">
+      <div class="reg canon-cell">
+        <span class="badge pri">Primary canon</span>
+        <svg class="mk" data-ig-mark data-variant="original" viewBox="0 0 100 100"></svg>
+        <h3>Original</h3>
+        <p>The clean spark. Calm pearl, no extra parts. This is <b style="color:var(--grey-3)">the</b> igniter-lang logo — use it everywhere by default.</p>
+        <div class="use"><b>Use:</b> the language, the org, docs, favicon, anywhere you'd reach for a logo.</div>
+      </div>
+      <div class="reg canon-cell">
+        <span class="badge der">Derivative</span>
+        <svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg>
+        <h3>Oval — огонёк</h3>
+        <p>The same spark with a small white flame riding the top arm. A family resemblance for the <b style="color:var(--grey-3)">tools around</b> the language.</p>
+        <div class="use"><b>Use:</b> sub-products — the IDE, the runtime, the playground. Never as the language's own logo.</div>
+      </div>
+    </div>
+    <div class="subprod">
+      <div class="reg sp"><svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg><div class="nm">igniter <span style="color:var(--ignite)">ide</span></div><div class="ds">The editor</div></div>
+      <div class="reg sp"><svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg><div class="nm">igniter <span style="color:var(--ignite)">rt</span></div><div class="ds">The runtime</div></div>
+      <div class="reg sp"><svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg><div class="nm">igniter <span style="color:var(--ignite)">play</span></div><div class="ds">The playground</div></div>
+      <div class="reg sp"><svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg><div class="nm">igniter <span style="color:var(--ignite)">hub</span></div><div class="ds">The registry</div></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §03 CONSTRUCTION -->
+  <section>
+    <div class="sechead"><span class="num">§03</span><h2>Construction &amp; Clear Space</h2><span class="meta">built on a 100-unit field</span></div>
+    <div class="cons-grid">
+      <div class="reg cons-cell">
+        <span class="tr"></span><span class="bl"></span>
+        <div class="lab"><span class="t">Geometry</span><span class="x">grid 10u</span></div>
+        <div class="cons-stage">
+          <div class="grid-mk">
+            <svg class="net" viewBox="0 0 100 100"></svg>
+            <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+          </div>
+        </div>
+        <p class="cons-note">Six arms from center <code>(50,50)</code> to radius <code>38</code>, first arm at <code>-90°</code>, stepped every <code>60°</code>. Stroke width <code>10</code>, round caps. Core <code>r9</code>, pearl <code>r3.8</code>. The oval flame sits at <code>(50,31)</code>, <code>rx3 ry6.5</code>.</p>
+      </div>
+      <div class="reg cons-cell">
+        <span class="tr"></span><span class="bl"></span>
+        <div class="lab"><span class="t">Clear Space</span><span class="x">min = ½ arm</span></div>
+        <div class="cons-stage">
+          <div class="clearbox">
+            <span class="clear-cap" style="top:8px;left:50%;transform:translateX(-50%);">½</span>
+            <span class="clear-cap" style="left:6px;top:50%;transform:translateY(-50%);">½</span>
+            <div class="inner"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg></div>
+          </div>
+        </div>
+        <p class="cons-note">Give the spark room to breathe: keep clear space of at least <code>½</code> an arm-length on every side. Nothing — type, edge, or rule — crowds the heat.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §04 LOCKUPS -->
+  <section>
+    <div class="sechead"><span class="num">§04</span><h2>Lockups</h2><span class="meta">horizontal · stacked · icon</span></div>
+    <div class="lock-grid">
+      <div class="reg lock-cell">
+        <div class="head"><span class="t">Horizontal — Primary</span><span class="d">default lockup</span></div>
+        <div class="body">
+          <div class="lock-h">
+            <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+            <div>
+              <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+              <div class="sub">declared · observable · time-aware</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="reg lock-cell">
+        <div class="head"><span class="t">Stacked</span><span class="d">vertical</span></div>
+        <div class="body">
+          <div class="lock-s">
+            <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+            <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="reg lock-cell">
+        <div class="head"><span class="t">Icon — Original</span><span class="d">app / mark only</span></div>
+        <div class="body"><div class="lock-icon"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg></div></div>
+      </div>
+      <div class="reg lock-cell">
+        <div class="head"><span class="t">Icon — Oval</span><span class="d">sub-products</span></div>
+        <div class="body"><div class="lock-icon"><svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg></div></div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §05 REVERSAL + SIZES -->
+  <section>
+    <div class="sechead"><span class="num">§05</span><h2>Reversal &amp; Scale</h2><span class="meta">ink · amber · paper</span></div>
+    <div class="rev-grid">
+      <div class="rev ink">
+        <svg class="mk" data-ig-mark data-ground="ink" viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+        <span class="cap">on ink — primary</span>
+      </div>
+      <div class="rev amber">
+        <svg class="mk" data-ig-mark data-ground="amber" viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+        <span class="cap">on amber — signal</span>
+      </div>
+      <div class="rev paper">
+        <svg class="mk" data-ig-mark data-ground="paper" viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+        <span class="cap">on paper — print</span>
+      </div>
+    </div>
+
+    <div class="reg sizes" style="margin-top:22px;">
+      <span class="tr"></span><span class="bl"></span>
+      <div class="size-item"><svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:64px"></svg><span class="px"><b>64</b></span></div>
+      <div class="size-item"><svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:48px"></svg><span class="px"><b>48</b></span></div>
+      <div class="size-item"><svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:32px"></svg><span class="px"><b>32</b></span></div>
+      <div class="size-item"><svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:24px"></svg><span class="px"><b>24</b></span></div>
+      <div class="size-item"><svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:16px"></svg><span class="px"><b>16</b></span></div>
+      <div class="size-divider"></div>
+      <p class="sizes-note">The spark holds all the way to <b style="color:var(--grey-2)">16&nbsp;px</b> — that's the whole point of keeping it simple. The <b style="color:var(--grey-2)">Original</b> is always the favicon; the oval flame fades out below ~24&nbsp;px, so sub-products fall back to Original at icon sizes.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §06 PALETTE -->
+  <section>
+    <div class="sechead"><span class="num">§06</span><h2>Ember on Ink</h2><span class="meta">the colors are the logo</span></div>
+    <div class="pal-grid">
+      <div class="sw"><div class="chip" style="background:#15110d"></div><div class="info"><div class="nm">Ink</div><div class="role">Ground · canvas</div><div class="hex">#15110D</div><div class="okl">oklch(.20 .012 56)</div></div></div>
+      <div class="sw"><div class="chip" style="background:#ff6a3d"></div><div class="info"><div class="nm">Ignition</div><div class="role">Primary · the arms</div><div class="hex">#FF6A3D</div><div class="okl">oklch(.70 .19 41)</div></div></div>
+      <div class="sw"><div class="chip" style="background:#f0a868"></div><div class="info"><div class="nm">Amber</div><div class="role">Secondary · ticks, edges</div><div class="hex">#F0A868</div><div class="okl">oklch(.79 .10 65)</div></div></div>
+      <div class="sw"><div class="chip" style="background:#9a8a7c"></div><div class="info"><div class="nm">Warm Grey</div><div class="role">Muted · body, labels</div><div class="hex">#9A8A7C</div><div class="okl">oklch(.62 .02 67)</div></div></div>
+    </div>
+    <div class="pal-foot">
+      <div class="reg pf"><div class="t">Ember (hot core)</div><div class="v"><b>#FFB07A</b> — the inner spark and any highlight. The brightest point in the system; used sparingly, at the heat.</div></div>
+      <div class="reg pf"><div class="t">Paper (print / light)</div><div class="v"><b style="color:#f5f1ea">#F5F1EA</b> — warm paper for light surfaces, with ink text <b style="color:#c4b6a8">#2A2018</b>.</div></div>
+      <div class="reg pf"><div class="t">Discipline</div><div class="v">Ink + warm grey carry ~90% of any surface. Ember is a <b>signal</b>, never a fill. Warm restraint — friendly, not loud.</div></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §07 WORDMARK -->
+  <section>
+    <div class="sechead"><span class="num">§07</span><h2>Wordmark &amp; Casing</h2><span class="meta">IBM Plex Mono · 600</span></div>
+    <div class="word-grid">
+      <div class="reg word-cell">
+        <span class="tr"></span><span class="bl"></span>
+        <div class="t">Specimen — set in a compiler's type</div>
+        <div class="word-spec">
+          <div class="wm" style="font-size:46px;"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+          <div class="chip-code"><span class="mut">use</span> igniter<span class="ns">::</span>lang<span class="mut">;</span></div>
+          <p style="font-size:13px;color:var(--grey);margin:6px 0 0;line-height:1.55;">The <span style="font-family:var(--mono);color:var(--ignite)">::</span> path-form is the code-native alternate — for CLIs, imports and headers. The hyphen always carries the <span style="color:var(--ignite)">ignition</span> color.</p>
+        </div>
+      </div>
+      <div class="reg word-cell">
+        <span class="tr"></span><span class="bl"></span>
+        <div class="t">Casing &amp; usage rules</div>
+        <div class="word-rules">
+          <div class="wr"><span class="y">✓</span><div><code>igniter-lang</code> <span>— lowercase, hyphenated. The canonical wordmark.</span></div></div>
+          <div class="wr"><span class="y">✓</span><div><code>igniter::lang</code> <span>— path-form alternate for code &amp; technical surfaces.</span></div></div>
+          <div class="wr"><span class="y">✓</span><div><span>Hyphen always in </span><span style="color:var(--ignite)">ignition</span><span> color.</span></div></div>
+          <div class="wr"><span class="n">✕</span><div><code>Igniter Lang</code> <span>— never title-case, never spaced.</span></div></div>
+          <div class="wr"><span class="n">✕</span><div><code>IgniterLang</code> <span>— never camel-case or run together.</span></div></div>
+          <div class="wr"><span class="n">✕</span><div><span>Never set the wordmark in a sans or serif — it's mono, always.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §08 VOICE -->
+  <section>
+    <div class="sechead"><span class="num">§08</span><h2>Voice</h2><span class="meta">precise, but warm</span></div>
+    <div class="voice-grid">
+      <div class="reg voice-cell yes">
+        <div class="t">✓ Sounds like us</div>
+        <div class="voice-line"><span class="m">→</span><p><b>Plain over clever.</b> "Every value carries a receipt." Not "epistemically-witnessed provenance envelopes."</p></div>
+        <div class="voice-line"><span class="m">→</span><p><b>Talk to a person.</b> Second person, present tense. "You declare it; the compiler proves it."</p></div>
+        <div class="voice-line"><span class="m">→</span><p><b>Confident, not cold.</b> We're sure of the work, so we don't have to shout. A little warmth is allowed.</p></div>
+        <div class="voice-line"><span class="m">→</span><p><b>Show the code.</b> The fastest way to explain Igniter is a six-line <code style="font-family:var(--mono);color:var(--ember);font-size:12px">.ig</code> snippet.</p></div>
+      </div>
+      <div class="reg voice-cell no">
+        <div class="t">✕ Not us</div>
+        <div class="voice-line"><span class="m">→</span><p>Hype and superlatives. No "revolutionary", "blazing-fast", "game-changing".</p></div>
+        <div class="voice-line"><span class="m">→</span><p>Jargon walls. If a sentence needs a glossary, rewrite the sentence.</p></div>
+        <div class="voice-line"><span class="m">→</span><p>Emoji confetti or exclamation storms. One honest spark is the loudest we get.</p></div>
+        <div class="voice-line"><span class="m">→</span><p>Talking down. Our readers write compilers for fun — respect that.</p></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<hr class="rule">
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="l">
+        <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+      </div>
+      <div class="meta">Declared · Observable · Time-aware<br>Brand System v0.2 · Ember on Ink<br>One spark, two forms.</div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/ig-mark.js"></script>
+<script>
+(function(){
+  function f(n){return Math.round(n*100)/100;}
+  function line(x1,y1,x2,y2,a){return '<line x1="'+f(x1)+'" y1="'+f(y1)+'" x2="'+f(x2)+'" y2="'+f(y2)+'" '+a+'/>';}
+  function circ(cx,cy,r,a){return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" '+a+'/>';}
+  var net=document.querySelector('.net');
+  if(net){
+    var g='';
+    for(var i=10;i<100;i+=10){
+      g+=line(i,0,i,100,'stroke="#3a2f26" stroke-width="0.4"');
+      g+=line(0,i,100,i,'stroke="#3a2f26" stroke-width="0.4"');
+    }
+    g+=line(50,0,50,100,'stroke="#4d4035" stroke-width="0.6"');
+    g+=line(0,50,100,50,'stroke="#4d4035" stroke-width="0.6"');
+    g+=circ(50,50,38,'fill="none" stroke="#f0a868" stroke-width="0.5" stroke-dasharray="2 2" opacity="0.55"');
+    net.innerHTML=g;
+  }
+})();
+</script>
+
+</body>
+</html>

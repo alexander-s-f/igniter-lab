@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Igniter IDE — Design System Implementation Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="assets/ig-brand.css" rel="stylesheet">
+<style>
+body{margin:0;color:var(--grey-2);font-family:var(--sans);font-size:14.5px;line-height:1.6;}
+.wrap{max-width:1080px;margin:0 auto;padding:0 36px;}
+a{color:var(--ember);text-decoration:none;} a:hover{text-decoration:underline;}
+code,.mono{font-family:var(--mono);}
+
+/* masthead */
+.top{display:flex;align-items:center;justify-content:space-between;padding:18px 36px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(21,17,13,.85);backdrop-filter:blur(10px);z-index:20;}
+.top .l{display:flex;align-items:center;gap:11px;}
+.top .l .mk{width:22px;}
+.top .l .wm{font-size:14px;}
+.top .nav{display:flex;gap:20px;font-family:var(--mono);font-size:11.5px;}
+.top .nav a{color:var(--grey);} .top .nav a:hover{color:var(--grey-3);text-decoration:none;}
+.top .r{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);}
+.top .r span{color:var(--ignite);}
+
+/* ticket header */
+.ticket{padding:54px 0 38px;border-bottom:1px solid var(--line);}
+.ticket .meta{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+.chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:4px 11px;border-radius:5px;font-weight:600;}
+.chip.id{background:var(--ignite);color:var(--ink);}
+.chip.type{background:transparent;border:1px solid var(--line-2);color:var(--grey-2);}
+.chip.prio{background:rgba(217,105,74,.15);color:#e08568;border:1px solid rgba(217,105,74,.3);}
+.chip.scope{background:rgba(94,200,216,.12);color:#7fd3e0;border:1px solid rgba(94,200,216,.28);}
+.ticket h1{font-family:var(--sans);font-weight:600;font-size:38px;letter-spacing:-.02em;color:var(--grey-3);margin:0;line-height:1.1;max-width:24ch;}
+.ticket .lead{font-size:16.5px;color:var(--grey);margin:18px 0 0;max-width:70ch;line-height:1.6;}
+.ticket .lead b{color:var(--grey-2);}
+.ticket .targets{display:flex;gap:30px;margin-top:26px;flex-wrap:wrap;}
+.ticket .tg{display:flex;flex-direction:column;}
+.ticket .tg .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);}
+.ticket .tg .v{font-family:var(--mono);font-size:13px;color:var(--ember);margin-top:5px;}
+
+section{padding:48px 0;border-bottom:1px solid var(--line);}
+.sechead{display:flex;align-items:baseline;gap:16px;margin-bottom:30px;}
+.sechead .num{font-family:var(--mono);font-size:12px;color:var(--ignite);letter-spacing:.08em;}
+.sechead h2{font-family:var(--mono);font-weight:600;font-size:18px;color:var(--grey-3);margin:0;}
+.sechead .meta{margin-left:auto;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);}
+
+/* token table */
+.tbl{border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+.tbl .r{display:grid;border-bottom:1px solid var(--line);}
+.tbl .r:last-child{border-bottom:0;}
+.tbl .r.head{background:var(--ink-2);}
+.tbl .r.head .c{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--grey);font-weight:600;}
+.tbl .r:not(.head){background:var(--ink-1);}
+.tbl .c{padding:12px 16px;border-right:1px solid var(--line);display:flex;align-items:center;gap:10px;font-size:13px;}
+.tbl .c:last-child{border-right:0;}
+.tbl .sw{width:15px;height:15px;border-radius:4px;flex:none;border:1px solid rgba(255,255,255,.08);}
+.tbl .mono{font-family:var(--mono);font-size:12px;}
+.tbl .old{color:var(--grey);text-decoration:line-through;text-decoration-color:var(--line-2);}
+.tbl .new{color:var(--grey-3);}
+.tbl .hex{font-family:var(--mono);font-size:11.5px;color:var(--grey);}
+.tbl .role{color:var(--grey);font-size:12.5px;}
+.tok-tbl .r{grid-template-columns:1.1fr 1fr 0.8fr 1.5fr;}
+
+/* code block */
+.cb{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#13100c;margin-top:6px;}
+.cb .h{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--ink-2);}
+.cb .h .t{font-family:var(--mono);font-size:11.5px;color:var(--grey-2);}
+.cb .h .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);border:1px solid var(--line-2);border-radius:5px;padding:3px 8px;}
+.cb pre{margin:0;padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.75;color:var(--grey-2);}
+.cb .k{color:#5ec8d8;} .cb .s{color:#8fbf8a;} .cb .c{color:#6f6256;font-style:italic;} .cb .p{color:#9a8a7c;} .cb .ig{color:#ff6a3d;}
+
+/* surface map */
+.map2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.mcell{border:1px solid var(--line);border-radius:9px;background:var(--ink-1);overflow:hidden;}
+.mcell .h{padding:11px 15px;border-bottom:1px solid var(--line);background:var(--ink-2);font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-2);display:flex;align-items:center;gap:8px;}
+.mcell .h .sw{width:12px;height:12px;border-radius:3px;}
+.mcell ul{margin:0;padding:12px 15px;list-style:none;display:flex;flex-direction:column;gap:9px;}
+.mcell li{display:grid;grid-template-columns:auto 16px 1fr;gap:9px;align-items:center;font-family:var(--mono);font-size:12px;}
+.mcell li .from{color:var(--grey);}
+.mcell li .ar{color:var(--line-2);text-align:center;}
+.mcell li .to{color:var(--grey-3);}
+
+/* component checklist */
+.files{display:flex;flex-direction:column;gap:14px;}
+.file{border:1px solid var(--line);border-radius:9px;background:var(--ink-1);overflow:hidden;}
+.file .fh{display:flex;align-items:center;gap:11px;padding:13px 16px;border-bottom:1px solid var(--line);background:var(--ink-2);}
+.file .fh .ic{color:var(--ignite);font-size:13px;}
+.file .fh .nm{font-family:var(--mono);font-size:13px;color:var(--grey-3);font-weight:500;}
+.file .fh .cnt{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--grey);}
+.file .tasks{padding:8px 16px 14px;display:flex;flex-direction:column;}
+.task{display:grid;grid-template-columns:18px 1fr;gap:11px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line);}
+.task:last-child{border-bottom:0;}
+.task .box{width:15px;height:15px;border:1.5px solid var(--line-2);border-radius:4px;margin-top:2px;}
+.task p{margin:0;font-size:13.5px;color:var(--grey-2);line-height:1.5;}
+.task p b{color:var(--grey-3);font-weight:600;}
+.task p code{font-family:var(--mono);font-size:12px;color:var(--ember);background:var(--ink-2);padding:1px 6px;border-radius:4px;}
+.task p .keep{color:#6cc488;font-weight:600;}
+
+/* semantic preserve callout */
+.callout{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start;border:1px solid rgba(94,200,216,.28);background:rgba(94,200,216,.06);border-radius:10px;padding:20px 22px;}
+.callout .mk-wrap{width:40px;height:40px;border-radius:9px;background:rgba(94,200,216,.14);display:flex;align-items:center;justify-content:center;font-size:20px;color:#7fd3e0;}
+.callout h3{font-family:var(--sans);font-weight:600;font-size:16px;color:var(--grey-3);margin:0 0 7px;}
+.callout p{margin:0;font-size:13.5px;color:var(--grey);line-height:1.6;}
+.callout p b{color:var(--grey-2);}
+.callout .pills{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap;}
+.callout .pill{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;color:var(--grey-2);border:1px solid var(--line);border-radius:20px;padding:4px 11px;}
+.callout .pill .d{width:9px;height:9px;border-radius:50%;}
+
+/* DoD */
+.dod{border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.dod .row{display:grid;grid-template-columns:24px 1fr;gap:12px;align-items:start;padding:14px 18px;border-bottom:1px solid var(--line);}
+.dod .row:last-child{border-bottom:0;}
+.dod .row .n{font-family:var(--mono);font-size:12px;color:var(--ignite);margin-top:1px;}
+.dod .row p{margin:0;font-size:13.5px;color:var(--grey-2);line-height:1.5;}
+.dod .row p b{color:var(--grey-3);}
+
+/* mark/asset row */
+.assets{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.acard{border:1px solid var(--line);border-radius:10px;background:var(--ink-1);padding:24px 20px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;}
+.acard .mk{width:58px;}
+.acard .nm{font-family:var(--mono);font-size:13px;color:var(--grey-3);font-weight:600;}
+.acard .ds{font-size:12.5px;color:var(--grey);line-height:1.5;}
+.acard .where{font-family:var(--mono);font-size:11px;color:var(--ember);border-top:1px solid var(--line);padding-top:12px;width:100%;margin-top:auto;}
+
+footer{padding:40px 0 56px;}
+.foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px;}
+.foot .l{display:flex;align-items:center;gap:13px;}
+.foot .l .mk{width:28px;} .foot .l .wm{font-size:14px;}
+.foot .meta{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--line-2);text-align:right;line-height:1.8;}
+
+@media (max-width:880px){
+  .wrap{padding:0 20px;} .top{padding:14px 20px;} .top .nav{display:none;}
+  .map2,.assets{grid-template-columns:1fr;}
+  .tok-tbl .r{grid-template-columns:1fr 1fr;} .tok-tbl .c:nth-child(3),.tok-tbl .c:nth-child(4){display:none;}
+  .ticket h1{font-size:28px;}
+}
+</style>
+</head>
+<body class="ig-field">
+
+<div class="top">
+  <div class="l"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg><span class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></span></div>
+  <div class="nav">
+    <a href="Igniter-Lang Brand System.html">brand</a>
+    <a href="Igniter-Lang Syntax.html">syntax</a>
+    <a href="Igniter IDE.html">ide mock</a>
+  </div>
+  <div class="r">impl plan · <span>DS-IDE-01</span></div>
+</div>
+
+<div class="wrap">
+
+  <!-- TICKET HEADER -->
+  <div class="ticket">
+    <div class="meta">
+      <span class="chip id">DS-IDE-01</span>
+      <span class="chip type">Design System</span>
+      <span class="chip prio">Re-skin</span>
+      <span class="chip scope">No layout changes</span>
+    </div>
+    <h1>Apply Ember-on-Ink to Igniter IDE</h1>
+    <p class="lead">Migrate the IDE's cold gray/blue chrome to the <b>Ember-on-Ink</b> brand without touching layout, component structure, or behavior. This is a <b>token-and-theme swap</b>: warm the surfaces, move the accent from blue to ignition orange, swap the Monaco theme, and <b>preserve the four meaning-bearing semantic colors</b> (retuned for warm ink). Stack is SvelteKit + Tailwind v4 + Tauri.</p>
+    <div class="targets">
+      <div class="tg"><span class="k">Primary accent</span><span class="v">blue-700 → #FF6A3D</span></div>
+      <div class="tg"><span class="k">Ground</span><span class="v">gray-950 → #15110D</span></div>
+      <div class="tg"><span class="k">App mark</span><span class="v">oval огонёк (sub-product)</span></div>
+      <div class="tg"><span class="k">Risk</span><span class="v">low · visual only</span></div>
+    </div>
+  </div>
+
+  <!-- §01 TOKENS -->
+  <section>
+    <div class="sechead"><span class="num">§01</span><h2>Token Foundation</h2><span class="meta">define once · reference everywhere</span></div>
+    <p style="margin:0 0 18px;color:var(--grey);max-width:72ch;">Add the brand scale to <code class="mono" style="color:var(--ember)">tailwind.config.js</code> and <code class="mono" style="color:var(--ember)">app.css</code>. Prefer named tokens over raw <code class="mono" style="color:var(--ember)">gray-*</code> utilities going forward, but a find-and-replace of the common utilities (§02) gets 90% of the surface for free.</p>
+    <div class="tbl tok-tbl">
+      <div class="r head"><span class="c">Token</span><span class="c">Replaces</span><span class="c">Hex</span><span class="c">Role</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#15110d"></span><span class="mono new">ink</span></span><span class="c mono old">gray-950</span><span class="c hex">#15110D</span><span class="c role">App ground, editor base</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#1a1510"></span><span class="mono new">ink-1</span></span><span class="c mono old">gray-900</span><span class="c hex">#1A1510</span><span class="c role">Panels, editor surface</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#221b15"></span><span class="mono new">ink-2</span></span><span class="c mono old">gray-800</span><span class="c hex">#221B15</span><span class="c role">Headers, hover, line-highlight</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#2b221b"></span><span class="mono new">line</span></span><span class="c mono old">gray-800 border</span><span class="c hex">#2B221B</span><span class="c role">Dividers, borders</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#ff6a3d"></span><span class="mono new">ignite</span></span><span class="c mono old">blue-600/700</span><span class="c hex">#FF6A3D</span><span class="c role">Primary accent, active states</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#ffb07a"></span><span class="mono new">ember</span></span><span class="c mono old">blue-400</span><span class="c hex">#FFB07A</span><span class="c role">Highlights, focused values</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#f0a868"></span><span class="mono new">amber</span></span><span class="c mono old">(new)</span><span class="c hex">#F0A868</span><span class="c role">Types, secondary accent</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#9a8a7c"></span><span class="mono new">grey</span></span><span class="c mono old">gray-500</span><span class="c hex">#9A8A7C</span><span class="c role">Muted labels, metadata</span></div>
+      <div class="r"><span class="c"><span class="sw" style="background:#e7ddd2"></span><span class="mono new">grey-3</span></span><span class="c mono old">gray-100/300</span><span class="c hex">#E7DDD2</span><span class="c role">Primary text on ink</span></div>
+    </div>
+    <div class="cb">
+      <div class="h"><span class="t">tailwind.config.js — theme.extend.colors</span><span class="tag">edit</span></div>
+<pre><span class="c">// Brand chrome + retuned semantic colors (keep the 4 meanings!)</span>
+colors: {
+  <span class="k">ink</span>:    { DEFAULT: <span class="s">'#15110d'</span>, <span class="k">1</span>: <span class="s">'#1a1510'</span>, <span class="k">2</span>: <span class="s">'#221b15'</span>, <span class="k">line</span>: <span class="s">'#2b221b'</span> },
+  <span class="k">ignite</span>: <span class="s">'#ff6a3d'</span>,  <span class="k">ember</span>: <span class="s">'#ffb07a'</span>,  <span class="k">amber</span>: <span class="s">'#f0a868'</span>,
+  <span class="k">warm</span>:   { DEFAULT: <span class="s">'#9a8a7c'</span>, <span class="k">3</span>: <span class="s">'#e7ddd2'</span> },
+  <span class="c">// semantic — meaning preserved, warmed for ink</span>
+  <span class="k">core</span>:     <span class="s">'#5db87a'</span>,  <span class="c">// was #22c55e</span>
+  <span class="k">escape</span>:   <span class="s">'#f0a868'</span>,  <span class="c">// was #eab308 → brand amber</span>
+  <span class="k">temporal</span>: <span class="s">'#5ec8d8'</span>,  <span class="c">// was #06b6d4</span>
+  <span class="k">oof</span>:      <span class="s">'#d9694a'</span>,  <span class="c">// was #ef4444</span>
+},
+</pre>
+    </div>
+  </section>
+
+  <!-- §02 SURFACE MAP -->
+  <section>
+    <div class="sechead"><span class="num">§02</span><h2>Utility Find-and-Replace</h2><span class="meta">global sweep · src/**/*.svelte</span></div>
+    <div class="map2">
+      <div class="mcell">
+        <div class="h"><span class="sw" style="background:#15110d"></span>Surfaces &amp; borders</div>
+        <ul>
+          <li><span class="from">bg-gray-950</span><span class="ar">→</span><span class="to">bg-ink</span></li>
+          <li><span class="from">bg-gray-900</span><span class="ar">→</span><span class="to">bg-ink-1</span></li>
+          <li><span class="from">bg-gray-800</span><span class="ar">→</span><span class="to">bg-ink-2</span></li>
+          <li><span class="from">border-gray-800</span><span class="ar">→</span><span class="to">border-ink-line</span></li>
+          <li><span class="from">hover:bg-gray-800</span><span class="ar">→</span><span class="to">hover:bg-ink-2</span></li>
+        </ul>
+      </div>
+      <div class="mcell">
+        <div class="h"><span class="sw" style="background:#ff6a3d"></span>Accent &amp; active</div>
+        <ul>
+          <li><span class="from">bg-blue-700</span><span class="ar">→</span><span class="to">bg-ignite/15</span></li>
+          <li><span class="from">text-white (active)</span><span class="ar">→</span><span class="to">text-ignite</span></li>
+          <li><span class="from">text-blue-400</span><span class="ar">→</span><span class="to">text-ember</span></li>
+          <li><span class="from">border-blue-500</span><span class="ar">→</span><span class="to">border-ignite</span></li>
+          <li><span class="from">hover:bg-blue-500/40</span><span class="ar">→</span><span class="to">hover:bg-ignite/30</span></li>
+        </ul>
+      </div>
+      <div class="mcell">
+        <div class="h"><span class="sw" style="background:#e7ddd2"></span>Text</div>
+        <ul>
+          <li><span class="from">text-gray-100</span><span class="ar">→</span><span class="to">text-warm-3</span></li>
+          <li><span class="from">text-gray-400</span><span class="ar">→</span><span class="to">text-warm</span></li>
+          <li><span class="from">text-gray-500/600</span><span class="ar">→</span><span class="to">text-warm/70</span></li>
+          <li><span class="from">font-mono base</span><span class="ar">→</span><span class="to">IBM Plex Mono</span></li>
+        </ul>
+      </div>
+      <div class="mcell">
+        <div class="h"><span class="sw" style="background:#5ec8d8"></span>Semantic — <b style="color:#7fd3e0">do not flatten</b></div>
+        <ul>
+          <li><span class="from">text-green-* (core)</span><span class="ar">→</span><span class="to">text-core</span></li>
+          <li><span class="from">text-yellow-* (escape)</span><span class="ar">→</span><span class="to">text-escape</span></li>
+          <li><span class="from">text-cyan-* (temporal)</span><span class="ar">→</span><span class="to">text-temporal</span></li>
+          <li><span class="from">text-red-* (errors)</span><span class="ar">→</span><span class="to">text-oof</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- §03 SEMANTIC CALLOUT -->
+  <section>
+    <div class="callout">
+      <div class="mk-wrap">⏃</div>
+      <div>
+        <h3>Preserve the meaning-bearing colors</h3>
+        <p>The IDE's <code class="mono" style="color:var(--ember)">core / escape / temporal / oof</code> colors aren't theme decoration — they <b>classify fragments</b> in the language (a compute is core, an escape is privileged, a temporal read touches history, a failed invariant is oof). <b>Keep all four meanings.</b> Only shift their hue/lightness so they harmonize on warm ink. Never collapse them into a single accent.</p>
+        <div class="pills">
+          <span class="pill"><span class="d" style="background:#5db87a"></span>core · pure</span>
+          <span class="pill"><span class="d" style="background:#f0a868"></span>escape · effectful</span>
+          <span class="pill"><span class="d" style="background:#5ec8d8"></span>temporal · time</span>
+          <span class="pill"><span class="d" style="background:#d9694a"></span>oof · error</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §04 COMPONENT CHECKLIST -->
+  <section>
+    <div class="sechead"><span class="num">§04</span><h2>Component Checklist</h2><span class="meta">the high-leverage files</span></div>
+    <div class="files">
+      <div class="file">
+        <div class="fh"><span class="ic">◈</span><span class="nm">routes/+page.svelte</span><span class="cnt">shell · 5 spots</span></div>
+        <div class="tasks">
+          <div class="task"><span class="box"></span><p><b>Icon strips</b> (left + right nav): active state <code>bg-blue-700 text-white</code> → <code>bg-ignite/15 text-ignite</code> + a 2px ignite rail on the active item.</p></div>
+          <div class="task"><span class="box"></span><p><b>File tabs:</b> active tab top-border <code>border-t-blue-500</code> → <code>border-t-ignite</code>; compile button → <code>bg-ignite/15 text-ignite</code>, run button keeps <span class="keep">core green</span>.</p></div>
+          <div class="task"><span class="box"></span><p><b>Tool-tab underline</b> &amp; bottom-tab underline: <code>bg-blue-500</code> / <code>text-blue-400</code> → ignite.</p></div>
+          <div class="task"><span class="box"></span><p><b>Status bar:</b> <code>bg-blue-950</code> → warm <code>#1b1009</code>; <code>text-blue-*</code> → ember/warm; prefix the <code>⚡ Igniter</code> label with the <b>oval mark</b> SVG.</p></div>
+          <div class="task"><span class="box"></span><p><b>Drag handles:</b> <code>hover:bg-blue-500/40</code> → <code>hover:bg-ignite/30</code>.</p></div>
+        </div>
+      </div>
+      <div class="file">
+        <div class="fh"><span class="ic">◈</span><span class="nm">components/MonacoEditor.svelte</span><span class="cnt">theme · 1 block</span></div>
+        <div class="tasks">
+          <div class="task"><span class="box"></span><p>Replace the <code>defineTheme('igniter-dark', …)</code> <b>rules</b> and <b>colors</b> with the Ember-on-Ink block from the <a href="Igniter-Lang Syntax.html">Syntax Theme §05</a>. Cursor &amp; selection become ignite; brackets amber.</p></div>
+          <div class="task"><span class="box"></span><p>Add a matching <code>defineTheme('igniter-paper', …)</code> light variant for the docs/print surface (values in Syntax §04).</p></div>
+          <div class="task"><span class="box"></span><p>Monarch token <b>categories are unchanged</b> — only the color values move. No grammar edits.</p></div>
+        </div>
+      </div>
+      <div class="file">
+        <div class="fh"><span class="ic">◈</span><span class="nm">tailwind.config.js + app.css</span><span class="cnt">tokens</span></div>
+        <div class="tasks">
+          <div class="task"><span class="box"></span><p>Add the color block from §01. Set <code>body</code> background to <code>#15110d</code> and default font to <b>IBM Plex Mono</b> (self-host or bundle; don't rely on system mono).</p></div>
+          <div class="task"><span class="box"></span><p>Add the dotted <code>.ig-field</code> background utility for empty/welcome surfaces.</p></div>
+        </div>
+      </div>
+      <div class="file">
+        <div class="fh"><span class="ic">◈</span><span class="nm">WelcomeDashboard · StatusBar · Inspector</span><span class="cnt">brand touchpoints</span></div>
+        <div class="tasks">
+          <div class="task"><span class="box"></span><p><b>WelcomeDashboard:</b> lead with the oval lockup on the <code>.ig-field</code> dotted ground; primary CTA buttons use ignite fill.</p></div>
+          <div class="task"><span class="box"></span><p><b>Inspector port dots:</b> input → <span class="keep" style="color:#5ec8d8">temporal</span>, compute → <span class="keep">core</span>, output → <code>ignite</code>. Fragment badge uses the semantic class for its class.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §05 MARK & ASSETS -->
+  <section>
+    <div class="sechead"><span class="num">§05</span><h2>Mark Usage</h2><span class="meta">oval for the app · original for the language</span></div>
+    <div class="assets">
+      <div class="acard">
+        <svg class="mk" data-ig-mark data-variant="oval" viewBox="0 0 100 100"></svg>
+        <div class="nm">Oval — огонёк</div>
+        <div class="ds">The IDE is a sub-product, so it wears the derivative oval mark.</div>
+        <div class="where">titlebar · status bar · welcome</div>
+      </div>
+      <div class="acard">
+        <svg class="mk" data-ig-mark data-variant="original" viewBox="0 0 100 100"></svg>
+        <div class="nm">Original</div>
+        <div class="ds">The clean spark stays the language's logo — and the app favicon at small sizes.</div>
+        <div class="where">favicon · ≤24px fallbacks</div>
+      </div>
+      <div class="acard">
+        <svg class="mk" data-ig-mark data-variant="oval" data-ground="paper" viewBox="0 0 100 100" style="background:#f5f1ea;border-radius:8px;padding:8px;box-sizing:border-box;"></svg>
+        <div class="nm">On paper</div>
+        <div class="ds">For the light docs theme &amp; printed specs, use the paper reversal.</div>
+        <div class="where">igniter-paper surfaces</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §06 DOD -->
+  <section style="border-bottom:0;">
+    <div class="sechead"><span class="num">§06</span><h2>Definition of Done</h2><span class="meta">acceptance criteria</span></div>
+    <div class="dod">
+      <div class="row"><span class="n">01</span><p>No <code class="mono" style="color:var(--ember)">blue-*</code> or raw <code class="mono" style="color:var(--ember)">gray-*</code> utilities remain in <b>src/**</b> (semantic <code>core/escape/temporal/oof</code> classes excepted).</p></div>
+      <div class="row"><span class="n">02</span><p>Monaco editor renders the <b>igniter-dark</b> Ember-on-Ink theme; cursor and selection are ignite; <code class="mono" style="color:var(--ember)">.ig</code> tokens match the <a href="Igniter-Lang Syntax.html">Syntax spec</a>.</p></div>
+      <div class="row"><span class="n">03</span><p>The four <b>semantic colors still carry meaning</b> and remain visually distinct — verify on a DAG with a core compute, an escape node, a temporal read, and a failed invariant.</p></div>
+      <div class="row"><span class="n">04</span><p>The <b>oval mark</b> appears in the titlebar and status bar; the favicon is the <b>original</b> mark.</p></div>
+      <div class="row"><span class="n">05</span><p><b>Zero layout / behavior diffs</b> — panel sizes, drag handles, keyboard shortcuts, and component structure are untouched. Pure visual PR.</p></div>
+      <div class="row"><span class="n">06</span><p>Contrast holds: body text ≥ <b>AA</b> on ink; the IDE mock in <a href="Igniter IDE.html">Igniter IDE.html</a> is the visual source of truth.</p></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap foot">
+    <div class="l"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg><div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div></div>
+    <div class="meta">DS-IDE-01 · Ember on Ink<br>Re-skin only · layout &amp; behavior unchanged</div>
+  </div>
+</footer>
+
+<script src="assets/ig-mark.js"></script>
+</body>
+</html>

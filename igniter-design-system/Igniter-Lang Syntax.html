@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>igniter-lang — Syntax Theme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="assets/ig-brand.css" rel="stylesheet">
+<style>
+body{margin:0;color:var(--grey-2);font-family:var(--sans);font-size:15px;line-height:1.6;}
+.wrap{max-width:1180px;margin:0 auto;padding:0 40px;}
+.rule{height:1px;background:var(--line);border:0;margin:0;}
+a{color:var(--ember);text-decoration:none;} a:hover{text-decoration:underline;}
+
+/* masthead */
+.top{display:flex;align-items:center;justify-content:space-between;padding:20px 40px;border-bottom:1px solid var(--line);}
+.top .l{display:flex;align-items:center;gap:12px;}
+.top .l .mk{width:24px;}
+.top .l .wm{font-size:15px;}
+.top .nav{display:flex;gap:22px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;}
+.top .nav a{color:var(--grey);}
+.top .nav a:hover{color:var(--grey-3);text-decoration:none;}
+.top .r{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);}
+.top .r span{color:var(--ignite);}
+
+section{padding:72px 0;}
+.sechead{display:flex;align-items:baseline;gap:18px;margin-bottom:38px;}
+.sechead .num{font-family:var(--mono);font-size:12px;color:var(--ignite);letter-spacing:.1em;}
+.sechead h2{font-family:var(--mono);font-weight:600;font-size:19px;letter-spacing:.02em;color:var(--grey-3);margin:0;}
+.sechead .meta{margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);}
+
+/* hero */
+.hero{padding:80px 0 64px;}
+.hero .kicker{margin-bottom:22px;}
+.hero h1{font-family:var(--sans);font-weight:600;font-size:42px;letter-spacing:-.02em;color:var(--grey-3);margin:0;max-width:20ch;line-height:1.08;}
+.hero h1 em{font-style:normal;color:var(--ignite);}
+.hero p{font-size:17px;color:var(--grey);margin:20px 0 0;max-width:56ch;line-height:1.55;}
+
+/* code token classes — DARK (canonical) */
+.ig-code{font-family:var(--mono);font-size:13.5px;line-height:1.85;}
+.t-cm{color:#6f6256;font-style:italic;}
+.t-kw{color:#ff6a3d;font-weight:600;}
+.t-ty{color:#f0a868;}
+.t-st{color:#8fbf8a;}
+.t-nm{color:#ffb07a;}
+.t-at{color:#5ec8d8;}
+.t-op{color:#9a8a7c;}
+.t-id{color:#e7ddd2;}
+.t-fn{color:#c4b6a8;}
+
+/* the specimen window */
+.specimen{display:grid;grid-template-columns:1.55fr 1fr;gap:24px;align-items:start;}
+.win{border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 24px 64px -34px rgba(0,0,0,.7);}
+.win .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--ink-2);}
+.win .bar .dots{display:flex;gap:6px;}
+.win .bar .dots i{width:11px;height:11px;border-radius:50%;display:block;background:#4d4035;}
+.win .bar .fn{font-family:var(--mono);font-size:12px;color:var(--grey);margin-left:6px;}
+.win .bar .ln{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);}
+.win.dark{background:var(--ink-1);}
+.win.dark .editor{display:flex;}
+.win .gutter{padding:18px 0 18px;text-align:right;user-select:none;font-family:var(--mono);font-size:13px;line-height:1.85;color:#4d4035;border-right:1px solid var(--line);min-width:44px;}
+.win .gutter span{display:block;padding:0 14px 0 12px;}
+.win .src{padding:18px 20px;overflow:auto;flex:1;}
+.win .src pre{margin:0;}
+
+/* legend / token table */
+.tok-side{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.tok-side .h{padding:13px 18px;background:var(--ink-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey-2);}
+.tok-row{display:grid;grid-template-columns:14px 1fr auto;gap:13px;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line);background:var(--ink-1);}
+.tok-row:last-child{border-bottom:0;}
+.tok-row .sw{width:14px;height:14px;border-radius:4px;}
+.tok-row .nm{font-family:var(--mono);font-size:12.5px;color:var(--grey-3);font-weight:500;}
+.tok-row .nm small{display:block;font-size:11px;color:var(--grey);font-weight:400;margin-top:2px;letter-spacing:0;}
+.tok-row .hex{font-family:var(--mono);font-size:11px;color:var(--grey);letter-spacing:.03em;}
+
+/* mapping table */
+.map{border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.map .row{display:grid;grid-template-columns:1.1fr 1.4fr 0.9fr 0.7fr;gap:0;border-bottom:1px solid var(--line);}
+.map .row:last-child{border-bottom:0;}
+.map .row.head{background:var(--ink-2);}
+.map .row.head .c{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);font-weight:600;}
+.map .c{padding:13px 18px;border-right:1px solid var(--line);display:flex;align-items:center;gap:10px;font-size:13px;}
+.map .c:last-child{border-right:0;}
+.map .row:not(.head){background:var(--ink-1);}
+.map .mono{font-family:var(--mono);font-size:12px;}
+.map .tok-eg{font-family:var(--mono);font-size:12.5px;}
+.map .sw{width:12px;height:12px;border-radius:3px;flex:none;}
+.map .hex{font-family:var(--mono);font-size:11.5px;color:var(--grey);}
+.map .role{color:var(--grey);font-size:12.5px;}
+
+/* semantic colors */
+.sem-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
+.sem{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--ink-1);}
+.sem .chip{height:74px;display:flex;align-items:flex-end;padding:12px;}
+.sem .chip .dot{width:12px;height:12px;border-radius:50%;background:rgba(0,0,0,.35);}
+.sem .info{padding:16px 18px;}
+.sem .info .nm{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--grey-3);}
+.sem .info .role{font-size:12.5px;color:var(--grey);margin-top:5px;line-height:1.5;}
+.sem .info .hex{font-family:var(--mono);font-size:11px;color:var(--grey);margin-top:11px;}
+.sem .info .hex b{color:var(--ember);font-weight:500;}
+.sem-note{margin-top:20px;font-size:13.5px;color:var(--grey);max-width:74ch;line-height:1.6;}
+.sem-note b{color:var(--grey-2);}
+
+/* light specimen */
+.light-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;}
+.win.light{background:#f5f1ea;border-color:#d8cdbd;}
+.win.light .bar{background:#ece5da;border-color:#d8cdbd;}
+.win.light .bar .dots i{background:#c4b09a;}
+.win.light .bar .fn,.win.light .bar .ln{color:#8a7964;}
+.win.light .gutter{color:#c4b09a;border-color:#e0d6c8;}
+.win.light .editor{display:flex;}
+.l-cm{color:#9a8576;font-style:italic;}
+.l-kw{color:#cf4517;font-weight:600;}
+.l-ty{color:#a96b2c;}
+.l-st{color:#4f8a52;}
+.l-nm{color:#bf5a28;}
+.l-at{color:#1f7d8c;}
+.l-op{color:#8a7964;}
+.l-id{color:#2a2018;}
+.l-fn{color:#5a4a3a;}
+.light-note{font-size:13px;color:var(--grey);line-height:1.6;}
+.light-note h4{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey-2);margin:0 0 12px;}
+.light-note p{margin:0 0 14px;}
+.light-note .pair{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;}
+.light-note .pair:last-child{border-bottom:0;}
+.light-note .pair .k{color:var(--grey-2);}
+.light-note .pair .v{color:var(--grey);}
+
+/* impl spec block */
+.impl{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#13100c;}
+.impl .h{display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-bottom:1px solid var(--line);background:var(--ink-2);}
+.impl .h .t{font-family:var(--mono);font-size:12px;color:var(--grey-2);}
+.impl .h .cp{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);border:1px solid var(--line-2);border-radius:5px;padding:3px 9px;}
+.impl pre{margin:0;padding:20px 22px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.8;color:var(--grey-2);}
+.impl .k{color:#5ec8d8;} .impl .s{color:#8fbf8a;} .impl .c{color:#6f6256;font-style:italic;} .impl .p{color:#9a8a7c;}
+
+footer{padding:46px 0 60px;}
+.foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px;}
+.foot .l{display:flex;align-items:center;gap:14px;}
+.foot .l .mk{width:30px;} .foot .l .wm{font-size:15px;}
+.foot .meta{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--line-2);text-align:right;line-height:1.8;}
+
+@media (max-width:900px){
+  .wrap{padding:0 22px;} .top{padding:16px 22px;} .top .nav{display:none;}
+  .specimen,.light-grid{grid-template-columns:1fr;}
+  .sem-grid{grid-template-columns:1fr 1fr;}
+  .map .row,.map .row.head{grid-template-columns:1fr 1fr;}
+  .map .c:nth-child(3),.map .c:nth-child(4){display:none;}
+}
+</style>
+</head>
+<body class="ig-field">
+
+<div class="top">
+  <div class="l">
+    <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+    <span class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></span>
+  </div>
+  <div class="nav">
+    <a href="Igniter-Lang Landing.html">landing</a>
+    <a href="Igniter-Lang Brand System.html">brand</a>
+    <a href="Igniter IDE.html">ide</a>
+    <a href="Igniter Design System Plan.html">plan</a>
+  </div>
+  <div class="r">syntax theme · <span>v1</span></div>
+</div>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="kicker"><span class="dot">◆</span>&nbsp;&nbsp;THE .IG SYNTAX THEME · EMBER ON INK</div>
+    <h1>Code that reads like the <em>brand.</em></h1>
+    <p>One palette runs from the logo to the last token of a contract. Keywords ignite, types glow amber, the meaning-bearing colors of the language stay exactly where they carry meaning. Here's the theme, ready to drop into Monaco.</p>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §01 SPECIMEN + LEGEND -->
+  <section>
+    <div class="sechead"><span class="num">§01</span><h2>The Specimen</h2><span class="meta">igniter-dark · canonical</span></div>
+    <div class="specimen">
+      <div class="win dark">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="fn">settlement.ig</span><span class="ln">igniter-dark</span></div>
+        <div class="editor">
+          <div class="gutter"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span></div>
+          <div class="src ig-code"><pre><span class="t-cm">-- settlement.ig — history-aware ledger contract</span>
+<span class="t-kw">module</span> <span class="t-id">SparkCRM</span><span class="t-op">.</span><span class="t-id">Ledger</span>
+<span class="t-kw">import</span> <span class="t-id">Lang</span><span class="t-op">.</span><span class="t-id">Core</span><span class="t-op">.</span><span class="t-id">Money</span>
+
+<span class="t-kw">contract</span> <span class="t-ty">Settlement</span> <span class="t-op">{</span>
+  <span class="t-kw">input</span>   <span class="t-id">account_id</span><span class="t-op">:</span> <span class="t-ty">String</span>
+  <span class="t-kw">input</span>   <span class="t-id">base_bid</span><span class="t-op">:</span>   <span class="t-ty">Decimal</span><span class="t-op">[</span><span class="t-nm">2</span><span class="t-op">]</span>
+  <span class="t-kw">input</span>   <span class="t-id">tax_rate</span><span class="t-op">:</span>   <span class="t-ty">Decimal</span><span class="t-op">[</span><span class="t-nm">4</span><span class="t-op">]</span>
+
+  <span class="t-kw">read</span>    <span class="t-id">ledger</span><span class="t-op">:</span> <span class="t-ty">History</span><span class="t-op">[</span><span class="t-ty">Decimal</span><span class="t-op">[</span><span class="t-nm">2</span><span class="t-op">]]</span> <span class="t-kw">from</span> <span class="t-ty">TBackend</span> <span class="t-kw">lifecycle</span><span class="t-op">:</span> <span class="t-at">:durable</span>
+
+  <span class="t-kw">compute</span> <span class="t-id">gross_bid</span> <span class="t-op">=</span> <span class="t-fn">mul</span><span class="t-op">(</span><span class="t-id">base_bid</span><span class="t-op">,</span> <span class="t-id">tax_rate</span><span class="t-op">)</span>
+  <span class="t-kw">compute</span> <span class="t-id">prior</span>     <span class="t-op">=</span> <span class="t-id">ledger</span><span class="t-op">.</span><span class="t-fn">as_of</span><span class="t-op">(</span><span class="t-id">clock</span><span class="t-op">.</span><span class="t-id">now</span><span class="t-op">)</span>
+  <span class="t-kw">compute</span> <span class="t-id">delta</span>     <span class="t-op">=</span> <span class="t-id">gross_bid</span> <span class="t-op">-</span> <span class="t-id">prior</span>
+
+  <span class="t-kw">invariant</span> <span class="t-id">non_negative</span> <span class="t-kw">predicate</span><span class="t-op">:</span> <span class="t-id">gross_bid</span> <span class="t-op">&gt;=</span> <span class="t-nm">0.00</span> <span class="t-kw">severity</span><span class="t-op">:</span> <span class="t-at">:error</span>
+  <span class="t-kw">snapshot</span> <span class="t-id">point</span> <span class="t-op">=</span> <span class="t-id">gross_bid</span> <span class="t-kw">at</span><span class="t-op">:</span> <span class="t-id">clock</span><span class="t-op">.</span><span class="t-id">tick</span>
+
+  <span class="t-kw">output</span>  <span class="t-id">gross_bid</span><span class="t-op">:</span> <span class="t-ty">Decimal</span><span class="t-op">[</span><span class="t-nm">2</span><span class="t-op">]</span>
+  <span class="t-kw">output</span>  <span class="t-id">delta</span><span class="t-op">:</span>     <span class="t-ty">Decimal</span><span class="t-op">[</span><span class="t-nm">2</span><span class="t-op">]</span>
+<span class="t-op">}</span></pre></div>
+        </div>
+      </div>
+
+      <div class="tok-side">
+        <div class="h">Token → Color</div>
+        <div class="tok-row"><span class="sw" style="background:#ff6a3d"></span><span class="nm">keyword<small>contract · compute · read</small></span><span class="hex">#FF6A3D</span></div>
+        <div class="tok-row"><span class="sw" style="background:#f0a868"></span><span class="nm">type<small>Decimal · History · String</small></span><span class="hex">#F0A868</span></div>
+        <div class="tok-row"><span class="sw" style="background:#ffb07a"></span><span class="nm">number<small>2 · 4 · 0.00 · true</small></span><span class="hex">#FFB07A</span></div>
+        <div class="tok-row"><span class="sw" style="background:#8fbf8a"></span><span class="nm">string<small>"..." literals</small></span><span class="hex">#8FBF8A</span></div>
+        <div class="tok-row"><span class="sw" style="background:#5ec8d8"></span><span class="nm">symbol<small>:durable · :error</small></span><span class="hex">#5EC8D8</span></div>
+        <div class="tok-row"><span class="sw" style="background:#e7ddd2"></span><span class="nm">identifier<small>node &amp; port names</small></span><span class="hex">#E7DDD2</span></div>
+        <div class="tok-row"><span class="sw" style="background:#9a8a7c"></span><span class="nm">delimiter<small>= ( ) [ ] . ,</small></span><span class="hex">#9A8A7C</span></div>
+        <div class="tok-row"><span class="sw" style="background:#6f6256"></span><span class="nm">comment<small>-- italic</small></span><span class="hex">#6F6256</span></div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §02 MAPPING -->
+  <section>
+    <div class="sechead"><span class="num">§02</span><h2>Monarch Token Map</h2><span class="meta">monaco rule → brand</span></div>
+    <div class="map">
+      <div class="row head"><span class="c">Monarch token</span><span class="c">Role in .ig</span><span class="c">Color</span><span class="c">Style</span></div>
+      <div class="row"><span class="c mono t-kw">keyword</span><span class="c role">Language constructs — <span class="mono" style="color:var(--grey-3)">contract, input, compute, output, read, snapshot, invariant, loop, escape…</span></span><span class="c"><span class="sw" style="background:#ff6a3d"></span><span class="hex">#FF6A3D</span></span><span class="c hex">bold</span></div>
+      <div class="row"><span class="c mono t-ty">type.identifier</span><span class="c role">Types &amp; capitalized refs — <span class="mono" style="color:var(--grey-3)">Decimal[2], History, TBackend, String</span></span><span class="c"><span class="sw" style="background:#f0a868"></span><span class="hex">#F0A868</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-nm">number</span><span class="c role">Numeric &amp; bool literals — <span class="mono" style="color:var(--grey-3)">2, 0.00, true, false</span></span><span class="c"><span class="sw" style="background:#ffb07a"></span><span class="hex">#FFB07A</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-st">string</span><span class="c role">Quoted string literals</span><span class="c"><span class="sw" style="background:#8fbf8a"></span><span class="hex">#8FBF8A</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-at">attribute.value</span><span class="c role">Lifecycle &amp; severity symbols — <span class="mono" style="color:var(--grey-3)">:durable, :error, :window</span></span><span class="c"><span class="sw" style="background:#5ec8d8"></span><span class="hex">#5EC8D8</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-id">identifier</span><span class="c role">Node, port &amp; variable names</span><span class="c"><span class="sw" style="background:#e7ddd2"></span><span class="hex">#E7DDD2</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-op">delimiter</span><span class="c role">Operators &amp; punctuation</span><span class="c"><span class="sw" style="background:#9a8a7c"></span><span class="hex">#9A8A7C</span></span><span class="c hex">—</span></div>
+      <div class="row"><span class="c mono t-cm">comment</span><span class="c role">Line comments — <span class="mono" style="color:var(--grey-3)">-- …</span></span><span class="c"><span class="sw" style="background:#6f6256"></span><span class="hex">#6F6256</span></span><span class="c hex">italic</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §03 SEMANTIC -->
+  <section>
+    <div class="sechead"><span class="num">§03</span><h2>Meaning-Bearing Colors</h2><span class="meta">preserved · retuned for ink</span></div>
+    <div class="sem-grid">
+      <div class="sem"><div class="chip" style="background:#5db87a"><span class="dot"></span></div><div class="info"><div class="nm">core</div><div class="role">Pure compute &amp; core fragments. The trustworthy path.</div><div class="hex"><b>#5DB87A</b> · was #22c55e</div></div></div>
+      <div class="sem"><div class="chip" style="background:#f0a868"><span class="dot"></span></div><div class="info"><div class="nm">escape</div><div class="role">Side effects &amp; escape hatches. Handle with care.</div><div class="hex"><b>#F0A868</b> · = brand Amber</div></div></div>
+      <div class="sem"><div class="chip" style="background:#5ec8d8"><span class="dot"></span></div><div class="info"><div class="nm">temporal</div><div class="role">Time, history &amp; clocks. The one cool accent — earns its contrast.</div><div class="hex"><b>#5EC8D8</b> · was #06b6d4</div></div></div>
+      <div class="sem"><div class="chip" style="background:#d9694a"><span class="dot"></span></div><div class="info"><div class="nm">oof</div><div class="role">Errors &amp; failed invariants. Aligned to brand's signal red.</div><div class="hex"><b>#D9694A</b> · was #ef4444</div></div></div>
+    </div>
+    <p class="sem-note">These four colors are not decoration — they <b>classify fragments</b> in the language (a compute is <span style="color:#5db87a">core</span>, an <span style="color:#f0a868">escape</span> is privileged, a <span style="color:#5ec8d8">temporal</span> read touches history). We keep all four meanings, but warm them so they sit on ink instead of cold gray. <b>escape</b> simply <em>is</em> brand Amber; <b>temporal</b> cyan is deliberately the only cool note in the system — time should feel different from everything else.</p>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §04 LIGHT -->
+  <section>
+    <div class="sechead"><span class="num">§04</span><h2>Light Variant — igniter-paper</h2><span class="meta">for docs &amp; print</span></div>
+    <div class="light-grid">
+      <div class="win light">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="fn">add.ig</span><span class="ln">igniter-paper</span></div>
+        <div class="editor">
+          <div class="gutter"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span></div>
+          <div class="src ig-code"><pre><span class="l-cm">-- the hello-world of igniter-lang</span>
+<span class="l-kw">module</span> <span class="l-id">Lang</span><span class="l-op">.</span><span class="l-id">Examples</span><span class="l-op">.</span><span class="l-id">Add</span>
+
+<span class="l-kw">contract</span> <span class="l-ty">Add</span> <span class="l-op">{</span>
+  <span class="l-kw">input</span>   <span class="l-id">a</span><span class="l-op">:</span> <span class="l-ty">Integer</span>
+  <span class="l-kw">input</span>   <span class="l-id">b</span><span class="l-op">:</span> <span class="l-ty">Integer</span>
+
+  <span class="l-kw">compute</span> <span class="l-id">sum</span> <span class="l-op">=</span> <span class="l-id">a</span> <span class="l-op">+</span> <span class="l-id">b</span>
+
+  <span class="l-kw">output</span>  <span class="l-id">sum</span><span class="l-op">:</span> <span class="l-ty">Integer</span>
+<span class="l-op">}</span></pre></div>
+        </div>
+      </div>
+      <div class="light-note">
+        <h4>Same hues, darkened for paper</h4>
+        <p>The light theme keeps every token's <em>identity</em> — keyword is still ignition, type still amber — just dropped in lightness so contrast holds on warm paper (<span style="font-family:var(--mono);color:var(--grey-3)">#F5F1EA</span>).</p>
+        <div class="pair"><span class="k">keyword</span><span class="v">#FF6A3D → #CF4517</span></div>
+        <div class="pair"><span class="k">type</span><span class="v">#F0A868 → #A96B2C</span></div>
+        <div class="pair"><span class="k">number</span><span class="v">#FFB07A → #BF5A28</span></div>
+        <div class="pair"><span class="k">string</span><span class="v">#8FBF8A → #4F8A52</span></div>
+        <div class="pair"><span class="k">symbol</span><span class="v">#5EC8D8 → #1F7D8C</span></div>
+        <div class="pair"><span class="k">identifier</span><span class="v">#E7DDD2 → #2A2018</span></div>
+        <div class="pair"><span class="k">comment</span><span class="v">#6F6256 → #9A8576</span></div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- §05 IMPL -->
+  <section>
+    <div class="sechead"><span class="num">§05</span><h2>Drop-in for Monaco</h2><span class="meta">MonacoEditor.svelte</span></div>
+    <div class="impl">
+      <div class="h"><span class="t">monaco.editor.defineTheme('igniter-dark', …)</span><span class="cp">replace existing rules</span></div>
+<pre><span class="c">// Ember-on-Ink — replaces the cold vs-dark rules</span>
+rules: [
+  { token: <span class="s">'keyword'</span>,         foreground: <span class="s">'ff6a3d'</span>, fontStyle: <span class="s">'bold'</span> },
+  { token: <span class="s">'type.identifier'</span>, foreground: <span class="s">'f0a868'</span> },
+  { token: <span class="s">'number'</span>,          foreground: <span class="s">'ffb07a'</span> },
+  { token: <span class="s">'number.float'</span>,    foreground: <span class="s">'ffb07a'</span> },
+  { token: <span class="s">'string'</span>,          foreground: <span class="s">'8fbf8a'</span> },
+  { token: <span class="s">'attribute.value'</span>, foreground: <span class="s">'5ec8d8'</span> },
+  { token: <span class="s">'identifier'</span>,      foreground: <span class="s">'e7ddd2'</span> },
+  { token: <span class="s">'delimiter'</span>,       foreground: <span class="s">'9a8a7c'</span> },
+  { token: <span class="s">'comment'</span>,         foreground: <span class="s">'6f6256'</span>, fontStyle: <span class="s">'italic'</span> },
+],
+colors: {
+  <span class="k">'editor.background'</span>:              <span class="s">'#1a1510'</span>,  <span class="c">// ink-1</span>
+  <span class="k">'editor.foreground'</span>:              <span class="s">'#e7ddd2'</span>,
+  <span class="k">'editor.lineHighlightBackground'</span>: <span class="s">'#221b15'</span>,  <span class="c">// ink-2</span>
+  <span class="k">'editor.selectionBackground'</span>:     <span class="s">'#ff6a3d33'</span>,
+  <span class="k">'editorCursor.foreground'</span>:        <span class="s">'#ff6a3d'</span>,  <span class="c">// ignition</span>
+  <span class="k">'editorLineNumber.foreground'</span>:    <span class="s">'#4d4035'</span>,
+  <span class="k">'editorBracketMatch.border'</span>:      <span class="s">'#f0a868'</span>,
+},
+</pre>
+    </div>
+  </section>
+
+</div>
+
+<hr class="rule">
+
+<footer>
+  <div class="wrap foot">
+    <div class="l">
+      <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+      <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+    </div>
+    <div class="meta">Syntax Theme v1 · igniter-dark / igniter-paper<br>Ember on Ink · meaning-bearing colors preserved</div>
+  </div>
+</footer>
+
+<script src="assets/ig-mark.js"></script>
+</body>
+</html>

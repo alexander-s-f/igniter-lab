@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>igniter-lang — a language that shows its work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="assets/ig-brand.css" rel="stylesheet">
+<style>
+body{margin:0;color:var(--grey-2);font-family:var(--sans);font-size:16px;line-height:1.6;overflow-x:hidden;}
+.wrap{max-width:1140px;margin:0 auto;padding:0 40px;}
+a{color:inherit;text-decoration:none;}
+
+/* syntax */
+.cm{color:#6f6256;font-style:italic;}
+.kw{color:var(--ignite);}
+.ty{color:var(--amber);}
+.id{color:var(--grey-3);}
+.op{color:var(--grey);}
+.nm{color:var(--ember);}
+
+/* ---- nav ---- */
+.nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(21,17,13,.74);border-bottom:1px solid var(--line);}
+.nav .in{max-width:1140px;margin:0 auto;padding:14px 40px;display:flex;align-items:center;gap:32px;}
+.nav .brand{display:flex;align-items:center;gap:12px;}
+.nav .brand .mk{width:28px;flex:none;}
+.nav .brand .wm{font-size:18px;}
+.nav .links{display:flex;gap:26px;margin-left:14px;font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;color:var(--grey);}
+.nav .links a:hover{color:var(--grey-3);}
+.nav .right{margin-left:auto;display:flex;align-items:center;gap:14px;}
+.nav .ghost{font-family:var(--mono);font-size:12.5px;color:var(--grey-2);display:flex;align-items:center;gap:7px;}
+.nav .ghost .star{color:var(--amber);}
+.nav .cta{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink);background:var(--ignite);padding:8px 16px;border-radius:6px;white-space:nowrap;}
+.nav .cta:hover{background:#ff7d54;}
+
+/* ---- hero ---- */
+.hero{position:relative;padding:88px 0 76px;overflow:hidden;}
+.hero-glow{position:absolute;left:-12%;top:-20%;width:760px;height:760px;border-radius:50%;
+  background:radial-gradient(circle, rgba(255,106,61,.18), rgba(255,106,61,0) 60%);pointer-events:none;}
+.hero-grid-bg{position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:64px 64px;opacity:.13;mask-image:radial-gradient(ellipse 60% 60% at 70% 30%, #000 20%, transparent 76%);}
+.hero-in{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center;}
+.tag-pill{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--grey-2);border:1px solid var(--line-2);border-radius:30px;padding:5px 14px;}
+.tag-pill .d{width:6px;height:6px;border-radius:50%;background:var(--ignite);box-shadow:0 0 8px var(--ignite);}
+.hero h1{font-family:var(--sans);font-weight:600;font-size:54px;line-height:1.05;letter-spacing:-.02em;color:var(--grey-3);
+  margin:22px 0 0;text-wrap:balance;}
+.hero h1 .lit{color:var(--ignite);}
+.hero .sub{font-size:18.5px;color:var(--grey);margin:22px 0 0;max-width:46ch;line-height:1.55;}
+.hero .sub b{color:var(--grey-2);font-weight:600;}
+.hero .cmd{display:flex;align-items:center;gap:8px 20px;margin-top:34px;flex-wrap:wrap;}
+.hero .install{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:13.5px;background:var(--ink-2);
+  border:1px solid var(--line);border-radius:8px;padding:12px 16px;color:var(--grey-2);white-space:nowrap;}
+.hero .install .pr{color:var(--ignite);}
+.hero .install .cp{margin-left:6px;color:var(--grey);border-left:1px solid var(--line);padding-left:12px;font-size:11px;letter-spacing:.06em;cursor:pointer;}
+.hero .install .cp:hover{color:var(--ember);}
+.hero .docs{font-family:var(--mono);font-size:13px;color:var(--grey-2);display:inline-flex;align-items:center;gap:8px;white-space:nowrap;}
+.hero .docs:hover{color:var(--ember);}
+.hero .meta{margin-top:24px;display:flex;gap:24px;font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--grey);}
+.hero .meta b{color:var(--amber);font-weight:500;}
+
+/* code card */
+.codecard{background:var(--ink-1);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.7), 0 0 0 1px rgba(255,106,61,.04);}
+.codecard .bar{display:flex;align-items:center;gap:8px;padding:11px 16px;border-bottom:1px solid var(--line);background:var(--ink-2);}
+.codecard .bar .dots{display:flex;gap:6px;}
+.codecard .bar .dots i{width:11px;height:11px;border-radius:50%;display:block;}
+.codecard .bar .dots i:nth-child(1){background:#4d4035;} .codecard .bar .dots i:nth-child(2){background:#4d4035;} .codecard .bar .dots i:nth-child(3){background:#4d4035;}
+.codecard .bar .fn{font-family:var(--mono);font-size:12px;color:var(--grey);margin-left:6px;}
+.codecard .bar .mk{width:16px;margin-left:auto;}
+.codecard pre{margin:0;padding:20px 22px;overflow:auto;}
+.codecard code{font-family:var(--mono);font-size:13.5px;line-height:1.85;color:var(--grey-2);}
+.codecard .result{border-top:1px solid var(--line);background:#13100c;padding:14px 22px;font-family:var(--mono);font-size:12.5px;line-height:1.8;color:var(--grey-2);}
+.codecard .result .ok{color:var(--ok);}
+.codecard .result .mu{color:var(--grey);}
+.codecard .result .hl{color:var(--ember);}
+
+/* section heading */
+.shead{text-align:center;max-width:640px;margin:0 auto 54px;}
+.shead .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);}
+.shead .k b{color:var(--ignite);}
+.shead h2{font-family:var(--sans);font-weight:600;font-size:36px;letter-spacing:-.01em;color:var(--grey-3);margin:16px 0 0;text-wrap:balance;}
+.shead p{font-size:17px;color:var(--grey);margin:14px 0 0;line-height:1.55;}
+
+/* pillars */
+.band{padding:92px 0;border-top:1px solid var(--line);}
+.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+.pillar{position:relative;border:1px solid var(--line);background:var(--ink-1);border-radius:12px;padding:34px 30px 30px;}
+.pillar .ix{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ignite);}
+.pillar .gl{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin:18px 0 18px;
+  background:rgba(255,106,61,.1);border:1px solid rgba(255,106,61,.25);}
+.pillar .gl svg{width:18px;height:18px;}
+.pillar h3{font-family:var(--sans);font-weight:600;font-size:20px;color:var(--grey-3);margin:0 0 10px;}
+.pillar p{font-size:14.5px;color:var(--grey);margin:0;line-height:1.6;}
+.pillar p code{font-family:var(--mono);color:var(--ember);font-size:12.5px;}
+
+/* anatomy */
+.anatomy{display:grid;grid-template-columns:1fr 1fr;gap:46px;align-items:center;}
+.anatomy .ann-list{display:flex;flex-direction:column;gap:24px;}
+.ann-item{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start;}
+.ann-item .tok{font-family:var(--mono);font-size:13px;font-weight:600;padding:5px 11px;border-radius:6px;white-space:nowrap;margin-top:2px;}
+.ann-item .tok.kw{background:rgba(255,106,61,.12);color:var(--ignite);}
+.ann-item .tok.ty{background:rgba(240,168,104,.12);color:var(--amber);}
+.ann-item .tok.fl{background:rgba(196,182,168,.1);color:var(--grey-2);}
+.ann-item h4{font-family:var(--sans);font-weight:600;font-size:16px;color:var(--grey-3);margin:0 0 5px;}
+.ann-item p{font-size:14px;color:var(--grey);margin:0;line-height:1.55;}
+
+/* feature grid */
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.fcell{background:var(--ink-1);padding:30px 28px;}
+.fcell .fh{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
+.fcell .fh .d{width:7px;height:7px;border-radius:50%;background:var(--ignite);box-shadow:0 0 8px rgba(255,106,61,.6);flex:none;}
+.fcell h4{font-family:var(--mono);font-size:13.5px;font-weight:600;color:var(--grey-3);margin:0;letter-spacing:.01em;}
+.fcell p{font-size:13.5px;color:var(--grey);margin:0;line-height:1.55;}
+
+/* receipt highlight */
+.receipt{display:grid;grid-template-columns:1fr 1fr;gap:46px;align-items:center;}
+.receipt .copy h2{font-family:var(--sans);font-weight:600;font-size:32px;color:var(--grey-3);margin:18px 0 0;letter-spacing:-.01em;line-height:1.12;text-wrap:balance;}
+.receipt .copy .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);}
+.receipt .copy .k b{color:var(--ignite);}
+.receipt .copy p{font-size:16px;color:var(--grey);margin:18px 0 0;line-height:1.6;}
+.receipt .copy p b{color:var(--grey-2);font-weight:600;}
+.seal{position:relative;background:var(--ink-1);border:1px solid var(--line);border-radius:12px;padding:34px;}
+.seal .row{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px dashed var(--line-2);font-family:var(--mono);font-size:12.5px;}
+.seal .row:last-child{border-bottom:0;}
+.seal .row .l{color:var(--grey);}
+.seal .row .v{color:var(--grey-3);white-space:nowrap;}
+.seal .row .v.ok{color:var(--ok);}
+.seal .row .v.ig{color:var(--ember);}
+.seal .stamp{position:absolute;top:-18px;right:24px;width:56px;height:56px;background:var(--ink);border:1px solid var(--line-2);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;}
+.seal .stamp .mk{width:34px;}
+
+/* cta band */
+.ctaband{position:relative;text-align:center;padding:100px 0;border-top:1px solid var(--line);overflow:hidden;}
+.ctaband .glow{position:absolute;left:50%;top:40%;width:680px;height:680px;transform:translate(-50%,-50%);
+  background:radial-gradient(circle, rgba(255,106,61,.16), rgba(255,106,61,0) 62%);pointer-events:none;}
+.ctaband .mk{width:64px;margin:0 auto 26px;filter:drop-shadow(0 0 28px rgba(255,106,61,.3));position:relative;}
+.ctaband h2{position:relative;font-family:var(--sans);font-weight:600;font-size:40px;color:var(--grey-3);margin:0 0 14px;letter-spacing:-.01em;text-wrap:balance;}
+.ctaband p{position:relative;font-size:17px;color:var(--grey);margin:0 auto 32px;max-width:46ch;}
+.ctaband .row{position:relative;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;}
+.ctaband .primary{font-family:var(--mono);font-size:13.5px;font-weight:600;color:var(--ink);background:var(--ignite);padding:12px 22px;border-radius:8px;white-space:nowrap;}
+.ctaband .primary:hover{background:#ff7d54;}
+.ctaband .secondary{font-family:var(--mono);font-size:13.5px;color:var(--grey-2);border:1px solid var(--line-2);padding:12px 22px;border-radius:8px;white-space:nowrap;}
+.ctaband .secondary:hover{color:var(--grey-3);border-color:var(--grey);}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:46px 0;}
+.foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;}
+.foot .l{display:flex;align-items:center;gap:14px;}
+.foot .l .mk{width:30px;}
+.foot .l .wm{font-size:15px;}
+.foot .fl{display:flex;gap:24px;font-family:var(--mono);font-size:12px;color:var(--grey);}
+.foot .fl a:hover{color:var(--grey-3);}
+.foot .meta{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--line-2);}
+
+@media (max-width:920px){
+  .wrap{padding:0 22px;} .nav .in{padding:14px 22px;}
+  .hero-in,.anatomy,.receipt{grid-template-columns:1fr;gap:36px;}
+  .pillars,.fgrid{grid-template-columns:1fr;}
+  .hero h1{font-size:40px;} .nav .links{display:none;}
+  .shead h2{font-size:28px;}
+}
+</style>
+</head>
+<body class="ig-field">
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="in">
+    <a class="brand" href="#"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg><span class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></span></a>
+    <div class="links">
+      <a href="#why">why</a>
+      <a href="#anatomy">contracts</a>
+      <a href="#proof">proof</a>
+      <a href="Igniter-Lang README.html">docs</a>
+      <a href="Igniter-Lang Brand System.html">brand</a>
+    </div>
+    <div class="right">
+      <a class="ghost" href="Igniter-Lang README.html"><span class="star">★</span> 312</a>
+      <a class="cta" href="#install">Get started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-grid-bg"></div>
+  <div class="wrap hero-in">
+    <div>
+      <div class="tag-pill"><span class="d"></span>epistemic contract language · v0.1 alpha</div>
+      <h1>A language that <span class="lit">shows its work.</span></h1>
+      <p class="sub">Declare your inputs, compute your outputs, and let the compiler hand you a result you can <b>audit, replay, and trust</b>. No hidden state. No silent effects. Just one honest spark.</p>
+      <div class="cmd" id="install">
+        <span class="install"><span class="pr">$</span> gem install igniter_lang --pre <span class="cp">copy</span></span>
+        <a class="docs" href="Igniter-Lang README.html">read the docs →</a>
+      </div>
+      <div class="meta">
+        <span>spec <b>ch1–9 accepted</b></span>
+        <span>stage <b>3 · open</b></span>
+        <span>license <b>MIT</b></span>
+      </div>
+    </div>
+
+    <div class="codecard">
+      <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="fn">add.ig</span><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg></div>
+<pre><code><span class="cm">-- declare it; the compiler proves it</span>
+<span class="kw">module</span> <span class="id">Lang.Examples.Add</span>
+
+<span class="kw">contract</span> <span class="ty">Add</span> {
+  <span class="kw">input</span>   <span class="id">a</span>: <span class="ty">Integer</span>
+  <span class="kw">input</span>   <span class="id">b</span>: <span class="ty">Integer</span>
+
+  <span class="kw">compute</span> <span class="id">sum</span> <span class="op">=</span> <span class="id">a</span> <span class="op">+</span> <span class="id">b</span>
+
+  <span class="kw">output</span>  <span class="id">sum</span>: <span class="ty">Integer</span>
+}</code></pre>
+      <div class="result"><span class="ok">✓</span> parsed · classified · typechecked <span class="mu">·</span> <span class="hl">sealed → add.igapp</span>
+<span class="mu">  2 inputs · 1 compute · 1 output · 0 hidden effects</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- WHY / PILLARS -->
+<section class="band" id="why">
+  <div class="wrap">
+    <div class="shead">
+      <div class="k"><b>◆</b>&nbsp; THE WHOLE IDEA</div>
+      <h2>Three promises, kept by the compiler.</h2>
+      <p>Everything in igniter-lang comes back to these. They're not features you turn on — they're the shape of the language.</p>
+    </div>
+    <div class="pillars">
+      <div class="pillar">
+        <div class="ix">01 / declared</div>
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h7"/></svg></div>
+        <h3>Declared, not discovered</h3>
+        <p>Every <code>input</code> and <code>output</code> is named up front. If a value isn't declared, it can't enter the program — so there's nothing to reverse-engineer later.</p>
+      </div>
+      <div class="pillar">
+        <div class="ix">02 / observable</div>
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/></svg></div>
+        <h3>Observable by default</h3>
+        <p>Each <code>compute</code> is a node in a small dependency graph. You can watch any value resolve — no black box, no stepping blind through someone else's effects.</p>
+      </div>
+      <div class="pillar">
+        <div class="ix">03 / time-aware</div>
+        <div class="gl"><svg viewBox="0 0 24 24" fill="none" stroke="#ff6a3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Time-aware from the start</h3>
+        <p>History and temporal types are first-class. "What did this value look like last Tuesday?" is a real question with a real, provable answer — built in, not bolted on.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ANATOMY -->
+<section class="band" id="anatomy">
+  <div class="wrap">
+    <div class="shead">
+      <div class="k"><b>◆</b>&nbsp; ANATOMY OF A CONTRACT</div>
+      <h2>Five words you'll use all day.</h2>
+      <p>A contract is the unit of work. Read one and you've read the language.</p>
+    </div>
+    <div class="anatomy">
+      <div class="codecard">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="fn">bid_summary.ig</span><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg></div>
+<pre><code><span class="kw">module</span> <span class="id">SparkCRM.Finance</span>
+
+<span class="kw">contract</span> <span class="ty">BidSummary</span> {
+  <span class="kw">input</span>   <span class="id">base_bid</span>: <span class="ty">Decimal</span>[<span class="nm">2</span>]
+  <span class="kw">input</span>   <span class="id">tax_rate</span>: <span class="ty">Decimal</span>[<span class="nm">4</span>]
+
+  <span class="kw">compute</span> <span class="id">gross_bid</span> <span class="op">=</span> <span class="id">mul</span>(<span class="id">base_bid</span>, <span class="id">tax_rate</span>)
+
+  <span class="kw">output</span>  <span class="id">gross_bid</span>: <span class="ty">Decimal</span>[<span class="nm">2</span>]
+}</code></pre>
+      </div>
+      <div class="ann-list">
+        <div class="ann-item"><span class="tok kw">contract</span><div><h4>The unit of work</h4><p>A named, self-contained block. It owns its inputs, its logic, and its outputs — nothing leaks across the boundary.</p></div></div>
+        <div class="ann-item"><span class="tok kw">input</span><div><h4>What goes in</h4><p>Declared parameters with explicit types. The compiler refuses anything undeclared, so the surface area is always exactly what you see.</p></div></div>
+        <div class="ann-item"><span class="tok ty">Decimal[2]</span><div><h4>Precision that's part of the type</h4><p>Money keeps two places, tax rates keep four. Rounding is a decision you make on purpose, never an accident the runtime makes for you.</p></div></div>
+        <div class="ann-item"><span class="tok kw">compute</span><div><h4>The observable step</h4><p>A single derivation, named so it can be watched, cached, and proven. Chain them and you've drawn a dependency graph.</p></div></div>
+        <div class="ann-item"><span class="tok kw">output</span><div><h4>What comes out</h4><p>The promised result, re-typed at the boundary. If the computation can't satisfy it, the program never compiles.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROOF / RECEIPT -->
+<section class="band" id="proof">
+  <div class="wrap">
+    <div class="receipt">
+      <div class="copy">
+        <div class="k"><b>◆</b>&nbsp; COMPILATION PRODUCES EVIDENCE</div>
+        <h2>Every result arrives with a receipt.</h2>
+        <p>When igniter-lang compiles a contract, it doesn't just emit a binary — it emits a sealed <b>.igapp</b> with the proof of what happened inside. Inputs, computes, types, and effects, all witnessed.</p>
+        <p>Hand the receipt to a teammate, a CI job, or an auditor six months from now. The answer is the same, and it's <b>checkable</b> — not "trust me," but "here's the proof."</p>
+      </div>
+      <div class="seal">
+        <div class="stamp"><svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg></div>
+        <div class="row"><span class="l">artifact</span><span class="v ig">add.igapp</span></div>
+        <div class="row"><span class="l">parsed</span><span class="v ok">✓ 14 tokens</span></div>
+        <div class="row"><span class="l">classified</span><span class="v ok">✓ core contract</span></div>
+        <div class="row"><span class="l">typechecked</span><span class="v ok">✓ Integer → Integer</span></div>
+        <div class="row"><span class="l">hidden effects</span><span class="v ok">0</span></div>
+        <div class="row"><span class="l">seal</span><span class="v ig">sha · a3f… witnessed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURE GRID -->
+<section class="band">
+  <div class="wrap">
+    <div class="shead">
+      <div class="k"><b>◆</b>&nbsp; WHAT'S IN THE BOX</div>
+      <h2>Small surface, serious guarantees.</h2>
+    </div>
+    <div class="fgrid">
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>Typed contracts</h4></div><p>Inputs and outputs are typed and checked before anything runs. Decimal precision is part of the type.</p></div>
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>Dependency graph</h4></div><p>Computes form a DAG you can inspect, cache, and replay deterministically.</p></div>
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>History &amp; BiHistory</h4></div><p>First-class temporal types. Ask what a value was, not just what it is.</p></div>
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>Sealed artifacts</h4></div><p>Compile to a proof-carrying <code style="font-family:var(--mono);color:var(--ember);font-size:12px;">.igapp</code> — the evidence travels with the result.</p></div>
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>Clear diagnostics</h4></div><p>Errors point at the contract, name the rule, and tell you what to fix. No stack-trace archaeology.</p></div>
+      <div class="fcell"><div class="fh"><span class="d"></span><h4>Ruby-native CLI</h4></div><p>Ships as a gem. <code style="font-family:var(--mono);color:var(--ember);font-size:12px;">igc compile</code> fits the toolchain you already have.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="ctaband">
+  <div class="glow"></div>
+  <div class="wrap">
+    <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+    <h2>Light it up.</h2>
+    <p>Write your first contract in under a minute. It's a gem install and a single file away.</p>
+    <div class="row">
+      <a class="primary" href="Igniter-Lang README.html">$ gem install igniter_lang --pre</a>
+      <a class="secondary" href="Igniter-Lang README.html">Read the docs →</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap foot">
+    <div class="l">
+      <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+      <span class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></span>
+    </div>
+    <div class="fl">
+      <a href="Igniter-Lang README.html">docs</a>
+      <a href="Igniter-Lang README.html">github</a>
+      <a href="Igniter-Lang Brand System.html">brand</a>
+      <a href="#why">why</a>
+    </div>
+    <div class="meta">Declared · Observable · Time-aware</div>
+  </div>
+</footer>
+
+<script src="assets/ig-mark.js"></script>
+</body>
+</html>

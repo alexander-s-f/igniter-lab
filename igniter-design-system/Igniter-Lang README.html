@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>igniter-lang — README</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="assets/ig-brand.css" rel="stylesheet">
+<style>
+/* ---- GitHub dark-dimmed chrome ---- */
+:root{
+  --gh-bg:#1c2128; --gh-canvas:#22272e; --gh-border:#373e47; --gh-border-2:#444c56;
+  --gh-text:#adbac7; --gh-head:#cdd9e5; --gh-mut:#768390; --gh-link:#539bf5;
+  --gh-codebg:#2d333b;
+}
+body{margin:0;background:var(--gh-bg);color:var(--gh-text);font-family:var(--sans);font-size:16px;line-height:1.6;}
+a{color:var(--gh-link);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* repo top bar */
+.repobar{border-bottom:1px solid var(--gh-border);padding:14px 0;background:var(--gh-canvas);}
+.repobar .in{max-width:1012px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:8px;font-size:15px;}
+.repobar .own{color:var(--gh-link);}
+.repobar .sep{color:var(--gh-mut);}
+.repobar .rep{color:var(--gh-link);font-weight:600;}
+.repobar .vis{margin-left:8px;border:1px solid var(--gh-border-2);color:var(--gh-mut);font-size:11px;font-weight:600;
+  padding:1px 8px;border-radius:20px;}
+.repobar .right{margin-left:auto;display:flex;gap:8px;}
+.repobar .btn{display:flex;align-items:center;gap:7px;border:1px solid var(--gh-border-2);border-radius:6px;
+  padding:5px 12px;font-size:13px;font-weight:600;color:var(--gh-head);background:#2d333b;}
+.repobar .btn .ct{background:var(--gh-bg);border:1px solid var(--gh-border-2);border-radius:20px;padding:0 7px;font-size:11px;color:var(--gh-mut);}
+.repobar .btn .star{color:var(--amber);}
+
+/* readme container */
+.shell{max-width:1012px;margin:24px auto 80px;padding:0 24px;display:grid;grid-template-columns:1fr 296px;gap:24px;}
+.readme{border:1px solid var(--gh-border);border-radius:6px;overflow:hidden;background:var(--gh-canvas);}
+.readme-head{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--gh-border);font-size:14px;color:var(--gh-head);}
+.readme-head .dot{width:8px;height:8px;border-radius:50%;background:var(--gh-mut);}
+.readme-body{padding:0;}
+
+/* ---- the branded hero banner (this is the deliverable) ---- */
+.banner{position:relative;background:var(--ink);
+  background-image:radial-gradient(circle at center, rgba(154,138,124,.07) 1px, transparent 1.4px);
+  background-size:28px 28px;
+  border-bottom:1px solid var(--gh-border);
+  padding:64px 40px 58px;text-align:center;overflow:hidden;}
+.banner::after{content:"";position:absolute;left:50%;top:46%;width:520px;height:520px;transform:translate(-50%,-50%);
+  background:radial-gradient(circle, rgba(255,106,61,.16), rgba(255,106,61,0) 62%);pointer-events:none;}
+.banner-in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;}
+.banner .lock{display:flex;align-items:center;gap:24px;}
+.banner .mk{width:86px;flex:none;filter:drop-shadow(0 0 30px rgba(255,106,61,.28));}
+.banner .wm{font-size:46px;}
+.banner .tag{font-family:var(--sans);font-size:17px;color:var(--grey-2);margin-top:22px;max-width:52ch;line-height:1.5;}
+.banner .tag b{color:var(--grey-3);font-weight:600;}
+.banner .micro{margin-top:18px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);}
+.banner .micro b{color:var(--amber);font-weight:500;}
+
+/* badge row */
+.badges{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:22px 30px 6px;}
+.badge{display:inline-flex;height:20px;border-radius:3px;overflow:hidden;font-family:var(--mono);font-size:11px;font-weight:500;line-height:20px;}
+.badge .k{background:#33373d;color:#e7e7e7;padding:0 7px;}
+.badge .v{padding:0 7px;color:#fff;}
+.badge .v.green{background:#2ea043;} .badge .v.ig{background:var(--ignite);color:#1a1109;font-weight:600;}
+.badge .v.amber{background:#d98b3a;} .badge .v.blue{background:#1f6feb;} .badge .v.grey{background:#6e7681;}
+.badge .v.purple{background:#8957e5;}
+
+/* markdown content */
+.md{padding:8px 32px 40px;}
+.md h2{font-family:var(--sans);font-size:24px;font-weight:600;color:var(--gh-head);border-bottom:1px solid var(--gh-border);
+  padding-bottom:8px;margin:34px 0 18px;}
+.md h3{font-size:18px;font-weight:600;color:var(--gh-head);margin:24px 0 12px;}
+.md p{margin:0 0 16px;}
+.md ul{margin:0 0 16px;padding-left:24px;}
+.md li{margin:6px 0;}
+.md strong{color:var(--gh-head);font-weight:600;}
+.md code{font-family:var(--mono);font-size:85%;background:rgba(99,110,123,.25);padding:.2em .4em;border-radius:6px;}
+.md hr{border:0;border-top:1px solid var(--gh-border);margin:28px 0;}
+.md .lead{font-size:17px;}
+
+/* code block */
+.codeblock{background:var(--ink);border:1px solid var(--gh-border);border-radius:8px;overflow:hidden;margin:0 0 18px;}
+.codeblock .cbhead{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid var(--gh-border);
+  font-family:var(--mono);font-size:11.5px;color:var(--grey);letter-spacing:.04em;}
+.codeblock .cbhead .fn{color:var(--grey-2);}
+.codeblock .cbhead .cp{color:var(--grey);border:1px solid var(--line-2);border-radius:5px;padding:2px 9px;font-size:10.5px;letter-spacing:.06em;}
+.codeblock pre{margin:0;padding:18px 20px;overflow:auto;}
+.codeblock code{font-family:var(--mono);font-size:13.5px;line-height:1.75;background:none;padding:0;color:var(--grey-2);}
+.cm{color:#6f6256;font-style:italic;}      /* comment */
+.kw{color:var(--ignite);}                   /* keyword */
+.ty{color:var(--amber);}                    /* type */
+.id{color:var(--grey-3);}                   /* identifier */
+.op{color:var(--grey);}                     /* operator */
+.nm{color:var(--ember);}                    /* number/literal */
+
+.terminal{background:#13100c;border:1px solid var(--gh-border);border-radius:8px;padding:16px 18px;margin:0 0 18px;
+  font-family:var(--mono);font-size:13px;line-height:1.85;color:var(--grey-2);overflow:auto;white-space:pre-wrap;}
+.terminal .pr{color:var(--ignite);}
+.terminal .ok{color:var(--ok);}
+.terminal .mu{color:var(--grey);}
+
+/* sidebar */
+.side h4{font-size:14px;font-weight:600;color:var(--gh-head);margin:0 0 8px;}
+.side p{font-size:14px;color:var(--gh-text);margin:0 0 16px;}
+.side .topics{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px;}
+.side .topic{background:rgba(31,111,235,.15);color:#6cb6ff;border-radius:20px;font-size:12px;padding:1px 10px;font-weight:500;}
+.side hr{border:0;border-top:1px solid var(--gh-border);margin:18px 0;}
+.side .stat{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gh-text);margin:8px 0;}
+.side .stat b{color:var(--gh-head);}
+.side .stat .ic{width:16px;color:var(--gh-mut);text-align:center;}
+.side .stat .star{color:var(--amber);}
+
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr;}
+  .side{order:-1;}
+  .banner .wm{font-size:32px;} .banner .mk{width:62px;}
+  .banner .lock{gap:16px;}
+}
+</style>
+</head>
+<body>
+
+<!-- repo bar -->
+<div class="repobar">
+  <div class="in">
+    <svg class="mk" data-ig-mark viewBox="0 0 100 100" style="width:20px;flex:none;"></svg>
+    <span class="own">igniter-lang</span><span class="sep">/</span><span class="rep">igniter-lang</span>
+    <span class="vis">Public</span>
+    <div class="right">
+      <span class="btn">Watch <span class="ct">9</span></span>
+      <span class="btn"><span class="star">★</span> Star <span class="ct">312</span></span>
+      <span class="btn">Fork <span class="ct">17</span></span>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <!-- README -->
+  <div class="readme">
+    <div class="readme-head"><span class="dot"></span>README.md</div>
+    <div class="readme-body">
+
+      <!-- ===== BRANDED HERO BANNER ===== -->
+      <div class="banner">
+        <div class="banner-in">
+          <div class="lock">
+            <svg class="mk" data-ig-mark viewBox="0 0 100 100"></svg>
+            <div class="wm"><span class="ig">igniter</span><span class="dash">-</span><span class="lang">lang</span></div>
+          </div>
+          <p class="tag">A small language where every value carries a <b>receipt</b> — declared inputs, observable computation, and a result the compiler can prove.</p>
+          <div class="micro">declared · observable · <b>time-aware</b></div>
+        </div>
+      </div>
+
+      <!-- badges -->
+      <div class="badges">
+        <span class="badge"><span class="k">build</span><span class="v green">passing</span></span>
+        <span class="badge"><span class="k">gem</span><span class="v ig">v0.1.0.alpha.1</span></span>
+        <span class="badge"><span class="k">stage</span><span class="v amber">3 · open</span></span>
+        <span class="badge"><span class="k">spec</span><span class="v blue">ch1–9 accepted</span></span>
+        <span class="badge"><span class="k">license</span><span class="v grey">MIT</span></span>
+        <span class="badge"><span class="k">made with</span><span class="v purple">ruby</span></span>
+      </div>
+
+      <!-- markdown -->
+      <div class="md">
+        <p class="lead">Igniter-lang turns a contract into a typed, observable program. You declare what goes <strong>in</strong>, what gets <strong>computed</strong>, and what comes <strong>out</strong> — the compiler checks the rest and hands you a result you can audit, replay, and trust.</p>
+
+        <p>No hidden state. No silent effects. Every computation is a node in a small dependency graph, and every node leaves a trace. That's the whole idea — and it fits on a napkin.</p>
+
+        <h2>Quick taste</h2>
+        <p>A contract is the unit of work. Here's the canonical one:</p>
+
+        <div class="codeblock">
+          <div class="cbhead"><span class="fn">add.ig</span><span class="cp">copy</span></div>
+<pre><code><span class="cm">-- The hello-world of igniter-lang</span>
+<span class="kw">module</span> <span class="id">Lang.Examples.Add</span>
+
+<span class="kw">contract</span> <span class="ty">Add</span> {
+  <span class="kw">input</span>   <span class="id">a</span>: <span class="ty">Integer</span>
+  <span class="kw">input</span>   <span class="id">b</span>: <span class="ty">Integer</span>
+
+  <span class="kw">compute</span> <span class="id">sum</span> <span class="op">=</span> <span class="id">a</span> <span class="op">+</span> <span class="id">b</span>
+
+  <span class="kw">output</span>  <span class="id">sum</span>: <span class="ty">Integer</span>
+}</code></pre>
+        </div>
+
+        <p>Types carry precision where it matters — money never rounds by accident:</p>
+
+        <div class="codeblock">
+          <div class="cbhead"><span class="fn">bid_summary.ig</span><span class="cp">copy</span></div>
+<pre><code><span class="kw">module</span> <span class="id">SparkCRM.Finance</span>
+
+<span class="kw">contract</span> <span class="ty">BidSummary</span> {
+  <span class="kw">input</span>   <span class="id">base_bid</span>: <span class="ty">Decimal</span>[<span class="nm">2</span>]
+  <span class="kw">input</span>   <span class="id">tax_rate</span>: <span class="ty">Decimal</span>[<span class="nm">4</span>]
+
+  <span class="kw">compute</span> <span class="id">gross_bid</span> <span class="op">=</span> <span class="id">mul</span>(<span class="id">base_bid</span>, <span class="id">tax_rate</span>)
+
+  <span class="kw">output</span>  <span class="id">gross_bid</span>: <span class="ty">Decimal</span>[<span class="nm">2</span>]
+}</code></pre>
+        </div>
+
+        <h2>Install</h2>
+        <p>Igniter ships as a Ruby gem while it's pre-v1:</p>
+        <div class="terminal"><span class="mu">$</span> gem install igniter_lang <span class="mu">--pre</span>
+<span class="mu"># compile a contract to a sealed .igapp</span>
+<span class="mu">$</span> <span class="pr">igc</span> compile add.ig <span class="mu">--out</span> add.igapp
+<span class="ok">✓</span> parsed · classified · typechecked · sealed
+<span class="ok">✓</span> add.igapp <span class="mu">(2 inputs · 1 compute · 1 output)</span></div>
+
+        <h2>Why igniter-lang</h2>
+        <ul>
+          <li><strong>Declared, not discovered.</strong> Inputs and outputs are named up front. If it isn't declared, it can't happen.</li>
+          <li><strong>Observable by default.</strong> Every computation is a node you can inspect — no stepping through a black box.</li>
+          <li><strong>Time-aware.</strong> History and temporal types are first-class, so "what did this value look like last Tuesday" is a real question with a real answer.</li>
+          <li><strong>Proof-carrying.</strong> Compilation produces evidence, not just a binary. The receipt travels with the result.</li>
+        </ul>
+
+        <hr>
+        <p style="color:var(--gh-mut);font-size:14px;">Stage 1 &amp; 2 closed · Stage 3 open. Pre-v1 and moving fast — the spec, runtime, and CLI surface are still settling. <a href="Igniter-Lang Landing.html">Read more →</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- sidebar -->
+  <div class="side">
+    <h4>About</h4>
+    <p>A language where every computation is declared, observable, and time-aware — and the result carries its own proof.</p>
+    <div class="topics">
+      <span class="topic">programming-language</span>
+      <span class="topic">compiler</span>
+      <span class="topic">contracts</span>
+      <span class="topic">type-system</span>
+      <span class="topic">ruby</span>
+    </div>
+    <hr>
+    <div class="stat"><span class="ic star">★</span><b>312</b>&nbsp;stars</div>
+    <div class="stat"><span class="ic">⑂</span><b>17</b>&nbsp;forks</div>
+    <div class="stat"><span class="ic">◉</span><b>9</b>&nbsp;watching</div>
+    <div class="stat"><span class="ic">⬡</span>MIT&nbsp;License</div>
+    <hr>
+    <h4>Releases</h4>
+    <p style="margin-bottom:6px;"><a href="#">v0.1.0.alpha.1</a> <span style="color:var(--gh-mut);font-size:12px;">· Latest</span></p>
+    <p style="font-size:12px;color:var(--gh-mut);">on Jun 3, 2026</p>
+    <hr>
+    <h4>Languages</h4>
+    <div style="display:flex;height:8px;border-radius:6px;overflow:hidden;margin-bottom:10px;">
+      <span style="flex:88;background:#701516;"></span><span style="flex:9;background:var(--ignite);"></span><span style="flex:3;background:#6e7681;"></span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--gh-mut);">
+      <span><b style="color:var(--gh-text)">●</b> Ruby 88%</span>
+      <span><b style="color:var(--ignite)">●</b> Igniter 9%</span>
+      <span><b style="color:var(--gh-mut)">●</b> Other 3%</span>
+    </div>
+  </div>
+</div>
+
+<script src="assets/ig-mark.js"></script>
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Igniter-Lang — Final Candidates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#15110d; --ink-1:#1a1510; --line:#3a2f26; --line-2:#4d4035;
+  --grey:#9a8a7c; --grey-3:#e7ddd2; --ignite:#ff6a3d; --ember:#ffb07a;
+  --amber:#f0a868; --paper:#f5f1ea; --white:#fff6ec;
+  --mono:'IBM Plex Mono', ui-monospace, monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--ink);
+  background-image:radial-gradient(circle at center, rgba(154,138,124,.06) 1px, transparent 1.4px);
+  background-size:30px 30px;color:var(--grey-3);font-family:var(--mono);}
+.wrap{max-width:1180px;margin:0 auto;padding:0 40px;}
+.top{display:flex;justify-content:space-between;align-items:center;padding:20px 40px;border-bottom:1px solid var(--line);
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);}
+.top .r span{color:var(--ignite);}
+.intro{padding:54px 0 30px;}
+.intro .k{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--grey);}
+.intro .k b{color:var(--ignite);}
+.intro h1{font-size:30px;font-weight:600;letter-spacing:-.01em;margin:16px 0 0;color:var(--grey-3);}
+.intro p{font-family:var(--mono);font-size:14px;color:var(--grey);max-width:62ch;margin:14px 0 0;line-height:1.6;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;padding-bottom:80px;}
+.cand{position:relative;border:1px solid var(--line);background:var(--ink-1);padding:30px 30px 34px;}
+.cand::before,.cand::after{content:"";position:absolute;width:9px;height:9px;}
+.cand::before{top:-1px;left:-1px;border-top:1px solid var(--amber);border-left:1px solid var(--amber);}
+.cand::after{bottom:-1px;right:-1px;border-bottom:1px solid var(--amber);border-right:1px solid var(--amber);}
+.cand .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+.cand .hd .lab{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);}
+.cand .hd .lab b{color:var(--ignite);}
+.cand .hd .pick{font-size:9.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink);
+  background:var(--amber);padding:3px 8px;border-radius:2px;}
+.cand h2{font-size:22px;font-weight:600;margin:0 0 4px;color:var(--grey-3);}
+.cand .sub{font-size:12.5px;color:var(--grey);margin-bottom:22px;line-height:1.5;}
+.hero{display:flex;align-items:center;justify-content:center;height:188px;
+  filter:drop-shadow(0 0 30px rgba(255,106,61,.18));}
+.hero .mk{width:172px;}
+.mk{display:block;overflow:visible;aspect-ratio:1/1;}
+.lockup{display:flex;align-items:center;gap:18px;justify-content:center;padding:22px 0 4px;}
+.lockup .mk{width:60px;flex:none;}
+.wm{font-weight:600;font-size:28px;letter-spacing:-.01em;line-height:1;}
+.wm .ig{color:var(--grey-3);} .wm .d{color:var(--ignite);} .wm .l{color:var(--grey);}
+.divider{height:1px;background:var(--line);margin:24px 0;}
+.rowlab{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);margin-bottom:16px;}
+.sizes{display:flex;align-items:flex-end;gap:26px;}
+.sizes .it{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.sizes .it .px{font-size:10px;color:var(--grey);}
+.sizes .it .px b{color:var(--ember);font-weight:500;}
+.rev{display:flex;gap:14px;margin-top:8px;}
+.rev .sw{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  padding:20px 0 14px;border:1px solid var(--line);}
+.rev .sw .mk{width:54px;}
+.rev .sw .cap{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;}
+.rev .sw.amber{background:var(--amber);} .rev .sw.amber .cap{color:#7a4a28;}
+.rev .sw.paper{background:var(--paper);} .rev .sw.paper .cap{color:#8a7964;}
+.rev .sw.ink{background:var(--ink);} .rev .sw.ink .cap{color:var(--grey);}
+.note{font-size:11.5px;color:var(--grey);margin-top:22px;line-height:1.55;}
+.note b{color:var(--grey-3);font-weight:500;}
+@media (max-width:880px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <radialGradient id="g-spark" cx="50%" cy="44%" r="62%">
+    <stop offset="0" stop-color="#ffe6cc"/><stop offset="0.42" stop-color="#ff8a4d"/><stop offset="1" stop-color="#ff5a2c"/>
+  </radialGradient>
+  <radialGradient id="g-glow">
+    <stop offset="0" stop-color="#ff8c50" stop-opacity="0.5"/><stop offset="0.6" stop-color="#ff8c50" stop-opacity="0.12"/><stop offset="1" stop-color="#ff8c50" stop-opacity="0"/>
+  </radialGradient>
+</defs></svg>
+
+<div class="top">
+  <div class="l">igniter-lang</div>
+  <div class="r">final candidates · <span>v0.1</span></div>
+</div>
+
+<div class="wrap">
+  <div class="intro">
+    <div class="k"><b>◆</b>&nbsp;&nbsp;THE MARK · TWO FINALISTS</div>
+    <h1>Same skeleton — Bars · 6. The difference is the огонёк.</h1>
+    <p>Both candidates share the locked asterisk: six round arms, ember on ink, hot white core. Candidate 01 keeps it clean. Candidate 02 adds a small white oval on the top arm — a contained spark that reads at icon size and quietly sets the mark apart.</p>
+  </div>
+
+  <div class="grid">
+    <!-- CANDIDATE 01 -->
+    <div class="cand">
+      <div class="hd"><div class="lab">CANDIDATE <b>01</b></div></div>
+      <h2>Original</h2>
+      <div class="sub">Bars · 6 — clean hot core. The purest reading of the spark.</div>
+      <div class="hero"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100"></svg></div>
+      <div class="lockup">
+        <svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="d">-</span><span class="l">lang</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="rowlab">Scale — holds to favicon</div>
+      <div class="sizes">
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100" style="width:48px"></svg><span class="px"><b>48</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100" style="width:32px"></svg><span class="px"><b>32</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100" style="width:24px"></svg><span class="px"><b>24</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100" style="width:16px"></svg><span class="px"><b>16</b></span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="rowlab">Reversal</div>
+      <div class="rev">
+        <div class="sw ink"><svg class="mk" data-mk="ink" data-oval="0" viewBox="0 0 100 100"></svg><span class="cap">ink</span></div>
+        <div class="sw amber"><svg class="mk" data-mk="amber" data-oval="0" viewBox="0 0 100 100"></svg><span class="cap">amber</span></div>
+        <div class="sw paper"><svg class="mk" data-mk="paper" data-oval="0" viewBox="0 0 100 100"></svg><span class="cap">paper</span></div>
+      </div>
+      <div class="note"><b>Use:</b> universal. Survives at every size, simplest to reproduce.</div>
+    </div>
+
+    <!-- CANDIDATE 02 -->
+    <div class="cand">
+      <div class="hd"><div class="lab">CANDIDATE <b>02</b></div></div>
+      <h2>Oval — огонёк</h2>
+      <div class="sub">Bars · 6 + a white oval on the top arm. A contained little flame.</div>
+      <div class="hero"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100"></svg></div>
+      <div class="lockup">
+        <svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100"></svg>
+        <div class="wm"><span class="ig">igniter</span><span class="d">-</span><span class="l">lang</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="rowlab">Scale — accent fades ~24px → use 01 as favicon</div>
+      <div class="sizes">
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100" style="width:48px"></svg><span class="px"><b>48</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100" style="width:32px"></svg><span class="px"><b>32</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100" style="width:24px"></svg><span class="px"><b>24</b></span></div>
+        <div class="it"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100" style="width:16px"></svg><span class="px"><b>16</b></span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="rowlab">Reversal</div>
+      <div class="rev">
+        <div class="sw ink"><svg class="mk" data-mk="ink" data-oval="1" viewBox="0 0 100 100"></svg><span class="cap">ink</span></div>
+        <div class="sw amber"><svg class="mk" data-mk="amber" data-oval="1" viewBox="0 0 100 100"></svg><span class="cap">amber</span></div>
+        <div class="sw paper"><svg class="mk" data-mk="paper" data-oval="1" viewBox="0 0 100 100"></svg><span class="cap">paper</span></div>
+      </div>
+      <div class="note"><b>Use:</b> primary / large. More distinctive; favicon falls back to Original.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const IGNITE='#ff6a3d', WHITE='#fff6ec', INK='#1a1109', PAPERINK='#2a2018';
+  function r2(n){return Math.round(n*100)/100;}
+  function poly(cx,cy,r,deg){const a=deg*Math.PI/180;return [r2(cx+r*Math.cos(a)), r2(cy+r*Math.sin(a))];}
+  function spokes(arm){let s='';for(let k=0;k<6;k++){const t=poly(50,50,38,-90+k*60);
+    s+=`<line x1="50" y1="50" x2="${t[0]}" y2="${t[1]}" stroke="${arm}" stroke-width="10" stroke-linecap="round"/>`;}return s;}
+
+  function build(theme, oval){
+    const arm   = theme==='amber' ? INK : IGNITE;
+    const accent= theme==='paper' ? PAPERINK : WHITE;
+    let s='';
+    if(theme==='ink') s+=`<circle cx="50" cy="50" r="34" fill="url(#g-glow)"/>`;
+    s+=spokes(arm);
+    s+= theme==='ink'
+      ? `<circle cx="50" cy="50" r="9" fill="url(#g-spark)"/>`
+      : `<circle cx="50" cy="50" r="9" fill="${arm}"/>`;
+    s+=`<circle cx="50" cy="50" r="3.8" fill="${accent}"/>`;
+    if(oval) s+=`<ellipse cx="50" cy="31" rx="3" ry="6.5" fill="${accent}"/>`;
+    return s;
+  }
+
+  document.querySelectorAll('[data-mk]').forEach(function(el){
+    el.innerHTML = build(el.dataset.mk, el.dataset.oval==='1');
+  });
+})();
+</script>
+
+</body>
+</html>

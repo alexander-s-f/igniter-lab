@@ -1,0 +1,6 @@
+.DS_Store
+out/
+tmp/
+*.log
+*.tmp
+.design-canvas.state.json
