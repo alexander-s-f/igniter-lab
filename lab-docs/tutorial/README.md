@@ -15,10 +15,10 @@ release evidence, performance claims, certification, or portability guarantees.
 | --- | --- | --- |
 | 0 | [Lab Orientation](lab-orientation.md) | Learn the repo shape, evidence vocabulary, and where to start without reading the full history. |
 | 1 | [Compiler First Proof](compiler-first-proof.md) | Compile a tiny `.ig` fixture and inspect the generated SemanticIR and diagnostics. |
-| 2 | VM Candidate Tour | Run a bounded proof runner and learn how result packets describe evidence. |
-| 3 | Forms Tour | Follow `a + b` from syntax pressure to type-directed form resolution and lowering evidence. |
-| 4 | Capability Passport Tour | Inspect an IO capability passport and the fail-closed loader boundary. |
-| 5 | View / GUI / IDE Tour | Trace a view artifact through preview, safe rendering, GUI receipts, and IDE inspection. |
+| 2 | [VM Candidate Proof](vm-candidate-proof.md) | Run a bounded proof runner and learn how result packets describe evidence. |
+| 3 | [Forms First Proof](forms-first-proof.md) | Follow `a + b` from syntax pressure to type-directed form resolution and lowering evidence. |
+| 4 | [Capability Passport First Proof](capability-passport-first-proof.md) | Inspect an IO capability passport and the fail-closed loader boundary. |
+| 5 | [View / GUI / IDE First Proof](view-gui-ide-first-proof.md) | Trace a view artifact through preview, safe rendering, GUI receipts, and IDE inspection. |
 
 ## Tutorial Writing Rules
 
