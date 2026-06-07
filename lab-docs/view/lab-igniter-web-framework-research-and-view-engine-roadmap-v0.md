@@ -137,7 +137,8 @@ Each requirement is classified by source and priority stage.
 ### Markdown / Docs / Tutorial Generation
 
 - Markdown to HTML with header, bold, italic, code block, table, link support.
-- Safety guards: no absolute paths, no `file://` URIs, no `javascript:` links, HTML escaping.
+- Safety guards: no absolute paths, no local file URI links, no script-scheme links,
+  HTML escaping.
 - Translation banner injection from frontmatter.
 - Source: `igniter-org/docs/tutorial-build-pipeline.md`, `content/test-fixtures/`.
 - Priority: P3 (tutorial and spec content compiler prototype).
@@ -277,7 +278,7 @@ Map requirements from real site pressure. Produce a stable research document and
 No source code written.
 
 **Proof / Verification:** `git -C igniter-lab diff --check` passes. No absolute paths or
-`file://` links in output files.
+local file URI links in output files.
 
 **Expected artifact:** `lab-docs/view/lab-igniter-web-framework-research-and-view-engine-roadmap-v0.md`
 and `.agents/work/cards/view/LAB-WEB-FRAMEWORK-P1.md`.
@@ -323,7 +324,7 @@ check suite against `content/test-fixtures/`.
 Ruby content compiler class. Proof runner. Fixture pages.
 
 **Proof / Verification:** Proof runner compiles test markdown fixtures and verifies:
-absolute path rejection, `file://` rejection, `javascript:` rejection, HTML escaping,
+absolute path rejection, local file URI rejection, script-scheme link rejection, HTML escaping,
 frontmatter translation banner injection. All safety fixture tests pass.
 
 **Expected artifact:** Content compiler class, proof runner, pass/fail matrix.
