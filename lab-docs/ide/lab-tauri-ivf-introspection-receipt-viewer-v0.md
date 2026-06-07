@@ -16,15 +16,20 @@ The introspection receipt viewer runs in a secure sandbox without execution auth
 
 ---
 
-## 2. Verification Matrix (TIVF-P21)
+The viewer reads receipt artifacts only through the bounded
+`read_introspection_receipt` command. Hot reload does not use the generic
+`read_file` API, so the same canonicalization, size, and schema checks apply to
+manual loads and background refreshes.
+
+## 2. Verification Matrix (IDEV-P1)
 
 | Check ID | Verification Goal | Method / Scenario | Expected Result | Status |
 |---|---|---|---|---|
-| **TIVF-P21-1** | Path Traversal Protection | Read file located outside workspace folder (e.g. system temp) | Command returns `Err` containing "Path traversal check failed" | **PASSED** |
-| **TIVF-P21-2** | File Size Boundary | Read file exceeding 65KB (65536 bytes) size constraint | Command returns `Err` containing "Oversized receipt payload" | **PASSED** |
-| **TIVF-P21-3** | JSON Schema Parsing | Read file with malformed JSON structure | Command returns `Err` containing "Malformed receipt JSON structure" | **PASSED** |
-| **TIVF-P21-4** | Value Set Constraints | Read file with invalid domain enum (e.g. invalid containment name) | Command returns `Err` containing "Invalid containment value" | **PASSED** |
-| **TIVF-P21-5** | Introspection Success Path | Read valid `scene_introspection_receipt.json` | Command returns `Ok(IntrospectionReceipt)` mapping `igniter.lab.dashboard` | **PASSED** |
+| **IDEV-P1-1** | Path Traversal Protection | Read file located outside workspace folder (e.g. system temp) | Command returns `Err` containing "Path traversal check failed" | **PASSED** |
+| **IDEV-P1-2** | File Size Boundary | Read file exceeding 65KB (65536 bytes) size constraint | Command returns `Err` containing "Oversized receipt payload" | **PASSED** |
+| **IDEV-P1-3** | JSON Schema Parsing | Read file with malformed JSON structure | Command returns `Err` containing "Malformed receipt JSON structure" | **PASSED** |
+| **IDEV-P1-4** | Value Set Constraints | Read file with invalid domain enum (e.g. invalid containment name) | Command returns `Err` containing "Invalid containment value" | **PASSED** |
+| **IDEV-P1-5** | Introspection Success Path | Read valid `scene_introspection_receipt.json` | Command returns `Ok(IntrospectionReceipt)` mapping `igniter.lab.dashboard` | **PASSED** |
 
 ---
 

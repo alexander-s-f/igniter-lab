@@ -14,7 +14,7 @@
   let errorMsg = $state<string | null>(null)
   let selectedNodeId = $state<string | null>(null)
 
-  let lastRawReceipt = ''
+  let lastReceiptSignature = ''
   let reloadInterval: any = null
 
   // Initialize path when workspace updates
@@ -40,14 +40,13 @@
   async function reloadReceiptSilently() {
     try {
       if (!workspace) return
-      // We read via standard file reader first to check for diff
-      const rawText = await api.readFile(receiptPath)
-      if (rawText === lastRawReceipt) return
-
-      lastRawReceipt = rawText
-      
-      // Parse & validate via backend boundary command
+      // Parse and validate via the bounded backend command; do not bypass the
+      // introspection workspace/path boundary with a generic file read.
       const newReceipt = await api.readIntrospectionReceipt(receiptPath, workspace.root_dir)
+      const newSignature = JSON.stringify(newReceipt)
+      if (newSignature === lastReceiptSignature) return
+
+      lastReceiptSignature = newSignature
       errorMsg = null
       receipt = newReceipt
 
@@ -79,10 +78,7 @@
       const parsed = await api.readIntrospectionReceipt(receiptPath, workspace.root_dir)
       receipt = parsed
 
-      // Get raw string for subsequent hot-reload checks
-      try {
-        lastRawReceipt = await api.readFile(receiptPath)
-      } catch {}
+      lastReceiptSignature = JSON.stringify(parsed)
 
       if (parsed.nodes) {
         // Select root if exists, else first key
@@ -158,7 +154,7 @@
     <input
       type="text"
       bind:value={receiptPath}
-      placeholder="/path/to/igniter-gui-engine/out/scene_introspection_receipt.json"
+      placeholder="igniter-gui-engine/out/scene_introspection_receipt.json"
       class="flex-1 bg-ink border border-ink-line rounded px-2 py-1 text-xs text-grey-3 font-mono h-7 min-w-0"
     />
     <button
