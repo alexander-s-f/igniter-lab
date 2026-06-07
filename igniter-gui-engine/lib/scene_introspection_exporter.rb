@@ -4,7 +4,6 @@
 # Status: experimental · lab-only · no-canon · no-stable-schema · no-performance-claim
 
 require "json"
-require "time"
 require_relative "scene_tree"
 
 module IgniterGui
@@ -154,7 +153,6 @@ module IgniterGui
         "scene_digest" => scene_tree.digest,
         "node_count" => scene_tree.nodes.size,
         "nodes" => nodes_receipt,
-        "timestamp" => Time.now.iso8601,
         "non_claims" => scene_tree.non_claims
       }
 

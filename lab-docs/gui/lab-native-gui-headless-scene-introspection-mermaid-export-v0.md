@@ -55,6 +55,9 @@ The exporter outputs a value-free JSON structure summarizing the scene analysis:
 - **`nodes`**: A mapped dictionary of node metadata (excluding raw external inputs or runtime payloads).
 - **`non_claims`**: Disclaimer metadata preserving compliance tags.
 
+The receipt intentionally omits wall-clock timestamps so consecutive exports of
+the same scene and layout remain byte-stable for proof comparison.
+
 ---
 
 ## 4. Verification Results
@@ -80,8 +83,8 @@ Total: 193/193
 | `NGUI-P12-7` | Boundary/overflow checks are represented in exporter receipt | PASS |
 | `NGUI-P12-8` | Unsupported or malformed scene input fails closed with NGUI-P12-8 ValidationError | PASS |
 | `NGUI-P12-9` | Duplicate node IDs or cyclic parents fail closed with NGUI-P12-9 ValidationError | PASS |
-| `NGUI-P12-10`| Output Mermaid contains no absolute paths or file:// links | PASS |
-| `NGUI-P12-11`| JSON receipt contains no absolute paths, file:// links, or raw external payloads | PASS |
+| `NGUI-P12-10`| Output Mermaid contains no absolute paths or local-file URI links | PASS |
+| `NGUI-P12-11`| JSON receipt contains no absolute paths, local-file URI links, or raw external payloads | PASS |
 | `NGUI-P12-12`| No DOM, GPU, windowing, or browser dependencies are introduced | PASS |
 | `NGUI-P12-13`| No VM execution or contract dispatch occurs | PASS |
 | `NGUI-P12-14`| Lab-only, no-canon, and no-stable-schema wording is preserved in exporter source | PASS |

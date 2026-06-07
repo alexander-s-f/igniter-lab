@@ -19,15 +19,15 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Scene Introspection Exporter**: Shipped [scene_introspection_exporter.rb](../../../../igniter-gui-engine/lib/scene_introspection_exporter.rb) containing the Mermaid graph exporter and receipt generator.
-- **Proof Runner Results**: Appended and verified checks `NGUI-P12-1` to `NGUI-P12-14` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 193 checks are green.
+- **Scene Introspection Exporter**: Shipped `igniter-gui-engine/lib/scene_introspection_exporter.rb` containing the Mermaid graph exporter and receipt generator.
+- **Proof Runner Results**: Appended and verified checks `NGUI-P12-1` to `NGUI-P12-14` in `igniter-gui-engine/run_proof.rb`. All 193 checks are green.
 - **Output Artifacts**: Exported deterministic outputs to `out/scene_introspection.mmd` and `out/scene_introspection_receipt.json`.
-- **Lab Documentation**: Authored [lab-native-gui-headless-scene-introspection-mermaid-export-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-scene-introspection-mermaid-export-v0.md).
+- **Lab Documentation**: Authored `lab-docs/gui/lab-native-gui-headless-scene-introspection-mermaid-export-v0.md`.
 
 ## [T] Tests / Proofs
 
 - **Proof Runner Passed (193/193)**: Executing `ruby run_proof.rb` passes all checks across layout solver, hit-testing, binding, animation timeline, vector rendering, preflight, event dispatching, reactive loop coordinator, state ingress bridge, and scene introspection exporter.
-- **Deteriminism & Containment Verified**: Confirmed that bounds and containment (`contained`/`overflow`) show up correctly in output diagrams, and outputs remain identical across consecutive exporter runs.
+- **Determinism & Containment Verified**: Confirmed that bounds and containment (`contained`/`overflow`) show up correctly in output diagrams, and outputs remain identical across consecutive exporter runs.
 
 ## [R] Risks / Recommendations
 
