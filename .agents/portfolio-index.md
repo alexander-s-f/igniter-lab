@@ -109,7 +109,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-034 | output evidence syntax | ✅ experiment-pass | OOF-M9; evidence in IR output ports |
 | PROP-035 | Effect Surface / IO.Capability | ✅ experiment-pass | OOF-M2/M4/M5 |
 | PROP-036 | compiler_profile_id manifest | accepted; partial-impl | CLI B1..B9 closed |
-| PROP-037 | External progression svc liveness | accepted; proposal-only | ServiceLoop authority |
+| PROP-037 | External progression svc liveness | ✅ accepted; all OOF-PR1..9 closed | ServiceLoop auth; OOF-PR6/8 + schema ownership closed 2026-06-07 |
 | PROP-038 | Compiler profile contract | accepted; partial-impl | schema + validator |
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
@@ -118,6 +118,7 @@ Rack/middleware vocabulary is lab-only.
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
 2. PROP-039 gate 3: parser boundary proof (if source syntax authorized)
 3. ✅ DA-005: archive pass complete — 12 dirs moved, 164 unknown intact, 5 proofs clean
+4. PROP-039 gate 3: parser boundary proof (requires separate auth to open)
 
 ---
 
