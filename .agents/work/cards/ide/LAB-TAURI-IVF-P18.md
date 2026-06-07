@@ -25,7 +25,7 @@ Status: done
 
 [R] Risks / Recommendations
 - Risk: The bridge preflight relies on mock signatures and hardcoded transaction/contract identifiers. Transitioning to real VM execution will require a proper runtime session manager to inject dynamic signatures/transactions.
-- Recommendation: Since the preflight bridge has proven compatibility with the Tauri ingress schemas, proceed with designing the live VM execution bridge, ensuring that the same redaction and validation boundaries remain fail-closed.
+- Recommendation: Since the preflight bridge has proven compatibility with the Tauri ingress schemas, proceed with a bounded live-trace bridge design/preflight. Keep live VM execution, external subscriptions, background listeners, public runtime support, stable schema, and canon status closed unless a later card explicitly opens them.
 
 [Paths]
 - Card receipt: .agents/work/cards/ide/LAB-TAURI-IVF-P18.md

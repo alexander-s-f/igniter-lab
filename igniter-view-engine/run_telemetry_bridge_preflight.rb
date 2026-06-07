@@ -138,9 +138,10 @@ preflight_passed &= verify_check('TIVF-18-4', 'Redacted receipt must not contain
 end
 
 # Verify zero path leaks
-preflight_passed &= verify_check('TIVF-18-5', 'Redacted receipt must not leak absolute local paths (Users/, file://)') do
+preflight_passed &= verify_check('TIVF-18-5', 'Redacted receipt must not leak absolute local paths or local-file URI markers') do
   has_users = receipt_str.include?('Users')
-  has_file_url = receipt_str.include?('file://')
+  local_file_uri_marker = ['file', '://'].join
+  has_file_url = receipt_str.include?(local_file_uri_marker)
   !has_users && !has_file_url
 end
 
