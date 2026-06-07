@@ -41,3 +41,4 @@ individual `LAB-*.md` card and the corresponding `lab-docs` report.
   in `lab-docs`.
 - If a handoff grows into a durable design document, keep the handoff here and
   move the design substance into `lab-docs`.
+- Category slicing and folder routing rules are defined in the [Agent Slicing & Mapping Reference](agent-mapping.md).
