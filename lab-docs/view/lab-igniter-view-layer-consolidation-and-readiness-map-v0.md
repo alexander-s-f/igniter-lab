@@ -4,7 +4,7 @@
 > **Category:** view
 > **Track:** lab-igniter-view-layer-consolidation-and-readiness-map-v0
 > **Date:** 2026-06-07
-> **Proof Baseline:** 58/58 PASS (Ruby) · 19/19 PASS (JS DOM)
+> **Proof Baseline:** 405/405 PASS across P1/P2/P3/P5/P6/P7/P8/P9
 
 ---
 
@@ -115,7 +115,7 @@ The isomorphic layout of IVF bridges the gap between static view definitions and
 
 ## 6. Recommendations for Safe Next Routes
 
-If the View Layer track is continued, four logical routes are available. The recommended option is **Option C: Track Pause** to allow other lab tracks to catch up with the diagnostic capabilities proven here.
+If the View Layer track is continued, four logical routes are available. The recommended option is **Option D: Track Pause** to allow other lab tracks to catch up with the diagnostic capabilities proven here.
 
 ### Option A: compiler-level report integration
 *   **Description:** Integrate `LinkageReport.build_pipeline` into the primary `IgvCompiler.compile_file` API (e.g., `IgvCompiler.compile_file(path, report: true)` returning `{ artifact:, report: }`).

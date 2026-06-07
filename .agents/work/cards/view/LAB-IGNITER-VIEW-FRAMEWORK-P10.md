@@ -30,7 +30,7 @@ Audited all P1–P9 proof outputs, verified that 405 individual checks across 8 
 Enforced strict boundaries around mainline `igniter-lang` authority, stable schema definitions, reference runtimes, and public runtime execution. All files carry explicit lab-only markers.
 
 **D3 — Recommendation for track pause.**
-Recommended Option C (track pause) as the safest path forward. IVF is fully functional as a prototype, and pausing allows GUI layout trees and Tauri IDE integration projects to catch up and align.
+Recommended Option D (track pause) as the safest path forward. IVF is fully functional as a prototype, and pausing allows GUI layout trees and Tauri IDE integration projects to catch up and align.
 
 ---
 

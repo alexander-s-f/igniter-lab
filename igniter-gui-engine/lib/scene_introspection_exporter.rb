@@ -153,6 +153,7 @@ module IgniterGui
         "scene_digest" => scene_tree.digest,
         "node_count" => scene_tree.nodes.size,
         "nodes" => nodes_receipt,
+        "timestamp" => Time.now.iso8601,
         "non_claims" => scene_tree.non_claims
       }
 

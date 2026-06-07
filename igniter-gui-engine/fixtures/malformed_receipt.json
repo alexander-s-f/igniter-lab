@@ -1,0 +1,20 @@
+{
+  "view_id": "igniter.lab.malformed_receipt",
+  "scene_digest": "sha256:1234567890abcdef",
+  "node_count": 1,
+  "nodes": {
+    "root": {
+      "id": "root",
+      "type": "container"
+    }
+  },
+  "timestamp": "2026-06-07T00:00:00Z",
+  "non_claims": [
+    "lab-only",
+    "experimental",
+    "no-canon",
+    "no-stable-schema",
+    "no-performance-claim"
+  ],
+  "unexpected_key": "someval"
+}

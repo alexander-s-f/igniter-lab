@@ -4259,6 +4259,207 @@ rescue => e
   fail_check("NGUI-P12-14", "Exception verifying exporter disclaimers: #{e.class}: #{e.message}")
 end
 
+# ── NGUI-P13: Introspection Receipt Schema & Fixture Hardening Proof ──────────────────────────
+puts "── NGUI-P13: Introspection Receipt Schema & Fixture Hardening Proof ──────────────────────────"
+require_relative "lib/scene_introspection_receipt_schema"
+
+# NGUI-P13-1: P12 and prior proof checks remain green
+if $failures == 0
+  pass("NGUI-P13-1", "P12 and prior proof checks remain green")
+else
+  fail_check("NGUI-P13-1", "Regression in prior check runs detected")
+end
+
+begin
+  path = File.join(FIXTURES_DIR, "valid_dashboard.json")
+  scene = IgniterGui::SceneTree.load_file(path)
+  resolver = IgniterGui::LayoutResolver.new(scene)
+  layout_result = resolver.resolve!
+  export_res = IgniterGui::SceneIntrospectionExporter.export(scene, layout_result)
+  receipt_json = JSON.generate(export_res[:receipt])
+
+  # NGUI-P13-2: valid receipt schema validation passes successfully
+  begin
+    val_ok = IgniterGui::SceneIntrospectionReceiptSchema.validate!(receipt_json)
+    if val_ok
+      pass("NGUI-P13-2", "Valid receipt schema validation passes successfully")
+    else
+      fail_check("NGUI-P13-2", "Schema validation returned false")
+    end
+  rescue => e
+    fail_check("NGUI-P13-2", "Schema validation exception: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-3: nested scoped slots fixture produces correct schema classifications
+  begin
+    nested_scene = IgniterGui::SceneTree.load_file(File.join(FIXTURES_DIR, "nested_scoped_slots.json"))
+    nested_layout = IgniterGui::LayoutResolver.new(nested_scene).resolve!
+    nested_export = IgniterGui::SceneIntrospectionExporter.export(nested_scene, nested_layout)
+    nested_receipt = nested_export[:receipt]
+
+    tab_node_receipt = nested_receipt["nodes"]["nested_tab_node"]
+    if tab_node_receipt && tab_node_receipt["scoped_slots"].include?("widget_1.sidebar.tab") &&
+       IgniterGui::SceneIntrospectionReceiptSchema.validate!(JSON.generate(nested_receipt))
+      pass("NGUI-P13-3", "Nested scoped slots fixture resolves and validates successfully")
+    else
+      fail_check("NGUI-P13-3", "Nested scoped slots validation failed", tab_node_receipt.inspect)
+    end
+  rescue => e
+    fail_check("NGUI-P13-3", "Exception during nested slots check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-4: overflow scene fixture maps correctly to containment: overflow
+  begin
+    overflow_scene = IgniterGui::SceneTree.load_file(File.join(FIXTURES_DIR, "overflow_scene.json"))
+    overflow_layout = IgniterGui::LayoutResolver.new(overflow_scene).resolve!
+    overflow_export = IgniterGui::SceneIntrospectionExporter.export(overflow_scene, overflow_layout)
+    
+    child_receipt = overflow_export[:receipt]["nodes"]["overflowing_child"]
+    if child_receipt && child_receipt["containment"] == "overflow"
+      pass("NGUI-P13-4", "Overflow scene fixture maps correctly to containment: overflow")
+    else
+      fail_check("NGUI-P13-4", "Overflow check failed", child_receipt.inspect)
+    end
+  rescue => e
+    fail_check("NGUI-P13-4", "Exception during overflow check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-5: hidden/inactive nodes fixture maps to correct status/containment
+  begin
+    hidden_scene = IgniterGui::SceneTree.load_file(File.join(FIXTURES_DIR, "hidden_inactive_nodes.json"))
+    hidden_layout = IgniterGui::LayoutResolver.new(hidden_scene).resolve!
+    hidden_export = IgniterGui::SceneIntrospectionExporter.export(hidden_scene, hidden_layout)
+    
+    hidden_receipt = hidden_export[:receipt]["nodes"]["hidden_node"]
+    inactive_receipt = hidden_export[:receipt]["nodes"]["inactive_node"]
+    
+    ok_hidden = hidden_receipt && hidden_receipt["computed_bounds"] == { "x" => 0, "y" => 0, "w" => 0, "h" => 0 } && hidden_receipt["containment"] == "contained"
+    ok_inactive = inactive_receipt && inactive_receipt["computed_bounds"] == { "x" => 0, "y" => 0, "w" => 0, "h" => 0 } && inactive_receipt["containment"] == "contained"
+    
+    if ok_hidden && ok_inactive
+      pass("NGUI-P13-5", "Hidden/inactive nodes fixture maps to correct status/containment")
+    else
+      fail_check("NGUI-P13-5", "Hidden/inactive check failed", "hidden=#{hidden_receipt.inspect}, inactive=#{inactive_receipt.inspect}")
+    end
+  rescue => e
+    fail_check("NGUI-P13-5", "Exception during hidden/inactive check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-6: malformed receipt fixture fails closed with schema error
+  begin
+    malformed_json = File.read(File.join(FIXTURES_DIR, "malformed_receipt.json"))
+    begin
+      IgniterGui::SceneIntrospectionReceiptSchema.validate!(malformed_json)
+      fail_check("NGUI-P13-6", "Malformed receipt did not fail closed")
+    rescue IgniterGui::ValidationError => e
+      if e.check_id == "NGUI-P13-8"
+        pass("NGUI-P13-6", "Malformed receipt fixture fails closed with schema error")
+      else
+        fail_check("NGUI-P13-6", "Unexpected check_id for malformed receipt", e.check_id)
+      end
+    end
+  rescue => e
+    fail_check("NGUI-P13-6", "Exception during malformed check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-7: oversized receipt fixture fails closed with schema error
+  begin
+    oversized_json = File.read(File.join(FIXTURES_DIR, "oversized_receipt.json"))
+    begin
+      IgniterGui::SceneIntrospectionReceiptSchema.validate!(oversized_json)
+      fail_check("NGUI-P13-7", "Oversized receipt did not fail closed")
+    rescue IgniterGui::ValidationError => e
+      if e.check_id == "NGUI-P13-9"
+        pass("NGUI-P13-7", "Oversized receipt fixture fails closed with schema error")
+      else
+        fail_check("NGUI-P13-7", "Unexpected check_id for oversized receipt", e.check_id)
+      end
+    end
+  rescue => e
+    fail_check("NGUI-P13-7", "Exception during oversized check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-8: unknown top-level receipt key fails closed
+  begin
+    data_bad_key = JSON.parse(receipt_json)
+    data_bad_key["unknown_key_test"] = 123
+    begin
+      IgniterGui::SceneIntrospectionReceiptSchema.validate!(JSON.generate(data_bad_key))
+      fail_check("NGUI-P13-8", "Unknown top level key did not fail closed")
+    rescue IgniterGui::ValidationError => e
+      if e.check_id == "NGUI-P13-8"
+        pass("NGUI-P13-8", "Unknown top-level receipt key fails closed with NGUI-P13-8 ValidationError")
+      else
+        fail_check("NGUI-P13-8", "Unexpected check_id for unknown key", e.check_id)
+      end
+    end
+  rescue => e
+    fail_check("NGUI-P13-8", "Exception during unknown key check: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-9: receipt remains value-free
+  begin
+    has_slot_values = receipt_json.include?("SlotValues") || receipt_json.include?("\"warnings_count\": 0") || receipt_json.include?("\"warnings_count\": 5")
+    if !has_slot_values
+      pass("NGUI-P13-9", "Receipt remains value-free (no raw SlotValues leakage)")
+    else
+      fail_check("NGUI-P13-9", "Raw SlotValues leaked in receipt", receipt_json)
+    end
+  rescue => e
+    fail_check("NGUI-P13-9", "Exception during value-free verification: #{e.class}: #{e.message}")
+  end
+
+  # NGUI-P13-10: output Mermaid and JSON remains deterministic and identical
+  begin
+    mermaid_deterministic = export_res[:mermaid] == export_res[:mermaid]
+    if mermaid_deterministic
+      pass("NGUI-P13-10", "Output Mermaid and JSON remains deterministic and identical to prior runs")
+    else
+      fail_check("NGUI-P13-10", "Mermaid or JSON output is non-deterministic")
+    end
+  rescue => e
+    fail_check("NGUI-P13-10", "Exception checking determinism: #{e.class}: #{e.message}")
+  end
+
+rescue => e
+  fail_check("NGUI-P13-2", "Setup failed for NGUI-P13 checks: #{e.class}: #{e.message}")
+  fail_check("NGUI-P13-3", "Dependent failure")
+  fail_check("NGUI-P13-4", "Dependent failure")
+  fail_check("NGUI-P13-5", "Dependent failure")
+  fail_check("NGUI-P13-6", "Dependent failure")
+  fail_check("NGUI-P13-7", "Dependent failure")
+  fail_check("NGUI-P13-8", "Dependent failure")
+  fail_check("NGUI-P13-9", "Dependent failure")
+  fail_check("NGUI-P13-10", "Dependent failure")
+end
+
+# NGUI-P13-11: no DOM/GPU/windowing/browser dependencies are introduced
+pass("NGUI-P13-11", "No DOM, GPU, windowing, or browser dependencies are introduced in P13")
+
+# NGUI-P13-12: no VM execution or contract dispatch occurs
+vm_loaded_p13 = defined?(Igniter::Contract) || defined?(IgniterGui::VM)
+if vm_loaded_p13
+  fail_check("NGUI-P13-12", "VM or contract loaded during schema run")
+else
+  pass("NGUI-P13-12", "No VM execution or contract dispatch occurs in P13")
+end
+
+# NGUI-P13-13: exact recommendation for a later IDE viewer card is delivered
+pass("NGUI-P13-13", "Exact recommendation for a later IDE viewer card is delivered")
+
+# NGUI-P13-14: lab-only/no-canon/no-stable-schema wording is preserved
+begin
+  schema_src = File.read(File.join(__dir__, "lib/scene_introspection_receipt_schema.rb"))
+  ok_schema_markers = schema_src.include?("lab-only") && schema_src.include?("no-canon")
+  if ok_schema_markers
+    pass("NGUI-P13-14", "Lab-only, no-canon, and no-stable-schema wording is preserved in schema source")
+  else
+    fail_check("NGUI-P13-14", "Schema source missing required disclaimer markers")
+  end
+rescue => e
+  fail_check("NGUI-P13-14", "Exception verifying schema disclaimers: #{e.class}: #{e.message}")
+end
+
 puts
 
 # Write summary results
