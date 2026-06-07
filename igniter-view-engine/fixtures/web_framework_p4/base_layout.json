@@ -1,0 +1,6 @@
+{
+  "name": "base",
+  "slots": ["header", "nav", "content", "footer"],
+  "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\"><title>Igniter</title></head>\n<body>\n<header>{{header}}</header>\n<nav>{{nav}}</nav>\n<main>{{content}}</main>\n<footer>{{footer}}</footer>\n</body>\n</html>",
+  "parent_layout": null
+}

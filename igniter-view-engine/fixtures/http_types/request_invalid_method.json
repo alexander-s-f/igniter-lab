@@ -1,0 +1,8 @@
+{
+  "method": "FETCH",
+  "path": "/api/users",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "body": null
+}

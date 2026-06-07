@@ -1,0 +1,9 @@
+{
+  "method": "POST",
+  "path": "/api/users",
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  },
+  "body": "{\"name\": \"Alice\", \"email\": \"alice@example.com\"}"
+}

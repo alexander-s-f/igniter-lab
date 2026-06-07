@@ -1,0 +1,6 @@
+{
+  "name": "article",
+  "slots": ["content", "sidebar"],
+  "template": "<article>\n<section class=\"content\">{{content}}</section>\n<aside class=\"sidebar\">{{sidebar}}</aside>\n</article>",
+  "parent_layout": "base"
+}

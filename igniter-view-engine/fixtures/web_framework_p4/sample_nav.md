@@ -1,0 +1,4 @@
+- [Home](/)
+- [Language](/en/language/)
+- [Tutorial](/en/tutorial/)
+- [Lab](/lab/)

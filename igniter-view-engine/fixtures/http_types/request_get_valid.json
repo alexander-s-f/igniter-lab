@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/users",
+  "headers": {
+    "Accept": "application/json",
+    "User-Agent": "IgniterLab/1.0"
+  },
+  "body": null
+}
