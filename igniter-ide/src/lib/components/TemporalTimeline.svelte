@@ -4,6 +4,7 @@
   import { api } from '$lib/api'
   import { listen } from '@tauri-apps/api/event'
   import type { FactInfo, RedactedTraceReceipt } from '$lib/types'
+  import TelemetryControlPanel from './TelemetryControlPanel.svelte'
 
   // Mode switcher state
   let activeMode: 'bitemporal' | 'playback' | 'history' = 'bitemporal'
@@ -516,7 +517,7 @@
         <div class="flex gap-3 items-center">
           <button on:click={loadTelemetryHistory} disabled={loadingHistory}
             class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 rounded text-xs font-semibold text-gray-200 transition-colors font-mono">
-            {loadingHistory ? '��� Refreshing���' : '��� Refresh History'}
+            {loadingHistory ? ' Refreshing' : ' Refresh History'}
           </button>
           <div class="text-xs text-gray-400 font-mono">
             Status: <span class="text-gray-300">read-only telemetry buffer (capacity: 10, FIFO eviction)</span>
@@ -524,9 +525,11 @@
         </div>
       </div>
 
+      <TelemetryControlPanel on:dispatched={loadTelemetryHistory} />
+
       {#if historyError}
         <div class="text-red-400 text-xs bg-red-950/60 border border-red-900 rounded p-3 shrink-0 font-mono">
-          ��� {historyError}
+           {historyError}
         </div>
       {/if}
 
