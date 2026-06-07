@@ -56,9 +56,9 @@
 | PROP-034 | output evidence syntax | queued | 🟡 Medium |
 | PROP-035 | Effect Surface / IO.Capability | experiment-pass | — |
 | PROP-036 | compiler_profile_id manifest | accepted; partial-impl | — |
-| PROP-037 | External progression svc liveness | proposal | 🟡 Medium |
-| PROP-038 | Compiler profile contract | authored-pending-review | 🟡 Medium |
-| PROP-039 | Managed local recursion/loops | proposal | 🟢 Lab-backed |
+| PROP-037 | External progression svc liveness | accepted proposal-only | 🟡 Medium |
+| PROP-038 | Compiler profile contract | accepted; partial-impl | 🟡 Medium |
+| PROP-039 | Managed local recursion/loops | authored-pending-review | 🟢 Lab-backed |
 | PROP-040 | Profile declarations | queued | 🔥 High |
 
 ---
@@ -94,7 +94,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | ID | Task | Complexity | Status |
 |---|---|---|---|
 | DA-001 | current-status.md PROP-035/PROP-040 rows | Low | ✅ DONE |
-| DA-002 | PROP-032/036/037/038/039 status audit | Low | ⏳ partial (032/036 done) |
+| DA-002 | PROP-031..039 status audit + §12 renumbering | Low | ✅ DONE |
 | DA-003 | lab-docs/lang IO capability grammar doc | Medium | ✅ DONE |
 | DA-004 | portfolio-index.md | Low | ✅ DONE (this file) |
 | DA-005 | experiments/ archive pass (Stage 1/2) | Medium | ⏳ Queued — not urgent |
