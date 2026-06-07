@@ -13,7 +13,7 @@ Status: done
 - Established strict redaction-before-UI and local file read boundaries.
 - Formulated absolute prohibitions against TCP/UDP ports, watchers, and background listeners.
 - Confirmed a fail-closed status vocabulary schema.
-- Authorized the implementation of a mock session runner proof in phase P20.
+- Recommended a bounded mock session runner proof for phase P20; this P19 design does not authorize live execution, background listeners, external subscriptions, public runtime support, stable schema, or canon status.
 
 [S] Shipped / Signals
 - Created durable design document: lab-docs/ide/lab-tauri-ivf-live-trace-bridge-design-and-session-boundary-v0.md.
@@ -21,10 +21,10 @@ Status: done
 
 [T] Tests / Proofs
 - verified: Reviewed the agent mapping file and current Tauri commands.rs implementations to ensure the proposed session manager cleanly overlays the existing mock-runner-dispatch pipeline.
-- verified: Validated the HMAC-SHA256 signature sequence analytically to guarantee compatibility with Ruby's openssl library and Rust's ring or hmac crates.
+- verified: Reviewed the HMAC-SHA256 signature sequence for Ruby OpenSSL and Rust HMAC implementation compatibility; concrete cross-language vectors remain a P20 proof requirement.
 
 [R] Risks / Recommendations
-- Recommendation: Proceed directly to phase P20 to implement the mock session runner proof, validating the token exchange and HMAC signature checking.
+- Recommendation: Proceed to phase P20 as a bounded mock session runner proof, validating token exchange, HMAC signature checking, timeout cleanup, and fail-closed redaction without authorizing live VM execution.
 - Risk: Ensure that the session token is securely purged from memory upon timeout to prevent reuse windows.
 
 [Paths]

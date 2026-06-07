@@ -44,7 +44,7 @@ sequenceDiagram
 ### 2.2 Producer & Signature Validation Plan
 1. **Dynamic Session Tokens**:
    - Upon session initiation, the Tauri Rust backend generates a transient cryptographically secure random token (`session_token`) and a `transaction_id`.
-   - The `session_token` is passed to the spawned Ruby VM runner process via an environment variable (`IGNITER_TELEMETRY_TOKEN`) or a short-lived temporary passport file.
+   - The `session_token` is passed to the spawned Ruby VM runner process via an environment variable (`IGNITER_TELEMETRY_TOKEN`). Any future temporary passport-file variant must stay bounded to a proof-local temp directory, be excluded from git, and be removed before the session closes.
 2. **Signature Calculation**:
    - The Ruby VM runner computes a hash-based message authentication code (HMAC-SHA256) of the serialization payload using the `session_token` as the secret key.
    - The computed signature is sent in the `passport_signature` field of the envelope.
@@ -67,7 +67,7 @@ Only SHA-256 digests of outputs/diagnostics and keys of slot values are propagat
 
 ### 3.2 File System & Read Boundaries
 *   **Allowed Directory Reads**: Tauri commands are restricted to reading within the workspace root folder. Any path argument must be canonicalized and checked via `path.canonicalize().starts_with(workspace_root)`.
-*   **No File URL leaks**: Absolute paths (`Users/...`) and file schemes (`file://`) must be stripped from receipts before serialization.
+*   **No local-file URI leaks**: Absolute paths and local-file URI schemes must be stripped from receipts before serialization.
 
 ### 3.3 No Network / Background Watcher Surface
 To preserve lab-only safety, the bridge enforces the following prohibitions:
@@ -81,7 +81,13 @@ The adapter maps incoming statuses strictly:
 
 ---
 
-## 4. Next Step Authorization (P20)
+## 4. Next Step Recommendation (P20)
 
-**Decision**: **Authorized**.
-Phase `LAB-TAURI-IVF-P20` is approved to implement a **mock session runner proof** to validate this secure session state manager, dynamic token exchange, and HMAC signature validation loop under lab-only constraints.
+**Decision**: **Recommended, bounded proof only**.
+Phase `LAB-TAURI-IVF-P20` may be dispatched as a **mock session runner proof**
+to validate this secure session state manager, dynamic token exchange, timeout
+cleanup, and HMAC signature validation loop under lab-only constraints.
+
+This P19 design does not authorize live VM execution, external subscriptions,
+background listeners, network ingress, public runtime support, stable schema,
+canon status, or production authority.
