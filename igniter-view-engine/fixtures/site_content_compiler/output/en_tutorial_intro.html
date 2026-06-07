@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Compiler First Proof — Igniter</title>
+  <link rel="canonical" href="/tutorial/compiler-first-proof/">
+  <link rel="alternate" hreflang="en" href="/tutorial/compiler-first-proof/">
+  <link rel="alternate" hreflang="ru" href="/ru/tutorial/compiler-first-proof/">
+  <link rel="alternate" hreflang="uk" href="/uk/tutorial/compiler-first-proof/">
+  <link rel="alternate" hreflang="x-default" href="/tutorial/compiler-first-proof/">
+</head>
+<body>
+<h1>Compiler First Proof</h1>
+<p>This tutorial walks through writing your first compiler proof in Igniter.</p>
+<h2>Prerequisites</h2>
+<ul>
+<li>Igniter installed locally</li>
+<li>Basic understanding of contracts</li>
+</ul>
+<h2>Step 1: Write a contract</h2>
+<pre><code class="language-igniter">contract greet(name: String) -&gt; String</code></pre>
+<h2>Step 2: Run the proof</h2>
+<pre><code class="language-bash">igniter proof greet_spec.igv</code></pre>
+<p>Expected output:</p>
+<pre><code>PASS greet: 1/1</code></pre>
+<p>See the <a href="/language/specification/">language specification</a> for details.</p>
+</body>
+</html>
