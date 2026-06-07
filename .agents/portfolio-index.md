@@ -116,9 +116,9 @@ Rack/middleware vocabulary is lab-only.
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
-2. PROP-039 gate 3: parser boundary proof (if source syntax authorized)
-3. ✅ DA-005: archive pass complete — 12 dirs moved, 164 unknown intact, 5 proofs clean
-4. PROP-039 gate 3: parser boundary proof (requires separate auth to open)
+2. ✅ PROP-039 gate 3: loop_class_parser_proof — 60/60 PASS (2026-06-07)
+3. ✅ DA-005: archive pass complete — 12 dirs moved, 164 unknown intact
+4. PROP-039 gate 4: TypeChecker proof (requires separate auth to open)
 
 ---
 
@@ -144,7 +144,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | Gate 1 closed (66/66 PASS); grammar not yet authorized | Gate 3 (parser boundary) next — requires separate auth |
+| PROP-039 loop impl | Gates 1+3 closed; parser surface live | Gate 4 (TypeChecker) next — requires separate auth |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
