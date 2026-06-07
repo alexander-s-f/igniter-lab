@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 # Proof: SiteArtifact URL Contract
-# Card: LAB-WEB-FRAMEWORK-P2
+# Card: LAB-WEB-FRAMEWORK-P2 / Hardening: LAB-WEB-FRAMEWORK-P2-A
 # Surface: lab-only, proof-local evidence only.
 # No canon claim, no public API, no stable schema.
 
@@ -41,6 +41,33 @@ REQUIRED_ROUTES_IGNITER_ORG = %w[
   /lab/view/
   /lab/gui/
   /status/
+].freeze
+
+# Routes derived from Jekyll route-contract evidence (read-only pressure source).
+# This list is used by check jekyll_contract_route_families_present.
+# It documents what the Jekyll candidate has proven must be covered.
+JEKYLL_CONTRACT_ROUTES = [
+  "/",
+  "/en/",
+  "/ru/",
+  "/uk/",
+  "/language/",
+  "/ru/language/",
+  "/uk/language/",
+  "/language/covenant/",
+  "/language/specification/",
+  "/language/proposals/",
+  "/tutorial/",
+  "/ru/tutorial/",
+  "/uk/tutorial/",
+  "/lab/",
+  "/lab/compiler/",
+  "/lab/vm/",
+  "/lab/ide/",
+  "/lab/view/",
+  "/lab/gui/",
+  "/lab/design-system/",
+  "/status/"
 ].freeze
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -221,6 +248,119 @@ PASS_FIXTURES.each do |fname|
     pass(results, 'no_javascript_scheme', fname)
   else
     fail_check(results, 'no_javascript_scheme', fname, "Found javascript: in: #{js_strings.map { |p, _| p }.join(', ')}")
+  end
+
+  # ── NEW HARDENING CHECKS (LAB-WEB-FRAMEWORK-P2-A) ────────────────────────
+
+  # ── 11. Jekyll contract route families present (igniter_org_v0 only) ─────
+  # Verifies that the fixture covers all route families documented in the
+  # Jekyll candidate's route-contract.md (read-only evidence).
+  if fname == 'igniter_org_v0.json'
+    missing_jekyll = JEKYLL_CONTRACT_ROUTES.reject { |r| all_route_paths.include?(r) }
+    if missing_jekyll.empty?
+      pass(results, 'jekyll_contract_route_families_present', fname)
+    else
+      fail_check(results, 'jekyll_contract_route_families_present', fname,
+                 "Fixture missing Jekyll-contract routes: #{missing_jekyll.join(', ')}")
+    end
+  else
+    pass(results, 'jekyll_contract_route_families_present', fname) # not applicable to minimal
+  end
+
+  # ── 12. Locale equivalent completeness for tri-locale pages ──────────────
+  # For every page whose locales array contains all three of en/ru/uk,
+  # the hreflang map must have en, ru, uk, and x-default keys, and
+  # the locale_equivalents entry must have all three locale keys mapping
+  # to distinct paths.
+  site_locales = data['locales'] || []
+  all_three = %w[en ru uk]
+  completeness_errors = []
+  if (site_locales & all_three).sort == all_three.sort
+    pages.each do |page|
+      page_locales = page['locales'] || []
+      next unless (page_locales & all_three).sort == all_three.sort
+
+      hreflang = page['hreflang'] || {}
+      missing_hreflang_keys = (all_three + ['x-default']).reject { |k| hreflang.key?(k) }
+      unless missing_hreflang_keys.empty?
+        completeness_errors << "#{page['id']}: hreflang missing keys #{missing_hreflang_keys.join(', ')}"
+      end
+
+      canonical = page['canonical_path']
+      # Look up by canonical_path key, or by finding an entry whose default-locale value matches
+      default_locale = data['default_locale'] || 'en'
+      equiv_entry = locale_equivalents[canonical] ||
+                    locale_equivalents.values.find { |e| e.is_a?(Hash) && e[default_locale] == canonical }
+      if equiv_entry.nil?
+        completeness_errors << "#{page['id']}: no locale_equivalents entry for canonical #{canonical}"
+      else
+        missing_equiv_keys = all_three.reject { |k| equiv_entry.key?(k) }
+        unless missing_equiv_keys.empty?
+          completeness_errors << "#{page['id']}: locale_equivalents missing locales #{missing_equiv_keys.join(', ')}"
+        end
+        equiv_paths = all_three.map { |k| equiv_entry[k] }.compact
+        if equiv_paths.uniq.size < equiv_paths.size
+          completeness_errors << "#{page['id']}: locale_equivalents has duplicate paths"
+        end
+      end
+    end
+  end
+  if completeness_errors.empty?
+    pass(results, 'locale_equivalent_completeness', fname)
+  else
+    fail_check(results, 'locale_equivalent_completeness', fname, completeness_errors.first(3).join('; '))
+  end
+
+  # ── 13. Fallback pages have no hreflang for missing locales ──────────────
+  # For every page where fallback_locale is set (en-only page in a multi-locale
+  # site), the hreflang map must NOT contain keys for locales outside the
+  # page's own locales array.
+  fallback_hreflang_errors = []
+  pages.each do |page|
+    next if page['fallback_locale'].nil?
+
+    page_locales = Set.new(page['locales'] || [])
+    hreflang = page['hreflang'] || {}
+    hreflang_locale_keys = hreflang.keys.reject { |k| k == 'x-default' }
+    extra_keys = hreflang_locale_keys.reject { |k| page_locales.include?(k) }
+    unless extra_keys.empty?
+      fallback_hreflang_errors << "#{page['id']}: hreflang has extra locale keys #{extra_keys.join(', ')} not in page locales"
+    end
+  end
+  if fallback_hreflang_errors.empty?
+    pass(results, 'fallback_pages_have_no_hreflang_for_missing_locales', fname)
+  else
+    fail_check(results, 'fallback_pages_have_no_hreflang_for_missing_locales', fname, fallback_hreflang_errors.first(3).join('; '))
+  end
+
+  # ── 14. Tutorial slug routes localized ───────────────────────────────────
+  # For every page with a slug that starts with "tutorial-" (but not the index),
+  # if the page is active in ru and uk locales, verify that the corresponding
+  # localized routes exist in the route_tree.
+  tutorial_locale_errors = []
+  pages.each do |page|
+    slug = page['slug'] || ''
+    page_locales = page['locales'] || []
+    # Only check tutorial content pages (not the index slug "tutorial")
+    next unless page['id'].to_s.start_with?('tutorial-') && slug != 'tutorial'
+
+    if page_locales.include?('ru')
+      expected_ru = "/ru/tutorial/#{slug}/"
+      unless all_route_paths.include?(expected_ru)
+        tutorial_locale_errors << "Missing route #{expected_ru} for page #{page['id']}"
+      end
+    end
+    if page_locales.include?('uk')
+      expected_uk = "/uk/tutorial/#{slug}/"
+      unless all_route_paths.include?(expected_uk)
+        tutorial_locale_errors << "Missing route #{expected_uk} for page #{page['id']}"
+      end
+    end
+  end
+  if tutorial_locale_errors.empty?
+    pass(results, 'tutorial_slug_routes_localized', fname)
+  else
+    fail_check(results, 'tutorial_slug_routes_localized', fname, tutorial_locale_errors.first(3).join('; '))
   end
 end
 

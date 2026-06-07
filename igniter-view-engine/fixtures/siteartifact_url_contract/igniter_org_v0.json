@@ -23,14 +23,19 @@
   "source_content_refs": {
     "home": "content/tutorial/en/home.md",
     "language": "en/language.html",
+    "language-covenant": "en/language/covenant.md",
+    "language-specification": "en/language/specification.md",
+    "language-proposals": "en/language/proposals.md",
     "tutorial-lab-orientation": "content/tutorial/en/lab-orientation.md",
     "tutorial-compiler-first-proof": "content/tutorial/en/compiler-first-proof.md",
+    "tutorial-vm-candidate-proof": "content/tutorial/en/vm-candidate-proof.md",
     "lab": "en/lab.html",
-    "lab-compiler": "en/lab.html",
-    "lab-vm": "en/lab.html",
-    "lab-ide": "en/lab.html",
-    "lab-view": "en/lab.html",
-    "lab-gui": "en/lab.html",
+    "lab-compiler": "en/lab/compiler.md",
+    "lab-vm": "en/lab/vm.md",
+    "lab-ide": "en/lab/ide.md",
+    "lab-view": "en/lab/view.md",
+    "lab-gui": "en/lab/gui.md",
+    "lab-design-system": "en/lab/design-system.md",
     "status": "en/status.html",
     "tutorial-index": "content/tutorial/en/index.md"
   },
@@ -44,6 +49,21 @@
       "en": "/language/",
       "ru": "/ru/language/",
       "uk": "/uk/language/"
+    },
+    "/language/covenant/": {
+      "en": "/language/covenant/",
+      "ru": "/ru/language/covenant/",
+      "uk": "/uk/language/covenant/"
+    },
+    "/language/specification/": {
+      "en": "/language/specification/",
+      "ru": "/ru/language/specification/",
+      "uk": "/uk/language/specification/"
+    },
+    "/language/proposals/": {
+      "en": "/language/proposals/",
+      "ru": "/ru/language/proposals/",
+      "uk": "/uk/language/proposals/"
     },
     "/tutorial/": {
       "en": "/tutorial/",
@@ -60,25 +80,45 @@
       "ru": "/ru/tutorial/compiler-first-proof/",
       "uk": "/uk/tutorial/compiler-first-proof/"
     },
+    "/tutorial/vm-candidate-proof/": {
+      "en": "/tutorial/vm-candidate-proof/",
+      "ru": "/ru/tutorial/vm-candidate-proof/",
+      "uk": "/uk/tutorial/vm-candidate-proof/"
+    },
     "/lab/": {
       "en": "/lab/",
       "ru": "/ru/lab/",
       "uk": "/uk/lab/"
     },
     "/lab/compiler/": {
-      "en": "/lab/compiler/"
+      "en": "/lab/compiler/",
+      "ru": "/ru/lab/compiler/",
+      "uk": "/uk/lab/compiler/"
     },
     "/lab/vm/": {
-      "en": "/lab/vm/"
+      "en": "/lab/vm/",
+      "ru": "/ru/lab/vm/",
+      "uk": "/uk/lab/vm/"
     },
     "/lab/ide/": {
-      "en": "/lab/ide/"
+      "en": "/lab/ide/",
+      "ru": "/ru/lab/ide/",
+      "uk": "/uk/lab/ide/"
     },
     "/lab/view/": {
-      "en": "/lab/view/"
+      "en": "/lab/view/",
+      "ru": "/ru/lab/view/",
+      "uk": "/uk/lab/view/"
     },
     "/lab/gui/": {
-      "en": "/lab/gui/"
+      "en": "/lab/gui/",
+      "ru": "/ru/lab/gui/",
+      "uk": "/uk/lab/gui/"
+    },
+    "/lab/design-system/": {
+      "en": "/lab/design-system/",
+      "ru": "/ru/lab/design-system/",
+      "uk": "/uk/lab/design-system/"
     },
     "/status/": {
       "en": "/status/",
@@ -110,12 +150,57 @@
     {
       "id": "language",
       "slug": "language",
-      "title": { "en": "Language Covenant", "ru": "Языковой Ковенант", "uk": "Мовний Ковенант" },
+      "title": { "en": "Language", "ru": "Язык", "uk": "Мова" },
       "locales": ["en", "ru", "uk"],
       "fallback_locale": null,
       "source_ref": "en/language.html",
       "canonical_path": "/language/",
       "hreflang": { "en": "/language/", "ru": "/ru/language/", "uk": "/uk/language/", "x-default": "/language/" }
+    },
+    {
+      "id": "language-covenant",
+      "slug": "covenant",
+      "title": { "en": "Language Covenant", "ru": "Языковой Ковенант", "uk": "Мовний Ковенант" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/language/covenant.md",
+      "canonical_path": "/language/covenant/",
+      "hreflang": {
+        "en": "/language/covenant/",
+        "ru": "/ru/language/covenant/",
+        "uk": "/uk/language/covenant/",
+        "x-default": "/language/covenant/"
+      }
+    },
+    {
+      "id": "language-specification",
+      "slug": "specification",
+      "title": { "en": "Language Specification", "ru": "Спецификация языка", "uk": "Специфікація мови" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/language/specification.md",
+      "canonical_path": "/language/specification/",
+      "hreflang": {
+        "en": "/language/specification/",
+        "ru": "/ru/language/specification/",
+        "uk": "/uk/language/specification/",
+        "x-default": "/language/specification/"
+      }
+    },
+    {
+      "id": "language-proposals",
+      "slug": "proposals",
+      "title": { "en": "Language Proposals", "ru": "Языковые предложения", "uk": "Мовні пропозиції" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/language/proposals.md",
+      "canonical_path": "/language/proposals/",
+      "hreflang": {
+        "en": "/language/proposals/",
+        "ru": "/ru/language/proposals/",
+        "uk": "/uk/language/proposals/",
+        "x-default": "/language/proposals/"
+      }
     },
     {
       "id": "tutorial-index",
@@ -145,12 +230,32 @@
     {
       "id": "tutorial-compiler-first-proof",
       "slug": "compiler-first-proof",
-      "title": { "en": "Compiler First Proof" },
-      "locales": ["en"],
-      "fallback_locale": "en",
+      "title": { "en": "Compiler First Proof", "ru": "Первое доказательство компилятора", "uk": "Перший доказ компілятора" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
       "source_ref": "content/tutorial/en/compiler-first-proof.md",
       "canonical_path": "/tutorial/compiler-first-proof/",
-      "hreflang": { "en": "/tutorial/compiler-first-proof/", "x-default": "/tutorial/compiler-first-proof/" }
+      "hreflang": {
+        "en": "/tutorial/compiler-first-proof/",
+        "ru": "/ru/tutorial/compiler-first-proof/",
+        "uk": "/uk/tutorial/compiler-first-proof/",
+        "x-default": "/tutorial/compiler-first-proof/"
+      }
+    },
+    {
+      "id": "tutorial-vm-candidate-proof",
+      "slug": "vm-candidate-proof",
+      "title": { "en": "VM Candidate Proof", "ru": "Доказательство кандидата ВМ", "uk": "Доказ кандидата ВМ" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "content/tutorial/en/vm-candidate-proof.md",
+      "canonical_path": "/tutorial/vm-candidate-proof/",
+      "hreflang": {
+        "en": "/tutorial/vm-candidate-proof/",
+        "ru": "/ru/tutorial/vm-candidate-proof/",
+        "uk": "/uk/tutorial/vm-candidate-proof/",
+        "x-default": "/tutorial/vm-candidate-proof/"
+      }
     },
     {
       "id": "lab",
@@ -165,52 +270,92 @@
     {
       "id": "lab-compiler",
       "slug": "compiler",
-      "title": { "en": "Lab — Compiler" },
-      "locales": ["en"],
-      "fallback_locale": "en",
-      "source_ref": "en/lab.html",
+      "title": { "en": "Lab — Compiler", "ru": "Лаборатория — Компилятор", "uk": "Лабораторія — Компілятор" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/compiler.md",
       "canonical_path": "/lab/compiler/",
-      "hreflang": { "en": "/lab/compiler/", "x-default": "/lab/compiler/" }
+      "hreflang": {
+        "en": "/lab/compiler/",
+        "ru": "/ru/lab/compiler/",
+        "uk": "/uk/lab/compiler/",
+        "x-default": "/lab/compiler/"
+      }
     },
     {
       "id": "lab-vm",
       "slug": "vm",
-      "title": { "en": "Lab — VM" },
-      "locales": ["en"],
-      "fallback_locale": "en",
-      "source_ref": "en/lab.html",
+      "title": { "en": "Lab — VM", "ru": "Лаборатория — ВМ", "uk": "Лабораторія — ВМ" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/vm.md",
       "canonical_path": "/lab/vm/",
-      "hreflang": { "en": "/lab/vm/", "x-default": "/lab/vm/" }
+      "hreflang": {
+        "en": "/lab/vm/",
+        "ru": "/ru/lab/vm/",
+        "uk": "/uk/lab/vm/",
+        "x-default": "/lab/vm/"
+      }
     },
     {
       "id": "lab-ide",
       "slug": "ide",
-      "title": { "en": "Lab — IDE" },
-      "locales": ["en"],
-      "fallback_locale": "en",
-      "source_ref": "en/lab.html",
+      "title": { "en": "Lab — IDE", "ru": "Лаборатория — IDE", "uk": "Лабораторія — IDE" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/ide.md",
       "canonical_path": "/lab/ide/",
-      "hreflang": { "en": "/lab/ide/", "x-default": "/lab/ide/" }
+      "hreflang": {
+        "en": "/lab/ide/",
+        "ru": "/ru/lab/ide/",
+        "uk": "/uk/lab/ide/",
+        "x-default": "/lab/ide/"
+      }
     },
     {
       "id": "lab-view",
       "slug": "view",
-      "title": { "en": "Lab — View Engine" },
-      "locales": ["en"],
-      "fallback_locale": "en",
-      "source_ref": "en/lab.html",
+      "title": { "en": "Lab — View Engine", "ru": "Лаборатория — движок представлений", "uk": "Лабораторія — движок відображень" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/view.md",
       "canonical_path": "/lab/view/",
-      "hreflang": { "en": "/lab/view/", "x-default": "/lab/view/" }
+      "hreflang": {
+        "en": "/lab/view/",
+        "ru": "/ru/lab/view/",
+        "uk": "/uk/lab/view/",
+        "x-default": "/lab/view/"
+      }
     },
     {
       "id": "lab-gui",
       "slug": "gui",
-      "title": { "en": "Lab — GUI Engine" },
-      "locales": ["en"],
-      "fallback_locale": "en",
-      "source_ref": "en/lab.html",
+      "title": { "en": "Lab — GUI Engine", "ru": "Лаборатория — GUI движок", "uk": "Лабораторія — GUI рушій" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/gui.md",
       "canonical_path": "/lab/gui/",
-      "hreflang": { "en": "/lab/gui/", "x-default": "/lab/gui/" }
+      "hreflang": {
+        "en": "/lab/gui/",
+        "ru": "/ru/lab/gui/",
+        "uk": "/uk/lab/gui/",
+        "x-default": "/lab/gui/"
+      }
+    },
+    {
+      "id": "lab-design-system",
+      "slug": "design-system",
+      "title": { "en": "Lab — Design System", "ru": "Лаборатория — Дизайн-система", "uk": "Лабораторія — Дизайн-система" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab/design-system.md",
+      "canonical_path": "/lab/design-system/",
+      "hreflang": {
+        "en": "/lab/design-system/",
+        "ru": "/ru/lab/design-system/",
+        "uk": "/uk/lab/design-system/",
+        "x-default": "/lab/design-system/"
+      }
     },
     {
       "id": "status",
@@ -240,7 +385,29 @@
             "locale": "en",
             "slug": "language",
             "page_ref": "language",
-            "children": []
+            "children": [
+              {
+                "path": "/language/covenant/",
+                "locale": "en",
+                "slug": "covenant",
+                "page_ref": "language-covenant",
+                "children": []
+              },
+              {
+                "path": "/language/specification/",
+                "locale": "en",
+                "slug": "specification",
+                "page_ref": "language-specification",
+                "children": []
+              },
+              {
+                "path": "/language/proposals/",
+                "locale": "en",
+                "slug": "proposals",
+                "page_ref": "language-proposals",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/tutorial/",
@@ -260,6 +427,13 @@
                 "locale": "en",
                 "slug": "compiler-first-proof",
                 "page_ref": "tutorial-compiler-first-proof",
+                "children": []
+              },
+              {
+                "path": "/tutorial/vm-candidate-proof/",
+                "locale": "en",
+                "slug": "vm-candidate-proof",
+                "page_ref": "tutorial-vm-candidate-proof",
                 "children": []
               }
             ]
@@ -304,6 +478,13 @@
                 "slug": "gui",
                 "page_ref": "lab-gui",
                 "children": []
+              },
+              {
+                "path": "/lab/design-system/",
+                "locale": "en",
+                "slug": "design-system",
+                "page_ref": "lab-design-system",
+                "children": []
               }
             ]
           },
@@ -327,7 +508,29 @@
             "locale": "ru",
             "slug": "language",
             "page_ref": "language",
-            "children": []
+            "children": [
+              {
+                "path": "/ru/language/covenant/",
+                "locale": "ru",
+                "slug": "covenant",
+                "page_ref": "language-covenant",
+                "children": []
+              },
+              {
+                "path": "/ru/language/specification/",
+                "locale": "ru",
+                "slug": "specification",
+                "page_ref": "language-specification",
+                "children": []
+              },
+              {
+                "path": "/ru/language/proposals/",
+                "locale": "ru",
+                "slug": "proposals",
+                "page_ref": "language-proposals",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/ru/tutorial/",
@@ -348,6 +551,13 @@
                 "slug": "compiler-first-proof",
                 "page_ref": "tutorial-compiler-first-proof",
                 "children": []
+              },
+              {
+                "path": "/ru/tutorial/vm-candidate-proof/",
+                "locale": "ru",
+                "slug": "vm-candidate-proof",
+                "page_ref": "tutorial-vm-candidate-proof",
+                "children": []
               }
             ]
           },
@@ -356,7 +566,50 @@
             "locale": "ru",
             "slug": "lab",
             "page_ref": "lab",
-            "children": []
+            "children": [
+              {
+                "path": "/ru/lab/compiler/",
+                "locale": "ru",
+                "slug": "compiler",
+                "page_ref": "lab-compiler",
+                "children": []
+              },
+              {
+                "path": "/ru/lab/vm/",
+                "locale": "ru",
+                "slug": "vm",
+                "page_ref": "lab-vm",
+                "children": []
+              },
+              {
+                "path": "/ru/lab/ide/",
+                "locale": "ru",
+                "slug": "ide",
+                "page_ref": "lab-ide",
+                "children": []
+              },
+              {
+                "path": "/ru/lab/view/",
+                "locale": "ru",
+                "slug": "view",
+                "page_ref": "lab-view",
+                "children": []
+              },
+              {
+                "path": "/ru/lab/gui/",
+                "locale": "ru",
+                "slug": "gui",
+                "page_ref": "lab-gui",
+                "children": []
+              },
+              {
+                "path": "/ru/lab/design-system/",
+                "locale": "ru",
+                "slug": "design-system",
+                "page_ref": "lab-design-system",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/ru/status/",
@@ -378,7 +631,29 @@
             "locale": "uk",
             "slug": "language",
             "page_ref": "language",
-            "children": []
+            "children": [
+              {
+                "path": "/uk/language/covenant/",
+                "locale": "uk",
+                "slug": "covenant",
+                "page_ref": "language-covenant",
+                "children": []
+              },
+              {
+                "path": "/uk/language/specification/",
+                "locale": "uk",
+                "slug": "specification",
+                "page_ref": "language-specification",
+                "children": []
+              },
+              {
+                "path": "/uk/language/proposals/",
+                "locale": "uk",
+                "slug": "proposals",
+                "page_ref": "language-proposals",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/uk/tutorial/",
@@ -399,6 +674,13 @@
                 "slug": "compiler-first-proof",
                 "page_ref": "tutorial-compiler-first-proof",
                 "children": []
+              },
+              {
+                "path": "/uk/tutorial/vm-candidate-proof/",
+                "locale": "uk",
+                "slug": "vm-candidate-proof",
+                "page_ref": "tutorial-vm-candidate-proof",
+                "children": []
               }
             ]
           },
@@ -407,7 +689,50 @@
             "locale": "uk",
             "slug": "lab",
             "page_ref": "lab",
-            "children": []
+            "children": [
+              {
+                "path": "/uk/lab/compiler/",
+                "locale": "uk",
+                "slug": "compiler",
+                "page_ref": "lab-compiler",
+                "children": []
+              },
+              {
+                "path": "/uk/lab/vm/",
+                "locale": "uk",
+                "slug": "vm",
+                "page_ref": "lab-vm",
+                "children": []
+              },
+              {
+                "path": "/uk/lab/ide/",
+                "locale": "uk",
+                "slug": "ide",
+                "page_ref": "lab-ide",
+                "children": []
+              },
+              {
+                "path": "/uk/lab/view/",
+                "locale": "uk",
+                "slug": "view",
+                "page_ref": "lab-view",
+                "children": []
+              },
+              {
+                "path": "/uk/lab/gui/",
+                "locale": "uk",
+                "slug": "gui",
+                "page_ref": "lab-gui",
+                "children": []
+              },
+              {
+                "path": "/uk/lab/design-system/",
+                "locale": "uk",
+                "slug": "design-system",
+                "page_ref": "lab-design-system",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/uk/status/",
