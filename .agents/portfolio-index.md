@@ -128,7 +128,10 @@ Rack/middleware vocabulary is lab-only.
 6. ✅ Lab G1: Rust compiler item-variable conformance — verify_g1_canon_loop.rb PASS (2026-06-07)
    parser.rs: `loop Name item in source` accepted; classifier/typechecker/emitter/vm compiler updated
    full slice: .ig → parse → classify → typecheck → emit → assemble → bytecode → VM exec; result=100 ✓
-7. PROP-039 gate 6: OOF registry review (requires separate auth)
+7. ✅ Lab G2: Rust compiler recursive/fuel_bounded conformance — verify_loops.rb PASS (2026-06-07)
+   parser.rs: `recursive`/`fuel_bounded` modifiers + `Decreases`/`MaxSteps` BodyDecl variants
+   conformance fixture: Factorial + LoopTester + SumList all compile; LoopTester executes correctly ✓
+8. PROP-039 gate 6: OOF registry review (requires separate auth)
 
 ---
 
@@ -155,7 +158,8 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
 | PROP-039 loop impl | Gates 1+3+4+5 closed + Lab G1 conformance | Gate 6 (OOF registry review) next — requires separate auth |
-| Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | Lab G2 (recursive/fuel_bounded modifiers) — requires auth |
+| Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |
+| Lab G2 | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` contract modifiers + `decreases`/`max_steps` body decls | G3 (PROP-037 fixture split) — future work |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---

@@ -130,7 +130,7 @@ With boundaries:
 | Gap | Description | Action needed |
 |---|---|---|
 | ~~G1: Rust compiler item-variable~~ | ✅ closed 2026-06-07 — parser.rs/classifier.rs/typechecker.rs/emitter.rs/vm/compiler.rs updated; verify_g1_canon_loop.rb PASS | — |
-| G2: Rust compiler modifiers | Rust compiler does not accept `recursive`/`fuel_bounded` modifier | Rust compiler update |
+| ~~G2: Rust compiler modifiers~~ | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` added to modifier match; `Decreases`/`MaxSteps` BodyDecl variants added; verify_loops.rb PASS | — |
 | G3: PROP-037 fixture split | `clock.every` service loop is annotated but not moved to a separate PROP-037 fixture | New PROP-037 conformance fixture when PROP-037 conformance work begins |
 | G4: Body semantics | Loop body variables (`lead`, `item`) not validated by canon TypeChecker (deferred gate 5) | Future PROP-039 body-semantics gate |
 | G5: recur() primitive | `recursive contract` body uses `recur()` — canon primitive not yet in parser/runtime | Future gate after body-semantics authorization |
@@ -142,8 +142,8 @@ Files updated:
 - `igniter-lab/igniter-compiler/fixtures/loops/loop_accumulator.ig`
 - `igniter-lab/igniter-compiler/fixtures/conformance/source/loops_and_recursion.ig`
 
-**verify_g1_canon_loop.rb status:** ✅ PASS — G1 closed 2026-06-07. Full slice confirmed.
-**verify_loops.rb status:** still fails on `fuel_bounded`/`recursive` contract forms (G2 remains open). G1 loop block inside the file would now parse correctly.
+**verify_g1_canon_loop.rb status:** ✅ PASS — G1 closed 2026-06-07.
+**verify_loops.rb status:** ✅ PASS — G2 closed 2026-06-07. Full conformance file compiles and executes.
 
 ---
 

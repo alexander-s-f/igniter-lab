@@ -263,6 +263,16 @@ pub enum BodyDecl {
         interval: ClockInterval,
         body: Vec<BodyDecl>,
     },
+    /// G2: `decreases <variant>` inside recursive contract body
+    #[serde(rename = "decreases")]
+    Decreases {
+        variant: String,
+    },
+    /// G2: `max_steps <N>` inside fuel_bounded (or recursive + decreases fuel) contract body
+    #[serde(rename = "max_steps")]
+    MaxSteps {
+        value: u64,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -789,7 +799,9 @@ impl Parser {
             "impl" => { self.advance(); self.parse_impl_decl().map(|i| Some(TopDecl::Impl(i))) }
             "contract_shape" => { self.advance(); self.parse_contract_shape_decl().map(|s| Some(TopDecl::ContractShape(s))) }
             "contract" => { self.advance(); self.parse_contract_decl(None).map(|c| Some(TopDecl::Contract(c))) }
-            "pure" | "observed" | "effect" | "privileged" | "irreversible" => {
+            "pure" | "observed" | "effect" | "privileged" | "irreversible"
+            // G2: recursive/fuel_bounded contract modifiers (PROP-039 gate 3)
+            | "recursive" | "fuel_bounded" => {
                 let modifier = tok.value.clone();
                 self.advance();
                 if self.peek_kw("contract") {
@@ -1221,6 +1233,9 @@ impl Parser {
             "fold_stream" => { self.advance(); self.parse_fold_stream_decl().ok() }
             "loop" => { self.advance(); self.parse_loop_or_service_loop_decl().ok() }
             "invariant" => { self.advance(); self.parse_invariant_decl().ok() }
+            // G2: structural meta-declarations for recursive/fuel_bounded contracts
+            "decreases" => { self.advance(); self.parse_decreases_body_decl().ok() }
+            "max_steps" => { self.advance(); self.parse_max_steps_body_decl().ok() }
             "uses" => {
                 self.advance();
                 if self.peek_kw("assumptions") {
@@ -1549,6 +1564,47 @@ impl Parser {
             type_annotation: None,
             bound,
         })
+    }
+
+    /// G2: parse `decreases <variant>` body declaration inside recursive contracts.
+    /// variant may be a simple identifier ("fuel") or a dotted path ("items.remaining").
+    fn parse_decreases_body_decl(&mut self) -> Result<BodyDecl, String> {
+        let mut parts = Vec::new();
+        // Collect the first identifier/keyword token
+        if let Some(tok) = self.current().cloned() {
+            if matches!(tok.token_type, TokenType::Ident | TokenType::Keyword) {
+                parts.push(tok.value.clone());
+                self.advance();
+                // Collect dotted continuations (e.g. .remaining)
+                while self.peek_type(TokenType::Dot) {
+                    self.advance(); // consume dot
+                    if let Some(next) = self.current().cloned() {
+                        if matches!(next.token_type, TokenType::Ident | TokenType::Keyword) {
+                            parts.push(next.value.clone());
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        let variant = if parts.is_empty() { "unknown".to_string() } else { parts.join(".") };
+        Ok(BodyDecl::Decreases { variant })
+    }
+
+    /// G2: parse `max_steps <N>` body declaration inside fuel_bounded/recursive contracts.
+    /// No colon — differs from loop-level `max_steps: N` form.
+    fn parse_max_steps_body_decl(&mut self) -> Result<BodyDecl, String> {
+        // Optional colon (allow both `max_steps 100` and `max_steps: 100` for tolerance)
+        if self.peek_type(TokenType::Colon) {
+            self.advance();
+        }
+        let tok = self.expect_type(TokenType::IntLit)?;
+        let value = tok.value.parse::<u64>().unwrap_or(0);
+        Ok(BodyDecl::MaxSteps { value })
     }
 
     fn parse_loop_or_service_loop_decl(&mut self) -> Result<BodyDecl, String> {

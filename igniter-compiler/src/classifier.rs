@@ -973,6 +973,9 @@ impl Classifier {
                         body_nodes: Some(inner_classified),
                     });
                 }
+                // G2: decreases/max_steps are structural meta-declarations for recursive/fuel_bounded
+                // contracts. No ClassifiedDecl produced; used only for contract-level OOF checks.
+                BodyDecl::Decreases { .. } | BodyDecl::MaxSteps { .. } => {}
                 BodyDecl::ServiceLoop { name, interval, body: loop_body } => {
                     // Service loops are always ESCAPE
                     symbol_fragments.insert(name.clone(), "escape".to_string());
