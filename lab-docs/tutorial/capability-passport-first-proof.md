@@ -5,7 +5,8 @@ Status: active
 Goal:
 Inspect a capability passport manifest and verify fail-closed runtime safety boundaries such as tamper detection, active grant checks, sandbox escape blockers, and ambient leak blocks.
 
-This lesson uses the experimental loader and delegation engine in `igniter-vm/` and `igniter-stdlib/`.
+This lesson uses the active pre-v1 loader and delegation experiments in
+`igniter-vm/` and `igniter-stdlib/`.
 
 ## Read
 
@@ -50,17 +51,23 @@ If a callee passport requests access to a sandbox directory outside of the calle
 ### 5. Ambient Access Block (`IOVM_13`)
 Contracts must access capabilities only through declared parameter bindings. If a contract attempts to access a parent's capability directly (ambiently), the loader raises an `AmbientAccessViolation` and halts.
 
-## What This Proves
+## What This Shows
 
 This walkthrough demonstrates that:
 - Capability requirements are statically declared in `passport.json` when compiled.
 - The VM loader validates both the code digest and delegation constraints before execution begins.
 - Violations (tampering, path escapes, write escalations, ambient access attempts) successfully trigger fail-closed halts.
 
-It does not prove:
-- Stable passport file formats or public compiler formats.
-- Mainline compiler packaging or public runtime authority.
-- Reference Runtime security guarantees or official certification.
+Current development notes:
+- passport and compiler output formats may change before v1;
+- public runtime packaging is a separate decision;
+- security certification or Reference Runtime claims require later dedicated review.
+
+## Boundary
+
+The capability passport and VM loader are active lab candidate behaviors,
+provided as-is for learning and feedback. Treat the result as useful evidence,
+not as a frozen public contract.
 
 ## Troubleshooting
 
@@ -68,7 +75,3 @@ It does not prove:
 | --- | --- |
 | Compilation of VM or compiler fails | Clean build directories by running `cargo clean` inside `igniter-compiler/` and `igniter-vm/`, then rerun the integration script. |
 | Verification fails with `AmbientAccessViolation` | Ensure all accessed resources in your `.ig` source are declared as input parameters and bound explicitly in the caller bindings. |
-
-## Boundary
-
-The capability passport and VM loader are lab-only candidate behaviors. Passing this lesson produces proof-local evidence only and does not promote lab behavior into canon.

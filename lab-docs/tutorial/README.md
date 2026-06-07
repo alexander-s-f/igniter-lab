@@ -5,9 +5,10 @@ Status: tutorial seed
 This section is the learning path for `igniter-lab`. It explains how the lab
 works by walking through small, bounded examples and existing proof surfaces.
 
-The tutorial is educational and lab-only. It does not create canonical Igniter
-semantics, stable grammar, public API, runtime support, production readiness,
-release evidence, performance claims, certification, or portability guarantees.
+The tutorial is educational and lab-first. Igniter Lab is in active pre-v1
+development: APIs, artifact shapes, commands, and examples may change. Lessons
+are provided as-is for learning, feedback, and experimentation; formal language
+authority lives in the `igniter-lang` source documents and accepted decisions.
 
 ## Learning Path
 

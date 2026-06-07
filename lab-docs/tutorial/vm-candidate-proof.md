@@ -5,7 +5,9 @@ Status: active
 Goal:
 Run the bounded VM candidate proof runner, inspect the generated result packet, and learn how it records candidate evidence and non-claims.
 
-This lesson uses the experimental virtual machine in `igniter-vm/`. It is a lab walkthrough, not a stable runtime tutorial.
+This lesson uses the experimental virtual machine in `igniter-vm/`. It is a
+pre-v1 lab walkthrough: the VM candidate is useful for evidence and may change
+as runtime design matures.
 
 ## Read
 
@@ -54,18 +56,24 @@ Specifically, check `"VMG-13"`:
 ```
 This confirms that the runner does not spin up any TCP daemons during verification.
 
-## What This Proves
+## What This Shows
 
 This walkthrough demonstrates that:
 - The local VM package successfully compiles and passes its test suite.
-- The bytecode engine correctly runs instruction sequences (like decimal arithmetic, branching, and map-reduce pipelines) under test.
+- The bytecode engine runs the proof-runner instruction sequences under test.
 - No network listeners or background servers are left running.
 - Canonical files under `igniter-lang/` are completely untouched.
 
-It does not prove:
-- Stable bytecode instructions or public CLI behavior.
-- Reference Runtime status or production readiness.
-- Compatibility or performance guarantees.
+Current development notes:
+- bytecode instructions and CLI behavior may change before v1;
+- runtime packaging and Reference Runtime status are separate decisions;
+- compatibility and performance claims require later dedicated evidence.
+
+## Boundary
+
+The virtual machine is an active lab prototype provided as-is for learning and
+feedback. Formal runtime authority, if any, must come from later `igniter-lang`
+decisions.
 
 ## Troubleshooting
 
@@ -74,7 +82,3 @@ It does not prove:
 | `ruby` or `cargo` command not found | Ensure Ruby and Rust toolchains are installed and present in your PATH. |
 | A test in the command matrix fails | Run `cargo test --manifest-path igniter-vm/Cargo.toml` manually to see the compilation or test failure backtrace. |
 | Output directory or files are tracked by git | Ensure `igniter-vm/out/` remains untracked. Do not add generated JSON files to your commits. |
-
-## Boundary
-
-The virtual machine is an experimental prototype. Passing this lesson produces proof-local evidence only and does not promote lab behavior into canon.

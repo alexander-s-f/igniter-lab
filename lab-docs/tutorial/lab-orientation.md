@@ -1,22 +1,15 @@
 # Lab Orientation
 
-Status: active seed
+Status: active
 
-Goal: give a new reader enough context to work inside `igniter-lab` without
-confusing frontier experiments with canonical Igniter language authority.
+Goal:
+Give a new reader enough context to work inside `igniter-lab` while understanding which parts are active experiments and which parts are formal language decisions.
 
-## What This Repo Is
+## Read
 
-`igniter-lab` is a frontier workspace. It contains prototypes, proof runners,
-research reports, IDE experiments, GUI experiments, design-system work, and
-pressure packages that may later inform `igniter-lang` or `igniter-ruby`.
+Start by understanding the repository shape and the key documentation files:
 
-Lab output is useful evidence, not authority. A proof can show that an idea is
-promising, but it does not by itself create stable language grammar, runtime
-support, public API, Reference Runtime status, release readiness, or production
-claims.
-
-## Start Here
+### Start Here
 
 | File | Why It Matters |
 | --- | --- |
@@ -25,7 +18,7 @@ claims.
 | [Current Status](../STATUS.md) | Current transfer-era package and lane status. |
 | [Agent Mapping](../../.agents/agent-mapping.md) | Where new cards and durable docs must be written. |
 
-## Main Components
+### Main Components
 
 | Component | What To Expect |
 | --- | --- |
@@ -35,43 +28,60 @@ claims.
 | `igniter-ide/` | Tauri/Svelte IDE for debugging, trace inspection, previews, and viewer experiments. |
 | `igniter-view-engine/` | View artifact, safe rendering, and isomorphic view framework pressure. |
 | `igniter-gui-engine/` | Headless GUI scene/layout/rendering and receipt proof surface. |
-| `lab-docs/` | Durable research, proof summaries, pressure packages, roadmap, status, and tutorial. |
-| `.agents/` | Agent cards, handoff receipts, mapping rules, and work queues. |
 
-## Evidence Vocabulary
+### Evidence Vocabulary
 
 | Term | Meaning |
 | --- | --- |
 | proof-local evidence | A bounded proof result from a specific fixture, runner, or package. |
-| lab-only candidate | A working idea that may be useful but is not canon. |
+| lab-only candidate | A working idea that may be useful and may still change before formal adoption. |
 | frontier pressure | A signal that a future spec, proposal, or implementation boundary may need work. |
 | result packet | Machine-readable or compact evidence summary from a proof runner. |
 | closed surface | A capability or claim that remains explicitly unauthorized. |
 
-## Safe First Commands
+## Try
 
-Run commands from the package that owns the proof:
-
-```bash
-cd igniter-gui-engine
-ruby run_proof.rb
-```
-
-```bash
-cd igniter-ide
-npm run check
-```
+From the package directories inside your checkout, run basic package-local tests:
 
 ```bash
 cd igniter-vm
 cargo test
 ```
 
-These commands validate local lab packages. Passing checks do not promote the
-feature to canon.
+Or run a headless GUI layout resolver proof:
+
+```bash
+cd igniter-gui-engine
+ruby run_proof.rb
+```
+
+## Observe
+
+Observe the terminal output:
+- For `cargo test`, you should see passing test units (e.g., `test result: ok.`).
+- For the GUI engine, you should see passing layout resolution metrics (e.g., `ALL CHECKS PASS!`).
+- Confirm that no background processes, network listeners, or servers are left active.
+
+## What This Proves
+
+Executing these commands proves that:
+- Your local compiler, VM, and interpreter toolchains are correctly set up.
+- The repository source files compile and execute local proof targets successfully.
+
+Running these tests confirms your local lab checkout can exercise the current
+proof targets. Formal language decisions are still made in `igniter-lang`.
 
 ## Boundary
 
-This tutorial does not authorize migration, package publication, public runtime
-support, stable grammar, stable API, Reference Runtime status, performance
-claims, certification, or portability guarantees.
+Igniter Lab is an active pre-v1 frontier workspace. Its packages and APIs are
+provided as-is for exploration and may change quickly. Use the lessons as a
+practical guide to the current lab surface, and use `igniter-lang` source docs
+when you need formal language authority.
+
+## Troubleshooting
+
+| Symptom | Next Step |
+| --- | --- |
+| `cargo` is missing | Install Rust/Cargo before running compiler or VM checks. |
+| `ruby` is missing | Install Ruby 3.x before running proof runners. |
+| Tests fail to build | Verify that your Rust toolchain is up to date and that you run commands from the correct subdirectory. |

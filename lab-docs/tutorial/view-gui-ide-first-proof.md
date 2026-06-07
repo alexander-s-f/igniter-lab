@@ -5,7 +5,9 @@ Status: active
 Goal:
 Trace view and GUI engine receipts, inspect safe preview/introspection structures, and understand how the Tauri IDE shell integrates these without executing active code.
 
-This lesson explores the frontend layout, scene trees, and IDE visualization components in `igniter-view-engine/`, `igniter-gui-engine/`, and `igniter-ide/`.
+This lesson explores the current frontend layout, scene trees, and IDE
+visualization components in `igniter-view-engine/`, `igniter-gui-engine/`, and
+`igniter-ide/`.
 
 ## Read
 
@@ -76,17 +78,23 @@ The Tauri-based IDE (`igniter-ide/`) reads these JSON/Mermaid artifacts directly
 
 This keeps the developer workbench fast, decoupled, and sandboxed.
 
-## What This Proves
+## What This Shows
 
 This walkthrough demonstrates that:
 - View DSL constructs compile to static, inspectable JSON view trees.
 - Headless layout and hit-testing are deterministic and don't require live GPUs or browser DOM engines.
 - The IDE wrapper visualizes visual layout receipts and event traces purely by consuming pre-rendered static artifacts.
 
-It does not prove:
-- Stable View DSL grammar.
-- Mainline support for native Tauri desktop apps.
-- Production native GUI rendering capability.
+Current development notes:
+- View DSL grammar and artifact schemas may change before v1;
+- native/Tauri app support remains an active frontier direction;
+- production renderer claims require later product and engineering review.
+
+## Boundary
+
+The view engine, GUI engine, and Svelte/Tauri IDE are active lab prototypes
+provided as-is for learning and feedback. They are useful today as frontier
+tools, while formal product commitments remain separate.
 
 ## Troubleshooting
 
@@ -94,7 +102,3 @@ It does not prove:
 | --- | --- |
 | IDE check fails | Confirm you have run `npm install` inside `igniter-ide/` before running check. |
 | SVG or vector output is blank | Verify that elements in your scene fixtures declare valid coordinate attributes and size constraints. |
-
-## Boundary
-
-The view engine, GUI engine, and Svelte/Tauri IDE are experimental prototypes. Passing this lesson produces proof-local evidence only and does not promote lab behavior into canon.

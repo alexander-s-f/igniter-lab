@@ -5,7 +5,8 @@ Status: active
 Goal:
 Follow contract invocation form resolution from a source fixture to the compiler-generated `form_table.json` and `form_resolution_trace.json` artifacts.
 
-This lesson explores how the experimental compiler maps syntactic operators to type-directed contract invocations.
+This lesson explores how the pre-v1 lab compiler currently maps syntactic
+operators to type-directed contract invocations.
 
 ## Read
 
@@ -83,7 +84,7 @@ Open `out/forms_test.igapp/form_resolution_trace.json`. This tracks how expressi
   }
   ```
 
-## What This Proves
+## What This Shows
 
 This walkthrough demonstrates that:
 - The parser accepts custom form definitions (infix, postfix, block method, keyword block).
@@ -91,10 +92,15 @@ This walkthrough demonstrates that:
 - Syntactic call nodes (like `length(s)`) bypass the form resolver and lower directly to standard calls.
 - Resolved contract mappings are statically emitted, meaning the runtime does not need to perform dynamic form lookup.
 
-It does not prove:
-- Stable grammar syntax or public API conventions.
-- Mainline compiler acceptance of custom forms.
-- Runtime support for dynamic dispatch.
+Current development notes:
+- form syntax and API conventions may change before formal adoption;
+- mainline acceptance requires a separate language decision;
+- dynamic dispatch remains a separate runtime design topic.
+
+## Boundary
+
+Form resolution is an active lab feature provided as-is for learning and
+feedback. The lesson shows the current evidence shape without freezing the API.
 
 ## Troubleshooting
 
@@ -102,7 +108,3 @@ It does not prove:
 | --- | --- |
 | Compiler fails with type errors | Forms resolution depends on successful typechecking. Verify that operand types match the form's declared input types. |
 | Operator fails to resolve | Check `form_resolution_trace.json` under `"trace"` to see why candidates were filtered out (e.g., status is `"primitive_pass_through"` or mismatch). |
-
-## Boundary
-
-Form resolution is an experimental lab feature. Passing this lesson produces proof-local evidence only and does not promote lab behavior into canon.
