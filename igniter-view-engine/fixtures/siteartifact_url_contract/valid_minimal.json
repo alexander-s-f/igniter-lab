@@ -1,0 +1,97 @@
+{
+  "site_id": "minimal-v0",
+  "locales": ["en", "ru"],
+  "default_locale": "en",
+  "canonical_url_policy": {
+    "rule": "translated_canonical_to_self__fallback_canonical_to_default_locale",
+    "default_locale": "en",
+    "description": "Translated pages canonical to self. Fallback pages canonical to default locale."
+  },
+  "hreflang_policy": {
+    "emit_x_default": true,
+    "x_default_locale": "en",
+    "only_emit_for_existing_equivalents": true,
+    "description": "Emit hreflang only for locales with an equivalent page."
+  },
+  "generated_output_policy": {
+    "output_root": "dist/",
+    "pattern": "<locale>/<slug>/index.html",
+    "root_pattern": "index.html",
+    "locale_root_pattern": "<locale>/index.html",
+    "note": "Output paths are separate from source content paths."
+  },
+  "source_content_refs": {
+    "home": "content/en/index.md",
+    "about": "content/en/about.md"
+  },
+  "locale_equivalents": {
+    "/": {
+      "en": "/en/",
+      "ru": "/ru/"
+    },
+    "/about/": {
+      "en": "/about/",
+      "ru": "/ru/about/"
+    }
+  },
+  "pages": [
+    {
+      "id": "home",
+      "slug": "home",
+      "title": { "en": "Home", "ru": "Главная" },
+      "locales": ["en", "ru"],
+      "fallback_locale": null,
+      "source_ref": "content/en/index.md",
+      "canonical_path": "/en/",
+      "hreflang": { "en": "/en/", "ru": "/ru/", "x-default": "/en/" }
+    },
+    {
+      "id": "about",
+      "slug": "about",
+      "title": { "en": "About" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "content/en/about.md",
+      "canonical_path": "/about/",
+      "hreflang": { "en": "/about/", "x-default": "/about/" }
+    }
+  ],
+  "route_tree": {
+    "path": "/",
+    "locale": null,
+    "slug": null,
+    "page_ref": "home",
+    "children": [
+      {
+        "path": "/en/",
+        "locale": "en",
+        "slug": null,
+        "page_ref": "home",
+        "children": [
+          {
+            "path": "/about/",
+            "locale": "en",
+            "slug": "about",
+            "page_ref": "about",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ru/",
+        "locale": "ru",
+        "slug": null,
+        "page_ref": "home",
+        "children": [
+          {
+            "path": "/ru/about/",
+            "locale": "ru",
+            "slug": "about",
+            "page_ref": "about",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

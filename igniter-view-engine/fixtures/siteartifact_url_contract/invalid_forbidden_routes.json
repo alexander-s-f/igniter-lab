@@ -1,0 +1,50 @@
+{
+  "site_id": "forbidden-routes-v0",
+  "_description": "This fixture contains only forbidden route shapes. Every route listed here must be rejected by the proof runner.",
+  "forbidden_routes": [
+    {
+      "path": "/docs/i18n/ru/tutorial/lab-orientation/",
+      "reason": "Legacy docs/i18n/** path — blocked by robots.txt and URL policy. Content must live at /ru/tutorial/, not /docs/i18n/ru/tutorial/."
+    },
+    {
+      "path": "/docs/tutorial/en/compiler-first-proof/",
+      "reason": "Legacy docs/tutorial/en/** path — English locale content embedded under /docs/tutorial/. Forbidden shape."
+    },
+    {
+      "path": "/content/tutorial/en/lab-orientation/",
+      "reason": "Source content directory exposed as a public route. /content/** paths must never appear as public URLs."
+    },
+    {
+      "path": "/_site/en/language/",
+      "reason": "Jekyll _site output directory exposed as a public route. /_site/** paths must never appear as public URLs."
+    },
+    {
+      "path": "/docs/i18n/uk/spec/ch1-identity/",
+      "reason": "docs/i18n/** pattern — forbidden regardless of locale or surface."
+    },
+    {
+      "path": "/docs/tutorial/en/",
+      "reason": "docs/tutorial/en/** root — same forbidden pattern, English locale hidden under /docs/."
+    }
+  ],
+  "forbidden_locale_equivalent_violations": [
+    {
+      "canonical_key": "/language/",
+      "equivalents": {
+        "en": "/language/",
+        "ru": "/language/",
+        "uk": "/language/"
+      },
+      "reason": "All locale equivalents point to the same path /language/. The locale dropdown would link to itself — forbidden. Each locale must have its own distinct path."
+    },
+    {
+      "canonical_key": "/tutorial/lab-orientation/",
+      "equivalents": {
+        "en": "/docs/tutorial/en/lab-orientation/",
+        "ru": "/docs/i18n/ru/tutorial/lab-orientation/",
+        "uk": "/docs/i18n/uk/tutorial/lab-orientation/"
+      },
+      "reason": "All equivalents use forbidden /docs/** path shapes. Locale paths must follow /<locale>/<surface>/<slug>/ pattern."
+    }
+  ]
+}

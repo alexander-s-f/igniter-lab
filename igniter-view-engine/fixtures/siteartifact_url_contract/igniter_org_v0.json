@@ -1,0 +1,423 @@
+{
+  "site_id": "igniter-org-v0",
+  "locales": ["en", "ru", "uk"],
+  "default_locale": "en",
+  "canonical_url_policy": {
+    "rule": "translated_canonical_to_self__fallback_canonical_to_default_locale",
+    "default_locale": "en",
+    "description": "If a page is translated and active, canonical points to self. If a page is an untranslated fallback, canonical points to the default-locale path."
+  },
+  "hreflang_policy": {
+    "emit_x_default": true,
+    "x_default_locale": "en",
+    "only_emit_for_existing_equivalents": true,
+    "description": "Emit hreflang alternate links for every locale that has an equivalent page. x-default points to the default locale path. Do not emit hreflang for locales where no equivalent exists."
+  },
+  "generated_output_policy": {
+    "output_root": "dist/",
+    "pattern": "<locale>/<surface>/<slug>/index.html",
+    "root_pattern": "index.html",
+    "locale_root_pattern": "<locale>/index.html",
+    "note": "Output paths are separate from source content paths. Source lives under content/. Output lives under dist/. No overlap."
+  },
+  "source_content_refs": {
+    "home": "content/tutorial/en/home.md",
+    "language": "en/language.html",
+    "tutorial-lab-orientation": "content/tutorial/en/lab-orientation.md",
+    "tutorial-compiler-first-proof": "content/tutorial/en/compiler-first-proof.md",
+    "lab": "en/lab.html",
+    "lab-compiler": "en/lab.html",
+    "lab-vm": "en/lab.html",
+    "lab-ide": "en/lab.html",
+    "lab-view": "en/lab.html",
+    "lab-gui": "en/lab.html",
+    "status": "en/status.html",
+    "tutorial-index": "content/tutorial/en/index.md"
+  },
+  "locale_equivalents": {
+    "/": {
+      "en": "/en/",
+      "ru": "/ru/",
+      "uk": "/uk/"
+    },
+    "/language/": {
+      "en": "/language/",
+      "ru": "/ru/language/",
+      "uk": "/uk/language/"
+    },
+    "/tutorial/": {
+      "en": "/tutorial/",
+      "ru": "/ru/tutorial/",
+      "uk": "/uk/tutorial/"
+    },
+    "/tutorial/lab-orientation/": {
+      "en": "/tutorial/lab-orientation/",
+      "ru": "/ru/tutorial/lab-orientation/",
+      "uk": "/uk/tutorial/lab-orientation/"
+    },
+    "/tutorial/compiler-first-proof/": {
+      "en": "/tutorial/compiler-first-proof/",
+      "ru": "/ru/tutorial/compiler-first-proof/",
+      "uk": "/uk/tutorial/compiler-first-proof/"
+    },
+    "/lab/": {
+      "en": "/lab/",
+      "ru": "/ru/lab/",
+      "uk": "/uk/lab/"
+    },
+    "/lab/compiler/": {
+      "en": "/lab/compiler/"
+    },
+    "/lab/vm/": {
+      "en": "/lab/vm/"
+    },
+    "/lab/ide/": {
+      "en": "/lab/ide/"
+    },
+    "/lab/view/": {
+      "en": "/lab/view/"
+    },
+    "/lab/gui/": {
+      "en": "/lab/gui/"
+    },
+    "/status/": {
+      "en": "/status/",
+      "ru": "/ru/status/",
+      "uk": "/uk/status/"
+    }
+  },
+  "pages": [
+    {
+      "id": "home",
+      "slug": "home",
+      "title": { "en": "Igniter — Home", "ru": "Igniter — Главная", "uk": "Igniter — Головна" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "content/tutorial/en/home.md",
+      "canonical_path": "/en/",
+      "hreflang": { "en": "/en/", "ru": "/ru/", "uk": "/uk/", "x-default": "/en/" }
+    },
+    {
+      "id": "root-redirect",
+      "slug": "root",
+      "title": { "en": "Igniter" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "index.html",
+      "canonical_path": "/",
+      "hreflang": { "en": "/en/", "x-default": "/en/" }
+    },
+    {
+      "id": "language",
+      "slug": "language",
+      "title": { "en": "Language Covenant", "ru": "Языковой Ковенант", "uk": "Мовний Ковенант" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/language.html",
+      "canonical_path": "/language/",
+      "hreflang": { "en": "/language/", "ru": "/ru/language/", "uk": "/uk/language/", "x-default": "/language/" }
+    },
+    {
+      "id": "tutorial-index",
+      "slug": "tutorial",
+      "title": { "en": "Tutorial Index", "ru": "Учебник", "uk": "Навчальний посібник" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "content/tutorial/en/index.md",
+      "canonical_path": "/tutorial/",
+      "hreflang": { "en": "/tutorial/", "ru": "/ru/tutorial/", "uk": "/uk/tutorial/", "x-default": "/tutorial/" }
+    },
+    {
+      "id": "tutorial-lab-orientation",
+      "slug": "lab-orientation",
+      "title": { "en": "Lab Orientation", "ru": "Ориентация в лаборатории", "uk": "Орієнтація в лабораторії" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "content/tutorial/en/lab-orientation.md",
+      "canonical_path": "/tutorial/lab-orientation/",
+      "hreflang": {
+        "en": "/tutorial/lab-orientation/",
+        "ru": "/ru/tutorial/lab-orientation/",
+        "uk": "/uk/tutorial/lab-orientation/",
+        "x-default": "/tutorial/lab-orientation/"
+      }
+    },
+    {
+      "id": "tutorial-compiler-first-proof",
+      "slug": "compiler-first-proof",
+      "title": { "en": "Compiler First Proof" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "content/tutorial/en/compiler-first-proof.md",
+      "canonical_path": "/tutorial/compiler-first-proof/",
+      "hreflang": { "en": "/tutorial/compiler-first-proof/", "x-default": "/tutorial/compiler-first-proof/" }
+    },
+    {
+      "id": "lab",
+      "slug": "lab",
+      "title": { "en": "Lab Overview", "ru": "Обзор лаборатории", "uk": "Огляд лабораторії" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/",
+      "hreflang": { "en": "/lab/", "ru": "/ru/lab/", "uk": "/uk/lab/", "x-default": "/lab/" }
+    },
+    {
+      "id": "lab-compiler",
+      "slug": "compiler",
+      "title": { "en": "Lab — Compiler" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/compiler/",
+      "hreflang": { "en": "/lab/compiler/", "x-default": "/lab/compiler/" }
+    },
+    {
+      "id": "lab-vm",
+      "slug": "vm",
+      "title": { "en": "Lab — VM" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/vm/",
+      "hreflang": { "en": "/lab/vm/", "x-default": "/lab/vm/" }
+    },
+    {
+      "id": "lab-ide",
+      "slug": "ide",
+      "title": { "en": "Lab — IDE" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/ide/",
+      "hreflang": { "en": "/lab/ide/", "x-default": "/lab/ide/" }
+    },
+    {
+      "id": "lab-view",
+      "slug": "view",
+      "title": { "en": "Lab — View Engine" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/view/",
+      "hreflang": { "en": "/lab/view/", "x-default": "/lab/view/" }
+    },
+    {
+      "id": "lab-gui",
+      "slug": "gui",
+      "title": { "en": "Lab — GUI Engine" },
+      "locales": ["en"],
+      "fallback_locale": "en",
+      "source_ref": "en/lab.html",
+      "canonical_path": "/lab/gui/",
+      "hreflang": { "en": "/lab/gui/", "x-default": "/lab/gui/" }
+    },
+    {
+      "id": "status",
+      "slug": "status",
+      "title": { "en": "Status", "ru": "Статус", "uk": "Статус" },
+      "locales": ["en", "ru", "uk"],
+      "fallback_locale": null,
+      "source_ref": "en/status.html",
+      "canonical_path": "/status/",
+      "hreflang": { "en": "/status/", "ru": "/ru/status/", "uk": "/uk/status/", "x-default": "/status/" }
+    }
+  ],
+  "route_tree": {
+    "path": "/",
+    "locale": null,
+    "slug": null,
+    "page_ref": "root-redirect",
+    "children": [
+      {
+        "path": "/en/",
+        "locale": "en",
+        "slug": null,
+        "page_ref": "home",
+        "children": [
+          {
+            "path": "/language/",
+            "locale": "en",
+            "slug": "language",
+            "page_ref": "language",
+            "children": []
+          },
+          {
+            "path": "/tutorial/",
+            "locale": "en",
+            "slug": "tutorial",
+            "page_ref": "tutorial-index",
+            "children": [
+              {
+                "path": "/tutorial/lab-orientation/",
+                "locale": "en",
+                "slug": "lab-orientation",
+                "page_ref": "tutorial-lab-orientation",
+                "children": []
+              },
+              {
+                "path": "/tutorial/compiler-first-proof/",
+                "locale": "en",
+                "slug": "compiler-first-proof",
+                "page_ref": "tutorial-compiler-first-proof",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/lab/",
+            "locale": "en",
+            "slug": "lab",
+            "page_ref": "lab",
+            "children": [
+              {
+                "path": "/lab/compiler/",
+                "locale": "en",
+                "slug": "compiler",
+                "page_ref": "lab-compiler",
+                "children": []
+              },
+              {
+                "path": "/lab/vm/",
+                "locale": "en",
+                "slug": "vm",
+                "page_ref": "lab-vm",
+                "children": []
+              },
+              {
+                "path": "/lab/ide/",
+                "locale": "en",
+                "slug": "ide",
+                "page_ref": "lab-ide",
+                "children": []
+              },
+              {
+                "path": "/lab/view/",
+                "locale": "en",
+                "slug": "view",
+                "page_ref": "lab-view",
+                "children": []
+              },
+              {
+                "path": "/lab/gui/",
+                "locale": "en",
+                "slug": "gui",
+                "page_ref": "lab-gui",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/status/",
+            "locale": "en",
+            "slug": "status",
+            "page_ref": "status",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/ru/",
+        "locale": "ru",
+        "slug": null,
+        "page_ref": "home",
+        "children": [
+          {
+            "path": "/ru/language/",
+            "locale": "ru",
+            "slug": "language",
+            "page_ref": "language",
+            "children": []
+          },
+          {
+            "path": "/ru/tutorial/",
+            "locale": "ru",
+            "slug": "tutorial",
+            "page_ref": "tutorial-index",
+            "children": [
+              {
+                "path": "/ru/tutorial/lab-orientation/",
+                "locale": "ru",
+                "slug": "lab-orientation",
+                "page_ref": "tutorial-lab-orientation",
+                "children": []
+              },
+              {
+                "path": "/ru/tutorial/compiler-first-proof/",
+                "locale": "ru",
+                "slug": "compiler-first-proof",
+                "page_ref": "tutorial-compiler-first-proof",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/ru/lab/",
+            "locale": "ru",
+            "slug": "lab",
+            "page_ref": "lab",
+            "children": []
+          },
+          {
+            "path": "/ru/status/",
+            "locale": "ru",
+            "slug": "status",
+            "page_ref": "status",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/uk/",
+        "locale": "uk",
+        "slug": null,
+        "page_ref": "home",
+        "children": [
+          {
+            "path": "/uk/language/",
+            "locale": "uk",
+            "slug": "language",
+            "page_ref": "language",
+            "children": []
+          },
+          {
+            "path": "/uk/tutorial/",
+            "locale": "uk",
+            "slug": "tutorial",
+            "page_ref": "tutorial-index",
+            "children": [
+              {
+                "path": "/uk/tutorial/lab-orientation/",
+                "locale": "uk",
+                "slug": "lab-orientation",
+                "page_ref": "tutorial-lab-orientation",
+                "children": []
+              },
+              {
+                "path": "/uk/tutorial/compiler-first-proof/",
+                "locale": "uk",
+                "slug": "compiler-first-proof",
+                "page_ref": "tutorial-compiler-first-proof",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/uk/lab/",
+            "locale": "uk",
+            "slug": "lab",
+            "page_ref": "lab",
+            "children": []
+          },
+          {
+            "path": "/uk/status/",
+            "locale": "uk",
+            "slug": "status",
+            "page_ref": "status",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}
