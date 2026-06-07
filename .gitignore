@@ -50,3 +50,6 @@ Users/
 
 # Local scratch inputs
 scratch_inputs.json
+
+# Local workspace repository map
+/repository-map.md
