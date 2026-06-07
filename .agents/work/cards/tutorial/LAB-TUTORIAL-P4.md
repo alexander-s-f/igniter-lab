@@ -54,7 +54,7 @@ Create a compact public-projection support layer for the `igniter-lab` tutorial:
 
 ### Telemetry (T)
 - Tested `git diff --check` (clean PASS) and confirmed all output files stay ignored.
-- Confirmed no absolute local paths or `file://` link literals exist in the tutorial files or cards.
+- Confirmed no absolute local paths or local file URI link literals exist in the tutorial files or cards.
 
 ### Route (R)
 - Returning card receipt to workspace supervisor. All objectives for LAB-TUTORIAL-P4 are complete.

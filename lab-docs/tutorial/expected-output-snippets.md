@@ -53,7 +53,7 @@ Running visual layout solving reports green statuses in terminal output:
 ALL PROOFS PASSED! View engine P1 is fully verified.
 ```
 ```text
-🎉 ALL CHECKS PASS! (207/207)
+ALL CHECKS PASS! (207/207)
 ```
 
 ---

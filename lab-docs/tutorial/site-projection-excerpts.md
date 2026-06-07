@@ -1,12 +1,14 @@
 # Site Projection Excerpts
 
-These excerpts are curated summaries and copy-paste-ready sections that can be directly projected into user-facing websites (like `igniter-org`) without copying the full laboratory development history.
+These excerpts are curated summaries and site-ready source copy that can be
+adapted by user-facing websites such as `igniter-org` without copying the full
+laboratory development history.
 
 ---
 
 ## Pre-v1 Feedback Note
 
-> ### 🚀 Welcome to the Igniter Frontier!
+> ### Welcome to the Igniter Frontier
 >
 > We are actively shaping the future of Igniter. The toolchains, compilers, and virtual machine designs featured here represent active, pre-v1 exploration. 
 > 
@@ -38,7 +40,7 @@ These excerpts are curated summaries and copy-paste-ready sections that can be d
   ```
 
 ### Lesson 2: VM Candidate Proof
-- **Summary**: Execute a linear instruction proof matrix inside the candidate Toko-based VM and read the generated result packet.
+- **Summary**: Execute a linear instruction proof matrix inside the candidate Tokio-based VM and read the generated result packet.
 - **What You Will Learn**: How bytecode instructions execute registers, handle stack variables, and output audit observations.
 - **Try This Command**:
   ```bash
