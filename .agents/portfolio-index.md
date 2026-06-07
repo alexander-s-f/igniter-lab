@@ -115,8 +115,9 @@ Rack/middleware vocabulary is lab-only.
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 
 **Next queue:**
-1. PROP-039 gate 1: proof-local semantics fixture (FiniteLoop/BudgetedLocalLoop/StructuralRecursion/FuelBoundedRecursion)
-2. DA-005: experiments/ archive pass (low priority, delegate)
+1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
+2. PROP-039 gate 3: parser boundary proof (if source syntax authorized)
+3. DA-005: experiments/ archive pass (low priority, delegate — card dispatched 2026-06-07)
 
 ---
 
@@ -142,7 +143,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | Vocabulary accepted; grammar not yet authorized | Gate 1 (proof-local fixtures) next |
+| PROP-039 loop impl | Gate 1 closed (66/66 PASS); grammar not yet authorized | Gate 3 (parser boundary) next — requires separate auth |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
@@ -155,7 +156,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | DA-002 | PROP-031..039 status audit + §12 renumbering | ✅ DONE |
 | DA-003 | lab-docs/lang IO capability grammar doc | ✅ DONE |
 | DA-004 | portfolio-index.md | ✅ DONE (this file) |
-| DA-005 | experiments/ archive pass (Stage 1/2) | ⏳ Queued — low priority |
+| DA-005 | experiments/ archive pass (Stage 1/2) | ⏳ Card dispatched 2026-06-07 — awaiting agent |
 
 ---
 
