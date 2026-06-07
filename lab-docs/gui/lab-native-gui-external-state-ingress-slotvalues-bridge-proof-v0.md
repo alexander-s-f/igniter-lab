@@ -2,6 +2,7 @@
 
 **Status**: experimental · lab-only · no-canon · no-stable-schema · no-performance-claim
 **Track**: `lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0`
+**Category**: `gui`
 **Design Layer**: External State Ingress SlotValues Bridge (NGUI-P11)
 
 This document describes the design, implementation, and verification of a bounded external state ingress bridge that maps redacted mock VM trace receipts or contract outputs to local reactive SlotValues.
@@ -33,8 +34,9 @@ To prevent global state collisions when utilizing repeated components or identic
 
 Lineage tracking ensures that a state update transaction propagates its trace receipt through the rendering engine:
 - The bridge records the envelope's `source_receipt_id` (e.g., `"tx_123"`).
-- The `HeadlessReactiveLoop#render_frame` coordinator accepts this ID as an optional keyword parameter.
-- The `VectorRenderer` maps this trace to the final rendered vector receipt, maintaining strict audit accountability.
+- The bridge receipt exposes that `source_receipt_id` to the caller.
+- The `HeadlessReactiveLoop#render_frame` coordinator accepts this ID as an explicit optional keyword parameter.
+- The `VectorRenderer` maps the explicit trace ID to the final rendered vector receipt, maintaining strict audit accountability.
 
 ---
 

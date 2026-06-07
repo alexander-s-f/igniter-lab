@@ -1,9 +1,11 @@
 # Agent Handoff: LAB-NATIVE-GUI-P11
 
 Card: LAB-NATIVE-GUI-P11
+Category: gui
 Agent: [Igniter-Lang Implementation Agent]
 Role: implementation-agent
 Track: lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0
+Route: EXPERIMENTAL / LAB-ONLY
 Status: done
 
 ---
@@ -12,7 +14,7 @@ Status: done
 
 - **D1 — Scoped Widget Prefixing**: Resolved naming ambiguity for repeated widgets by introducing a `scope` property to `ExternalStateEnvelopeV0`. Slot updates are automatically prefix-mapped (e.g. `tab` becomes `widget_1.tab`), scoping them locally to the widget's namespace.
 - **D2 — Schema Vocabulary Lock**: Restriced `source_kind` and `status` keys in state envelopes to strict whitelists (`vm_trace`/`tbackend` and `success`/`completed` respectively) to fail closed on unrecognized external bridge sources.
-- **D3 — Lineage Propagation**: Propagated the envelope's `source_receipt_id` through `render_frame` directly into the final vector/SVG rendering receipt, ensuring audit lineages remain unbroken.
+- **D3 — Lineage Propagation Contract**: Preserved the envelope's `source_receipt_id` in the bridge receipt and verified explicit `render_frame(source_receipt_id: ...)` propagation into the final vector/SVG rendering receipt.
 - **D4 — Structural Override Coexistence**: Preserved the `allow_structural_overwrites` security check from P4, requiring the scene nodes to declare structural override allowance explicitly if dynamic width/height patches are triggered by state ingress.
 
 ## [S] Shipped / Signals
@@ -33,9 +35,14 @@ Status: done
 - **Risks**:
   - **Dynamic Schema Drift**: Structural slot changes in VM outputs must match the declared types in the scene tree slots schema exactly, or the ingress bridge will block updates. Slot types must remain strictly aligned.
 - **Recommendations**:
-  - **P12 (Introspection & Mermaid Graphics Export)**: Focus next on producing structural Mermaid graph introspections of active layouts, rendering parent/child relationships and boundaries directly to markdown diagrams for diagnostic inspections.
+  - **P12 (Introspection & Mermaid Graphics Export)**: Focus next on producing structural Mermaid graph introspections of active layouts, rendering parent/child relationships and boundaries directly to markdown diagrams for diagnostic inspections. Keep the route headless and lab-only.
 
 ## [Next] Suggested next slice
 
 - **Card: LAB-NATIVE-GUI-P12**
 - **Goal**: Implement a headless scene introspection exporter that generates standard Mermaid flowchart/mindmap representations of layouts, including computed box dimensions, parenting hierarchies, and boundary checks.
+
+## [Paths]
+
+- Card receipt: `.agents/work/cards/gui/LAB-NATIVE-GUI-P11.md`
+- Durable doc: `lab-docs/gui/lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0.md`

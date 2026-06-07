@@ -3282,4 +3282,32 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_ruby_vm_telemetry_preflight_envelope() {
+        let app = tauri::test::mock_app();
+        app.manage(TelemetryHistoryState(Mutex::new(Vec::new())));
+        let handle = app.handle();
+        let history_state = handle.state::<TelemetryHistoryState>();
+
+        let envelope_path = resolve_workspace_path("igniter-view-engine/out/ruby_telemetry_ingress_envelope.json");
+        assert!(envelope_path.exists(), "Preflight envelope file must exist. Run the ruby script first.");
+
+        let payload_json = std::fs::read_to_string(envelope_path).unwrap();
+
+        let res = ingest_adapted_vm_trace_inner(handle.clone(), payload_json, &history_state);
+        assert!(res.is_ok(), "Failed to ingest Ruby preflight envelope");
+        let receipt = res.unwrap();
+
+        assert_eq!(receipt.trace_id, "tx_preflight_ruby_18");
+        assert_eq!(receipt.status, "success");
+        assert_eq!(receipt.event_type, "applied_trace_events");
+
+        // Verify that raw contents are redacted in receipt
+        let serialized = serde_json::to_string(&receipt).unwrap();
+        assert!(!serialized.contains("VCON-4a"));
+        assert!(!serialized.contains("Blocked unsafe/disallowed tag"));
+        assert!(!serialized.contains("Users"));
+        assert!(!serialized.contains(&format!("{}://", "file")));
+    }
 }
