@@ -121,7 +121,11 @@ Rack/middleware vocabulary is lab-only.
 4. ✅ PROP-039 gate 4: loop_typechecker_proof — 49/49 PASS (2026-06-07)
    OOF-L1 (for_loop non-Collection source), OOF-R2 (recursive missing decreases),
    OOF-R4 (fuel_bounded/decreases-fuel missing max_steps)
-5. PROP-039 gate 5: SemanticIR lowering proof (requires separate auth to open)
+5. ✅ PROP-039 gate 5: loop_semanticir_proof — 49/49 PASS (2026-06-07)
+   loop_node IR shape: loop_class, termination evidence, source_ref, item, max_steps (budgeted);
+   recursive/fuel_bounded modifier in contract_ir; OOF-blocking → nil semantic_ir;
+   grammar_version="loop-v0" propagates all 4 stages; contract_ref includes loop identity
+6. PROP-039 gate 6: OOF registry review (requires separate auth)
 
 ---
 
@@ -147,7 +151,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | Gates 1+3+4 closed; Classifier+TypeChecker live | Gate 5 (SemanticIR) next — requires separate auth |
+| PROP-039 loop impl | Gates 1+3+4+5 closed; full pipeline live (parse→classify→tc→SIR) | Gate 6 (OOF registry review) next — requires separate auth |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
