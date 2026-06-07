@@ -1,7 +1,9 @@
 Card: LAB-TAURI-IVF-P17
+Category: ide
 Agent: [Igniter-Lang Implementation Agent]
 Role: implementation-agent
 Track: lab-tauri-ivf-telemetry-status-control-dashboard-v0
+Route: EXPERIMENTAL / LAB-ONLY
 Status: done
 
 [D] Decisions
@@ -21,8 +23,12 @@ Status: done
 - verified: Validated fail-closed behaviors and UI rendering states (Ok verified-applied, Ok verified-non-applied, Err ingress rejected) locally.
 
 [R] Risks / Recommendations
-- Recommendation: The local playground is now fully complete and interactive. Developers can visualize trace adapters and statuses in real-time. Proceed to wire up actual Ruby VM runner integration.
+- Recommendation: The local playground is now interactive enough to support the next bridge step. Proceed with a bounded adapter-boundary/preflight slice for Ruby VM runner telemetry before any live runner integration.
 - Risk: Ensure that payload size limits remain enforced at the backend since multiple clicks could trigger rapid sequential updates.
 
 [Next] Suggested next slice
-- Recommendation P18: Connect the actual Ruby/Tauri bridge adapter for live VM telemetry traces.
+- Recommendation P18: Design and proof a bounded Ruby VM telemetry adapter bridge preflight, preserving lab-only/mock-safe controls until the bridge contract is proven.
+
+[Paths]
+- Card receipt: .agents/work/cards/ide/LAB-TAURI-IVF-P17.md
+- Durable doc: lab-docs/ide/lab-tauri-ivf-telemetry-status-control-dashboard-v0.md

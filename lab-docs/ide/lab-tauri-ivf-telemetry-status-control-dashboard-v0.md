@@ -3,6 +3,7 @@
 Status: `experimental · lab-only · research`
 Track: `lab-tauri-ivf-telemetry-status-control-dashboard-v0`
 Card: LAB-TAURI-IVF-P17
+Category: `ide`
 Base: `lab-docs/ide/lab-tauri-ivf-mock-vm-runner-trace-source-and-adapter-hardening-v0.md`
 
 ---
@@ -34,7 +35,7 @@ This phase implements a lab-only telemetry status control dashboard in `igniter-
 | **partial** | `partial` | `Ok` | `Ok (verified-non-applied)` | `attempted_trace_events` |
 | **ingress_rejected** | `ingress_rejected` | `Err` | `Err (ingress rejected)` | `attempted_trace_events` |
 | **unknown status** | `crash_and_burn` | `Err` | `Err (ingress rejected)` | `attempted_trace_events` |
-| **invalid signature** | `applied` (invalid sig) | `Err` | `Err (ingress rejected)` | N/A (Fails closed) |
+| **invalid signature** | `applied` (invalid sig) | `Err` | `Err (ingress rejected)` | no applied trace; fail-closed attempted state only |
 
 ---
 
@@ -49,7 +50,7 @@ This phase implements a lab-only telemetry status control dashboard in `igniter-
 | **TIVF-P17-5** | `partial` returns UI success but displays non-applied status | `PASS` | Outcome `Ok`, status `failed: partial`, event type `attempted_trace_events`. |
 | **TIVF-P17-6** | `ingress_rejected` displays command error and still shows attempted stub | `PASS` | Outcome `Err`, error text visible in dashboard. Event is written in attempted stubs history. |
 | **TIVF-P17-7** | Unknown status fails closed and is visible as rejected/attempted | `PASS` | Ingress rejected `Err`. Attempted stub written to summary. |
-| **TIVF-P17-8** | Invalid producer/signature fails closed | `PASS` | Ingress rejected `Err`. Attempted stub blocked. |
+| **TIVF-P17-8** | Invalid producer/signature fails closed | `PASS` | Ingress rejected `Err`. No applied trace is emitted. |
 | **TIVF-P17-9** | No raw outputs/diagnostics/slot values appear in UI | `PASS` | Only keys and digests/hashes displayed. Raw strings/objects are hidden. |
 | **TIVF-P17-10**| No absolute local paths leaked | `PASS` | No path fragments leaked in docs or UI output. |
 | **TIVF-P17-11**| `cargo test test_mock_vm_runner_trace_ingress` still passes | `PASS` | Executed `cargo test` in backend. Tests pass. |
