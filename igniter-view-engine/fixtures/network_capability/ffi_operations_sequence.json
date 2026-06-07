@@ -1,0 +1,15 @@
+{
+  "description": "Connect-send-receive-close lifecycle — stub proof sequence",
+  "variant": "variant_a_loopback_connect",
+  "operations": [
+    { "op": "connect", "host": "127.0.0.1", "port": 8080, "expect": "ok" },
+    { "op": "send", "data": "hello igniter", "expect": "ok" },
+    { "op": "receive", "max_bytes": 1024, "expect": "ok" },
+    { "op": "close", "expect": "ok" }
+  ],
+  "policy_violation_cases": [
+    { "op": "connect", "host": "10.0.0.1", "port": 8080, "expect_code": "E-NET-LOOPBACK-VIOLATION" },
+    { "op": "connect", "host": "127.0.0.1", "port": 80, "expect_code": "E-NET-PORT-BLOCKED" },
+    { "op": "connect", "host": "192.168.1.1", "port": 8080, "expect_code": "E-NET-LOOPBACK-VIOLATION" }
+  ]
+}
