@@ -1,29 +1,54 @@
 # Igniter Lab Tutorial Manifest
 
-This manifest documents the guided learning path lessons, their corresponding command targets, generated output packages, and their projection readiness status for public/mainline platforms.
+Status: active development / APIs may change / provided as-is
 
-## Lesson Manifest
+This manifest catalogs the current tutorial path for `igniter-lab`. It links
+the learning-contract model, four initial lessons, and existing proof-first
+walkthroughs.
 
-| ID | Lesson | Path | Status | Source Package | Primary Command | Generated Outputs | Site Projection Readiness | Authority Boundary |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **L0** | Lab Orientation | [lab-orientation.md](lab-orientation.md) | `active` | None | `cd igniter-vm && cargo test` | None | **Ready**. High-level workspace structure for general contributor onboarding. | Pre-v1 lab orientation; packages and examples may change. |
-| **L1** | Compiler First Proof | [compiler-first-proof.md](compiler-first-proof.md) | `active` | `igniter-compiler` | `cargo run -- compile fixtures/conformance/source/add.ig --out out/tutorial_add.igapp` | `out/tutorial_add.igapp/` | **Ready**. Demonstrates the current basic compilation sequence. | Active lab compiler; grammar and APIs may change before v1. |
-| **L2** | VM Candidate Proof | [vm-candidate-proof.md](vm-candidate-proof.md) | `active` | `igniter-vm` | `ruby igniter-vm/proofs/vm_candidate_proof.rb` | `igniter-vm/out/vm_candidate_proof/summary.json` | **Ready**. Demonstrates current VM candidate telemetry. | Runtime candidates are in progress and subject to later decisions. |
-| **L3** | Forms First Proof | [forms-first-proof.md](forms-first-proof.md) | `active` | `igniter-compiler` | `cargo run -- compile fixtures/forms/positive_forms.ig --out out/forms_test.igapp` | `out/forms_test.igapp/form_table.json`, `form_resolution_trace.json` | **Ready**. Explains current type-directed form dispatch evidence. | Form syntax and dispatch APIs may change before formal adoption. |
-| **L4** | Capability Passport First Proof | [capability-passport-first-proof.md](capability-passport-first-proof.md) | `active` | `igniter-vm` | `ruby igniter-vm/proofs/io_vm_loader_capability_passport_integration.rb` | `igniter-vm/out/io_vm_loader_capability_passport_integration/` | **Ready**. Demonstrates current fail-closed safety evidence. | Capability/passport formats are active lab work and may change. |
-| **L5** | View / GUI / IDE First Proof | [view-gui-ide-first-proof.md](view-gui-ide-first-proof.md) | `active` | `igniter-view-engine`, `igniter-gui-engine`, `igniter-ide` | `ruby igniter-view-engine/run_proof.rb` | `igniter-view-engine/out/view_tree.json`, `igniter-gui-engine/out/scene_introspection_receipt.json` | **Ready**. Traces current view/GUI artifacts to the IDE shell. | View, GUI, and IDE surfaces are active frontier tools. |
+The manifest is a lab navigation artifact. It does not create canon authority.
+Lab behavior remains evidence for learning and review.
 
----
+## Learning Model
 
-## Site Projection Guidelines
+| Document | Purpose | Boundary |
+| --- | --- | --- |
+| [Igniter Learning Contracts](igniter-learning-contracts.md) | Defines learning by contract, the lesson structure, two paths, and glossary terms. | Tutorial model only; not canon. |
 
-`igniter-org` may consume, copy, or curate tutorial lessons defined here to build user-facing documentation websites. However, the following rules apply:
+## Beginner Path
 
-1. **Frontmatter & Localization**: Frontmatter, translation mappings, and website routing metadata are owned and maintained locally by `igniter-org`. Do not add presentation-specific translation headers to these raw lab files.
-2. **Frontier Source**: `igniter-lab` remains the upstream reference for what commands are currently runnable and what outputs they produce.
-3. **Policy Wording**: Any projection copied to public sites should preserve the pre-v1/as-is tone: useful for learning and feedback, actively developed, and subject to change before formal adoption.
+| ID | Lesson | Path | Focus | Evidence Boundary |
+| --- | --- | --- | --- | --- |
+| LC-00 | Orientation | [learning-contract-00-orientation.md](learning-contract-00-orientation.md) | Separate intent, evidence, and authority. | Lab evidence is not canon. |
+| LC-01 | First Contract | [learning-contract-01-first-contract.md](learning-contract-01-first-contract.md) | Turn intent into declared inputs, output, and evidence. | Small contract shape only. |
+| LC-02 | Fail Closed | [learning-contract-02-fail-closed.md](learning-contract-02-fail-closed.md) | Treat refusal as boundary preservation. | Current lab refusal shape only. |
+| LC-03 | Evidence | [learning-contract-03-evidence.md](learning-contract-03-evidence.md) | Keep claims scoped to artifacts. | Evidence supports bounded claims only. |
 
-## See Also
-- [Tutorial Glossary](tutorial-glossary.md)
-- [Site Projection Excerpts](site-projection-excerpts.md)
-- [Expected Output Snippets](expected-output-snippets.md)
+## Proof-First Path
+
+| ID | Lesson | Path | Focus | Evidence Boundary |
+| --- | --- | --- | --- | --- |
+| PF-01 | Compiler First Proof | [compiler-first-proof.md](compiler-first-proof.md) | Inspect a tiny compiler artifact path. | Current lab compiler artifact shape only. |
+| PF-02 | Forms First Proof | [forms-first-proof.md](forms-first-proof.md) | Inspect current form-resolution evidence. | Lab form behavior only. |
+| PF-03 | Capability Passport First Proof | [capability-passport-first-proof.md](capability-passport-first-proof.md) | Inspect current capability/refusal evidence. | Lab passport and loader candidate behavior only. |
+| PF-04 | Expected Output Snippets | [expected-output-snippets.md](expected-output-snippets.md) | Read compact success and refusal snippets. | Snippets are examples, not authority. |
+
+## Existing Orientation Lessons
+
+| ID | Lesson | Path | Use |
+| --- | --- | --- | --- |
+| S-00 | Lab Orientation | [lab-orientation.md](lab-orientation.md) | Repository shape and evidence vocabulary. |
+| S-01 | View / GUI / IDE First Proof | [view-gui-ide-first-proof.md](view-gui-ide-first-proof.md) | Later composition after the first learning contracts. |
+| S-02 | VM Candidate Proof | [vm-candidate-proof.md](vm-candidate-proof.md) | Later proof-first runtime-candidate inspection. |
+
+## Path Recommendation
+
+New readers should start with the beginner path, then choose one proof-first
+lesson to inspect concrete evidence. Contributors who already understand the
+contract/evidence boundary can start with the proof-first path and keep the
+same claim discipline.
+
+## Projection Note
+
+The next slice should prepare site-ready excerpts from the first four
+learning-contract lessons without editing the site.

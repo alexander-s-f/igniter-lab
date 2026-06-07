@@ -106,7 +106,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-031 | Contract modifiers | ✅ experiment-pass | Base modifier grammar |
 | PROP-032 | Assumptions block | ✅ experiment-pass (bounded) | Compiler surface only |
 | PROP-033 | via profile binding | ✅ experiment-pass | profile_binding in contract_ir |
-| PROP-034 | output evidence syntax | queued; not authored | — |
+| PROP-034 | output evidence syntax | ✅ experiment-pass | OOF-M9; evidence in IR output ports |
 | PROP-035 | Effect Surface / IO.Capability | ✅ experiment-pass | OOF-M2/M4/M5 |
 | PROP-036 | compiler_profile_id manifest | accepted; partial-impl | CLI B1..B9 closed |
 | PROP-037 | External progression svc liveness | accepted; proposal-only | ServiceLoop authority |
@@ -116,8 +116,7 @@ Rack/middleware vocabulary is lab-only.
 
 **Next queue:**
 1. PROP-039 gate 1: proof-local semantics fixture (FiniteLoop/BudgetedLocalLoop/StructuralRecursion/FuelBoundedRecursion)
-2. PROP-034: output evidence syntax (independently queueable)
-3. DA-005: experiments/ archive pass (low priority, delegate)
+2. DA-005: experiments/ archive pass (low priority, delegate)
 
 ---
 
