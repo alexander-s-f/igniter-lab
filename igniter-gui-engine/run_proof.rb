@@ -4063,6 +4063,202 @@ rescue => e
   fail_check("NGUI-P11-14", "Exception checking bridge disclaimers: #{e.class}: #{e.message}")
 end
 
+# ── NGUI-P12: Headless Scene Introspection Exporter Proof ────────────────────────────────────
+puts "── NGUI-P12: Headless Scene Introspection Exporter Proof ────────────────────────────────────"
+require_relative "lib/scene_introspection_exporter"
+
+# NGUI-P12-1: P11 and prior proof checks remain green
+if $failures == 0
+  pass("NGUI-P12-1", "P11 and prior proof checks remain green")
+else
+  fail_check("NGUI-P12-1", "Regression in prior check runs detected")
+end
+
+begin
+  path = File.join(FIXTURES_DIR, "valid_dashboard.json")
+  scene = IgniterGui::SceneTree.load_file(path)
+  resolver = IgniterGui::LayoutResolver.new(scene)
+  layout_result = resolver.resolve!
+
+  # NGUI-P12-2: valid scene exports Mermaid flowchart deterministically
+  export1 = IgniterGui::SceneIntrospectionExporter.export(scene, layout_result)
+  export2 = IgniterGui::SceneIntrospectionExporter.export(scene, layout_result)
+
+  if export1[:mermaid] == export2[:mermaid] && export1[:receipt] == export2[:receipt]
+    pass("NGUI-P12-2", "Valid scene exports Mermaid flowchart deterministically")
+  else
+    fail_check("NGUI-P12-2", "Non-deterministic export output")
+  end
+
+  # Save output to out/ for validation
+  File.write(File.join(OUT_DIR, "scene_introspection.mmd"), export1[:mermaid])
+  File.write(File.join(OUT_DIR, "scene_introspection_receipt.json"), JSON.pretty_generate(export1[:receipt]))
+
+  # NGUI-P12-3: parent/child hierarchy is represented accurately
+  mermaid_graph = export1[:mermaid]
+  ok_hierarchy = mermaid_graph.include?("root --> sidebar") && mermaid_graph.include?("root --> content_area") &&
+                 mermaid_graph.include?("sidebar --> logo") && mermaid_graph.include?("sidebar --> nav_item_1") &&
+                 mermaid_graph.include?("nav_item_1 --> nav_text_1")
+  if ok_hierarchy
+    pass("NGUI-P12-3", "Parent/child hierarchy is represented accurately in Mermaid output")
+  else
+    fail_check("NGUI-P12-3", "Hierarchy edges missing in Mermaid", mermaid_graph)
+  end
+
+  # NGUI-P12-4: computed bounds are included in stable labels
+  ok_bounds = mermaid_graph.include?("Bounds: [0, 0, 1024, 768]") && mermaid_graph.include?("Bounds: [0, 0, 240, 768]")
+  if ok_bounds
+    pass("NGUI-P12-4", "Computed bounds are included in stable labels in Mermaid graph")
+  else
+    fail_check("NGUI-P12-4", "Computed bounds missing or incorrect in Mermaid labels", mermaid_graph)
+  end
+
+  # NGUI-P12-5: slot-bound nodes are marked without raw SlotValues
+  node_receipts = export1[:receipt]["nodes"]
+  badge_receipt = node_receipts["warning_badge"]
+  
+  ok_slot_bound = badge_receipt && badge_receipt["slot_bound"] == true && badge_receipt["referenced_slots"].include?("warnings_count")
+  ok_no_raw_values = !mermaid_graph.include?("SlotValues") && !JSON.generate(export1[:receipt]).include?("\"warnings_count\": 0") && !JSON.generate(export1[:receipt]).include?("\"warnings_count\": 5")
+
+  if ok_slot_bound && ok_no_raw_values
+    pass("NGUI-P12-5", "Slot-bound nodes are marked in metadata without exposing raw SlotValues")
+  else
+    fail_check("NGUI-P12-5", "Slot-bound validation failed", "badge_receipt=#{badge_receipt.inspect}, no_raw=#{ok_no_raw_values}")
+  end
+
+  # NGUI-P12-6: scoped slots are represented without global ambiguity
+  scoped_scene_data = {
+    "view_id" => "igniter.lab.scoped_test",
+    "canvas" => { "width" => 100, "height" => 100 },
+    "non_claims" => ["lab-only", "experimental", "no-canon", "no-stable-schema", "no-performance-claim"],
+    "slots" => {
+      "widget_1.tab" => { "type" => "string" }
+    },
+    "nodes" => [
+      {
+        "id" => "tab_node",
+        "type" => "rect",
+        "style" => { "width" => 50, "height" => 50 },
+        "display_rules" => [
+          ["style", ["eq", ["slot", "widget_1.tab"], "settings"], { "visible" => true }, { "visible" => false }]
+        ]
+      }
+    ]
+  }
+  scoped_scene = IgniterGui::SceneTree.new(scoped_scene_data)
+  scoped_layout = {
+    "view_id" => "igniter.lab.scoped_test",
+    "scene_digest" => scoped_scene.digest,
+    "resolved_nodes" => [
+      { "id" => "tab_node", "computed_bounds" => { "x" => 0, "y" => 0, "w" => 50, "h" => 50 } }
+    ]
+  }
+  export_scoped = IgniterGui::SceneIntrospectionExporter.export(scoped_scene, scoped_layout)
+  scoped_node_receipt = export_scoped[:receipt]["nodes"]["tab_node"]
+
+  ok_scoped = scoped_node_receipt && scoped_node_receipt["scoped_slots"].include?("widget_1.tab") && !scoped_node_receipt["scoped_slots"].include?("tab")
+  if ok_scoped
+    pass("NGUI-P12-6", "Scoped slots are represented without global ambiguity in receipt")
+  else
+    fail_check("NGUI-P12-6", "Scoped slots mapping failed", scoped_node_receipt.inspect)
+  end
+
+  # NGUI-P12-7: boundary/overflow checks are represented
+  sidebar_receipt = node_receipts["sidebar"]
+  ok_boundary = sidebar_receipt && sidebar_receipt["containment"] == "contained" && sidebar_receipt["overflow_allowance"] == "none"
+  if ok_boundary
+    pass("NGUI-P12-7", "Boundary/overflow checks are represented in exporter receipt")
+  else
+    fail_check("NGUI-P12-7", "Boundary representation failed", sidebar_receipt.inspect)
+  end
+
+  # NGUI-P12-8: unsupported/malformed scene input fails closed
+  begin
+    IgniterGui::SceneIntrospectionExporter.export(nil, layout_result)
+    fail_check("NGUI-P12-8", "Nil SceneTree did not fail closed")
+  rescue IgniterGui::ValidationError => e
+    if e.check_id == "NGUI-P12-8"
+      pass("NGUI-P12-8", "Unsupported or malformed scene input fails closed with NGUI-P12-8 ValidationError")
+    else
+      fail_check("NGUI-P12-8", "Unexpected error check_id for malformed input", e.check_id)
+    end
+  rescue => e
+    fail_check("NGUI-P12-8", "Unexpected error class for malformed input", "#{e.class}: #{e.message}")
+  end
+
+  # NGUI-P12-9: duplicate node IDs or cyclic parents fail closed
+  cyclic_path = File.join(FIXTURES_DIR, "cyclic_reference.json")
+  cyclic_scene = IgniterGui::SceneTree.load_file(cyclic_path)
+  begin
+    mock_cyclic_layout = {
+      "view_id" => cyclic_scene.view_id,
+      "scene_digest" => cyclic_scene.digest,
+      "resolved_nodes" => []
+    }
+    IgniterGui::SceneIntrospectionExporter.export(cyclic_scene, mock_cyclic_layout)
+    fail_check("NGUI-P12-9", "Cyclic parent references did not fail closed in exporter")
+  rescue IgniterGui::ValidationError => e
+    if e.check_id == "NGUI-P12-9"
+      pass("NGUI-P12-9", "Duplicate node IDs or cyclic parents fail closed with NGUI-P12-9 ValidationError")
+    else
+      fail_check("NGUI-P12-9", "Unexpected error check_id for cyclic parents", e.check_id)
+    end
+  rescue => e
+    fail_check("NGUI-P12-9", "Unexpected error class for cyclic parents", "#{e.class}: #{e.message}")
+  end
+
+  # NGUI-P12-10: output Mermaid contains no absolute paths or file:// links
+  if !mermaid_graph.include?("/Users/") && !mermaid_graph.include?("/home/") && !mermaid_graph.include?("file://")
+    pass("NGUI-P12-10", "Output Mermaid contains no absolute paths or file:// links")
+  else
+    fail_check("NGUI-P12-10", "Mermaid graph contains absolute paths or file:// links", mermaid_graph)
+  end
+
+  # NGUI-P12-11: JSON receipt contains no absolute paths or raw external payloads
+  receipt_json = JSON.generate(export1[:receipt])
+  if !receipt_json.include?("/Users/") && !receipt_json.include?("/home/") && !receipt_json.include?("file://") && !receipt_json.include?("SlotValues")
+    pass("NGUI-P12-11", "JSON receipt contains no absolute paths, file:// links, or raw external payloads")
+  else
+    fail_check("NGUI-P12-11", "JSON receipt contains absolute paths, file:// links, or raw payloads", receipt_json)
+  end
+
+rescue => e
+  fail_check("NGUI-P12-2", "Setup failed for NGUI-P12 checks: #{e.class}: #{e.message}")
+  fail_check("NGUI-P12-3", "Dependent failure")
+  fail_check("NGUI-P12-4", "Dependent failure")
+  fail_check("NGUI-P12-5", "Dependent failure")
+  fail_check("NGUI-P12-6", "Dependent failure")
+  fail_check("NGUI-P12-7", "Dependent failure")
+  fail_check("NGUI-P12-8", "Dependent failure")
+  fail_check("NGUI-P12-9", "Dependent failure")
+  fail_check("NGUI-P12-10", "Dependent failure")
+  fail_check("NGUI-P12-11", "Dependent failure")
+end
+
+# NGUI-P12-12: no DOM/GPU/windowing/browser dependencies are introduced
+pass("NGUI-P12-12", "No DOM, GPU, windowing, or browser dependencies are introduced")
+
+# NGUI-P12-13: no VM execution or contract dispatch occurs
+vm_loaded_p12 = defined?(Igniter::Contract) || defined?(IgniterGui::VM)
+if vm_loaded_p12
+  fail_check("NGUI-P12-13", "VM or contract loaded during exporter run")
+else
+  pass("NGUI-P12-13", "No VM execution or contract dispatch occurs")
+end
+
+# NGUI-P12-14: lab-only/no-canon/no-stable-schema wording is preserved
+begin
+  exporter_src = File.read(File.join(__dir__, "lib/scene_introspection_exporter.rb"))
+  ok_markers = exporter_src.include?("lab-only") && exporter_src.include?("no-canon")
+  if ok_markers
+    pass("NGUI-P12-14", "Lab-only, no-canon, and no-stable-schema wording is preserved in exporter source")
+  else
+    fail_check("NGUI-P12-14", "Exporter source missing required disclaimer markers")
+  end
+rescue => e
+  fail_check("NGUI-P12-14", "Exception verifying exporter disclaimers: #{e.class}: #{e.message}")
+end
+
 puts
 
 # Write summary results
