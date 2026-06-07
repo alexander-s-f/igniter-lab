@@ -15,11 +15,11 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **DSL Implementation:** Updated [parser_builder.rb](../igniter-view-engine/lib/parser_builder.rb) and [igniter_view_engine.rb](../igniter-view-engine/lib/igniter_view_engine.rb) to support stack node scoping and event compilation.
-- **Interactive Fixture:** Created [interactive_panel.rb](../igniter-view-engine/fixtures/interactive_panel.rb) modeling a tab switching panel.
-- **Lowering Proof Runner:** Created [run_ir_proof.rb](../igniter-view-engine/run_ir_proof.rb) to run compile-time validations and output `out/ir_proof_summary.json`.
-- **IDE Svelte Upgrades:** Updated [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte) and [ViewInspector.svelte](../igniter-ide/src/lib/components/ViewInspector.svelte) to dynamically evaluate display rules and click triggers, displaying parameters in node details.
-- **Lab Design Document:** Created [lab-view-dsl-lowering-to-safe-gui-interaction-ir-v0.md](../lab-docs/lab-view-dsl-lowering-to-safe-gui-interaction-ir-v0.md).
+- **DSL Implementation:** Updated [parser_builder.rb](../../../../igniter-view-engine/lib/parser_builder.rb) and [igniter_view_engine.rb](../../../../igniter-view-engine/lib/igniter_view_engine.rb) to support stack node scoping and event compilation.
+- **Interactive Fixture:** Created [interactive_panel.rb](../../../../igniter-view-engine/fixtures/interactive_panel.rb) modeling a tab switching panel.
+- **Lowering Proof Runner:** Created [run_ir_proof.rb](../../../../igniter-view-engine/run_ir_proof.rb) to run compile-time validations and output `out/ir_proof_summary.json`.
+- **IDE Svelte Upgrades:** Updated [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte) and [ViewInspector.svelte](../../../../igniter-ide/src/lib/components/ViewInspector.svelte) to dynamically evaluate display rules and click triggers, displaying parameters in node details.
+- **Lab Design Document:** Created [lab-view-dsl-lowering-to-safe-gui-interaction-ir-v0.md](../../../../lab-docs/view/lab-view-dsl-lowering-to-safe-gui-interaction-ir-v0.md).
 
 ## [T] Tests / Proofs
 

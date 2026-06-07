@@ -4,7 +4,7 @@ Status: compact agent handoff index
 Updated: 2026-06-06
 
 `.agents` contains operational handoff cards and return packets for lab agents.
-It is intentionally separate from [`../lab-docs/`](../lab-docs/), which holds
+It is intentionally separate from [`../lab-docs/`](../lab-docs), which holds
 larger research reports, proof summaries, pressure packages, and status docs.
 
 ## Boundary
@@ -30,7 +30,7 @@ certification, or portability guarantees.
 
 ## Current Card
 
-[`current-card.md`](current-card.md) is a scratch pointer to the currently active
+[`current-status.md`](work/current-status.md) is a scratch pointer to the currently active
 or most recent agent slice. Keep it small; durable results belong in the
 individual `LAB-*.md` card and the corresponding `lab-docs` report.
 

@@ -13,13 +13,13 @@ Status: done
 - **D1 — Strict Binding by Default**: Promoted strict binding slot checks to be active by default inside `SlotBinder.bind`, forcing presentation layers to declare all reactive properties in view slots.
 - **D2 — Structural Overwrite Block & Opt-In Property**: Blocked structural overrides (`x`, `y`, `width`, `height`, `w`, `h`, `margin`, `padding`, `layout`) inside display rules by default. Added `"allow_structural_overwrites": true` property check on scene tree nodes to explicitly opt-in elements that need layout mutations (e.g. `tab_indicator`).
 - **D3 — Hex Format Enforcement**: Added a strict color pattern checker to visual style values, ensuring all color fields are valid Hex codes (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), preventing arbitrary style string injections.
-- **D4 — Error Receipt Trace**: Caught validation exceptions inside the proof runner to generate a dedicated [scene_binding_error_receipt.json](../igniter-gui-engine/out/scene_binding_error_receipt.json) documenting the diagnostic code and VM lineage for diagnostics.
+- **D4 — Error Receipt Trace**: Caught validation exceptions inside the proof runner to generate a dedicated [scene_binding_error_receipt.json](../../../../igniter-gui-engine/out/scene_binding_error_receipt.json) documenting the diagnostic code and VM lineage for diagnostics.
 
 ## [S] Shipped / Signals
 
-- **Evaluator Hardening**: Updated [slot_binder.rb](../igniter-gui-engine/lib/slot_binder.rb) with recursive expression validation, display rule shape checkers, visual style Whitelist filters, payload limits, and type constraints.
-- **Proof Matrix**: Extended [run_proof.rb](../igniter-gui-engine/run_proof.rb) with 17 additional NGUI-P4 checks. Added a diagnostic error receipt output.
-- **Proof Documentation**: Shipped [lab-native-gui-binding-expression-and-rule-hardening-v0.md](../lab-docs/lab-native-gui-binding-expression-and-rule-hardening-v0.md) and [LAB-NATIVE-GUI-P4.md](../.agents/LAB-NATIVE-GUI-P4.md).
+- **Evaluator Hardening**: Updated [slot_binder.rb](../../../../igniter-gui-engine/lib/slot_binder.rb) with recursive expression validation, display rule shape checkers, visual style Whitelist filters, payload limits, and type constraints.
+- **Proof Matrix**: Extended [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb) with 17 additional NGUI-P4 checks. Added a diagnostic error receipt output.
+- **Proof Documentation**: Shipped [lab-native-gui-binding-expression-and-rule-hardening-v0.md](../../../../lab-docs/gui/lab-native-gui-binding-expression-and-rule-hardening-v0.md) and [LAB-NATIVE-GUI-P4.md](LAB-NATIVE-GUI-P4.md).
 
 ## [T] Tests / Proofs
 

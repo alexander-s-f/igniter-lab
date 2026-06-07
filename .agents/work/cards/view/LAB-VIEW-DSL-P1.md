@@ -28,16 +28,16 @@ Status: done
   - VDSL-12: No canonical language claims are introduced; this remains lab-only.
 
 [T] Tests / Proofs
-- Prototype code location: [igniter-view-engine/](../igniter-view-engine)
-- Core libraries: [igniter_view_engine.rb](../igniter-view-engine/lib/igniter_view_engine.rb), [parser_builder.rb](../igniter-view-engine/lib/parser_builder.rb)
-- Fixture files: [static_page.rb](../igniter-view-engine/fixtures/static_page.rb), [data_driven_list.rb](../igniter-view-engine/fixtures/data_driven_list.rb), [componentized_form.rb](../igniter-view-engine/fixtures/componentized_form.rb)
-- Proof execution script: [run_proof.rb](../igniter-view-engine/run_proof.rb)
+- Prototype code location: [igniter-view-engine/](../../../../igniter-view-engine)
+- Core libraries: [igniter_view_engine.rb](../../../../igniter-view-engine/lib/igniter_view_engine.rb), [parser_builder.rb](../../../../igniter-view-engine/lib/parser_builder.rb)
+- Fixture files: [static_page.rb](../../../../igniter-view-engine/fixtures/static_page.rb), [data_driven_list.rb](../../../../igniter-view-engine/fixtures/data_driven_list.rb), [componentized_form.rb](../../../../igniter-view-engine/fixtures/componentized_form.rb)
+- Proof execution script: [run_proof.rb](../../../../igniter-view-engine/run_proof.rb)
 - Output Artifacts:
-  - Rendered HTML specimen: [index.html](../igniter-view-engine/out/index.html)
-  - Detailed view tree AST: [view_tree.json](../igniter-view-engine/out/view_tree.json)
-  - Execution diagnostics trace: [diagnostics.json](../igniter-view-engine/out/diagnostics.json)
-  - CSS brand token usage analysis: [token_usage_report.json](../igniter-view-engine/out/token_usage_report.json)
-- Lab design/proof doc: [lab-experimental-igniter-html-view-dsl-arbre-like-boundary-v0.md](../lab-docs/lab-experimental-igniter-html-view-dsl-arbre-like-boundary-v0.md)
+  - Rendered HTML specimen: [index.html](../../../../igniter-view-engine/out/index.html)
+  - Detailed view tree AST: [view_tree.json](../../../../igniter-view-engine/out/view_tree.json)
+  - Execution diagnostics trace: [diagnostics.json](../../../../igniter-view-engine/out/diagnostics.json)
+  - CSS brand token usage analysis: [token_usage_report.json](../../../../igniter-view-engine/out/token_usage_report.json)
+- Lab design/proof doc: [lab-experimental-igniter-html-view-dsl-arbre-like-boundary-v0.md](../../../../lab-docs/view/lab-experimental-igniter-html-view-dsl-arbre-like-boundary-v0.md)
 
 [R] Risks / Recommendations
 - Recommendation: **route design-system/IDE integration proof (P2)**.

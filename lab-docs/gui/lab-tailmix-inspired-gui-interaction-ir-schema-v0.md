@@ -3,7 +3,7 @@
 Status: `experimental · lab-only · research`
 Track: `lab-tailmix-inspired-gui-interaction-ir-schema-v0`
 Card: LAB-TAILMIX-P2
-Base: [lab-tailmix-concept-applicability-to-igniter-gui-v0-A.md](../lab-docs/lab-tailmix-concept-applicability-to-igniter-gui-v0-A.md), [lab-tailmix-concept-applicability-to-igniter-gui-v0.md](../lab-docs/lab-tailmix-concept-applicability-to-igniter-gui-v0.md)
+Base: [lab-tailmix-concept-applicability-to-igniter-gui-v0-A.md](lab-tailmix-concept-applicability-to-igniter-gui-v0-A.md), [lab-tailmix-concept-applicability-to-igniter-gui-v0.md](lab-tailmix-concept-applicability-to-igniter-gui-v0.md)
 
 ---
 
@@ -29,7 +29,7 @@ To prevent interaction triggers from interfering with display layout ordering, w
 
 ## 2. Implementation Specifications
 
-The module has been implemented in a dedicated file: [gui_interaction_ir.ts](../igniter-ide/src/lib/gui_interaction_ir.ts).
+The module has been implemented in a dedicated file: [gui_interaction_ir.ts](../../igniter-ide/src/lib/gui_interaction_ir.ts).
 
 ### 2.1 Whitelisted Opcodes & Covenant Hardening (TMX-P2-6)
 
@@ -52,7 +52,7 @@ We verify the safety boundaries of the interaction engine against the following 
 
 | Rule / Check | Requirement | Verification Status | Notes / Proof Evidence |
 | :--- | :--- | :--- | :--- |
-| **TMX-P2-1** | `UIState` & `SlotValue` are separate | `PASS` | Modeled as distinct types `UIState` and `SlotValues` in [gui_interaction_ir.ts](../igniter-ide/src/lib/gui_interaction_ir.ts#L20-L24). |
+| **TMX-P2-1** | `UIState` & `SlotValue` are separate | `PASS` | Modeled as distinct types `UIState` and `SlotValues` in [gui_interaction_ir.ts](../../igniter-ide/src/lib/gui_interaction_ir.ts#L20-L24). |
 | **TMX-P2-2** | `SlotValue` cannot be mutated | `PASS` | The interaction evaluator blocks any instructions targeting keys outside the declared `UIState` keys. |
 | **TMX-P2-3** | `display_rules` are pure | `PASS` | `evaluateDisplayRule` does not perform mutations or write side effects. |
 | **TMX-P2-4** | `interaction_rules` mutate only `UIState` | `PASS` | Checked via strict validation: instruction targets must exist in `uiState` parameters. |
@@ -69,7 +69,7 @@ We verify the safety boundaries of the interaction engine against the following 
 
 ## 4. Verification Proofs Console Log (TMX-P2-8)
 
-We integrated the verification proof runner directly inside the IDE View Inspector page. On mount, Svelte executes the proofs in [gui_interaction_ir.ts](../igniter-ide/src/lib/gui_interaction_ir.ts#L430) and logs the results inside the **Diagnostics Timeline** for audit transparency:
+We integrated the verification proof runner directly inside the IDE View Inspector page. On mount, Svelte executes the proofs in [gui_interaction_ir.ts](../../igniter-ide/src/lib/gui_interaction_ir.ts#L430) and logs the results inside the **Diagnostics Timeline** for audit transparency:
 
 ```
 [Diagnostics Timeline Logs]

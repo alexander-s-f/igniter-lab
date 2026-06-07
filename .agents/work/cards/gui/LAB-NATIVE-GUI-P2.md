@@ -17,11 +17,11 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Core Module**: Created [hit_tester.rb](../igniter-gui-engine/lib/hit_tester.rb) containing bounding box hit checks, stale digest validations, and overlap sorting.
-- **Schema Validation**: Updated [scene_tree.rb](../igniter-gui-engine/lib/scene_tree.rb) with whitelisted event kinds and intent validations.
-- **JSON Fixtures**: Created [overlap_scene.json](../igniter-gui-engine/fixtures/overlap_scene.json), [invalid_intent_action.json](../igniter-gui-engine/fixtures/invalid_intent_action.json), and [invalid_intent_slot.json](../igniter-gui-engine/fixtures/invalid_intent_slot.json).
-- **Proof Updates**: Updated [run_proof.rb](../igniter-gui-engine/run_proof.rb) to cover NGUI-P2 checks and output [hit_test_receipt.json](../igniter-gui-engine/out/hit_test_receipt.json).
-- **Proof Documentation**: Shipped [lab-native-gui-headless-hit-testing-and-interaction-intents-v0.md](../lab-docs/lab-native-gui-headless-hit-testing-and-interaction-intents-v0.md) and [LAB-NATIVE-GUI-P2.md](../.agents/LAB-NATIVE-GUI-P2.md).
+- **Core Module**: Created [hit_tester.rb](../../../../igniter-gui-engine/lib/hit_tester.rb) containing bounding box hit checks, stale digest validations, and overlap sorting.
+- **Schema Validation**: Updated [scene_tree.rb](../../../../igniter-gui-engine/lib/scene_tree.rb) with whitelisted event kinds and intent validations.
+- **JSON Fixtures**: Created [overlap_scene.json](../../../../igniter-gui-engine/fixtures/overlap_scene.json), [invalid_intent_action.json](../../../../igniter-gui-engine/fixtures/invalid_intent_action.json), and [invalid_intent_slot.json](../../../../igniter-gui-engine/fixtures/invalid_intent_slot.json).
+- **Proof Updates**: Updated [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb) to cover NGUI-P2 checks and output [hit_test_receipt.json](../../../../igniter-gui-engine/out/hit_test_receipt.json).
+- **Proof Documentation**: Shipped [lab-native-gui-headless-hit-testing-and-interaction-intents-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-hit-testing-and-interaction-intents-v0.md) and [LAB-NATIVE-GUI-P2.md](LAB-NATIVE-GUI-P2.md).
 
 ## [T] Tests / Proofs
 

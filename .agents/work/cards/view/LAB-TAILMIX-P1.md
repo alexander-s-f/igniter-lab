@@ -12,14 +12,14 @@ Status: done
 - **State Separation:** Classified state-slots into "immutable execution receipts" (core compiler runtime outputs) and "local UI interaction states" (transient loading/toggle states).
 
 ## [S] Shipped / Signals
-- **Research Document:** Created [lab-tailmix-concept-applicability-to-igniter-gui-v0.md](../lab-docs/lab-tailmix-concept-applicability-to-igniter-gui-v0.md) detailing:
+- **Research Document:** Created [lab-tailmix-concept-applicability-to-igniter-gui-v0.md](../../../../lab-docs/gui/lab-tailmix-concept-applicability-to-igniter-gui-v0.md) detailing:
   - Tailmix architecture, concepts, and mappings to Igniter analogues.
   - Rejection matrix for Rails, Arbre, and Tailwind integrations.
   - Detailed security boundaries including sandbox execution and IO Capability Passport interception.
-- **Handoff Card:** Created this card at [LAB-TAILMIX-P1.md](../.agents/LAB-TAILMIX-P1.md).
+- **Handoff Card:** Created this card at [LAB-TAILMIX-P1.md](LAB-TAILMIX-P1.md).
 
 ## [T] Tests / Proofs
-- Evaluated against Svelte renderer logic in [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte) and safety parameters in [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts).
+- Evaluated against Svelte renderer logic in [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte) and safety parameters in [safe_renderer_policy.ts](../../../../igniter-ide/src/lib/safe_renderer_policy.ts).
 - Audited Tailmix's Ruby AST compilation ([json_generator.rb](../../tailmix/lib/tailmix/compiler/json_generator.rb)) and browser component runtime ([component.js](../../tailmix/app/javascript/tailmix/runtime/component.js)) for structural mappings.
 
 ## [R] Risks / Recommendations
@@ -31,5 +31,5 @@ Status: done
 ## [Next] Suggested next slice
 - **LAB-TAILMIX-P2: Static GUI Interaction IR Design & State-Slot Rule Prototype**
   - Design a JSON schema for `interaction_rules.json` representing simple form input changes and tab switches using a safe opcode array.
-  - Implement a basic Svelte-side evaluator in [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts) to execute local UI toggle state switches on state-slots.
+  - Implement a basic Svelte-side evaluator in [safe_renderer_policy.ts](../../../../igniter-ide/src/lib/safe_renderer_policy.ts) to execute local UI toggle state switches on state-slots.
   - Mock a preview tab switch inside the IDE component inspector using this evaluation model.

@@ -27,11 +27,11 @@ Status: done
   - VID-12: The view preview remains a playground experiment without claiming canonical language syntax.
 
 [T] Tests / Proofs
-- Integrated View Inspector: [ViewInspector.svelte](../igniter-ide/src/lib/components/ViewInspector.svelte)
-- Safe recursive node renderer: [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
-- Collapsible tree walker: [ViewTreeInspectorNode.svelte](../igniter-ide/src/lib/components/ViewTreeInspectorNode.svelte)
-- Layout wiring: [routes/+page.svelte](../igniter-ide/src/routes/+page.svelte)
-- Lab documentation: [lab-experimental-igniter-ide-view-tree-preview-inspector-v0.md](../lab-docs/lab-experimental-igniter-ide-view-tree-preview-inspector-v0.md)
+- Integrated View Inspector: [ViewInspector.svelte](../../../../igniter-ide/src/lib/components/ViewInspector.svelte)
+- Safe recursive node renderer: [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
+- Collapsible tree walker: [ViewTreeInspectorNode.svelte](../../../../igniter-ide/src/lib/components/ViewTreeInspectorNode.svelte)
+- Layout wiring: [routes/+page.svelte](../../../../igniter-ide/src/routes/+page.svelte)
+- Lab documentation: [lab-experimental-igniter-ide-view-tree-preview-inspector-v0.md](../../../../lab-docs/ide/lab-experimental-igniter-ide-view-tree-preview-inspector-v0.md)
 
 [R] Recommendations
 - Recommendation: **route design-system/IDE integration proof**.

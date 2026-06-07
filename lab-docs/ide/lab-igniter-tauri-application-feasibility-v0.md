@@ -2,7 +2,7 @@
 
 Status: `experimental · lab-only · research`
 Track: `lab-igniter-tauri-application-feasibility-v0`
-Base: `Language Covenant (Postulates 4, 7, 27, & 28)`, [lab-igniter-lang-to-gui-research-boundary-v0.md](../lab-docs/lab-igniter-lang-to-gui-research-boundary-v0.md), [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../lab-docs/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md)
+Base: `Language Covenant (Postulates 4, 7, 27, & 28)`, [lab-igniter-lang-to-gui-research-boundary-v0.md](../gui/lab-igniter-lang-to-gui-research-boundary-v0.md), [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../gui/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md)
 
 ---
 
@@ -79,7 +79,7 @@ We evaluate two concrete models for wiring the Igniter View Framework into Tauri
 Tauri allows developer-registered protocols via custom handlers. Under this model, the application does not serve files from a static public directory.
 
 1.  **URI Registration**:
-    In [lib.rs](../igniter-ide/src-tauri/src/lib.rs), register the scheme handler:
+    In [lib.rs](../../igniter-ide/src-tauri/src/lib.rs), register the scheme handler:
     ```rust
     tauri::Builder::default()
         .register_uri_scheme_protocol("igniter", |app_handle, request| {

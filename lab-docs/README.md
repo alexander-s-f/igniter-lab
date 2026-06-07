@@ -7,7 +7,7 @@ Updated: 2026-06-06
 pressure packages, status snapshots, and roadmap-level synthesis.
 
 Agent handoff cards and per-round operating packets belong in
-[`../.agents/`](../.agents/). If a document is mainly "what the next agent did
+[`../.agents/`](../.agents). If a document is mainly "what the next agent did
 or should do", keep it in `.agents`. If it explains a concept, proof result,
 architecture boundary, or pressure package, keep it here.
 
@@ -24,11 +24,11 @@ architecture boundary, or pressure package, keep it here.
 
 | Area | Representative docs |
 | --- | --- |
-| Contract invocation forms | [PROP Forms Enhanced](PROP-Forms-Enhanced-v0.md), [Forms pressure return](FORMS-PRESSURE-RETURN-v0.md), forms proof/hardening/lowering reports. |
-| Loops and recursion | [Pressure package](loops-and-recursion-pressure-package.md), [pressure return](loops-and-recursion-pressure-package-return.md). |
+| Contract invocation forms | [PROP Forms Enhanced](core/PROP-Forms-Enhanced-v0.md), [Forms pressure return](core/FORMS-PRESSURE-RETURN-v0.md), forms proof/hardening/lowering reports. |
+| Loops and recursion | [Pressure package](core/loops-and-recursion-pressure-package.md), [pressure return](core/loops-and-recursion-pressure-package-return.md). |
 | IO and capabilities | `lab-experimental-io-*` capability, passport, stdlib, compiler bridge, and VM loader reports. |
 | View / GUI / IDE | View DSL, Igniter View Framework, Tauri IVF, Native GUI, Tailmix-inspired Interaction IR, and debugger/IDE reports. |
-| Runtime/backend research | [Igniter Machine Notes](igniter-machine.md), [SparkCRM Shadow](igniter-sparkcrm-shadow.md), runtime/backend proof reports. |
+| Runtime/backend research | [Igniter Machine Notes](core/igniter-machine.md), [SparkCRM Shadow](core/igniter-sparkcrm-shadow.md), runtime/backend proof reports. |
 
 ## Documentation Boundary
 

@@ -17,14 +17,14 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Core Module**: Created [scene_tree.rb](../igniter-gui-engine/lib/scene_tree.rb) and [layout_resolver.rb](../igniter-gui-engine/lib/layout_resolver.rb) containing schema checking, digest generation, and layout bounds calculations.
-- **Proof Runner**: Created [run_proof.rb](../igniter-gui-engine/run_proof.rb) executing the 14 checks.
-- **JSON Fixtures**: Created [valid_dashboard.json](../igniter-gui-engine/fixtures/valid_dashboard.json), [missing_node_id.json](../igniter-gui-engine/fixtures/missing_node_id.json), [cyclic_reference.json](../igniter-gui-engine/fixtures/cyclic_reference.json), [invalid_slot_ref.json](../igniter-gui-engine/fixtures/invalid_slot_ref.json), [unsupported_primitive.json](../igniter-gui-engine/fixtures/unsupported_primitive.json), and [malformed_scene.json](../igniter-gui-engine/fixtures/malformed_scene.json).
-- **Proof Documentation**: Shipped [lab-native-gui-scene-tree-headless-layout-proof-v0.md](../lab-docs/lab-native-gui-scene-tree-headless-layout-proof-v0.md) detailing math verifications and rules.
+- **Core Module**: Created [scene_tree.rb](../../../../igniter-gui-engine/lib/scene_tree.rb) and [layout_resolver.rb](../../../../igniter-gui-engine/lib/layout_resolver.rb) containing schema checking, digest generation, and layout bounds calculations.
+- **Proof Runner**: Created [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb) executing the 14 checks.
+- **JSON Fixtures**: Created [valid_dashboard.json](../../../../igniter-gui-engine/fixtures/valid_dashboard.json), [missing_node_id.json](../../../../igniter-gui-engine/fixtures/missing_node_id.json), [cyclic_reference.json](../../../../igniter-gui-engine/fixtures/cyclic_reference.json), [invalid_slot_ref.json](../../../../igniter-gui-engine/fixtures/invalid_slot_ref.json), [unsupported_primitive.json](../../../../igniter-gui-engine/fixtures/unsupported_primitive.json), and [malformed_scene.json](../../../../igniter-gui-engine/fixtures/malformed_scene.json).
+- **Proof Documentation**: Shipped [lab-native-gui-scene-tree-headless-layout-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-scene-tree-headless-layout-proof-v0.md) detailing math verifications and rules.
 
 ## [T] Tests / Proofs
 
-- **Proof Runner Exit 0**: `ruby igniter-lab/igniter-gui-engine/run_proof.rb` passes all 14/14 checks successfully and writes results to [layout_result.json](../igniter-gui-engine/out/layout_result.json) and [summary.json](../igniter-gui-engine/out/summary.json).
+- **Proof Runner Exit 0**: `ruby igniter-lab/igniter-gui-engine/run_proof.rb` passes all 14/14 checks successfully and writes results to [layout_result.json](../../../../igniter-gui-engine/out/layout_result.json) and [summary.json](../../../../igniter-gui-engine/out/summary.json).
 - **Flex Layout Bounding Boxes Verified**:
   - `root` resolved at `[0, 0, 1024, 768]`.
   - `sidebar` flex item resolved at `[0, 0, 240, 768]`.

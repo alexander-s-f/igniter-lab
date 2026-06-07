@@ -15,9 +15,9 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Interaction IR Module:** Created [gui_interaction_ir.ts](../igniter-ide/src/lib/gui_interaction_ir.ts) containing types, pure expression evaluator, display rule evaluator, interaction rule evaluator, deterministic fixtures (tabs, panels), and verification test suite.
-- **IDE Pilot Integration:** Updated [ViewInspector.svelte](../igniter-ide/src/lib/components/ViewInspector.svelte#L45-L60) to execute the verification suite on mount and append all results to the Diagnostics panel.
-- **Lab Design Document:** Created [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../lab-docs/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md) detailing matrices, Covenants analysis, and proof logs.
+- **Interaction IR Module:** Created [gui_interaction_ir.ts](../../../../igniter-ide/src/lib/gui_interaction_ir.ts) containing types, pure expression evaluator, display rule evaluator, interaction rule evaluator, deterministic fixtures (tabs, panels), and verification test suite.
+- **IDE Pilot Integration:** Updated [ViewInspector.svelte](../../../../igniter-ide/src/lib/components/ViewInspector.svelte#L45-L60) to execute the verification suite on mount and append all results to the Diagnostics panel.
+- **Lab Design Document:** Created [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../../../../lab-docs/gui/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md) detailing matrices, Covenants analysis, and proof logs.
 
 ## [T] Tests / Proofs
 

@@ -17,10 +17,10 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Core Module**: Created [slot_binder.rb](../igniter-gui-engine/lib/slot_binder.rb) containing digest validations, type checking, and style/visibility display rules execution.
-- **JSON Fixtures**: Created [invalid_slot_value.json](../igniter-gui-engine/fixtures/invalid_slot_value.json) and [invalid_binding_strict.json](../igniter-gui-engine/fixtures/invalid_binding_strict.json).
-- **Proof Updates**: Updated [run_proof.rb](../igniter-gui-engine/run_proof.rb) with 16 additional NGUI-P3 validation checks, outputting [bound_scene_tree.json](../igniter-gui-engine/out/bound_scene_tree.json) and [scene_binding_receipt.json](../igniter-gui-engine/out/scene_binding_receipt.json).
-- **Proof Documentation**: Shipped [lab-native-gui-slotvalues-scene-binding-proof-v0.md](../lab-docs/lab-native-gui-slotvalues-scene-binding-proof-v0.md) and [LAB-NATIVE-GUI-P3.md](../.agents/LAB-NATIVE-GUI-P3.md).
+- **Core Module**: Created [slot_binder.rb](../../../../igniter-gui-engine/lib/slot_binder.rb) containing digest validations, type checking, and style/visibility display rules execution.
+- **JSON Fixtures**: Created [invalid_slot_value.json](../../../../igniter-gui-engine/fixtures/invalid_slot_value.json) and [invalid_binding_strict.json](../../../../igniter-gui-engine/fixtures/invalid_binding_strict.json).
+- **Proof Updates**: Updated [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb) with 16 additional NGUI-P3 validation checks, outputting [bound_scene_tree.json](../../../../igniter-gui-engine/out/bound_scene_tree.json) and [scene_binding_receipt.json](../../../../igniter-gui-engine/out/scene_binding_receipt.json).
+- **Proof Documentation**: Shipped [lab-native-gui-slotvalues-scene-binding-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-slotvalues-scene-binding-proof-v0.md) and [LAB-NATIVE-GUI-P3.md](LAB-NATIVE-GUI-P3.md).
 
 ## [T] Tests / Proofs
 

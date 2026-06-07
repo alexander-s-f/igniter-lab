@@ -2,7 +2,7 @@
 
 Status: `experimental · lab-only · research`
 Track: `lab-tailmix-concept-applicability-to-igniter-gui-v0`
-Base: [lab-igniter-lang-to-gui-research-boundary-v0.md](../lab-docs/lab-igniter-lang-to-gui-research-boundary-v0.md), [lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md](../lab-docs/lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md)
+Base: [lab-igniter-lang-to-gui-research-boundary-v0.md](lab-igniter-lang-to-gui-research-boundary-v0.md), [lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md](../view/lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md)
 
 ---
 
@@ -37,7 +37,7 @@ Tailmix models conditions via a nested LISP-like instruction format:
 
 Applying this to Igniter:
 * **Recommendation:** **Adopt as static pressure.** Instead of introducing an active runtime VM in the browser for layout styling, Igniter can compile conditional display states (e.g. "show warning border if confidence < 80%") into static metadata fields in `view_tree.json`.
-* **Translation:** Svelte-level rendering in the IDE ([ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)) can evaluate these rule structures reactively based on imported static Mock/Receipt files, maintaining safety without embedding a JS engine in the user's application.
+* **Translation:** Svelte-level rendering in the IDE ([ViewNodeRenderer.svelte](../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)) can evaluate these rule structures reactively based on imported static Mock/Receipt files, maintaining safety without embedding a JS engine in the user's application.
 
 ### 2.3 Event Instruction Model & Safety (TMX-R4, TMX-R8)
 
@@ -59,7 +59,7 @@ Compiles to:
 ```
 
 This serialized representation is highly applicable to **Igniter's Safe Preview Boundaries**:
-1. **No Arbitrary Scripting:** The IDE preview must absolutely forbid raw JavaScript execution (`onclick="..."`, inline `<script>`) to prevent security leaks ([safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts)).
+1. **No Arbitrary Scripting:** The IDE preview must absolutely forbid raw JavaScript execution (`onclick="..."`, inline `<script>`) to prevent security leaks ([safe_renderer_policy.ts](../../igniter-ide/src/lib/safe_renderer_policy.ts)).
 2. **Declarative Mutation Opcodes:** By adopting a whitelisted list of instruction opcodes (e.g., `set`, `toggle`, `clear`), Igniter can allow developers to declare safe UI updates in their View DSL. The IDE's sandbox renderer interprets these rules safely without exposing DOM access.
 3. **Capability Passport Enforcement:** If an event requests an external boundary crossing (like `fetch` or `dispatch`), the IDE intercepts the instruction array, checks it against the contract's Capability Passport, and prompts the user for authorization before performing the operation.
 

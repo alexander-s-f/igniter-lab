@@ -17,11 +17,11 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Constraint Solver Core**: Shipped updates to [layout_resolver.rb](../igniter-gui-engine/lib/layout_resolver.rb) including row/column engines, gap spacing, alignment offsets, and validation limit corrections.
-- **Preflight Overflow Exemptions**: Updated [composition_preflight.rb](../igniter-gui-engine/lib/composition_preflight.rb) to bypass subview geometry checks if the parent subview node has `overflow: "allow"` or `overflow: "scroll"` set on its layout/style.
-- **Proof Runner Results**: Appended and verified checks `NGUI-P8-1` to `NGUI-P8-20` in [run_proof.rb](../igniter-gui-engine/run_proof.rb). All 133 tests are green.
+- **Constraint Solver Core**: Shipped updates to [layout_resolver.rb](../../../../igniter-gui-engine/lib/layout_resolver.rb) including row/column engines, gap spacing, alignment offsets, and validation limit corrections.
+- **Preflight Overflow Exemptions**: Updated [composition_preflight.rb](../../../../igniter-gui-engine/lib/composition_preflight.rb) to bypass subview geometry checks if the parent subview node has `overflow: "allow"` or `overflow: "scroll"` set on its layout/style.
+- **Proof Runner Results**: Appended and verified checks `NGUI-P8-1` to `NGUI-P8-20` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 133 tests are green.
 - **Summary JSON**: Exported test run results to `out/layout_constraint_solver_summary.json` and updated `out/summary.json`.
-- **Lab Documentation**: Authored [lab-native-gui-headless-layout-constraint-solver-proof-v0.md](../lab-docs/lab-native-gui-headless-layout-constraint-solver-proof-v0.md).
+- **Lab Documentation**: Authored [lab-native-gui-headless-layout-constraint-solver-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-layout-constraint-solver-proof-v0.md).
 
 ## [T] Tests / Proofs
 

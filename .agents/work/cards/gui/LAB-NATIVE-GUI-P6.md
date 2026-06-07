@@ -17,10 +17,10 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Vector Renderer**: Created [vector_renderer.rb](../igniter-gui-engine/lib/vector_renderer.rb) containing the painter's sorter, shape mapping logic, transform compilers, and SVG code wrappers.
-- **Rendered Outputs**: Shipped [vector_receipt.json](../igniter-gui-engine/out/vector_receipt.json), [frame_250ms.vector.json](../igniter-gui-engine/out/frame_250ms.vector.json), and the raw [frame_250ms.svg](../igniter-gui-engine/out/frame_250ms.svg) vector document.
-- **Proof Matrix**: Appended NGUI-P6-1 to NGUI-P6-16 checks in [run_proof.rb](../igniter-gui-engine/run_proof.rb) and updated the human-readable summary matrix.
-- **Proof Documentation**: Shipped [lab-native-gui-headless-vector-renderer-artifact-proof-v0.md](../lab-docs/lab-native-gui-headless-vector-renderer-artifact-proof-v0.md) and [LAB-NATIVE-GUI-P6.md](../.agents/LAB-NATIVE-GUI-P6.md).
+- **Vector Renderer**: Created [vector_renderer.rb](../../../../igniter-gui-engine/lib/vector_renderer.rb) containing the painter's sorter, shape mapping logic, transform compilers, and SVG code wrappers.
+- **Rendered Outputs**: Shipped [vector_receipt.json](../../../../igniter-gui-engine/out/vector_receipt.json), [frame_250ms.vector.json](../../../../igniter-gui-engine/out/frame_250ms.vector.json), and the raw [frame_250ms.svg](../../../../igniter-gui-engine/out/frame_250ms.svg) vector document.
+- **Proof Matrix**: Appended NGUI-P6-1 to NGUI-P6-16 checks in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb) and updated the human-readable summary matrix.
+- **Proof Documentation**: Shipped [lab-native-gui-headless-vector-renderer-artifact-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-vector-renderer-artifact-proof-v0.md) and [LAB-NATIVE-GUI-P6.md](LAB-NATIVE-GUI-P6.md).
 
 ## [T] Tests / Proofs
 

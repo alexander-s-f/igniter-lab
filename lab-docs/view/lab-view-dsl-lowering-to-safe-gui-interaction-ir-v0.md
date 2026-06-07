@@ -3,7 +3,7 @@
 Status: `experimental · lab-only · research`
 Track: `lab-view-dsl-lowering-to-safe-gui-interaction-ir-v0`
 Card: LAB-VIEW-DSL-P6
-Base: [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../lab-docs/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md)
+Base: [lab-tailmix-inspired-gui-interaction-ir-schema-v0.md](../gui/lab-tailmix-inspired-gui-interaction-ir-schema-v0.md)
 
 ---
 
@@ -30,7 +30,7 @@ The View DSL now supports the following safe declarations:
 
 ## 2. Proof Verification Matrix (VDSL-IR-1 through VDSL-IR-12)
 
-We verify the compilation and security boundaries using a dedicated proof runner: [run_ir_proof.rb](../igniter-view-engine/run_ir_proof.rb).
+We verify the compilation and security boundaries using a dedicated proof runner: [run_ir_proof.rb](../../igniter-view-engine/run_ir_proof.rb).
 
 | Rule / Check | Requirement | Verification Status | Notes / Proof Evidence |
 | :--- | :--- | :--- | :--- |

@@ -14,15 +14,15 @@ Status: done
 - Established a Capability Passport Shield design rule where contracts carrying `escape` declarations (side effects) must trigger visual consent boundaries inside the IDE before execution.
 
 [S] Shipped / Signals
-- Shipped research boundary document: [lab-igniter-lang-to-gui-research-boundary-v0.md](../lab-docs/lab-igniter-lang-to-gui-research-boundary-v0.md) detailing the pipeline matrix and vocabulary.
+- Shipped research boundary document: [lab-igniter-lang-to-gui-research-boundary-v0.md](../../../../lab-docs/gui/lab-igniter-lang-to-gui-research-boundary-v0.md) detailing the pipeline matrix and vocabulary.
 - Modeled the compiler-to-view pipeline flow diagram using Mermaid graph nodes showing intermediate artifacts.
 - Validated all 10 suggested readiness checklist parameters (GUI-R1 through GUI-R10) outlining playground capabilities and risks.
 
 [T] Tests / Proofs
-- Inspected existing AST parser engine: [run_proof.rb](../igniter-view-engine/run_proof.rb) and [run_vsafe_proof.rb](../igniter-view-engine/run_vsafe_proof.rb).
-- Audited shared security whitelists and sanitization logic: [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts).
-- Checked Svelte component implementations: [ViewInspector.svelte](../igniter-ide/src/lib/components/ViewInspector.svelte) and [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte).
-- Examined compiled compiler JSON representations: [manifest.json](../igniter-compiler/out/vendor_lead_pipeline.igapp/manifest.json) and [loop_tester.json](../igniter-compiler/out/loops_and_recursion.igapp/contracts/loop_tester.json).
+- Inspected existing AST parser engine: [run_proof.rb](../../../../igniter-view-engine/run_proof.rb) and [run_vsafe_proof.rb](../../../../igniter-view-engine/run_vsafe_proof.rb).
+- Audited shared security whitelists and sanitization logic: [safe_renderer_policy.ts](../../../../igniter-ide/src/lib/safe_renderer_policy.ts).
+- Checked Svelte component implementations: [ViewInspector.svelte](../../../../igniter-ide/src/lib/components/ViewInspector.svelte) and [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte).
+- Examined compiled compiler JSON representations: [manifest.json](../../../../igniter-compiler/out/vendor_lead_pipeline.igapp/manifest.json) and [loop_tester.json](../../../../igniter-compiler/out/loops_and_recursion.igapp/contracts/loop_tester.json).
 
 [R] Risks / Recommendations
 - Risk: Framework drift where the experimental View DSL and Svelte sandbox rendering engine are treated as a stable frontend framework. Recommendation: Limit the view engine and IDE canvas to developer-facing diagnostics and testing dashboards only.

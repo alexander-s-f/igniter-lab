@@ -3,7 +3,7 @@
 Status: `experimental · lab-only · research`
 Track: `lab-tauri-ivf-static-shell-proof-v0`
 Card: LAB-TAURI-IVF-P2
-Base: [lab-igniter-tauri-application-feasibility-v0.md](../lab-docs/lab-igniter-tauri-application-feasibility-v0.md)
+Base: [lab-igniter-tauri-application-feasibility-v0.md](lab-igniter-tauri-application-feasibility-v0.md)
 
 ---
 
@@ -21,10 +21,10 @@ To verify local `UIState` interaction inside a native WebView, we created a seco
 The secondary window is programmatically created on app setup inside `lib.rs`:
 *   **Label**: `proof-window`
 *   **URI**: `igniter-proof://localhost/`
-*   **Window Registration**: Added `"proof-window"` to the windows array in the desktop capability file: [default.json](../igniter-ide/src-tauri/capabilities/default.json).
+*   **Window Registration**: Added `"proof-window"` to the windows array in the desktop capability file: [default.json](../../igniter-ide/src-tauri/capabilities/default.json).
 
 ### 2.2 Custom URI Scheme Handler
-We registered the `igniter-proof` protocol handler in [lib.rs](../igniter-ide/src-tauri/src/lib.rs):
+We registered the `igniter-proof` protocol handler in [lib.rs](../../igniter-ide/src-tauri/src/lib.rs):
 *   **Route `/` or `/index.html`**:
     1.  Loads the pre-rendered HTML fragment from `igniter-view-engine/out/tabs_ssr_output.html`.
     2.  Wraps it in a premium HTML skeleton with brand-conforming style tokens (dark mode, typography).

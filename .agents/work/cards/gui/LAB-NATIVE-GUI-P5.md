@@ -17,10 +17,10 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Timeline resolver**: Created [timeline_resolver.rb](../igniter-gui-engine/lib/timeline_resolver.rb) containing easing calculators, hex color interpolators, and manifest syntax validators.
-- **Frame Outputs**: Generated frame snapshot JSONs representing time milestones [frame_0ms.json](../igniter-gui-engine/out/frame_0ms.json), [frame_250ms.json](../igniter-gui-engine/out/frame_250ms.json), [frame_500ms.json](../igniter-gui-engine/out/frame_500ms.json), and [animation_receipt.json](../igniter-gui-engine/out/animation_receipt.json).
-- **Proof Matrix**: Appended NGUI-P5-1 to NGUI-P5-17 checks in [run_proof.rb](../igniter-gui-engine/run_proof.rb).
-- **Proof Documentation**: Shipped [lab-native-gui-headless-animation-timeline-proof-v0.md](../lab-docs/lab-native-gui-headless-animation-timeline-proof-v0.md) and [LAB-NATIVE-GUI-P5.md](../.agents/LAB-NATIVE-GUI-P5.md).
+- **Timeline resolver**: Created [timeline_resolver.rb](../../../../igniter-gui-engine/lib/timeline_resolver.rb) containing easing calculators, hex color interpolators, and manifest syntax validators.
+- **Frame Outputs**: Generated frame snapshot JSONs representing time milestones [frame_0ms.json](../../../../igniter-gui-engine/out/frame_0ms.json), [frame_250ms.json](../../../../igniter-gui-engine/out/frame_250ms.json), [frame_500ms.json](../../../../igniter-gui-engine/out/frame_500ms.json), and [animation_receipt.json](../../../../igniter-gui-engine/out/animation_receipt.json).
+- **Proof Matrix**: Appended NGUI-P5-1 to NGUI-P5-17 checks in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb).
+- **Proof Documentation**: Shipped [lab-native-gui-headless-animation-timeline-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-animation-timeline-proof-v0.md) and [LAB-NATIVE-GUI-P5.md](LAB-NATIVE-GUI-P5.md).
 
 ## [T] Tests / Proofs
 

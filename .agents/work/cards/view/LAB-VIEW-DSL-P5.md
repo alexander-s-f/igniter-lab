@@ -27,13 +27,13 @@ Status: done
   - VSLOT-3: Kept experimental lab-only preview status.
 
 [T] Tests / Proofs
-- Safety policy: [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts)
-- Svelte view renderer: [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
-- Security runner: [run_vsafe_proof.rb](../igniter-view-engine/run_vsafe_proof.rb)
-- Malicious edge cases: [malicious_page.rb](../igniter-view-engine/fixtures/malicious_page.rb)
-- Preflight slots fixture: [static_page.rb](../igniter-view-engine/fixtures/static_page.rb)
-- Security validation JSON: [vsafe_summary.json](../igniter-view-engine/out/vsafe_summary.json)
-- Lab documentation: [lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md](../lab-docs/lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md)
+- Safety policy: [safe_renderer_policy.ts](../../../../igniter-ide/src/lib/safe_renderer_policy.ts)
+- Svelte view renderer: [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
+- Security runner: [run_vsafe_proof.rb](../../../../igniter-view-engine/run_vsafe_proof.rb)
+- Malicious edge cases: [malicious_page.rb](../../../../igniter-view-engine/fixtures/malicious_page.rb)
+- Preflight slots fixture: [static_page.rb](../../../../igniter-view-engine/fixtures/static_page.rb)
+- Security validation JSON: [vsafe_summary.json](../../../../igniter-view-engine/out/vsafe_summary.json)
+- Lab documentation: [lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md](../../../../lab-docs/view/lab-experimental-view-tree-safe-policy-edgecases-and-state-slot-preflight-v0.md)
 
 [R] Recommendations
 - Recommendation: **Maintain state-slots as static preflight mockups**.

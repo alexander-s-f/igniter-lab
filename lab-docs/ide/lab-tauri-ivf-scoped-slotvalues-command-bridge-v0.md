@@ -3,7 +3,7 @@
 Status: `experimental · lab-only · research`
 Track: `lab-tauri-ivf-scoped-slotvalues-command-bridge-v0`
 Card: LAB-TAURI-IVF-P3
-Base: [lab-tauri-ivf-static-shell-proof-v0.md](../lab-docs/lab-tauri-ivf-static-shell-proof-v0.md)
+Base: [lab-tauri-ivf-static-shell-proof-v0.md](lab-tauri-ivf-static-shell-proof-v0.md)
 
 ---
 

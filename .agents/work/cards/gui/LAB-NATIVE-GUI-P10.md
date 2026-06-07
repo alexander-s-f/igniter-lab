@@ -17,12 +17,12 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Headless Reactive Loop**: Shipped [headless_reactive_loop.rb](../igniter-gui-engine/lib/headless_reactive_loop.rb) containing event dispatch coordination, state reduction, and frame rendering.
-- **Scene Tree Updates**: Added `recompute_digest!` helper to [scene_tree.rb](../igniter-gui-engine/lib/scene_tree.rb) to re-hash structures after mutations.
-- **Solver Defaulting**: Modified resolved node mappings in [layout_resolver.rb](../igniter-gui-engine/lib/layout_resolver.rb) to default-assign zero-boxes to invisible children.
-- **Proof Runner Results**: Appended and verified checks `NGUI-P10-1` to `NGUI-P10-14` in [run_proof.rb](../igniter-gui-engine/run_proof.rb). All 165 checks are green.
+- **Headless Reactive Loop**: Shipped [headless_reactive_loop.rb](../../../../igniter-gui-engine/lib/headless_reactive_loop.rb) containing event dispatch coordination, state reduction, and frame rendering.
+- **Scene Tree Updates**: Added `recompute_digest!` helper to [scene_tree.rb](../../../../igniter-gui-engine/lib/scene_tree.rb) to re-hash structures after mutations.
+- **Solver Defaulting**: Modified resolved node mappings in [layout_resolver.rb](../../../../igniter-gui-engine/lib/layout_resolver.rb) to default-assign zero-boxes to invisible children.
+- **Proof Runner Results**: Appended and verified checks `NGUI-P10-1` to `NGUI-P10-14` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 165 checks are green.
 - **Summary JSON**: Exported test run results to `out/layout_reactive_loop_summary.json` and updated `out/summary.json`.
-- **Lab Documentation**: Authored [lab-native-gui-headless-reactive-loop-and-frame-recalculation-proof-v0.md](../lab-docs/lab-native-gui-headless-reactive-loop-and-frame-recalculation-proof-v0.md).
+- **Lab Documentation**: Authored [lab-native-gui-headless-reactive-loop-and-frame-recalculation-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-reactive-loop-and-frame-recalculation-proof-v0.md).
 
 ## [T] Tests / Proofs
 

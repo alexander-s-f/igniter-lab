@@ -17,11 +17,11 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **External State Bridge**: Shipped [external_state_bridge.rb](../igniter-gui-engine/lib/external_state_bridge.rb) for state envelope validations and slot resolution.
-- **Frame Coordinator Update**: Modified `render_frame` in [headless_reactive_loop.rb](../igniter-gui-engine/lib/headless_reactive_loop.rb) to accept and propagate receipt IDs.
-- **Proof Runner Results**: Appended and verified checks `NGUI-P11-1` to `NGUI-P11-14` in [run_proof.rb](../igniter-gui-engine/run_proof.rb). All 179 checks are green.
+- **External State Bridge**: Shipped [external_state_bridge.rb](../../../../igniter-gui-engine/lib/external_state_bridge.rb) for state envelope validations and slot resolution.
+- **Frame Coordinator Update**: Modified `render_frame` in [headless_reactive_loop.rb](../../../../igniter-gui-engine/lib/headless_reactive_loop.rb) to accept and propagate receipt IDs.
+- **Proof Runner Results**: Appended and verified checks `NGUI-P11-1` to `NGUI-P11-14` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 179 checks are green.
 - **Summary JSON**: Exported test run results to `out/layout_state_ingress_summary.json` and updated `out/summary.json`.
-- **Lab Documentation**: Authored [lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0.md](../lab-docs/lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0.md).
+- **Lab Documentation**: Authored [lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-external-state-ingress-slotvalues-bridge-proof-v0.md).
 
 ## [T] Tests / Proofs
 

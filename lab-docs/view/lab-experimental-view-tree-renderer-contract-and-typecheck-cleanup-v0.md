@@ -8,7 +8,7 @@ Base: `lab-experimental-view-tree-safe-renderer-and-hot-reload-v0.md`
 
 ## 1. Safety Policy Contract Hardening
 
-To establish a clearer safety boundary and eliminate copy-paste code in the visual preview, we extracted all whitelists and sanitization logic from component-level code into a single, shared safety policy module: [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts).
+To establish a clearer safety boundary and eliminate copy-paste code in the visual preview, we extracted all whitelists and sanitization logic from component-level code into a single, shared safety policy module: [safe_renderer_policy.ts](../../igniter-ide/src/lib/safe_renderer_policy.ts).
 
 ### 1.1 Policy Enhancements (VCON-4, VCON-5, VCON-6)
 1.  **Shared Whitelists:** Consolidates `ALLOWED_TAGS` and `ALLOWED_ATTRIBUTES` in one module used by both the root inspector and recursive child node renderers.
@@ -21,10 +21,10 @@ To establish a clearer safety boundary and eliminate copy-paste code in the visu
 
 ## 2. Dedicated Security Runner: VSAFE Proof
 
-We separated the security validation code from the core layout rendering engine. The core engine runner [run_proof.rb](../igniter-view-engine/run_proof.rb) now focuses exclusively on VDSL P1 rendering and structural correctness.
+We separated the security validation code from the core layout rendering engine. The core engine runner [run_proof.rb](../../igniter-view-engine/run_proof.rb) now focuses exclusively on VDSL P1 rendering and structural correctness.
 
-All malicious specimens and policy checks have been migrated to a dedicated runner: [run_vsafe_proof.rb](../igniter-view-engine/run_vsafe_proof.rb).
-*   **Input Fixture:** Compiles the updated [malicious_page.rb](../igniter-view-engine/fixtures/malicious_page.rb) showcasing CSS leaks, stylesheet imports, reverse tabnabbing, inline styles, nested script elements, and nested document tags.
+All malicious specimens and policy checks have been migrated to a dedicated runner: [run_vsafe_proof.rb](../../igniter-view-engine/run_vsafe_proof.rb).
+*   **Input Fixture:** Compiles the updated [malicious_page.rb](../../igniter-view-engine/fixtures/malicious_page.rb) showcasing CSS leaks, stylesheet imports, reverse tabnabbing, inline styles, nested script elements, and nested document tags.
 *   **Simulation Assertions:** Re-implements the Svelte TypeScript safety policy in Ruby to verify that the generated AST conforms to all whitelists, blocklists, and mutation criteria.
 *   **Result Packet:** Outputs a dedicated safety validation receipt: `igniter-view-engine/out/vsafe_summary.json` mapping all VCON rules to their status.
 
@@ -47,8 +47,8 @@ All malicious specimens and policy checks have been migrated to a dedicated runn
 | Rule ID | Requirement | Result | Verification Notes |
 |---------|-------------|--------|---------------------|
 | **VCON-1** | TypeScript P3 errors fixed | `PASS` | All type mismatch errors resolved in `ViewInspector.svelte`. |
-| **VCON-2** | Shared safety policy exists | `PASS` | [safe_renderer_policy.ts](../igniter-ide/src/lib/safe_renderer_policy.ts) is imported and utilized reactively. |
-| **VCON-3** | VSAFE proof runner exists | `PASS` | [run_vsafe_proof.rb](../igniter-view-engine/run_vsafe_proof.rb) executes and writes `out/vsafe_summary.json`. |
+| **VCON-2** | Shared safety policy exists | `PASS` | [safe_renderer_policy.ts](../../igniter-ide/src/lib/safe_renderer_policy.ts) is imported and utilized reactively. |
+| **VCON-3** | VSAFE proof runner exists | `PASS` | [run_vsafe_proof.rb](../../igniter-view-engine/run_vsafe_proof.rb) executes and writes `out/vsafe_summary.json`. |
 | **VCON-4** | Style sanitization enforced | `PASS` | `@import` and `url()` inside style tags/attributes are stripped; tabnabbing rel is added. |
 | **VCON-5** | Nested root tag isolation | `PASS` | Nested `head` is blocked; root-level tags render only at the canvas entrypoint. |
 | **VCON-6** | Unsafe script/iframe/on* blocked | `PASS` | Malicious scripts/events are blocked/stripped and render visual warning banners. |

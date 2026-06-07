@@ -17,11 +17,11 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Event Dispatcher Implementation**: Shipped [event_dispatcher.rb](../igniter-gui-engine/lib/event_dispatcher.rb) with pointer hit-testing, focus target validations, and command action checks.
-- **Styling Whitelist Safeguards**: Integrated style key validation in [layout_resolver.rb](../igniter-gui-engine/lib/layout_resolver.rb) and [scene_tree.rb](../igniter-gui-engine/lib/scene_tree.rb).
-- **Proof Runner Invariants**: Appended test scenarios `NGUI-P9-1` to `NGUI-P9-18` in [run_proof.rb](../igniter-gui-engine/run_proof.rb). All 151 checks are green.
+- **Event Dispatcher Implementation**: Shipped [event_dispatcher.rb](../../../../igniter-gui-engine/lib/event_dispatcher.rb) with pointer hit-testing, focus target validations, and command action checks.
+- **Styling Whitelist Safeguards**: Integrated style key validation in [layout_resolver.rb](../../../../igniter-gui-engine/lib/layout_resolver.rb) and [scene_tree.rb](../../../../igniter-gui-engine/lib/scene_tree.rb).
+- **Proof Runner Invariants**: Appended test scenarios `NGUI-P9-1` to `NGUI-P9-18` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 151 checks are green.
 - **Summary JSON**: Exported test run results to `out/layout_event_dispatcher_summary.json` and updated `out/summary.json`.
-- **Lab Documentation**: Authored [lab-native-gui-headless-event-dispatcher-and-interaction-bridge-proof-v0.md](../lab-docs/lab-native-gui-headless-event-dispatcher-and-interaction-bridge-proof-v0.md).
+- **Lab Documentation**: Authored [lab-native-gui-headless-event-dispatcher-and-interaction-bridge-proof-v0.md](../../../../lab-docs/gui/lab-native-gui-headless-event-dispatcher-and-interaction-bridge-proof-v0.md).
 
 ## [T] Tests / Proofs
 

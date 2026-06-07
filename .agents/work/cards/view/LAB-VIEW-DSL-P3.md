@@ -30,12 +30,12 @@ Status: done
   - VSAFE-14: The view renderer is maintained as a playground experiment.
 
 [T] Tests / Proofs
-- Hardened safe renderer: [ViewNodeRenderer.svelte](../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
-- Hot reload and diagnostics warning scan: [ViewInspector.svelte](../igniter-ide/src/lib/components/ViewInspector.svelte)
-- Svelte 5 warning resolution: [ViewTreeInspectorNode.svelte](../igniter-ide/src/lib/components/ViewTreeInspectorNode.svelte)
-- Malicious specimen fixture: [malicious_page.rb](../igniter-view-engine/fixtures/malicious_page.rb)
-- Malicious artifacts output: [malicious_view_tree.json](../igniter-view-engine/out/malicious_view_tree.json)
-- Lab documentation: [lab-experimental-view-tree-safe-renderer-and-hot-reload-v0.md](../lab-docs/lab-experimental-view-tree-safe-renderer-and-hot-reload-v0.md)
+- Hardened safe renderer: [ViewNodeRenderer.svelte](../../../../igniter-ide/src/lib/components/ViewNodeRenderer.svelte)
+- Hot reload and diagnostics warning scan: [ViewInspector.svelte](../../../../igniter-ide/src/lib/components/ViewInspector.svelte)
+- Svelte 5 warning resolution: [ViewTreeInspectorNode.svelte](../../../../igniter-ide/src/lib/components/ViewTreeInspectorNode.svelte)
+- Malicious specimen fixture: [malicious_page.rb](../../../../igniter-view-engine/fixtures/malicious_page.rb)
+- Malicious artifacts output: [malicious_view_tree.json](../../../../igniter-view-engine/out/malicious_view_tree.json)
+- Lab documentation: [lab-experimental-view-tree-safe-renderer-and-hot-reload-v0.md](../../../../lab-docs/view/lab-experimental-view-tree-safe-renderer-and-hot-reload-v0.md)
 
 [R] Recommendations
 - Recommendation: **continue as view-engine frontier**.

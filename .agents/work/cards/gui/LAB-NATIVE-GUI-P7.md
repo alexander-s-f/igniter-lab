@@ -17,13 +17,13 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Composition Preflight**: Created [composition_preflight.rb](../igniter-gui-engine/lib/composition_preflight.rb) verifying parent references, cyclic loops, and subview geometric overlap.
-- **Vector Renderer Hardening**: Updated [vector_renderer.rb](../igniter-gui-engine/lib/vector_renderer.rb) with sanitized ID, font, and transform checks, skipping structural nodes (`subview` / `container`) and escaping output XML.
-- **SlotBinder Cleanup**: Deduplicated methods in [slot_binder.rb](../igniter-gui-engine/lib/slot_binder.rb).
-- **Scene Tree Update**: Whitelisted `subview` in [scene_tree.rb](../igniter-gui-engine/lib/scene_tree.rb).
-- **Preflight Receipt**: Shipped [composition_preflight_receipt.json](../igniter-gui-engine/out/composition_preflight_receipt.json).
-- **Proof Runner**: Integrated 18 new tests (`NGUI-P7-1` to `NGUI-P7-18`) in [run_proof.rb](../igniter-gui-engine/run_proof.rb).
-- **Lab Documentation**: Shipped [lab-native-gui-vector-attribute-hardening-and-composition-preflight-v0.md](../lab-docs/lab-native-gui-vector-attribute-hardening-and-composition-preflight-v0.md).
+- **Composition Preflight**: Created [composition_preflight.rb](../../../../igniter-gui-engine/lib/composition_preflight.rb) verifying parent references, cyclic loops, and subview geometric overlap.
+- **Vector Renderer Hardening**: Updated [vector_renderer.rb](../../../../igniter-gui-engine/lib/vector_renderer.rb) with sanitized ID, font, and transform checks, skipping structural nodes (`subview` / `container`) and escaping output XML.
+- **SlotBinder Cleanup**: Deduplicated methods in [slot_binder.rb](../../../../igniter-gui-engine/lib/slot_binder.rb).
+- **Scene Tree Update**: Whitelisted `subview` in [scene_tree.rb](../../../../igniter-gui-engine/lib/scene_tree.rb).
+- **Preflight Receipt**: Shipped [composition_preflight_receipt.json](../../../../igniter-gui-engine/out/composition_preflight_receipt.json).
+- **Proof Runner**: Integrated 18 new tests (`NGUI-P7-1` to `NGUI-P7-18`) in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb).
+- **Lab Documentation**: Shipped [lab-native-gui-vector-attribute-hardening-and-composition-preflight-v0.md](../../../../lab-docs/gui/lab-native-gui-vector-attribute-hardening-and-composition-preflight-v0.md).
 
 ## [T] Tests / Proofs
 

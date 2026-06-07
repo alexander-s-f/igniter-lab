@@ -19,13 +19,13 @@ Status: done
 - Registered the generator as a new tab `schema_form` (label: `✎ Form Generator`) in the main viewport area of `igniter-ide/src/routes/+page.svelte` for a spacious split-pane design.
 
 [S] Shipped / Signals
-- Shipped new Svelte 5 component: [ContractFormGenerator.svelte](../igniter-ide/src/lib/components/ContractFormGenerator.svelte) containing form scanning, validation, and JSON generation.
-- Integrated tab routing inside: [page.svelte](../igniter-ide/src/routes/+page.svelte) within `VIEW_TABS` and `activeArea`.
-- Shipped implementation documentation: [lab-contract-schema-to-input-form-generator-v0.md](../lab-docs/lab-contract-schema-to-input-form-generator-v0.md).
+- Shipped new Svelte 5 component: [ContractFormGenerator.svelte](../../../../igniter-ide/src/lib/components/ContractFormGenerator.svelte) containing form scanning, validation, and JSON generation.
+- Integrated tab routing inside: [page.svelte](../../../../igniter-ide/src/routes/+page.svelte) within `VIEW_TABS` and `activeArea`.
+- Shipped implementation documentation: [lab-contract-schema-to-input-form-generator-v0.md](../../../../lab-docs/ide/lab-contract-schema-to-input-form-generator-v0.md).
 - Verified production build and types compilation: `npm run build` and `npm run check` completed successfully without introducing errors.
 
 [T] Tests / Proofs
-- Verified schema adapter using compiled outputs: [bid_summary.json](../igniter-compiler/out/decimal_contract.igapp/contracts/bid_summary.json) and [loop_tester.json](../igniter-compiler/out/loops_and_recursion.igapp/contracts/loop_tester.json).
+- Verified schema adapter using compiled outputs: [bid_summary.json](../../../../igniter-compiler/out/decimal_contract.igapp/contracts/bid_summary.json) and [loop_tester.json](../../../../igniter-compiler/out/loops_and_recursion.igapp/contracts/loop_tester.json).
 - Audited client-side validations inside the Form Generator preview tab to ensure that entering invalid formats (e.g. `12.3` in Integer input or empty required inputs) generates immediate error flags.
 
 [R] Risks / Recommendations
