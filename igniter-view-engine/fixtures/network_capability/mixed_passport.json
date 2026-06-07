@@ -1,0 +1,39 @@
+{
+  "runtime_implementation_id": "igniter.delegated.experimental.io.network.v0",
+  "backend_implementation_id": "none",
+  "consumer_surface_id": "igniter-lab",
+  "surface_dimension": "runtime",
+  "artifact_kind": "igapp_dir",
+  "artifact_digest": "sha256:abc123def456",
+  "capability_bindings": {
+    "net_outbound": "net_outbound",
+    "io_file_read": "io_file_read"
+  },
+  "required_capabilities": {
+    "net_outbound": {
+      "capability_id": "cap-net-loopback-connect",
+      "resource_type": "network",
+      "protocol": "tcp",
+      "direction": "connect",
+      "bind_address": "127.0.0.1",
+      "allowed_hosts": ["127.0.0.1", "localhost"],
+      "allowed_port_ranges": [{ "min": 8000, "max": 9000 }],
+      "loopback_only": true,
+      "connect_allowed": true,
+      "listen_allowed": false,
+      "send_allowed": true,
+      "receive_allowed": true,
+      "tls_required": false,
+      "sandbox_policy_source": "proof_default"
+    },
+    "io_file_read": {
+      "capability_id": "cap-io-01",
+      "resource_type": "file",
+      "sandbox_dir": "out/sandbox",
+      "allowed_absolute_paths": [],
+      "read_allowed": true,
+      "write_allowed": false,
+      "sandbox_policy_source": "proof_default"
+    }
+  }
+}

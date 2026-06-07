@@ -1,0 +1,15 @@
+{
+  "capability_id": "cap-net-localhost-listen",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "listen",
+  "bind_address": "127.0.0.1",
+  "allowed_hosts": ["*"],
+  "allowed_port_ranges": [{ "min": 3000, "max": 9999 }],
+  "loopback_only": true,
+  "connect_allowed": false,
+  "listen_allowed": true,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": false
+}

@@ -1,0 +1,15 @@
+{
+  "capability_id": "cap-net-https-outbound",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "connect",
+  "bind_address": null,
+  "allowed_hosts": ["api.example.com", "cdn.example.com"],
+  "allowed_port_ranges": [{ "min": 443, "max": 443 }],
+  "loopback_only": false,
+  "connect_allowed": true,
+  "listen_allowed": false,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": true
+}

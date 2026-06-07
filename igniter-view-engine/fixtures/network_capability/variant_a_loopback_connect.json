@@ -1,0 +1,15 @@
+{
+  "capability_id": "cap-net-loopback-connect",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "connect",
+  "bind_address": "127.0.0.1",
+  "allowed_hosts": ["127.0.0.1", "localhost"],
+  "allowed_port_ranges": [{ "min": 1024, "max": 65535 }],
+  "loopback_only": true,
+  "connect_allowed": true,
+  "listen_allowed": false,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": false
+}
