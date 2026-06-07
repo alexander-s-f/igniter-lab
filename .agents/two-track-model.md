@@ -114,18 +114,35 @@ With boundaries:
 
 ---
 
-## Current Delta (as of 2026-06-07)
+## Delta History
 
-| Feature area | Canon state | Lab state | Gap |
+### Sync pass: 2026-06-07 (PROP-039 gates 3/4/5 closed)
+
+| Delta | Before | After | Status |
 |---|---|---|---|
-| Loop grammar (BudgetedLocalLoop) | `loop Name item in source max_steps: N` | `loop Name in source max_steps: N` (no item var) | Lab missing item variable |
-| Recursive forms | `recursive contract R { decreases ... }` | `def f(...) -> T decreases fuel { ... }` (function style) | Completely different syntax |
-| Service loop | PROP-037 territory (not in loop grammar) | Conflated with local loop grammar | Lab conflates service liveness with local loops |
-| Loop TypeChecker | Gate 4 (OOF-L1/R2/R4) | Lab implements own diagnostics | Canon recipe available after gate 4 |
-| Loop SemanticIR | Gate 5 (not yet) | Lab Rust impl | No conformance target yet |
+| D1: BudgetedLocalLoop item variable | `loop Name in source` (implicit) | `loop Name item in source` (explicit) | ✅ closed |
+| D2: Source type | `Array[Integer]` | `Collection[Integer]` (canon: OOF-L1 requires Collection[T]) | ✅ closed |
+| D3: Recursive form | `def f(...) -> T decreases fuel { ... }` | `fuel_bounded contract` + `recursive contract` | ✅ closed in fixtures |
+| D4: Service loop boundary | Mixed in PROP-039 file | Annotated as PROP-037 territory, inline form commented out | ✅ boundary marked |
 
-**Next sync point:** after PROP-039 gate 4 closes, lab should update loop grammar
-fixtures to match canon item-variable form and map its diagnostics to OOF-L1/R2/R4.
+### Remaining Conformance Gaps (as of 2026-06-07)
+
+| Gap | Description | Action needed |
+|---|---|---|
+| G1: Rust compiler item-variable | Rust compiler does not accept `loop Name item in source` | Rust compiler update |
+| G2: Rust compiler modifiers | Rust compiler does not accept `recursive`/`fuel_bounded` modifier | Rust compiler update |
+| G3: PROP-037 fixture split | `clock.every` service loop is annotated but not moved to a separate PROP-037 fixture | New PROP-037 conformance fixture when PROP-037 conformance work begins |
+| G4: Body semantics | Loop body variables (`lead`, `item`) not validated by canon TypeChecker (deferred gate 5) | Future PROP-039 body-semantics gate |
+| G5: recur() primitive | `recursive contract` body uses `recur()` — canon primitive not yet in parser/runtime | Future gate after body-semantics authorization |
+
+**All updated fixtures now parse cleanly through canon pipeline:**
+`grammar_version="loop-v0" · sir=OK · pass=ok · type_errors=[]`
+
+Files updated:
+- `igniter-lab/igniter-compiler/fixtures/loops/loop_accumulator.ig`
+- `igniter-lab/igniter-compiler/fixtures/conformance/source/loops_and_recursion.ig`
+
+**verify_loops.rb status:** will fail until Rust compiler is updated to accept canon syntax (G1/G2). This failure is a conformance gap marker, not a regression in canon.
 
 ---
 
