@@ -361,7 +361,7 @@ impl TypeChecker {
                     if let Some(Expr::Ref { name: ref_name }) = &decl.expr {
                         let item_ty = if let Some(coll_ty) = symbol_types.get(ref_name) {
                             let ty_name = self.type_name(coll_ty);
-                            if ty_name == "Array" {
+                            if ty_name == "Array" || ty_name == "Collection" {
                                 let param_val = coll_ty.get("params")
                                     .and_then(|p| p.as_array())
                                     .and_then(|arr| arr.first())
@@ -374,11 +374,17 @@ impl TypeChecker {
                         } else {
                             self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                         };
-                        
-                        let singular_coll = crate::classifier::singularize(ref_name);
+
+                        // G1: prefer explicit item variable from classifier options.
+                        // Falls back to singularize(collection) for backward compat.
+                        let item_var = decl.options.as_ref()
+                            .and_then(|o| o.get("item"))
+                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .unwrap_or_else(|| crate::classifier::singularize(ref_name));
+
                         let singular_loop = crate::classifier::singularize(&decl.name);
-                        
-                        loop_var_types.insert(singular_coll, item_ty.clone());
+
+                        loop_var_types.insert(item_var, item_ty.clone());
                         loop_var_types.insert(singular_loop, item_ty.clone());
                         loop_var_types.insert("item".to_string(), item_ty);
                     }

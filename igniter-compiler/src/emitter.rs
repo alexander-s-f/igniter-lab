@@ -1128,6 +1128,13 @@ impl Emitter {
         node.insert("type".to_string(), decl.type_info.clone());
         node.insert("deps".to_string(), json!(decl.deps));
         node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        // G1: propagate explicit item variable name for VM compiler binding
+        if let Some(item_var) = decl.options.as_ref()
+            .and_then(|o| o.get("item"))
+            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+        {
+            node.insert("item".to_string(), Value::String(item_var));
+        }
         if let Some(options) = &decl.options {
             node.insert("options".to_string(), serde_json::to_value(options).unwrap());
         }

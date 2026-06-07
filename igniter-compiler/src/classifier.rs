@@ -821,7 +821,7 @@ impl Classifier {
                         body_nodes: None,
                     });
                 }
-                BodyDecl::Loop { name, collection, max_steps, body: loop_body } => {
+                BodyDecl::Loop { name, item, collection, max_steps, body: loop_body } => {
                     let mut deps = self.expr_refs(collection);
                     let mut missing = Vec::new();
                     for dep in &deps {
@@ -836,15 +836,19 @@ impl Classifier {
                         }
                     }
 
-                    // Loop variable snake_case singularized name
-                    let var_name = if let Some(ref_name) = collection.get_name() {
+                    // G1: explicit item variable from canon grammar (`loop Name item in source`).
+                    // If absent (old form), fall back to singularize(collection).
+                    let var_name = if !item.is_empty() {
+                        item.clone()
+                    } else if let Some(ref_name) = collection.get_name() {
                         singularize(ref_name)
                     } else {
                         "item".to_string()
                     };
 
-                    // Let's register loop variable inside symbols table so typechecker accepts it
+                    // Register loop variable so typechecker/body nodes can reference it
                     symbol_fragments.insert(var_name.clone(), "core".to_string());
+                    // Also keep "item" as generic alias so old body patterns still resolve
                     symbol_fragments.insert("item".to_string(), "core".to_string());
 
                     // Collect deps from loop body compute nodes
@@ -892,6 +896,8 @@ impl Classifier {
                     if let Some(steps) = max_steps {
                         loop_options.insert("max_steps".to_string(), WindowValue::Int(*steps as i64));
                     }
+                    // G1: store resolved item variable name for downstream stages
+                    loop_options.insert("item".to_string(), WindowValue::Str(var_name.clone()));
 
                     let mut inner_classified = Vec::new();
                     for inner_decl in loop_body {

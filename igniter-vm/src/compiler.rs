@@ -357,10 +357,17 @@ impl Compiler {
                 let item_reg = self.next_register;
                 self.next_register += 1;
                 
-                let mut var_names = vec!["item".to_string(), singularize(loop_name)];
+                // G1: use explicit item variable name from IR if present,
+                // otherwise fall back to singularize(loop_name) for backward compat.
+                let explicit_item = node.get("item").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let default_item = singularize(loop_name);
+                let primary_item = explicit_item.clone().unwrap_or_else(|| default_item.clone());
+                let mut var_names = vec![primary_item.clone(), "item".to_string(), singularize(loop_name)];
                 if let Some(coll_ref) = collection.get("name").and_then(|n| n.as_str()) {
                     var_names.push(singularize(coll_ref));
                 }
+                var_names.sort();
+                var_names.dedup();
                 
                 for var_name in &var_names {
                     self.compute_node_registers.insert(var_name.clone(), item_reg);

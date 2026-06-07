@@ -248,6 +248,10 @@ pub enum BodyDecl {
     #[serde(rename = "loop")]
     Loop {
         name: String,
+        /// Canon item variable (G1: `loop Name item in source`).
+        /// Empty string means no explicit item var — classifier falls back to singularize(source).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        item: String,
         collection: Expr,
         #[serde(skip_serializing_if = "Option::is_none")]
         max_steps: Option<u64>,
@@ -1554,8 +1558,17 @@ impl Parser {
             self.add_parse_error("OOF-L3", "Loop must have an explicit name (Postulate 28)", &name, name_tok.line, name_tok.col);
         }
         
+        // G1 conformance: parse optional item variable before `in`
+        // Canon form: `loop Name item in source`
+        // Old form:   `loop Name in source`  (item="" → classifier falls back to singularize)
+        let item = if !self.peek_kw("in") && !self.peek_type(TokenType::Eof) {
+            self.name_token().unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         self.expect_kw("in")?;
-        
+
         // If it's a clock.every service loop:
         if self.peek_kw("clock") {
             self.advance();
@@ -1611,6 +1624,7 @@ impl Parser {
         
         Ok(BodyDecl::Loop {
             name,
+            item,
             collection,
             max_steps,
             body,

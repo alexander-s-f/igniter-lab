@@ -125,7 +125,10 @@ Rack/middleware vocabulary is lab-only.
    loop_node IR shape: loop_class, termination evidence, source_ref, item, max_steps (budgeted);
    recursive/fuel_bounded modifier in contract_ir; OOF-blocking → nil semantic_ir;
    grammar_version="loop-v0" propagates all 4 stages; contract_ref includes loop identity
-6. PROP-039 gate 6: OOF registry review (requires separate auth)
+6. ✅ Lab G1: Rust compiler item-variable conformance — verify_g1_canon_loop.rb PASS (2026-06-07)
+   parser.rs: `loop Name item in source` accepted; classifier/typechecker/emitter/vm compiler updated
+   full slice: .ig → parse → classify → typecheck → emit → assemble → bytecode → VM exec; result=100 ✓
+7. PROP-039 gate 6: OOF registry review (requires separate auth)
 
 ---
 
@@ -151,7 +154,8 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | Gates 1+3+4+5 closed; full pipeline live (parse→classify→tc→SIR) | Gate 6 (OOF registry review) next — requires separate auth |
+| PROP-039 loop impl | Gates 1+3+4+5 closed + Lab G1 conformance | Gate 6 (OOF registry review) next — requires separate auth |
+| Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | Lab G2 (recursive/fuel_bounded modifiers) — requires auth |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
