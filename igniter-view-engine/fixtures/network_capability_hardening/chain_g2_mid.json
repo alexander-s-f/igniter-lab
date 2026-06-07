@@ -1,0 +1,15 @@
+{
+  "capability_id": "chain-g2-mid",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "connect",
+  "bind_address": null,
+  "allowed_hosts": ["api.example.com"],
+  "allowed_port_ranges": [{"min": 443, "max": 8080}],
+  "loopback_only": false,
+  "connect_allowed": true,
+  "listen_allowed": false,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": false
+}

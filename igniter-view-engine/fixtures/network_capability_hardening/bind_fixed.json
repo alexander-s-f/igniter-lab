@@ -1,0 +1,15 @@
+{
+  "capability_id": "bind-fixed-0.0.0.0",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "listen",
+  "bind_address": "0.0.0.0",
+  "allowed_hosts": ["*"],
+  "allowed_port_ranges": [{"min": 8000, "max": 9000}],
+  "loopback_only": false,
+  "connect_allowed": false,
+  "listen_allowed": true,
+  "send_allowed": false,
+  "receive_allowed": true,
+  "tls_required": false
+}

@@ -1,0 +1,15 @@
+{
+  "capability_id": "chain-g1-root",
+  "resource_type": "network",
+  "protocol": "tcp_udp",
+  "direction": "both",
+  "bind_address": null,
+  "allowed_hosts": ["*"],
+  "allowed_port_ranges": [{"min": 1, "max": 65535}],
+  "loopback_only": false,
+  "connect_allowed": true,
+  "listen_allowed": true,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": false
+}

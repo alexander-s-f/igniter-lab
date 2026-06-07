@@ -1,0 +1,15 @@
+{
+  "capability_id": "dir-listen-only",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "listen",
+  "bind_address": null,
+  "allowed_hosts": ["127.0.0.1"],
+  "allowed_port_ranges": [{"min": 7000, "max": 9000}],
+  "loopback_only": true,
+  "connect_allowed": false,
+  "listen_allowed": true,
+  "send_allowed": false,
+  "receive_allowed": true,
+  "tls_required": false
+}

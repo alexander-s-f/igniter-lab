@@ -1,0 +1,15 @@
+{
+  "capability_id": "bind-alt-127.0.0.1",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "listen",
+  "bind_address": "127.0.0.1",
+  "allowed_hosts": ["127.0.0.1"],
+  "allowed_port_ranges": [{"min": 8000, "max": 9000}],
+  "loopback_only": true,
+  "connect_allowed": false,
+  "listen_allowed": true,
+  "send_allowed": false,
+  "receive_allowed": true,
+  "tls_required": false
+}
