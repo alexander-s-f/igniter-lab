@@ -8,8 +8,8 @@ require_relative "scene_tree"
 
 module IgniterGui
   class SceneIntrospectionReceiptSchema
-    ALLOWED_TOP_KEYS = %w[view_id scene_digest node_count nodes timestamp non_claims].freeze
-    REQUIRED_TOP_KEYS = %w[view_id scene_digest node_count nodes timestamp non_claims].freeze
+    ALLOWED_TOP_KEYS = %w[view_id scene_digest node_count nodes non_claims].freeze
+    REQUIRED_TOP_KEYS = %w[view_id scene_digest node_count nodes non_claims].freeze
     
     REQUIRED_NODE_KEYS = %w[
       id type parent z_index computed_bounds slot_bound
@@ -58,9 +58,6 @@ module IgniterGui
       end
       unless data["nodes"].is_a?(Hash)
         raise ValidationError.new("nodes must be a Hash", check_id: "NGUI-P13-8")
-      end
-      unless data["timestamp"].is_a?(String)
-        raise ValidationError.new("timestamp must be a String", check_id: "NGUI-P13-8")
       end
       unless data["non_claims"].is_a?(Array)
         raise ValidationError.new("non_claims must be an Array", check_id: "NGUI-P13-8")

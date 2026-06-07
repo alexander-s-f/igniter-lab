@@ -14,6 +14,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(MachineState(Arc::new(Mutex::new(machine))))
         .manage(commands::TelemetryHistoryState(Mutex::new(Vec::new())))
+        .manage(commands::ActiveSessionState(Mutex::new(commands::ActiveSession::default())))
         .register_uri_scheme_protocol("igniter-proof", |_ctx, request| {
             let path = request.uri().path();
             if path == "/" || path == "/index.html" {
@@ -219,6 +220,7 @@ pub fn run() {
             commands::ingest_external_trace_event,
             commands::ingest_adapted_vm_trace,
             commands::run_mock_vm_runner_dispatch,
+            commands::run_session_telemetry_dispatch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

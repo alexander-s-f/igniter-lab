@@ -19,10 +19,10 @@ Status: done
 
 ## [S] Shipped / Signals
 
-- **Receipt Schema Validator**: Shipped [scene_introspection_receipt_schema.rb](../../../../igniter-gui-engine/lib/scene_introspection_receipt_schema.rb) containing the JSON schema rules and type constraint checks.
+- **Receipt Schema Validator**: Shipped `igniter-gui-engine/lib/scene_introspection_receipt_schema.rb` containing the JSON schema rules and type constraint checks.
 - **Fixtures Hardening**: Added 5 new scene/receipt JSON fixtures under `igniter-gui-engine/fixtures/` covering scoped nesting, overflow containment, visibility bypass, and syntax/size constraints.
-- **Proof Runner Results**: Appended and verified checks `NGUI-P13-1` to `NGUI-P13-14` in [run_proof.rb](../../../../igniter-gui-engine/run_proof.rb). All 207 checks are green.
-- **Lab Documentation**: Authored [lab-native-gui-introspection-receipt-schema-and-fixture-hardening-v0.md](../../../../lab-docs/gui/lab-native-gui-introspection-receipt-schema-and-fixture-hardening-v0.md).
+- **Proof Runner Results**: Appended and verified checks `NGUI-P13-1` to `NGUI-P13-14` in `igniter-gui-engine/run_proof.rb`. All 207 checks are green.
+- **Lab Documentation**: Authored `lab-docs/gui/lab-native-gui-introspection-receipt-schema-and-fixture-hardening-v0.md`.
 
 ## [T] Tests / Proofs
 

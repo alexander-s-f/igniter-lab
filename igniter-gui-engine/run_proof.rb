@@ -4411,11 +4411,14 @@ begin
 
   # NGUI-P13-10: output Mermaid and JSON remains deterministic and identical
   begin
-    mermaid_deterministic = export_res[:mermaid] == export_res[:mermaid]
-    if mermaid_deterministic
+    export_res_again = IgniterGui::SceneIntrospectionExporter.export(scene, layout_result)
+    mermaid_deterministic = export_res[:mermaid] == export_res_again[:mermaid]
+    receipt_deterministic = JSON.generate(export_res[:receipt]) == JSON.generate(export_res_again[:receipt])
+    if mermaid_deterministic && receipt_deterministic
       pass("NGUI-P13-10", "Output Mermaid and JSON remains deterministic and identical to prior runs")
     else
-      fail_check("NGUI-P13-10", "Mermaid or JSON output is non-deterministic")
+      fail_check("NGUI-P13-10", "Mermaid or JSON output is non-deterministic",
+                 "mermaid=#{mermaid_deterministic}, receipt=#{receipt_deterministic}")
     end
   rescue => e
     fail_check("NGUI-P13-10", "Exception checking determinism: #{e.class}: #{e.message}")
@@ -4496,6 +4499,5 @@ else
   puts " ❌ #{$failures} CHECKS FAILED!"
   exit 1
 end
-
 
 

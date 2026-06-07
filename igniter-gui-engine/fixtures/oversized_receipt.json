@@ -3,7 +3,6 @@
   "scene_digest": "sha256:1234567890abcdef",
   "node_count": 0,
   "nodes": {},
-  "timestamp": "2026-06-07T00:00:00Z",
   "non_claims": [
     "lab-only",
     "experimental",

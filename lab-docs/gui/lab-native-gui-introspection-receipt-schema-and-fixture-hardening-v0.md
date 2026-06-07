@@ -14,9 +14,10 @@ This document describes the design, implementation, and verification of the scen
 The validation logic is encapsulated in `IgniterGui::SceneIntrospectionReceiptSchema` to verify that serialized receipts meet structural safety and value-free compliance rules.
 
 ### 1.1 Structural Constraints
-- **Allowed Top-Level Keys**: Only `view_id`, `scene_digest`, `node_count`, `nodes`, `timestamp`, and `non_claims` are permitted. Unrecognized fields trigger immediate parser rejection.
+- **Allowed Top-Level Keys**: Only `view_id`, `scene_digest`, `node_count`, `nodes`, and `non_claims` are permitted. Unrecognized fields trigger immediate parser rejection.
 - **Required Node Keys**: Each node entry in `"nodes"` must contain: `id`, `type`, `parent`, `z_index`, `computed_bounds`, `slot_bound`, `referenced_slots`, `scoped_slots`, `containment`, `overflow_allowance`, `allow_structural_overwrites`, and `status`.
 - **Type Constraints**: Enforces type matching (e.g., `z_index` must be an Integer, `computed_bounds` coordinates must be Numeric, etc.).
+- **No Wall-Clock Timestamp**: Structural introspection receipts intentionally omit timestamps so repeated exports of the same scene and layout remain byte-stable.
 
 ### 1.2 Resource Hardening
 - **Size Limit (8000 Bytes)**: Restricts receipt sizes to a maximum of 8000 bytes to prevent oversized payload ingestion and memory pressure in headless environments. Receipts larger than this limit raise a `ValidationError` with code `NGUI-P13-9`.

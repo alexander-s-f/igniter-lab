@@ -1653,9 +1653,76 @@ pub fn simulate_trace_observation(
     Ok(playback.steps.last().unwrap().clone())
 }
 
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct ActiveSession {
+    pub session_token: Option<String>,
+    pub transaction_id: Option<String>,
+    pub created_at: Option<chrono::DateTime<chrono::Local>>,
+}
+
+pub struct ActiveSessionState(pub parking_lot::Mutex<ActiveSession>);
+
+pub fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    let mut padded_key = [0u8; 64];
+    if key.len() > 64 {
+        let mut hasher = Sha256::new();
+        hasher.update(key);
+        let result = hasher.finalize();
+        padded_key[..32].copy_from_slice(&result);
+    } else {
+        padded_key[..key.len()].copy_from_slice(key);
+    }
+
+    let mut ipad = [0x36u8; 64];
+    let mut opad = [0x5cu8; 64];
+    for i in 0..64 {
+        ipad[i] ^= padded_key[i];
+        opad[i] ^= padded_key[i];
+    }
+
+    let mut hasher1 = Sha256::new();
+    hasher1.update(&ipad);
+    hasher1.update(message);
+    let inner_hash = hasher1.finalize();
+
+    let mut hasher2 = Sha256::new();
+    hasher2.update(&opad);
+    hasher2.update(&inner_hash);
+    hasher2.finalize().to_vec()
+}
+
+pub fn verify_envelope_hmac(envelope: &VmTraceAdapterEnvelopeV0, session_token: &str) -> Result<(), String> {
+    let provided_sig = match envelope.passport_signature.as_deref() {
+        Some(sig) => sig,
+        None => return Err("Missing passport_signature".to_string()),
+    };
+
+    let mut env_value = serde_json::to_value(envelope)
+        .map_err(|e| format!("Failed to serialize envelope to JSON value: {}", e))?;
+
+    if let serde_json::Value::Object(ref mut map) = env_value {
+        map.remove("passport_signature");
+    } else {
+        return Err("Envelope is not a JSON object".to_string());
+    }
+
+    let canonical_json = serde_json::to_string(&env_value)
+        .map_err(|e| format!("Failed to serialize canonical JSON: {}", e))?;
+
+    let expected_sig_bytes = hmac_sha256(session_token.as_bytes(), canonical_json.as_bytes());
+    let expected_sig = expected_sig_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+
+    if provided_sig == expected_sig {
+        Ok(())
+    } else {
+        Err(format!("Invalid signature: expected '{}', got '{}'", expected_sig, provided_sig))
+    }
+}
+
 pub struct TelemetryHistoryState(pub parking_lot::Mutex<Vec<RedactedTraceReceipt>>);
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct RedactedTraceReceipt {
     pub trace_id: String,
     pub contract_id: String,
@@ -2705,6 +2772,274 @@ pub fn run_mock_vm_runner_dispatch(
     run_mock_vm_runner_dispatch_inner(app, transaction_id, status, producer_id, signature, &history_state)
 }
 
+#[tauri::command]
+pub fn run_session_telemetry_dispatch(
+    app: tauri::AppHandle,
+    status: String,
+    history_state: tauri::State<'_, TelemetryHistoryState>,
+    session_state: tauri::State<'_, ActiveSessionState>,
+) -> Result<RedactedTraceReceipt, String> {
+    run_session_telemetry_dispatch_inner(app, status, &history_state, &session_state)
+}
+
+pub fn run_session_telemetry_dispatch_inner<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    status: String,
+    history_state: &TelemetryHistoryState,
+    session_state: &ActiveSessionState,
+) -> Result<RedactedTraceReceipt, String> {
+    let session_token = uuid::Uuid::new_v4().to_string();
+    let transaction_id = format!("tx_session_{}", uuid::Uuid::new_v4());
+
+    // 1. Initialize transient session state
+    {
+        let mut session = session_state.0.lock();
+        session.session_token = Some(session_token.clone());
+        session.transaction_id = Some(transaction_id.clone());
+        session.created_at = Some(chrono::Local::now());
+    }
+
+    // 2. Spawn local Ruby mock runner proof script synchronously
+    let ruby_script_path = resolve_workspace_path("igniter-view-engine/run_mock_session_runner_hmac_proof.rb");
+    
+    // Determine if status is 'oversized' or other flags
+    let is_oversized = status == "oversized";
+    let status_arg = if is_oversized { "applied" } else { &status };
+
+    let output = std::process::Command::new("ruby")
+        .arg(&ruby_script_path)
+        .arg(&session_token)
+        .arg(&transaction_id)
+        .arg(status_arg)
+        .arg(if is_oversized { "true" } else { "false" })
+        .current_dir(resolve_workspace_path("igniter-view-engine"))
+        .output()
+        .map_err(|e| format!("Failed to spawn Ruby runner: {}", e))?;
+
+    if !output.status.success() {
+        // Clear session state on launch failure
+        {
+            let mut session = session_state.0.lock();
+            *session = ActiveSession::default();
+        }
+        return Err(format!(
+            "Ruby runner exited with error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    // 3. Read signed envelope output file
+    let filename = format!("ruby_session_ingress_envelope_{}.json", transaction_id);
+    let envelope_path = resolve_workspace_path("igniter-view-engine/out").join(filename);
+    if !envelope_path.exists() {
+        {
+            let mut session = session_state.0.lock();
+            *session = ActiveSession::default();
+        }
+        return Err("Missing signed telemetry envelope".to_string());
+    }
+
+    let payload_json = std::fs::read_to_string(&envelope_path)
+        .map_err(|e| format!("Failed to read envelope file: {}", e))?;
+    let _ = std::fs::remove_file(envelope_path);
+
+    // 4. Validate and ingest
+    let result = validate_and_ingest_session_envelope(app, payload_json, history_state, session_state);
+    
+    // 5. Invalidate/Clear session state in all code paths (ensured by returning result)
+    {
+        let mut session = session_state.0.lock();
+        *session = ActiveSession::default();
+    }
+
+    result
+}
+
+pub fn validate_and_ingest_session_envelope<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    payload_json: String,
+    history_state: &TelemetryHistoryState,
+    session_state: &ActiveSessionState,
+) -> Result<RedactedTraceReceipt, String> {
+    let timestamp = chrono::Local::now().to_rfc3339();
+    let receipt_id = uuid::Uuid::new_v4().to_string();
+
+    // 1. Check size limit
+    if payload_json.len() > 65536 {
+        let redacted = RedactedTraceReceipt {
+            trace_id: "oversized_trace".to_string(),
+            contract_id: "unknown_contract".to_string(),
+            status: "failed: payload oversized".to_string(),
+            timestamp,
+            target_views: None,
+            selected_slot_keys: vec![],
+            outputs_digest: "sha256:rejected_payload".to_string(),
+            diagnostics_digest: "sha256:rejected_payload".to_string(),
+            redaction_policy: "redacted-trace-receipt-v0".to_string(),
+            receipt_id: Some(receipt_id),
+            event_type: "attempted_trace_events".to_string(),
+        };
+        push_and_emit_redacted_stub(&app, history_state, redacted);
+        return Err("Payload size exceeds 65536 bytes limit".to_string());
+    }
+
+    // 2. Parse envelope
+    let envelope: VmTraceAdapterEnvelopeV0 = match serde_json::from_str(&payload_json) {
+        Ok(env) => env,
+        Err(e) => {
+            let redacted = RedactedTraceReceipt {
+                trace_id: "malformed_trace".to_string(),
+                contract_id: "unknown_contract".to_string(),
+                status: format!("failed: json parse error: {}", e),
+                timestamp,
+                target_views: None,
+                selected_slot_keys: vec![],
+                outputs_digest: "sha256:malformed_payload".to_string(),
+                diagnostics_digest: "sha256:malformed_payload".to_string(),
+                redaction_policy: "redacted-trace-receipt-v0".to_string(),
+                receipt_id: Some(receipt_id),
+                event_type: "attempted_trace_events".to_string(),
+            };
+            push_and_emit_redacted_stub(&app, history_state, redacted);
+            return Err(format!("Malformed JSON envelope: {}", e));
+        }
+    };
+
+    let transaction_id = envelope.transaction_id.clone().unwrap_or_else(|| "missing_transaction_id".to_string());
+    let contract_name = envelope.contract_name.clone().unwrap_or_else(|| "missing_contract_name".to_string());
+    let incoming_status = envelope.status.clone().unwrap_or_else(|| "unknown".to_string());
+
+    // 3. Verify Session State (existence, transaction_id, timeout)
+    let session = session_state.0.lock().clone();
+    let session_token = match session.session_token {
+        Some(t) => t,
+        None => {
+            let redacted = RedactedTraceReceipt {
+                trace_id: transaction_id.clone(),
+                contract_id: contract_name.clone(),
+                status: "failed: stale or missing session".to_string(),
+                timestamp,
+                target_views: envelope.target_views.clone(),
+                selected_slot_keys: vec![],
+                outputs_digest: "sha256:no_session_payload".to_string(),
+                diagnostics_digest: "sha256:no_session_payload".to_string(),
+                redaction_policy: "redacted-trace-receipt-v0".to_string(),
+                receipt_id: Some(receipt_id),
+                event_type: "attempted_trace_events".to_string(),
+            };
+            push_and_emit_redacted_stub(&app, history_state, redacted);
+            return Err("Stale or missing session".to_string());
+        }
+    };
+
+    // Check transaction_id match
+    if session.transaction_id.as_deref() != Some(&transaction_id) {
+        let redacted = RedactedTraceReceipt {
+            trace_id: transaction_id.clone(),
+            contract_id: contract_name.clone(),
+            status: "failed: transaction_id mismatch".to_string(),
+            timestamp,
+            target_views: envelope.target_views.clone(),
+            selected_slot_keys: vec![],
+            outputs_digest: "sha256:transaction_mismatch_payload".to_string(),
+            diagnostics_digest: "sha256:transaction_mismatch_payload".to_string(),
+            redaction_policy: "redacted-trace-receipt-v0".to_string(),
+            receipt_id: Some(receipt_id),
+            event_type: "attempted_trace_events".to_string(),
+        };
+        push_and_emit_redacted_stub(&app, history_state, redacted);
+        return Err("Transaction ID mismatch".to_string());
+    }
+
+    // Check timeout (5 seconds limit)
+    if let Some(created_at) = session.created_at {
+        let duration = chrono::Local::now().signed_duration_since(created_at);
+        if duration.num_seconds() > 5 {
+            let redacted = RedactedTraceReceipt {
+                trace_id: transaction_id.clone(),
+                contract_id: contract_name.clone(),
+                status: "failed: session timed out".to_string(),
+                timestamp,
+                target_views: envelope.target_views.clone(),
+                selected_slot_keys: vec![],
+                outputs_digest: "sha256:timeout_payload".to_string(),
+                diagnostics_digest: "sha256:timeout_payload".to_string(),
+                redaction_policy: "redacted-trace-receipt-v0".to_string(),
+                receipt_id: Some(receipt_id),
+                event_type: "attempted_trace_events".to_string(),
+            };
+            push_and_emit_redacted_stub(&app, history_state, redacted);
+            return Err("Session timed out".to_string());
+        }
+    }
+
+    // 4. Verify HMAC-SHA256 Signature
+    if let Err(e) = verify_envelope_hmac(&envelope, &session_token) {
+        let redacted = RedactedTraceReceipt {
+            trace_id: transaction_id.clone(),
+            contract_id: contract_name.clone(),
+            status: format!("failed: hmac verification failed: {}", e),
+            timestamp,
+            target_views: envelope.target_views.clone(),
+            selected_slot_keys: vec![],
+            outputs_digest: "sha256:invalid_signature_payload".to_string(),
+            diagnostics_digest: "sha256:invalid_signature_payload".to_string(),
+            redaction_policy: "redacted-trace-receipt-v0".to_string(),
+            receipt_id: Some(receipt_id),
+            event_type: "attempted_trace_events".to_string(),
+        };
+        push_and_emit_redacted_stub(&app, history_state, redacted);
+        return Err(format!("Invalid signature: {}", e));
+    }
+
+    // 5. Ingress checks on status vocabulary
+    let mapped_status = match incoming_status.as_str() {
+        "applied" => "success".to_string(),
+        "execution_failed" => "failed: execution_failed".to_string(),
+        "diagnostic_only" => "failed: diagnostic_only".to_string(),
+        "partial" => "failed: partial".to_string(),
+        unknown_status => {
+            let redacted = RedactedTraceReceipt {
+                trace_id: transaction_id.clone(),
+                contract_id: contract_name.clone(),
+                status: format!("failed: unknown_status: {}", unknown_status),
+                timestamp: timestamp.clone(),
+                target_views: envelope.target_views.clone(),
+                selected_slot_keys: vec![],
+                outputs_digest: "sha256:invalid_status_payload".to_string(),
+                diagnostics_digest: "sha256:invalid_status_payload".to_string(),
+                redaction_policy: "redacted-trace-receipt-v0".to_string(),
+                receipt_id: Some(receipt_id),
+                event_type: "attempted_trace_events".to_string(),
+            };
+            push_and_emit_redacted_stub(&app, history_state, redacted);
+            return Err(format!("Unknown status vocabulary: {}", unknown_status));
+        }
+    };
+
+    // 6. Map and delegate verification & redaction to external trace helper
+    let mapped_ext_payload = ExternalTraceEnvelope {
+        trace_id: Some(transaction_id),
+        contract_id: Some(contract_name),
+        status: Some(mapped_status),
+        timestamp: envelope.timestamp.clone(),
+        producer_id: envelope.producer_id.clone(),
+        view_ids: envelope.target_views.clone(),
+        outputs: envelope.outputs.clone(),
+        diagnostics: envelope.diagnostics.clone(),
+        slot_values: envelope.slot_values.clone(),
+        passport_signature: envelope.passport_signature.clone(),
+    };
+
+    // Bypass signature check in ingest_external_trace_event_inner since we just verified it via HMAC-SHA256
+    let mut bypass_payload = mapped_ext_payload;
+    bypass_payload.passport_signature = Some("valid-mock-signature".to_string());
+
+    let serialized_ext_payload = serde_json::to_string(&bypass_payload).unwrap_or_default();
+    ingest_external_trace_event_inner(app, serialized_ext_payload, history_state)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3309,5 +3644,201 @@ mod tests {
         assert!(!serialized.contains("Blocked unsafe/disallowed tag"));
         assert!(!serialized.contains("Users"));
         assert!(!serialized.contains(&format!("{}://", "file")));
+    }
+
+    #[test]
+    fn test_cross_language_hmac_test_vector() {
+        let key = b"test-secret-token-123";
+        let message = b"{\"contract_name\":\"test_contract\",\"diagnostics\":{},\"outputs\":{},\"producer_id\":\"ruby-vm-runner-v1.0\",\"slot_values\":{},\"status\":\"applied\",\"target_views\":[\"test_view\"],\"timestamp\":\"2026-06-06T12:00:00Z\",\"transaction_id\":\"tx_test_123\"}";
+        let sig_bytes = hmac_sha256(key, message);
+        let sig_hex = sig_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        assert_eq!(sig_hex, "dae26cc34b75477fc3fff817426cd8b7b063bde73cf501749459c5229548df23");
+    }
+
+    #[test]
+    fn test_mock_session_runner_lifecycle_success() {
+        let app = tauri::test::mock_app();
+        app.manage(TelemetryHistoryState(Mutex::new(Vec::new())));
+        app.manage(ActiveSessionState(Mutex::new(ActiveSession::default())));
+        let handle = app.handle();
+        let history_state = handle.state::<TelemetryHistoryState>();
+        let session_state = handle.state::<ActiveSessionState>();
+
+        // TIVF-P20-1: Successful session execution
+        let res = run_session_telemetry_dispatch_inner(handle.clone(), "applied".to_string(), &history_state, &session_state);
+        assert!(res.is_ok(), "Session dispatch failed: {:?}", res.err());
+        let receipt = res.unwrap();
+        
+        assert_eq!(receipt.status, "success");
+        assert_eq!(receipt.event_type, "applied_trace_events");
+
+        // TIVF-P20-2: Verify session state has been cleaned/invalidated
+        let session = session_state.0.lock().clone();
+        assert!(session.session_token.is_none());
+        assert!(session.transaction_id.is_none());
+    }
+
+    #[test]
+    fn test_mock_session_runner_rejections() {
+        let app = tauri::test::mock_app();
+        app.manage(TelemetryHistoryState(Mutex::new(Vec::new())));
+        app.manage(ActiveSessionState(Mutex::new(ActiveSession::default())));
+        let handle = app.handle();
+        let history_state = handle.state::<TelemetryHistoryState>();
+        let session_state = handle.state::<ActiveSessionState>();
+
+        // Helper to trigger Ruby runner directly and return the payload json
+        let run_ruby = |token: &str, tx_id: &str, status: &str, oversized: bool| -> String {
+            let ruby_script_path = resolve_workspace_path("igniter-view-engine/run_mock_session_runner_hmac_proof.rb");
+            let output = std::process::Command::new("ruby")
+                .arg(&ruby_script_path)
+                .arg(token)
+                .arg(tx_id)
+                .arg(status)
+                .arg(if oversized { "true" } else { "false" })
+                .current_dir(resolve_workspace_path("igniter-view-engine"))
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let filename = format!("ruby_session_ingress_envelope_{}.json", tx_id);
+            let envelope_path = resolve_workspace_path("igniter-view-engine/out").join(filename);
+            let content = std::fs::read_to_string(&envelope_path).unwrap();
+            let _ = std::fs::remove_file(envelope_path);
+            content
+        };
+
+        // 1. Wrong token / Invalid signature rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_1".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            // Ruby signs with wrong token
+            let payload = run_ruby("wrong-token", &transaction_id, "applied", false);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Invalid signature"));
+        }
+
+        // 2. Wrong transaction ID rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_correct".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            // Ruby payload contains wrong transaction_id
+            let payload = run_ruby(&session_token, "tx_session_wrong", "applied", false);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Transaction ID mismatch"));
+        }
+
+        // 3. Stale session (timeout > 5 seconds) rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_timeout".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                // Mock creation time to 10 seconds ago
+                session.created_at = Some(chrono::Local::now() - chrono::Duration::seconds(10));
+            }
+
+            let payload = run_ruby(&session_token, &transaction_id, "applied", false);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Session timed out"));
+        }
+
+        // 4. Replay attack rejection (token removed after first ingest, second ingest fails)
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_replay".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            let payload = run_ruby(&session_token, &transaction_id, "applied", false);
+            
+            // First ingest passes
+            let res1 = validate_and_ingest_session_envelope(handle.clone(), payload.clone(), &history_state, &session_state);
+            assert!(res1.is_ok());
+
+            // Clear session state
+            {
+                let mut session = session_state.0.lock();
+                *session = ActiveSession::default();
+            }
+
+            // Second ingest fails
+            let res2 = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res2.is_err());
+            assert!(res2.unwrap_err().contains("Stale or missing session"));
+        }
+
+        // 5. Oversized payload rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_oversized".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            let payload = run_ruby(&session_token, &transaction_id, "applied", true);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Payload size exceeds"));
+        }
+
+        // 6. Unknown status rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_unknown_status".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            let payload = run_ruby(&session_token, &transaction_id, "crash_and_burn", false);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Unknown status"));
+        }
+
+        // 7. Unsigned payload rejection
+        {
+            let session_token = "correct-token".to_string();
+            let transaction_id = "tx_session_unsigned".to_string();
+            {
+                let mut session = session_state.0.lock();
+                session.session_token = Some(session_token.clone());
+                session.transaction_id = Some(transaction_id.clone());
+                session.created_at = Some(chrono::Local::now());
+            }
+
+            let payload = run_ruby(&session_token, &transaction_id, "unsigned", false);
+            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            assert!(res.is_err());
+            assert!(res.unwrap_err().contains("Missing passport_signature"));
+        }
     }
 }
