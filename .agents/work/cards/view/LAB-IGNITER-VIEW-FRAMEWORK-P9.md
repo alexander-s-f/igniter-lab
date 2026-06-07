@@ -1,9 +1,11 @@
 # Agent Handoff: LAB-IGNITER-VIEW-FRAMEWORK-P9
 
 Card: LAB-IGNITER-VIEW-FRAMEWORK-P9
+Category: view
 Agent: [Igniter-Lang Research / Implementation Agent]
 Role: research-implementation-agent
 Track: lab-igniter-view-linkage-diagnostic-report-proof-v0
+Route: EXPERIMENTAL / LAB-ONLY
 Status: done
 Date: 2026-06-06
 Type: implementation + proof
@@ -11,6 +13,13 @@ Ruby proof: 58/58 PASS (first run, zero fixes)
 Total: **58/58 PASS**
 All P1/P2/P3/P5/P6/P7/P8 regression gates: PASS
 igniter-lang/** boundary: VERIFIED
+
+---
+
+## [Paths]
+
+- Card: `.agents/work/cards/view/LAB-IGNITER-VIEW-FRAMEWORK-P9.md`
+- Doc: `lab-docs/view/lab-igniter-view-linkage-diagnostic-report-proof-v0.md`
 
 ---
 
@@ -54,8 +63,8 @@ Fixed layer order (extractor → overlay → linker). Two calls produce identica
 | `igniter-view-engine/out/ivf_p9_proof_summary.json` | Machine-readable 58/58 PASS |
 | `igniter-view-engine/out/ivf_p9_linkage_report_summary.json` | Canonical linkage report JSON (search contract + supplement) |
 | `igniter-view-engine/out/ivf_p9_linkage_report_sample.txt` | Sample text render (happy-path with supplement) |
-| `lab-docs/lab-igniter-view-linkage-diagnostic-report-proof-v0.md` | Design doc |
-| `.agents/LAB-IGNITER-VIEW-FRAMEWORK-P9.md` | This handoff card |
+| `lab-docs/view/lab-igniter-view-linkage-diagnostic-report-proof-v0.md` | Design doc |
+| `.agents/work/cards/view/LAB-IGNITER-VIEW-FRAMEWORK-P9.md` | This handoff card |
 
 ### Modified files: NONE
 
@@ -119,11 +128,12 @@ positions — not tracked in ViewArtifact or ContractSchema at this layer.
 
 ## Recommended P10 Options
 
-**Option A — Consolidation & Stability Assessment (recommended)**
+**Option A — Consolidation & Readiness Map (recommended)**
 Audit P1–P9 for internal consistency. Write a single
-`docs/lab-igniter-view-layer-overview-v0.md` covering the full pipeline,
-stability tiers (experimental / pre-stable / stable) per module, and a
-`v0.1.0-lab` readiness checklist. Close the LAB-IGNITER-VIEW-FRAMEWORK track.
+`lab-docs/view/lab-igniter-view-layer-consolidation-and-readiness-map-v0.md`
+covering the full pipeline, lab readiness tiers per module, and a compact
+next-route checklist. Keep all stable-schema, public API, canon, and runtime
+authority closed.
 
 **Option B — IgvCompiler pipeline integration**
 Wire `LinkageReport.build_pipeline` as an optional post-compilation step in

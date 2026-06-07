@@ -121,9 +121,13 @@ puts
 
 puts "── IVC-P5-4: Grammar doc references P5 collection extension ─────────"
 
-EBNF_PATH    = File.join(__dir__, "docs", "igv-grammar-sketch-v0.ebnf")
-GRAMMAR_NOTE = File.join(File.dirname(__dir__), "lab-docs",
-                         "lab-igniter-view-dsl-grammar-and-portability-boundary-v0.md")
+EBNF_PATH = File.join(__dir__, "docs", "igv-grammar-sketch-v0.ebnf")
+GRAMMAR_NOTE_CANDIDATES = [
+  File.join(File.dirname(__dir__), "lab-docs", "view",
+            "lab-igniter-view-dsl-grammar-and-portability-boundary-v0.md"),
+  File.join(File.dirname(__dir__), "lab-docs",
+            "lab-igniter-view-dsl-grammar-and-portability-boundary-v0.md")
+].freeze
 
 begin
   ebnf_src = File.exist?(EBNF_PATH) ? File.read(EBNF_PATH) : ""
@@ -139,7 +143,8 @@ rescue => e
 end
 
 begin
-  doc_src = File.exist?(GRAMMAR_NOTE) ? File.read(GRAMMAR_NOTE) : ""
+  grammar_note = GRAMMAR_NOTE_CANDIDATES.find { |path| File.exist?(path) }
+  doc_src = grammar_note ? File.read(grammar_note) : ""
   if doc_src.include?("collection") && doc_src.include?("P5")
     pass(results, "IVC-P5-4b", "Grammar design doc contains P5 collection recommendation")
   else

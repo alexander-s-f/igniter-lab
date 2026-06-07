@@ -1,6 +1,7 @@
 # Lab: Igniter View — Linkage Diagnostic Report Proof (v0)
 
 > **Status:** experimental · lab-only · no-canon · no-public-api · no-stable-schema
+> **Category:** view
 > **Track:** LAB-IGNITER-VIEW-FRAMEWORK-P9
 > **Date:** 2026-06-06
 > **Proof:** 58/58 PASS — `run_ivf_proof_p9.rb`
@@ -256,7 +257,7 @@ All 58 checks PASS as of 2026-06-06.
 | IVX-P9-8a..c | Missing supplement: `:missing_item_fields_schema` at linker; `valid?=true`; zero overlay entries | ✅ |
 | IVX-P9-9a..f | Text renderer: deterministic; header; layer markers; status line; VALID on happy path; file written | ✅ |
 | IVX-P9-10a..e | JSON: no absolute paths; valid JSON; by_layer breakdown; `_status` marker; file written | ✅ |
-| IVX-P9-10 (×10) | Source guards: no innerHTML/eval/fetch/Net::HTTP/contract exec/localStorage/sessionStorage/DOM/system | ✅ |
+| IVX-P9-11 (×10) | Source guards: no innerHTML/eval/fetch/Net::HTTP/contract exec/localStorage/sessionStorage/DOM/system | ✅ |
 | IVX-P9-12 (×5) | Lab-only markers + `NON_CLAIMS` constant present | ✅ |
 
 ---
