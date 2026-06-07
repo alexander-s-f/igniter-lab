@@ -117,7 +117,7 @@ Rack/middleware vocabulary is lab-only.
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
 2. PROP-039 gate 3: parser boundary proof (if source syntax authorized)
-3. DA-005: experiments/ archive pass (low priority, delegate — card dispatched 2026-06-07)
+3. ✅ DA-005: archive pass complete — 12 dirs moved, 164 unknown intact, 5 proofs clean
 
 ---
 
@@ -156,7 +156,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | DA-002 | PROP-031..039 status audit + §12 renumbering | ✅ DONE |
 | DA-003 | lab-docs/lang IO capability grammar doc | ✅ DONE |
 | DA-004 | portfolio-index.md | ✅ DONE (this file) |
-| DA-005 | experiments/ archive pass (Stage 1/2) | ⏳ Card dispatched 2026-06-07 — awaiting agent |
+| DA-005 | experiments/ archive pass (Stage 1/2) | ✅ DONE 2026-06-07 — 5→stage1, 7→stage2, 164 unknown left, 1 error (typechecker dir absent) |
 
 ---
 
