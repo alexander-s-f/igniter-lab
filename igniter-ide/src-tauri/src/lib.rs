@@ -221,6 +221,7 @@ pub fn run() {
             commands::ingest_adapted_vm_trace,
             commands::run_mock_vm_runner_dispatch,
             commands::run_session_telemetry_dispatch,
+            commands::read_introspection_receipt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

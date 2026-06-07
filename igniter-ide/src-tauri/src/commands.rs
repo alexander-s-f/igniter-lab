@@ -2855,6 +2855,91 @@ pub fn run_session_telemetry_dispatch_inner<R: tauri::Runtime>(
     result
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IntrospectionBounds {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IntrospectionNode {
+    pub id: String,
+    pub r#type: String,
+    pub parent: Option<String>,
+    pub z_index: i32,
+    pub computed_bounds: Option<IntrospectionBounds>,
+    pub slot_bound: bool,
+    pub referenced_slots: Vec<String>,
+    pub scoped_slots: Vec<String>,
+    pub containment: String,
+    pub overflow_allowance: String,
+    pub allow_structural_overwrites: bool,
+    pub status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IntrospectionReceipt {
+    pub view_id: String,
+    pub scene_digest: String,
+    pub node_count: i64,
+    pub nodes: HashMap<String, IntrospectionNode>,
+    pub non_claims: Vec<String>,
+}
+
+#[tauri::command]
+pub fn read_introspection_receipt(
+    path: String,
+    workspace_dir: String,
+) -> Result<IntrospectionReceipt, String> {
+    read_introspection_receipt_inner(path, workspace_dir)
+}
+
+pub fn read_introspection_receipt_inner(
+    path: String,
+    workspace_dir: String,
+) -> Result<IntrospectionReceipt, String> {
+    let ws_path = Path::new(&workspace_dir).canonicalize()
+        .map_err(|e| format!("Failed to resolve workspace path '{}': {}", workspace_dir, e))?;
+    let file_path = Path::new(&path).canonicalize()
+        .map_err(|e| format!("Failed to resolve introspection receipt path '{}': {}", path, e))?;
+
+    if !file_path.starts_with(&ws_path) {
+        return Err("Path traversal check failed: receipt file lies outside workspace boundary.".to_string());
+    }
+
+    let metadata = fs::metadata(&file_path)
+        .map_err(|e| format!("Failed to get receipt file metadata: {}", e))?;
+    let size = metadata.len();
+    if size > 65536 {
+        return Err(format!("Oversized receipt payload ({} > 65536 bytes)", size));
+    }
+
+    let content = fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read receipt file: {}", e))?;
+
+    let receipt: IntrospectionReceipt = serde_json::from_str(&content)
+        .map_err(|e| format!("Malformed receipt JSON structure: {}", e))?;
+
+    for (node_id, node) in &receipt.nodes {
+        if node.id != *node_id {
+            return Err(format!("Mismatched node ID in metadata keys for '{}'", node_id));
+        }
+        if !["contained", "overflow", "N/A"].contains(&node.containment.as_str()) {
+            return Err(format!("Invalid containment value in '{}': '{}'", node_id, node.containment));
+        }
+        if !["allow", "clip", "none"].contains(&node.overflow_allowance.as_str()) {
+            return Err(format!("Invalid overflow_allowance value in '{}': '{}'", node_id, node.overflow_allowance));
+        }
+        if !["active", "skip"].contains(&node.status.as_str()) {
+            return Err(format!("Invalid status value in '{}': '{}'", node_id, node.status));
+        }
+    }
+
+    Ok(receipt)
+}
+
 pub fn validate_and_ingest_session_envelope<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     payload_json: String,
@@ -3841,4 +3926,90 @@ mod tests {
             assert!(res.unwrap_err().contains("Missing passport_signature"));
         }
     }
+
+    #[test]
+    fn test_read_introspection_receipt_all_cases() {
+        let ws_dir = resolve_workspace_path("");
+        let ws_dir_str = ws_dir.to_string_lossy().to_string();
+
+        // 1. Success path
+        let receipt_path = resolve_workspace_path("igniter-gui-engine/out/scene_introspection_receipt.json");
+        let receipt_path_str = receipt_path.to_string_lossy().to_string();
+
+        let res = read_introspection_receipt_inner(receipt_path_str, ws_dir_str.clone());
+        assert!(res.is_ok(), "Failed to read scene_introspection_receipt: {:?}", res.err());
+        let receipt = res.unwrap();
+        assert_eq!(receipt.view_id, "igniter.lab.dashboard");
+        assert_eq!(receipt.node_count, 7);
+        assert!(receipt.nodes.contains_key("root"));
+        assert_eq!(receipt.nodes.get("root").unwrap().containment, "N/A");
+
+        // 2. Path traversal rejection
+        let temp_dir = std::env::temp_dir();
+        let outside_file = temp_dir.join("outside_test.json");
+        let _ = fs::write(&outside_file, "{}");
+        if let Ok(canon_outside) = outside_file.canonicalize() {
+            let res_traversal = read_introspection_receipt_inner(
+                canon_outside.to_string_lossy().to_string(),
+                ws_dir_str.clone()
+            );
+            assert!(res_traversal.is_err());
+            assert!(res_traversal.unwrap_err().contains("Path traversal check failed"));
+        }
+        let _ = fs::remove_file(outside_file);
+
+        // 3. Oversized payload rejection (> 65KB)
+        let oversized_path = resolve_workspace_path("igniter-gui-engine/out/temp_oversized.json");
+        let oversized_path_str = oversized_path.to_string_lossy().to_string();
+        let mut large_content = String::new();
+        for _ in 0..70000 {
+            large_content.push('x');
+        }
+        let _ = fs::write(&oversized_path, large_content);
+        let res_oversized = read_introspection_receipt_inner(oversized_path_str, ws_dir_str.clone());
+        assert!(res_oversized.is_err());
+        assert!(res_oversized.unwrap_err().contains("Oversized receipt payload"));
+        let _ = fs::remove_file(oversized_path);
+
+        // 4. Malformed JSON rejection
+        let malformed_path = resolve_workspace_path("igniter-gui-engine/out/temp_malformed.json");
+        let malformed_path_str = malformed_path.to_string_lossy().to_string();
+        let _ = fs::write(&malformed_path, "{ malformed json }");
+        let res_malformed = read_introspection_receipt_inner(malformed_path_str, ws_dir_str.clone());
+        assert!(res_malformed.is_err());
+        assert!(res_malformed.unwrap_err().contains("Malformed receipt JSON structure"));
+        let _ = fs::remove_file(malformed_path);
+
+        // 5. Schema validation rejection
+        let invalid_schema_path = resolve_workspace_path("igniter-gui-engine/out/temp_invalid_schema.json");
+        let invalid_schema_path_str = invalid_schema_path.to_string_lossy().to_string();
+        let invalid_json = serde_json::json!({
+            "view_id": "test",
+            "scene_digest": "sha256:digest",
+            "node_count": 1,
+            "nodes": {
+                "root": {
+                    "id": "root",
+                    "type": "container",
+                    "parent": null,
+                    "z_index": 0,
+                    "computed_bounds": null,
+                    "slot_bound": false,
+                    "referenced_slots": [],
+                    "scoped_slots": [],
+                    "containment": "invalid_containment_val",
+                    "overflow_allowance": "none",
+                    "allow_structural_overwrites": false,
+                    "status": "active"
+                }
+            },
+            "non_claims": []
+        }).to_string();
+        let _ = fs::write(&invalid_schema_path, invalid_json);
+        let res_schema = read_introspection_receipt_inner(invalid_schema_path_str, ws_dir_str.clone());
+        assert!(res_schema.is_err());
+        assert!(res_schema.unwrap_err().contains("Invalid containment value"));
+        let _ = fs::remove_file(invalid_schema_path);
+    }
 }
+

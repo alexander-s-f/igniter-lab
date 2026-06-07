@@ -182,3 +182,34 @@ export interface RedactedTraceReceipt {
   receipt_id?: string
   event_type: 'attempted_trace_events' | 'applied_trace_events'
 }
+
+export interface IntrospectionBounds {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface IntrospectionNode {
+  id: string
+  type: string
+  parent: string | null
+  z_index: number
+  computed_bounds: IntrospectionBounds | null
+  slot_bound: boolean
+  referenced_slots: string[]
+  scoped_slots: string[]
+  containment: 'contained' | 'overflow' | 'N/A'
+  overflow_allowance: 'allow' | 'clip' | 'none'
+  allow_structural_overwrites: boolean
+  status: 'active' | 'skip'
+}
+
+export interface IntrospectionReceipt {
+  view_id: string
+  scene_digest: string
+  node_count: number
+  nodes: Record<string, IntrospectionNode>
+  non_claims: string[]
+}
+

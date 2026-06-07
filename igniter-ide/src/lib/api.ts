@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { ContractInfo, FactInfo, ObsInfo, StatusInfo, WorkspaceConfig, WorkspaceLoadResult, DiagnosticInfo, SystemGraph, TracedResult, AppConfig, FileEntry, RedactedTraceReceipt } from './types'
+import type { ContractInfo, FactInfo, ObsInfo, StatusInfo, WorkspaceConfig, WorkspaceLoadResult, DiagnosticInfo, SystemGraph, TracedResult, AppConfig, FileEntry, RedactedTraceReceipt, IntrospectionReceipt } from './types'
 
 export const api = {
   getStatus: () =>
@@ -70,4 +70,7 @@ export const api = {
     invoke<RedactedTraceReceipt>('ingest_adapted_vm_trace', { payloadJson }),
   runMockVmRunnerDispatch: (transactionId: string, status: string, producerId: string, signature: string) =>
     invoke<RedactedTraceReceipt>('run_mock_vm_runner_dispatch', { transactionId, status, producerId, signature }),
+
+  readIntrospectionReceipt: (path: string, workspaceDir: string) =>
+    invoke<IntrospectionReceipt>('read_introspection_receipt', { path, workspaceDir }),
 }

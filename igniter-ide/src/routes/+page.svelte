@@ -35,12 +35,13 @@
   import IgMark             from '$lib/components/IgMark.svelte'
   import ViewInspector      from '$lib/components/ViewInspector.svelte'
   import ContractFormGenerator from '$lib/components/ContractFormGenerator.svelte'
+  import IntrospectionReceiptViewer from '$lib/components/IntrospectionReceiptViewer.svelte'
 
 
   // ������ Types ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
   type LeftPanelId  = 'project' | 'contracts' | 'apps' | 'docs' | 'ai'
   type RightPanelId = 'inspector' | 'structure'
-  type ViewTabId    = 'dispatch' | 'dag' | 'system' | 'tracer' | 'timeline' | 'blueprint' | 'view_preview' | 'schema_form'
+  type ViewTabId    = 'dispatch' | 'dag' | 'system' | 'tracer' | 'timeline' | 'blueprint' | 'view_preview' | 'schema_form' | 'receipt_viewer'
   type BottomTabId  = 'output' | 'observations' | 'facts' | 'artifacts' | 'problems' | 'debugger'
   type CompileStatus = 'ok' | 'error' | 'compiling'
 
@@ -153,19 +154,20 @@
   ]
 
   const RIGHT_PANELS: Array<{ id: RightPanelId; icon: string; label: string }> = [
-    { id: 'inspector', icon: '���', label: 'Inspector' },
-    { id: 'structure', icon: '���', label: 'Structure'  },
+    { id: 'inspector', icon: '', label: 'Inspector' },
+    { id: 'structure', icon: '', label: 'Structure'  },
   ]
 
   const VIEW_TABS: Array<{ id: ViewTabId; label: string }> = [
-    { id: 'blueprint', label: '��� Blueprint' },
+    { id: 'blueprint', label: ' Blueprint' },
     { id: 'dispatch',  label: 'Dispatch' },
-    { id: 'schema_form', label: '��� Form Generator' },
+    { id: 'schema_form', label: ' Form Generator' },
     { id: 'dag',       label: 'DAG' },
     { id: 'system',    label: 'System' },
     { id: 'tracer',    label: 'Tracer' },
     { id: 'timeline',  label: 'Timeline' },
-    { id: 'view_preview', label: '���� View Preview' },
+    { id: 'view_preview', label: ' View Preview' },
+    { id: 'receipt_viewer', label: ' Introspection Viewer' },
   ]
 
   const BOTTOM_TABS: Array<{ id: BottomTabId; label: string }> = [
@@ -1010,6 +1012,13 @@
         {#if activeArea === 'view_preview'}
           <div class="absolute inset-0 overflow-hidden flex bg-ink">
             <ViewInspector {workspace} />
+          </div>
+        {/if}
+
+        <!-- INTROSPECTION VIEW -->
+        {#if activeArea === 'receipt_viewer'}
+          <div class="absolute inset-0 overflow-hidden flex bg-ink">
+            <IntrospectionReceiptViewer {workspace} />
           </div>
         {/if}
 
