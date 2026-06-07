@@ -22,3 +22,8 @@ This manifest documents the guided learning path lessons, their corresponding co
 1. **Frontmatter & Localization**: Frontmatter, translation mappings, and website routing metadata are owned and maintained locally by `igniter-org`. Do not add presentation-specific translation headers to these raw lab files.
 2. **Frontier Source**: `igniter-lab` remains the upstream reference for what commands are currently runnable and what outputs they produce.
 3. **Policy Wording**: Any projection copied to public sites should preserve the pre-v1/as-is tone: useful for learning and feedback, actively developed, and subject to change before formal adoption.
+
+## See Also
+- [Tutorial Glossary](tutorial-glossary.md)
+- [Site Projection Excerpts](site-projection-excerpts.md)
+- [Expected Output Snippets](expected-output-snippets.md)

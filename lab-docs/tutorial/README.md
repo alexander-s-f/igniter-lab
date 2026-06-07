@@ -21,6 +21,14 @@ authority lives in the `igniter-lang` source documents and accepted decisions.
 | 4 | [Capability Passport First Proof](capability-passport-first-proof.md) | Inspect an IO capability passport and the fail-closed loader boundary. |
 | 5 | [View / GUI / IDE First Proof](view-gui-ide-first-proof.md) | Trace a view artifact through preview, safe rendering, GUI receipts, and IDE inspection. |
 
+## Supporting Resources
+
+- [Tutorial Manifest](tutorial-manifest.md): Catalog of lessons, commands, and site projection statuses.
+- [Tutorial Command Matrix](tutorial-command-matrix.md): Command verification matrix.
+- [Tutorial Glossary](tutorial-glossary.md): Definition of extensions and concepts (e.g. `.ig`, `.igapp`, SemanticIR).
+- [Site Projection Excerpts](site-projection-excerpts.md): Inviting pre-v1 summaries for public website consumption.
+- [Expected Output Snippets](expected-output-snippets.md): Concrete success indicators and file schemas.
+
 ## Tutorial Writing Rules
 
 - Use repo-relative paths for same-repo links.
