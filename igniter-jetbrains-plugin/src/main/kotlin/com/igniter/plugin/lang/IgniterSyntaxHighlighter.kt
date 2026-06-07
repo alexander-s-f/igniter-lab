@@ -34,7 +34,7 @@ object IgniterHighlighterColors {
         "IGNITER_SYMBOL_LITERAL", DefaultLanguageHighlighterColors.CONSTANT
     )
     @JvmField val BOOL_LITERAL = createTextAttributesKey(
-        "IGNITER_BOOL_LITERAL", DefaultLanguageHighlighterColors.KEYWORD
+        "IGNITER_BOOL_LITERAL", DefaultLanguageHighlighterColors.NUMBER
     )
     @JvmField val IDENTIFIER = createTextAttributesKey(
         "IGNITER_IDENTIFIER", DefaultLanguageHighlighterColors.IDENTIFIER

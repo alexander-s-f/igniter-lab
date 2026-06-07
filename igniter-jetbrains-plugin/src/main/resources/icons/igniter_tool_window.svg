@@ -1,5 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13 13" width="13" height="13">
-  <!-- Placeholder icon for the Igniter tool window — replace with final artwork -->
-  <circle cx="6.5" cy="6.5" r="5.5" fill="#F05A28" opacity="0.9"/>
-  <text x="3.5" y="9.5" font-family="monospace" font-size="6" font-weight="bold" fill="white">ig</text>
+  <!-- Igniter mark — 6-spoke asterisk, Ember on Ink palette -->
+  <g stroke="#ff6a3d" stroke-width="1.4" stroke-linecap="round">
+    <line x1="6.5" y1="6.5" x2="6.5"  y2="2"/>
+    <line x1="6.5" y1="6.5" x2="10.4" y2="4.25"/>
+    <line x1="6.5" y1="6.5" x2="10.4" y2="8.75"/>
+    <line x1="6.5" y1="6.5" x2="6.5"  y2="11"/>
+    <line x1="6.5" y1="6.5" x2="2.6"  y2="8.75"/>
+    <line x1="6.5" y1="6.5" x2="2.6"  y2="4.25"/>
+  </g>
+  <circle cx="6.5" cy="6.5" r="1.2" fill="#ffe6cc"/>
+  <circle cx="6.5" cy="6.5" r="0.5" fill="#fff2e4"/>
 </svg>

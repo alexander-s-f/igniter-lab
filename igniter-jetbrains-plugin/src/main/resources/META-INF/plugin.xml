@@ -61,6 +61,11 @@
         <colorSettingsPage
             implementation="com.igniter.plugin.lang.IgniterColorSettingsPage"/>
 
+        <!-- Default token colors — Ember on Ink (dark) and Paper (light) -->
+        <additionalTextAttributes scheme="Darcula"         file="colorSchemes/IgniterDark.xml"/>
+        <additionalTextAttributes scheme="Default"         file="colorSchemes/IgniterLight.xml"/>
+        <additionalTextAttributes scheme="IntelliJ Light"  file="colorSchemes/IgniterLight.xml"/>
+
         <!-- Structure view -->
         <lang.psiStructureViewFactory
             language="Igniter"

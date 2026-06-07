@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Igniter — Paper syntax palette (light, maps onto Default / IntelliJ Light)
+  Same hue identities as the dark theme, darkened for warm paper #F5F1EA background.
+  Token colors from igniter-design-system / Igniter-Lang Syntax.html §04
+-->
+<scheme name="Default" version="142">
+  <attributes>
+
+    <!-- #CF4517  ·  keyword · bold -->
+    <option name="IGNITER_KEYWORD">
+      <value>
+        <option name="FOREGROUND" value="cf4517"/>
+        <option name="FONT_TYPE"  value="1"/>
+      </value>
+    </option>
+
+    <!-- #A96B2C  ·  type names -->
+    <option name="IGNITER_TYPE_NAME">
+      <value>
+        <option name="FOREGROUND" value="a96b2c"/>
+      </value>
+    </option>
+
+    <!-- #BF5A28  ·  numeric & bool literals -->
+    <option name="IGNITER_INTEGER_LITERAL">
+      <value>
+        <option name="FOREGROUND" value="bf5a28"/>
+      </value>
+    </option>
+    <option name="IGNITER_FLOAT_LITERAL">
+      <value>
+        <option name="FOREGROUND" value="bf5a28"/>
+      </value>
+    </option>
+    <option name="IGNITER_BOOL_LITERAL">
+      <value>
+        <option name="FOREGROUND" value="bf5a28"/>
+      </value>
+    </option>
+
+    <!-- #4F8A52  ·  string literals -->
+    <option name="IGNITER_STRING_LITERAL">
+      <value>
+        <option name="FOREGROUND" value="4f8a52"/>
+      </value>
+    </option>
+
+    <!-- #1F7D8C  temporal teal  ·  symbol / lifecycle atoms -->
+    <option name="IGNITER_SYMBOL_LITERAL">
+      <value>
+        <option name="FOREGROUND" value="1f7d8c"/>
+      </value>
+    </option>
+
+    <!-- #2A2018  ·  identifiers -->
+    <option name="IGNITER_IDENTIFIER">
+      <value>
+        <option name="FOREGROUND" value="2a2018"/>
+      </value>
+    </option>
+
+    <!-- #8A7964  ·  operators & all punctuation -->
+    <option name="IGNITER_OPERATOR">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_ARROW">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_PUNCTUATION">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_BRACES">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_BRACKETS">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_PARENS">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_COMMA">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_DOT">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+    <option name="IGNITER_COLON">
+      <value>
+        <option name="FOREGROUND" value="8a7964"/>
+      </value>
+    </option>
+
+    <!-- #9A8576  ·  comments · italic -->
+    <option name="IGNITER_COMMENT">
+      <value>
+        <option name="FOREGROUND" value="9a8576"/>
+        <option name="FONT_TYPE"  value="2"/>
+      </value>
+    </option>
+
+    <!-- #D9694A  --oof  ·  bad character -->
+    <option name="IGNITER_BAD_CHARACTER">
+      <value>
+        <option name="FOREGROUND"       value="d9694a"/>
+        <option name="ERROR_STRIPE_COLOR" value="d9694a"/>
+        <option name="EFFECT_COLOR"     value="d9694a"/>
+        <option name="EFFECT_TYPE"      value="2"/>
+      </value>
+    </option>
+
+  </attributes>
+</scheme>
