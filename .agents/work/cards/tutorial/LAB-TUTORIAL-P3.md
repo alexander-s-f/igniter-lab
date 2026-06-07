@@ -68,7 +68,7 @@ Harden the `igniter-lab` tutorial learning path so it is command-verified, site-
 - Verified GUI engine proof runner (`ruby igniter-gui-engine/run_proof.rb` -> PASS).
 - Verified Svelte typechecker check in IDE package (`npm run check` -> PASS).
 - Tested `git diff --check` (clean PASS) and confirmed all output directories stay ignored.
-- Confirmed no absolute local paths or `file://` link literals are written.
+- Confirmed no absolute local paths or local file URI link literals are written.
 
 ### Route (R)
 - Returning card receipt to workspace supervisor. All objectives for LAB-TUTORIAL-P3 are complete.
