@@ -11,7 +11,7 @@ or research/proof docs.
 Every new lab card MUST declare exactly one primary category:
 
 ```text
-Category: core | gui | ide | stdlib | view
+Category: core | gui | ide | stdlib | tutorial | view
 ```
 
 The primary category decides both the card path and the durable doc path.
@@ -31,6 +31,7 @@ root-level card. Stop with a short blocker receipt asking for category routing.
 | `gui` | `igniter-gui-engine/`, `igniter-design-system/`, `igniter-machine/` | `LAB-NATIVE-GUI-*`, `LAB-GUI-*`, `LAB-TAILMIX-*` | Native layout, scene tree rendering, headless event dispatchers, hit testing, design tokens, Tailmix applicability and GUI interaction IR. |
 | `ide` | `igniter-ide/`, `igniter-jetbrains-plugin/` | `LAB-IDE-*`, `LAB-TAURI-IVF-*` | Svelte/Tauri IDE shell, temporal timeline widgets, Monaco integration, trace playback/control panels, JetBrains plugin skeleton. |
 | `stdlib` | `igniter-stdlib/`, `igniter-apps/` | `LAB-STDLIB-IO-*`, `LAB-APP-*` | Stdlib candidates, decimal/collection utilities, capability passports, IO/effect surfaces, app fixtures and utility apps. |
+| `tutorial` | `lab-docs/tutorial/`, tutorial fixtures that read existing lab packages | `LAB-TUTORIAL-*` | Educational walkthroughs, learning paths, guided examples, concept-to-proof lessons, and contributor onboarding that explain lab behavior without creating canon or product authority. |
 | `view` | `igniter-view-engine/` | `LAB-VIEW-DSL-*`, `LAB-IGNITER-VIEW-FRAMEWORK-*` | View DSL grammar, arbre-like boundaries, safe render policy, hot reload preview renderer, isomorphic view artifact work. |
 
 ## 3. Path Contract
@@ -79,7 +80,7 @@ Use this header shape for new lab cards:
 
 ```text
 Card: <CARD-ID>
-Category: <core|gui|ide|stdlib|view>
+Category: <core|gui|ide|stdlib|tutorial|view>
 Agent: [Igniter-Lang <Research|Implementation> Agent]
 Role: <research-agent|implementation-agent>
 Track: <track-slug-v0>
@@ -124,7 +125,7 @@ Use repo-relative paths for same-repo links.
 Use `<project>/path/to/file` for cross-repo links. Project tags are resolved by
 the local-only `repository-map.md`.
 
-Do not put absolute local paths or `file://` links in tracked docs or cards.
+Do not put absolute local paths or local file URI links in tracked docs or cards.
 
 `repository-map.md` is intentionally ignored by git because it contains local
 machine paths. Do not copy its absolute paths into tracked files.

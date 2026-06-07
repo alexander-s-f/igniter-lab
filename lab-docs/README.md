@@ -18,6 +18,7 @@ architecture boundary, or pressure package, keep it here.
 | [Project Map](igniter-lab-project-map.md) | Compact map of lab packages, status vocabulary, and authority boundaries. |
 | [Current Status](STATUS.md) | Short transfer-era status snapshot and live lanes. |
 | [Roadmap](ROADMAP.md) | Next useful lab directions without treating lab behavior as canon. |
+| [Tutorial](tutorial/README.md) | Learning path for understanding lab packages, proof evidence, and safe boundaries. |
 | [2026-06-04 Status Report](status-report-2026-06-04.md) | Historical detailed snapshot from the pre-split lab state. |
 
 ## Major Meaning Areas
@@ -29,6 +30,7 @@ architecture boundary, or pressure package, keep it here.
 | IO and capabilities | `lab-experimental-io-*` capability, passport, stdlib, compiler bridge, and VM loader reports. |
 | View / GUI / IDE | View DSL, Igniter View Framework, Tauri IVF, Native GUI, Tailmix-inspired Interaction IR, and debugger/IDE reports. |
 | Runtime/backend research | [Igniter Machine Notes](core/igniter-machine.md), [SparkCRM Shadow](core/igniter-sparkcrm-shadow.md), runtime/backend proof reports. |
+| Tutorial | [Lab Orientation](tutorial/lab-orientation.md), compiler/VM/forms/capability/view walkthroughs as they are added. |
 
 ## Documentation Boundary
 

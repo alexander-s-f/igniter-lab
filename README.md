@@ -26,6 +26,7 @@ accepts them.
 | [`igniter-tbackend`](./igniter-tbackend/) | Rust / Ruby | Experimental temporal backend and storage pressure surface. |
 | [`igniter-apps`](./igniter-apps/) | Mixed | Small lab applications and product-pressure sketches. |
 | [`lab-docs`](./lab-docs/) | Markdown | Frontier notes, proof summaries, status reports, pressure packages, and research packets. |
+| [`lab-docs/tutorial`](./lab-docs/tutorial/) | Markdown | Guided learning path for understanding lab packages, proof evidence, and safety boundaries. |
 | [`.agents`](./.agents/) | Markdown | Lab agent handoff cards and return packets. |
 
 ## Quick Start
@@ -60,6 +61,9 @@ Rust package checks are package-local, for example:
 cd igniter-compiler
 cargo test
 ```
+
+New readers should start with the [Lab Tutorial](./lab-docs/tutorial/README.md)
+before following older proof reports.
 
 ## Evidence Policy
 
