@@ -12,7 +12,7 @@ package, release, or production authority.
 | --- | --- | --- |
 | Docs and handoff closure | Finish `.agents` index, `lab-docs` status, transfer receipt, and site stub. | Documentation only. |
 | Forms | Continue import hiding/overriding and proposal/errata pressure after mainline routing. | No stable grammar or implementation authority. |
-| IO / capability passports | Keep hardening proofs aligned with compiler/runtime boundary questions. | No public runtime support. |
+| IO / capability passports | NET-P2..P6 complete (300+ checks). PROP-035 grammar experiment-pass in igniter-lang. Next: runtime injection design, PROP-033 (via profile binding). | No public runtime support. |
 | View / GUI | Continue view artifact, slot binding, safe renderer, and native GUI proof lanes. | Lab-only UX and architecture evidence. |
 | Tauri IVF | Continue trace subscription, redaction, playback, and command bridge hardening. | No product app platform claim. |
 | Loops / recursion | Feed bounded loop and managed recursion evidence back to mainline spec/proposal routes. | Lab implementation is not canon. |

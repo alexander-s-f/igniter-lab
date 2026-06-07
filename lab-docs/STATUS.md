@@ -48,7 +48,7 @@ Still open in this transfer slice:
 | Lane | Status | Boundary |
 | --- | --- | --- |
 | Forms | Active pressure lane. | Evidence for future language design; no stable grammar claim. |
-| IO / capability passports | Active security/capability lane. | Lab-only capability and passport evidence; no public runtime authority. |
+| IO / capability passports | Active security/capability lane. NET-P2..P6 (300+ checks). PROP-035 grammar landed in igniter-lang 2026-06-07. | Lab-only capability and passport evidence; no public runtime authority. |
 | View / GUI / IDE | Active frontier lane. | Prototypes for authoring, preview, trace, and GUI ideas; no framework or product promise. |
 | Tauri IVF | Active frontier lane. | Isomorphic view and trace shell experiments; no public app platform claim. |
 | Native GUI | Active frontier lane. | Headless scene/layout/rendering proofs; no production renderer claim. |
