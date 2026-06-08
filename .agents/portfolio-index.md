@@ -63,14 +63,16 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 
 | Artifact | Repo | Status |
 |---|---|---|
-| PROP-039: loop-class vocabulary + recursion design | igniter-lang | ✅ accepted; proposal-only |
-| FiniteLoop / BudgetedLocalLoop / StructuralRecursion / FuelBoundedRecursion | igniter-lang | vocabulary accepted |
-| OOF-L1..L5 / OOF-R1..R5 | igniter-lang | candidates only — not OOF registry authority |
+| PROP-039: loop-class vocabulary + recursion design | igniter-lang | ✅ accepted; Gates 1+3+4+5+6+7+8 closed; Gate 5 recur() closed |
+| FiniteLoop / BudgetedLocalLoop / StructuralRecursion / FuelBoundedRecursion | igniter-lang | ✅ experiment-pass compiler surface |
+| OOF-L1/L5/L7/L8 / OOF-R1/R2/R4/R5/R6/R7 | igniter-lang | ✅ experiment-pass — active in TypeChecker/Classifier |
+| OOF-L2/L3/L4 / OOF-R3 | igniter-lang | candidates only — not yet proven |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
-| Parser / TypeChecker / runtime implementation | igniter-lang | **closed** (7 gates before impl auth) |
+| Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
+| Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
 
-**Boundary:** Lab/R248 fixture grammar is pressure evidence only. Rust/alternate implementations
-are not language authority. All implementation surfaces remain closed.
+**Boundary:** Lab/Rust implementations are conformance consumers of canon proofs, not language authority.
+Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/production remain closed.
 
 ### External Progression / Service Liveness (PROP-037)
 
@@ -174,11 +176,12 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4 conformance | Conformance spine + body semantics complete; remaining: G5 (recur()) — future gate |
+| PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4 conformance + Canon G5 recur() closed | canon G5 recur() closed 2026-06-08; lab Rust G5 symmetry pending |
 | Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |
 | Lab G2 | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` contract modifiers + `decreases`/`max_steps` body decls | — |
 | Lab G3 | ✅ closed 2026-06-08 — G3a OOF-R2/R4 in classifier + G3b FiniteLoop `for Name item in source` + G3c IR shape `kind="loop_node"` | — |
-| Lab G4 | ✅ closed 2026-06-08 — `lead` keyword, OOF-L5/L7/L8, canon `body=[lead_node*,compute_node*]` + `item_type`, two-track `body`/`body_nodes`; verify_g4_body_semantics.rb 18/18 PASS | G5 recur() — future gate |
+| Lab G4 | ✅ closed 2026-06-08 — `lead` keyword, OOF-L5/L7/L8, canon `body=[lead_node*,compute_node*]` + `item_type`, two-track `body`/`body_nodes`; verify_g4_body_semantics.rb 18/18 PASS | — |
+| Canon G5 | ✅ closed 2026-06-08 — `recur()` context validation (OOF-R1), arity (OOF-R5), type (OOF-R6), single-output (OOF-R7), SemanticIR `recur_call` sub-expr; recursive_body_proof 100/100 PASS | Lab Rust G5 symmetry pending |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
