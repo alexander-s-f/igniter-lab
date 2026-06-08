@@ -69,6 +69,7 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | `source/string_extension.ig` | igniter-lang | ✅ superseded → `TextWorkflow`; old `StringWorkflow` legacy/held |
 | Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 29/29 PASS (P2: concat disambiguated) |
 | Lab STR-CORE-P3 value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lab | ✅ closed 2026-06-08 — verify_str_value_semantics.rb 33/33 PASS (compile-time; runtime-gated gaps documented) |
+| LAB-STR-UNICODE-P1 Unicode policy design | igniter-lab | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29, no normalization, bounds clamp, grapheme receipt design |
 
 **Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
 `stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics and stable public API closed.
@@ -221,7 +222,13 @@ Rack/middleware vocabulary is lab-only.
     split→Collection[Text] params shape; replace/replace_all SIR fn names; regex pattern treated as literal Text
     Declared policy (runtime-gated): bounds clamp, split("","x"), replace_all overlap, byte_slice UTF-8 boundary
     verify_str_value_semantics.rb: 33/33 PASS
-19. ✅ PROP-041-P3: T2 structural-size relation proof-local gate (2026-06-08)
+19. ✅ LAB-STR-UNICODE-P1: Text Unicode policy design-lock (2026-06-08)
+    UTF-8 validity: Text = valid UTF-8 (Value::String(Arc<str>)); UAX #29 = grapheme authority
+    No implicit normalization; exact codepoint equality; trim = Unicode Pattern_White_Space
+    slice bounds: [start,end) half-open; clamp; byte_slice invalid boundary → ""; split("") undefined v0
+    grapheme backend: unicode-segmentation (UAX #29); version pin via Cargo.lock; canon receipt design
+    Next: auth card for unicode-segmentation dep + VM ops implementation
+20. ✅ PROP-041-P3: T2 structural-size relation proof-local gate (2026-06-08)
     T2TypeChecker + T2Emitter sub-classes extend canon pipeline without production edits
     STDLIB_REGISTRY: Collection.tail/rest (stdlib_certified). Module size_relation → user_assumed
     OOF-R8 (missing relation) / OOF-R9 (call-site mismatch). Numeric accessor → OOF-R3 (T3 territory)
@@ -264,6 +271,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
 | Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; P2 concat disambiguation; verify_str_core.rb 29/29 PASS | — |
 | Lab STR-CORE-P3 value semantics | ✅ closed 2026-06-08 — compile-time unit separation + SIR shapes + OOF enforcement proven; runtime-gated gaps documented; verify_str_value_semantics.rb 33/33 PASS | — |
+| LAB-STR-UNICODE-P1 Unicode policy | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29 grapheme, no normalization, bounds policy, `unicode-segmentation` lab recommendation, receipt design | Next: auth card for VM dep + ops implementation |
 | PROP-041-P3 T2 structural-size (proof-local) | ✅ closed 2026-06-08 — proof-local gate 48/48 PASS; OOF-R8/R9; structural_size_v1 SIR shape proven | Production graduation: requires PROP-041 authorization + classifier.rb/typechecker.rb/emitter.rb edits |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
