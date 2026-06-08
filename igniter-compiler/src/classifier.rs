@@ -1,4 +1,4 @@
-use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef};
+use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -21,6 +21,9 @@ pub struct ClassifiedProgram {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub olap_points: Option<Vec<OlapPointDecl>>,
     pub pass_result: String,
+    /// PROP-041 T2: module-level size_relation declarations passed through for TypeChecker registry
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub size_relations: Vec<SizeRelationDecl>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -186,6 +189,8 @@ impl Classifier {
             assumption_registry: if registry.is_empty() { None } else { Some(registry.values().cloned().collect()) },
             olap_points: if parsed.olap_points.is_empty() { None } else { Some(parsed.olap_points.clone()) },
             pass_result,
+            // PROP-041 T2: pass-through size_relation declarations for TypeChecker registry
+            size_relations: parsed.size_relations.clone(),
         }
     }
 

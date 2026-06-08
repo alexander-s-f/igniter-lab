@@ -6,7 +6,8 @@
 #
 # Gate scope:
 #   - OOF-R3 fires when recur() variant-position arg does NOT syntactically decrease declared variant.
-#   - OOF-R3 fires (contract level) when decreases variant is a dotted-path (fail-closed in v0).
+#   - [PROP-041 T2 update] Non-numeric dotted-path variants now fire OOF-R8 (missing
+#     structural size relation) instead of OOF-R3. Numeric dotted-paths still fire OOF-R3.
 #   - Whitelisted decrease patterns: variant-N (N>0 integer), variant.tail, variant.rest.
 #   - Exempt: fuel_bounded contracts, recursive + decreases fuel.
 #   - SemanticIR: termination.variant_check = "syntactic_v0" on clean recursive contracts.
@@ -274,26 +275,28 @@ else
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
-# R3j: OOF-R3 fires — dotted-path variant (fail-closed)
+# R3j: Dotted-path variant — blocked via OOF-R8 (PROP-041 T2)
+# PROP-041 T2 update: non-numeric dotted-path variants with no size_relation
+# declaration now fire OOF-R8 (missing structural size relation), not OOF-R3.
+# Compilation is still blocked; OOF-R3 scope is unweakened for non-T2 forms.
 # ─────────────────────────────────────────────────────────────────────────────
-puts "\n=== R3j: OOF-R3 — dotted-path variant (fail-closed) ===\n"
+puts "\n=== R3j: Dotted-path variant — blocked via OOF-R8 (PROP-041 T2) ===\n"
 
 result_dot, app_dot, tmp_dot = compile_fixture("oof_r3_dotted_path")
-if has_oof(result_dot, "OOF-R3")
-  pass "R3j: OOF-R3 fires for 'decreases items.remaining' (dotted-path fail-closed)"
+if has_oof(result_dot, "OOF-R8")
+  pass "R3j: OOF-R8 fires for 'decreases items.remaining' (T2 missing-relation)"
 else
-  fail! "R3j: OOF-R3 NOT fired for dotted-path variant (got: #{result_dot[0..300]})"
+  fail! "R3j: OOF-R8 NOT fired for dotted-path variant (got: #{result_dot[0..300]})"
 end
-msg_dot = diag_message(result_dot, "OOF-R3")
-if msg_dot.include?("dotted") || msg_dot.include?("items.remaining")
-  pass "R3j: OOF-R3 message mentions dotted-path or variant name"
+unless has_oof(result_dot, "OOF-R3")
+  pass "R3j: OOF-R3 does NOT fire (T2 handles non-numeric dotted-path)"
 else
-  fail! "R3j: OOF-R3 message does not describe dotted-path (msg: #{msg_dot})"
+  fail! "R3j: OOF-R3 incorrectly fired for non-numeric dotted-path (should be OOF-R8)"
 end
 unless File.exist?(app_dot)
-  pass "R3j: semantic_ir not produced when OOF-R3 fires (dotted-path)"
+  pass "R3j: semantic_ir not produced (blocked by OOF-R8)"
 else
-  fail! "R3j: semantic_ir produced despite OOF-R3 (should be blocked)"
+  fail! "R3j: semantic_ir produced despite OOF-R8 (should be blocked)"
 end
 
 # ─────────────────────────────────────────────────────────────────────────────
