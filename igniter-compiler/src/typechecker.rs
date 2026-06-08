@@ -2716,6 +2716,51 @@ impl TypeChecker {
                 }
                 ("stdlib.bool.and".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
             }
+            // LAB-RACK-P6: equality operator for primitive types.
+            // Compatible pairs: (String, String), (Text, Text), (Text, String), (String, Text),
+            //                   (Integer, Integer), (Bool, Bool).
+            // Incompatible non-Unknown pairs emit OOF-TY0.
+            // The VM binary_op handler dispatches on op=="==" using Rust Value equality —
+            // no VM-side change needed; the TypeChecker gap was the sole blocker.
+            "==" => {
+                let compatible = matches!(
+                    (left_name.as_str(), right_name.as_str()),
+                    ("String",  "String")  |
+                    ("Text",    "Text")    |
+                    ("String",  "Text")    |
+                    ("Text",    "String")  |
+                    ("Integer", "Integer") |
+                    ("Bool",    "Bool")    |
+                    ("Unknown", _)         |
+                    (_,         "Unknown")
+                );
+                if !compatible {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("Type mismatch for ==: cannot compare {} with {}", left_name, right_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                ("stdlib.primitive.eq".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+            }
+            // LAB-RACK-P6: less-than for Integer only.
+            // String/Text/Bool comparisons with < are not supported in v0 (OOF-TY0).
+            // The VM binary_op handler already handles op=="<" for Integer — no VM change needed.
+            "<" => {
+                if (left_name != "Integer" || right_name != "Integer")
+                    && left_name != "Unknown"
+                    && right_name != "Unknown"
+                {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("Type mismatch for <: expected Integer on both sides, got {} < {}", left_name, right_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                ("stdlib.integer.lt".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+            }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-TY0".to_string(),

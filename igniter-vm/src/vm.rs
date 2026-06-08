@@ -562,6 +562,32 @@ impl VM {
                             let prefix = args[1].as_str()?;
                             Value::Bool(s.starts_with(prefix))
                         }
+                        // stdlib.text.* namespaced aliases — compiler emits these after Text/String Core update
+                        // LAB-RACK-P5: align VM OP_CALL dispatch with compiler stdlib.text.* naming
+                        "stdlib.text.starts_with" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.text.starts_with expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            let prefix = args[1].as_str()?;
+                            Value::Bool(s.starts_with(prefix))
+                        }
+                        "stdlib.text.split" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.text.split expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            let sep = args[1].as_str()?;
+                            let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
+                            Value::Array(Arc::new(parts))
+                        }
+                        "stdlib.text.byte_length" => {
+                            if args.len() != 1 {
+                                return Err(format!("stdlib.text.byte_length expects exactly 1 argument, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            Value::Integer(s.len() as i64)
+                        }
                         "diff_seconds" => {
                             if args.len() != 2 {
                                 return Err(format!("diff_seconds expects exactly 2 arguments, got {}", args.len()));
