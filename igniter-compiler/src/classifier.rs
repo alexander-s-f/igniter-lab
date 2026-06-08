@@ -48,6 +48,10 @@ pub struct ClassifiedContract {
     pub declarations: Vec<ClassifiedDecl>,
     pub dependency_graph: DependencyGraph,
     pub oof_log: Vec<ClassifierDiagnostic>,
+    /// PROP-039 OOF-R3: named decreases variant extracted for TypeChecker gate.
+    /// None for fuel_bounded, decreases fuel, or contracts without a decreases declaration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decreases_variant: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assumption_refs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1209,6 +1213,24 @@ impl Classifier {
                 });
             }
         }
+
+        // PROP-039 OOF-R3: extract named decreases variant for TypeChecker gate.
+        // Only for recursive contracts; fuel variant is auto-managed (exempt from OOF-R3).
+        let decreases_variant_extracted: Option<String> = if modifier == "recursive" {
+            contract.body.iter().find_map(|d| {
+                if let BodyDecl::Decreases { variant } = d {
+                    if variant != "fuel" && !variant.is_empty() {
+                        Some(variant.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
         if modifier == "pure" {
             if declarations.iter().any(|d| d.fragment_class == "escape" && d.kind != "service_loop") {
                 diagnostics.push(ClassifierDiagnostic {
@@ -1262,6 +1284,7 @@ impl Classifier {
             declarations,
             dependency_graph,
             oof_log: diagnostics,
+            decreases_variant: decreases_variant_extracted,
             assumption_refs: if assumption_refs.is_empty() { None } else { Some(assumption_refs) },
             specialization_of: contract.specialization_of.clone(),
             type_args: contract.type_args.clone(),

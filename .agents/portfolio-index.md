@@ -59,6 +59,23 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 |---|---|---|
 | PROP-032: `assumptions {}` + `uses assumptions NAME` | igniter-lang | ✅ experiment-pass (bounded compiler surface) |
 
+### Text / String Core (igniter-string-core-units-and-pure-stdlib-boundary-v0)
+
+| Artifact | Repo | Status |
+|---|---|---|
+| Track doc | igniter-lang | ✅ experiment-pass — compiler surface 2026-06-08 |
+| `Text` canonical type | igniter-lang | ✅ TypeChecker + ch3/ch2/ch8 reconciled |
+| `stdlib.text.*` (14 ops) | igniter-lang | ✅ experiment-pass — 60/60 PASS |
+| `source/string_extension.ig` | igniter-lang | ✅ superseded → `TextWorkflow`; old `StringWorkflow` legacy/held |
+| Lab STR-CORE Rust symmetry | igniter-lab | ⬜ not yet authorized |
+| Value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lang | ⬜ separate gate |
+
+**Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
+`stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics and stable public API closed.
+
+**Closed:** runtime execution, bounds policy, locale case folding, regex, tokenizer,
+TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
+
 ### Managed Recursion and Loop Classes (PROP-039)
 
 | Artifact | Repo | Status |
@@ -68,6 +85,7 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | OOF-L1/L5/L7/L8 / OOF-R1/R2/R4/R5/R6/R7 | igniter-lang | ✅ experiment-pass — active in TypeChecker/Classifier |
 | OOF-L2/L3/L4 | igniter-lang | candidates only — not yet proven |
 | OOF-R3 | igniter-lang | ✅ experiment-pass — OOF-R3 gate closed 2026-06-08; oof_r3_syntactic_variant_decrease_proof 33/33 |
+| OOF-R3 Lab Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — classifier.rs + typechecker.rs + emitter.rs; verify_oof_r3.rb 34/34 |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -190,6 +208,10 @@ Rack/middleware vocabulary is lab-only.
     semanticir_emitter.rb: termination.variant_check="syntactic_v0" on clean contracts
     Whitelist: variant-N, variant.tail, variant.rest. Exempt: fuel_bounded, decreases fuel.
     verify_oof_r3.rb: 33/33 PASS
+16. ✅ Lab OOF-R3: Rust symmetry — classifier.rs + typechecker.rs + emitter.rs (2026-06-08)
+    decreases_variant extraction; OOF-R3 per recur() site + dotted-path fail-closed; termination.variant_check in SemanticIR
+    Collection.tail/rest whitelist in FieldAccess inference; syntactic_decrease + syntactic_arg_desc free functions
+    verify_oof_r3.rb: 34/34 PASS
 
 ---
 

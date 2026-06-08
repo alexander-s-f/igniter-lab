@@ -40,6 +40,9 @@ pub struct TypedContract {
     pub type_errors: Vec<ClassifierDiagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_warnings: Option<Vec<ClassifierDiagnostic>>,
+    /// PROP-039 OOF-R3: clean (non-dotted) decreases variant propagated to SemanticIR emitter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decreases_variant: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assumption_refs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -348,6 +351,30 @@ impl TypeChecker {
             None
         };
 
+        // PROP-039 OOF-R3: decreases variant context
+        // dotted-path variants are fail-closed at contract level
+        let clean_decreases_variant: Option<String> = match &classified.decreases_variant {
+            Some(v) if v.contains('.') => {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-R3".to_string(),
+                    message: format!(
+                        "contract '{}' — decreases variant '{}' is a dotted-path; \
+                         structural decrease proof for dotted-path variants not supported in v0 \
+                         (use simple identifier variant)",
+                        classified.name, v
+                    ),
+                    node: classified.name.clone(),
+                    line: None,
+                });
+                None  // don't do per-recur() checks for dotted-path
+            }
+            Some(v) => Some(v.clone()),
+            None => None,
+        };
+        // Positional index of the decreases variant in the input list
+        let decreases_variant_pos: Option<usize> = clean_decreases_variant.as_ref()
+            .and_then(|v| recur_input_names.iter().position(|n| n == v));
+
         for decl in &classified.declarations {
             match decl.kind.as_str() {
                 "input" | "read" | "stream" => {
@@ -550,6 +577,8 @@ impl TypeChecker {
                                             &mut type_warnings,
                                             &decl.name,
                                             functions,
+                                            None,
+                                            None,
                                         );
                                     }
                                 }
@@ -726,6 +755,8 @@ impl TypeChecker {
                             &mut type_warnings,
                             &decl.name,
                             functions,
+                            clean_decreases_variant.as_deref(),
+                            decreases_variant_pos,
                         );
                     }
                 }
@@ -813,6 +844,7 @@ impl TypeChecker {
             declarations: typed_decls,
             type_errors: self.dedupe_errors(&type_errors),
             type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
+            decreases_variant: clean_decreases_variant,
             assumption_refs: classified.assumption_refs.clone(),
             specialization_of: classified.specialization_of.clone(),
             type_args: classified.type_args.clone(),
@@ -943,8 +975,8 @@ impl TypeChecker {
         }
     }
 
-    /// PROP-039 gate 5: walk an expression tree looking for recur() calls and
-    /// validate their context, arity, and argument types.
+    /// PROP-039 gate 5 + OOF-R3: walk an expression tree looking for recur() calls and
+    /// validate their context, arity, argument types, and syntactic variant decrease.
     fn check_recur_in_expr(
         &self,
         expr: &Expr,
@@ -958,6 +990,8 @@ impl TypeChecker {
         type_warnings: &mut Vec<ClassifierDiagnostic>,
         node_name: &str,
         functions: &[crate::parser::FunctionDecl],
+        decreases_variant: Option<&str>,
+        decreases_variant_pos: Option<usize>,
     ) {
         match expr {
             Expr::Call { fn_name, args } if fn_name == "recur" => {
@@ -1021,47 +1055,67 @@ impl TypeChecker {
                             });
                         }
                     }
+
+                    // OOF-R3: variant-position arg must syntactically decrease the decreases variant
+                    if let (Some(dv), Some(pos)) = (decreases_variant, decreases_variant_pos) {
+                        if pos < args.len() {
+                            let variant_arg = &args[pos];
+                            if !syntactic_decrease(variant_arg, dv) {
+                                let arg_desc = syntactic_arg_desc(variant_arg);
+                                type_errors.push(ClassifierDiagnostic {
+                                    rule: "OOF-R3".to_string(),
+                                    message: format!(
+                                        "recur() in '{}' — variant '{}' (position {}) does not syntactically decrease: {}; \
+                                         expected '{} - N', '{}.tail', or '{}.rest'",
+                                        node_name, dv, pos + 1, arg_desc, dv, dv, dv
+                                    ),
+                                    node: node_name.to_string(),
+                                    line: None,
+                                });
+                            }
+                        }
+                    }
                 }
             }
             // Recurse into sub-expressions
             Expr::Call { fn_name: _, args } => {
                 for arg in args {
-                    self.check_recur_in_expr(arg, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    self.check_recur_in_expr(arg, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.check_recur_in_expr(left, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                self.check_recur_in_expr(right, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(left, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(right, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
             }
             Expr::UnaryOp { operand, .. } => {
-                self.check_recur_in_expr(operand, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(operand, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
             }
             Expr::FieldAccess { object, .. } => {
-                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
             }
             Expr::IndexAccess { object, index } => {
-                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                self.check_recur_in_expr(index, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(index, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
             }
             Expr::IfExpr { cond, then, else_block } => {
-                self.check_recur_in_expr(cond, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(cond, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                 // then/else_block are BlockBody — walk stmts and return_expr
                 for stmt in &then.stmts {
                     if let Stmt::Let { expr, .. } = stmt {
-                        self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                        self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                     }
                 }
                 if let Some(re) = &then.return_expr {
-                    self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                 }
                 if let Some(eb) = else_block {
                     for stmt in &eb.stmts {
                         if let Stmt::Let { expr, .. } = stmt {
-                            self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                            self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                         }
                     }
                     if let Some(re) = &eb.return_expr {
-                        self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                        self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
                     }
                 }
             }
@@ -1160,6 +1214,16 @@ impl TypeChecker {
             Expr::FieldAccess { object, field } => {
                 let obj_typed = self.infer_expr(object, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
                 let obj_type = self.type_name(&obj_typed.resolved_type);
+
+                // OOF-R3 v0 whitelist: Collection.tail / Collection.rest return Collection[T]
+                // This is the structural decrease pattern; no type error for whitelisted accessors.
+                if obj_type == "Collection" && (field == "tail" || field == "rest") {
+                    return TypedExpression {
+                        resolved_type: obj_typed.resolved_type.clone(),
+                        deps: obj_typed.deps,
+                    };
+                }
+
                 let field_type = type_shapes.get(&obj_type)
                     .and_then(|fields| fields.get(field))
                     .cloned()
@@ -2637,5 +2701,52 @@ fn expr_has_now(expr: &Expr) -> bool {
         Expr::ArrayLiteral { items } => items.iter().any(expr_has_now),
         Expr::RecordLiteral { fields } => fields.values().any(expr_has_now),
         _ => false,
+    }
+}
+
+/// OOF-R3 syntactic_v0: returns true if `expr` syntactically decreases `variant_name`.
+/// Accepted patterns:
+///   variant_name - N   (N > 0 integer literal)
+///   variant_name.tail
+///   variant_name.rest
+fn syntactic_decrease(expr: &Expr, variant_name: &str) -> bool {
+    match expr {
+        Expr::BinaryOp { op, left, right } => {
+            if op != "-" {
+                return false;
+            }
+            let left_is_var = matches!(left.as_ref(), Expr::Ref { name } if name == variant_name);
+            let right_is_pos_int = match right.as_ref() {
+                Expr::Literal { value, type_tag } => {
+                    type_tag == "Integer" && value.as_i64().map_or(false, |n| n > 0)
+                }
+                _ => false,
+            };
+            left_is_var && right_is_pos_int
+        }
+        Expr::FieldAccess { object, field } => {
+            let obj_is_var = matches!(object.as_ref(), Expr::Ref { name } if name == variant_name);
+            obj_is_var && (field == "tail" || field == "rest")
+        }
+        _ => false,
+    }
+}
+
+/// OOF-R3: produce a human-readable description of an expression for error messages.
+fn syntactic_arg_desc(expr: &Expr) -> String {
+    match expr {
+        Expr::Ref { name } => name.clone(),
+        Expr::Literal { value, .. } => value.to_string(),
+        Expr::BinaryOp { op, left, right } => {
+            format!("{} {} {}", syntactic_arg_desc(left), op, syntactic_arg_desc(right))
+        }
+        Expr::FieldAccess { object, field } => {
+            format!("{}.{}", syntactic_arg_desc(object), field)
+        }
+        Expr::Call { fn_name, args } => {
+            let arg_strs: Vec<String> = args.iter().map(syntactic_arg_desc).collect();
+            format!("{}({})", fn_name, arg_strs.join(", "))
+        }
+        _ => "expr".to_string(),
     }
 }

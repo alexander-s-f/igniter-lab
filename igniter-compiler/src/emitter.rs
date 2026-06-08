@@ -266,6 +266,16 @@ impl Emitter {
             }
         }
 
+        // PROP-039 OOF-R3: emit termination.variant_check for recursive contracts with named decreases variant
+        if contract.modifier == "recursive" {
+            if let Some(ref dv) = contract.decreases_variant {
+                let mut term = Map::new();
+                term.insert("decreases".to_string(), Value::String(dv.clone()));
+                term.insert("variant_check".to_string(), Value::String("syntactic_v0".to_string()));
+                contract_ir.insert("termination".to_string(), Value::Object(term));
+            }
+        }
+
         let cref = self.contract_ref(&Value::Object(contract_ir.clone()));
         contract_ir.insert("contract_ref".to_string(), Value::String(cref));
 
