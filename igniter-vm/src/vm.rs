@@ -24,9 +24,29 @@ fn parse_utc(dt_str: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
     Err(format!("Invalid datetime string: {}", dt_str))
 }
 
+// LAB-RACK-P9: pre-compiled dispatch entry for user-contract calls.
+// bytecode: compiled instructions for the callee contract.
+// input_names: input declaration names in declaration order (used for positional arg mapping).
+// modifier: contract modifier ("pure", "effect", etc.); non-pure callees are rejected at dispatch.
+// contract_name: the callee contract name (for error messages).
+#[derive(Clone)]
+pub struct DispatchEntry {
+    pub bytecode: Vec<crate::instructions::Instruction>,
+    pub input_names: Vec<String>,
+    pub modifier: String,
+    pub contract_name: String,
+}
+
+// LAB-RACK-P9: Maximum user-contract call depth.
+// Prevents stack overflow from deep or cyclic dispatch chains.
+pub const MAX_CALL_DEPTH: i64 = 8;
+
 pub struct VM {
     backend: Option<Arc<dyn TBackend>>,
     pub observation_sink: Arc<Mutex<Vec<serde_json::Value>>>,
+    // LAB-RACK-P9: pre-built dispatch table for call_contract("Name", ...) support.
+    // Key: contract_name. Built from igapp at load time in main.rs; empty by default.
+    pub dispatch_table: HashMap<String, DispatchEntry>,
 }
 
 impl VM {
@@ -34,6 +54,7 @@ impl VM {
         Self {
             backend,
             observation_sink: Arc::new(Mutex::new(Vec::new())),
+            dispatch_table: HashMap::new(),
         }
     }
 
@@ -1462,6 +1483,124 @@ impl VM {
                                 acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
                             }
                             acc
+                        }
+                        // LAB-RACK-P9: explicit named user-contract dispatch.
+                        // call_contract("ContractName", arg1, arg2, ...) — first arg is the
+                        // callee contract name; remaining args are positional inputs mapped
+                        // to the callee's input declarations (in declaration order).
+                        //
+                        // Policy (v0):
+                        //   - Callee must be pure (effect/privileged callee → error)
+                        //   - Single output only (first declared output)
+                        //   - Positional arg count must match callee input count exactly
+                        //   - Call depth ≤ MAX_CALL_DEPTH (8); excess → error
+                        //   - Cycles detected via __call_chain__ threaded through temporal_context
+                        //   - Self-recursion detected as a cycle (caller in chain before dispatch)
+                        //
+                        // Depth and chain are tracked through special keys in temporal_context:
+                        //   __call_depth__: Integer (default 0)
+                        //   __call_chain__: String (comma-separated contract names, default "")
+                        "call_contract" => {
+                            // Extract current depth + chain from temporal_context
+                            let current_depth = temporal_context.get("__call_depth__")
+                                .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
+                                .unwrap_or(0);
+
+                            if current_depth >= MAX_CALL_DEPTH {
+                                return Err(format!(
+                                    "call_contract: max call depth ({}) exceeded; check for indirect recursion",
+                                    MAX_CALL_DEPTH
+                                ));
+                            }
+
+                            // First arg: callee contract name (must be String)
+                            if args.is_empty() {
+                                return Err("call_contract: missing contract name argument (first arg must be String)".to_string());
+                            }
+                            let callee_name = match &args[0] {
+                                Value::String(s) => s.to_string(),
+                                other => return Err(format!(
+                                    "call_contract: first argument must be String (contract name), got {:?}",
+                                    other
+                                )),
+                            };
+
+                            // Cycle / self-recursion detection via __call_chain__
+                            let call_chain_str = temporal_context.get("__call_chain__")
+                                .and_then(|v| if let Value::String(s) = v { Some(s.as_ref().to_string()) } else { None })
+                                .unwrap_or_default();
+                            let chain_names: Vec<&str> = call_chain_str.split(',')
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            if chain_names.contains(&callee_name.as_str()) {
+                                return Err(format!(
+                                    "call_contract: dispatch cycle detected ({} -> {}); self-recursion and cycles closed in v0",
+                                    if call_chain_str.is_empty() { "(root)".to_string() } else { call_chain_str.clone() },
+                                    callee_name
+                                ));
+                            }
+
+                            // Lookup callee in dispatch table
+                            let entry = self.dispatch_table.get(&callee_name)
+                                .ok_or_else(|| {
+                                    let available: Vec<&str> = self.dispatch_table.keys()
+                                        .map(|s| s.as_str()).collect();
+                                    let mut av = available.clone();
+                                    av.sort();
+                                    format!(
+                                        "call_contract: no contract named '{}' in igapp (available: [{}])",
+                                        callee_name,
+                                        if av.is_empty() { "none".to_string() } else { av.join(", ") }
+                                    )
+                                })?
+                                .clone(); // clone so we can release the borrow on self.dispatch_table
+
+                            // Pure-only constraint
+                            if entry.modifier != "pure" {
+                                return Err(format!(
+                                    "call_contract: callee '{}' is not pure (modifier: {}); cross-contract call requires pure callee in v0",
+                                    callee_name, entry.modifier
+                                ));
+                            }
+
+                            // Positional arg count check (remaining args after the contract name)
+                            let positional_args = &args[1..];
+                            if positional_args.len() != entry.input_names.len() {
+                                return Err(format!(
+                                    "call_contract: contract '{}' expects {} input(s) [{}], got {}",
+                                    callee_name,
+                                    entry.input_names.len(),
+                                    entry.input_names.join(", "),
+                                    positional_args.len()
+                                ));
+                            }
+
+                            // Build callee inputs map (positional → name)
+                            let mut callee_inputs: HashMap<String, Value> = entry.input_names.iter()
+                                .zip(positional_args.iter())
+                                .map(|(name, val)| (name.clone(), val.clone()))
+                                .collect();
+                            // Make callee inputs visible to the VM's OP_LOAD_REF handler
+                            // (which reads from the `inputs` parameter, not temporal_context)
+                            let _ = &mut callee_inputs; // silence unused_mut warning
+
+                            // Build callee temporal_context with updated depth + chain
+                            let new_chain = if call_chain_str.is_empty() {
+                                callee_name.clone()
+                            } else {
+                                format!("{},{}", call_chain_str, callee_name)
+                            };
+                            let mut callee_temporal = temporal_context.clone();
+                            callee_temporal.insert("__call_depth__".to_string(), Value::Integer(current_depth + 1));
+                            callee_temporal.insert("__call_chain__".to_string(), Value::String(Arc::from(new_chain.as_str())));
+
+                            // Execute callee in isolated frame (new stack, new registers)
+                            // Use Box::pin for the recursive async call
+                            let callee_result = Box::pin(
+                                self.execute(&entry.bytecode, &callee_inputs, &callee_temporal)
+                            ).await?;
+
+                            callee_result
                         }
                         _ => {
                             return Err(format!("OP_CALL: Unknown/unimplemented function '{}' with {} arguments", fn_name, arg_count));

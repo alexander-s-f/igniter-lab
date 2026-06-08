@@ -164,6 +164,49 @@ impl Compiler {
         Ok(self.instructions.clone())
     }
 
+    // LAB-RACK-P9: Build a DispatchEntry for a single contract object from a SemanticIR program.
+    // Compiles the contract and extracts input_names (in declaration order) + modifier.
+    // Used by main.rs to populate the VM's dispatch_table for call_contract("Name", ...) support.
+    //
+    // SemanticIR contract structure (from emitter.rs):
+    //   contract_obj["inputs"]   — array of { "name": "...", "type": { ... } }
+    //   contract_obj["modifier"] — "pure" | "effect" | "privileged" | etc.
+    //   contract_obj["nodes"]    — compute nodes (also "compute_nodes" for legacy)
+    pub fn build_dispatch_entry(
+        &mut self,
+        contract_jv: &serde_json::Value,
+        contract_name: &str,
+    ) -> Result<crate::vm::DispatchEntry, String> {
+        // Extract input names from the "inputs" top-level array (SemanticIR structure).
+        // Each input has a "name" field; extract in declaration order.
+        let input_names: Vec<String> = contract_jv
+            .get("inputs")
+            .and_then(|d| d.as_array())
+            .map(|inputs| {
+                inputs.iter()
+                    .filter_map(|inp| inp.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Modifier (for pure-only enforcement at dispatch time)
+        let modifier = contract_jv.get("modifier")
+            .and_then(|m| m.as_str())
+            .unwrap_or("pure")
+            .to_string();
+
+        // Compile bytecode — passes contract object directly (not wrapped in program envelope).
+        // compile_entry handles the case where contract_jv has no "contracts" key (direct contract).
+        let bytecode = self.compile_entry(contract_jv, None)?;
+
+        Ok(crate::vm::DispatchEntry {
+            bytecode,
+            input_names,
+            modifier,
+            contract_name: contract_name.to_string(),
+        })
+    }
+
     fn emit(&mut self, opcode: u8, args: Vec<Value>) -> usize {
         let inst = Instruction::new(opcode, args);
         self.instructions.push(inst);

@@ -438,6 +438,30 @@ async fn main() {
         println!("  ----------------------------------------------------------------------\n");
     }
 
+    // LAB-RACK-P9: Build dispatch table from all contracts in the igapp.
+    // Enables call_contract("ContractName", ...) dispatch at VM runtime.
+    // Each contract is compiled independently into DispatchEntry { bytecode, input_names, modifier }.
+    // Non-fatal: compilation errors for individual contracts are skipped (logged in non-json mode).
+    let mut p9_dispatch_table = std::collections::HashMap::new();
+    if let Some(contracts_arr) = contract_json.get("contracts").and_then(|c| c.as_array()) {
+        for contract_item in contracts_arr {
+            let c_name = contract_item.get("contract_name")
+                .or_else(|| contract_item.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("");
+            if !c_name.is_empty() {
+                match compiler.build_dispatch_entry(contract_item, c_name) {
+                    Ok(entry) => { p9_dispatch_table.insert(c_name.to_string(), entry); }
+                    Err(e) => {
+                        if !json_mode {
+                            eprintln!("  [P9] Note: skipping dispatch entry for '{}': {}", c_name, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 4. Load Inputs and Temporal coordinates
     if !json_mode {
         println!("  {} [*] Loading Inputs from: {}{}", YELLOW, inputs_path, RESET);
@@ -538,6 +562,20 @@ async fn main() {
         .unwrap_or("pure");
     temporal_context.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier)));
 
+    // LAB-RACK-P9: initialize __call_chain__ with the current executing contract name.
+    // Prevents the executing contract from calling itself via call_contract (self-recursion).
+    let p9_root_name: String = if let Some(ref name) = entry_name {
+        name.clone()
+    } else {
+        contract_json.get("contracts")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.get(0))
+            .and_then(|c| c.get("contract_name").and_then(|n| n.as_str()))
+            .unwrap_or("")
+            .to_string()
+    };
+    temporal_context.insert("__call_chain__".to_string(), Value::String(Arc::from(p9_root_name.as_str())));
+
     // 5. Bootstrap temporal database backend
     let backend: Option<Arc<dyn TBackend>> = if let Some(addr) = tbackend_addr {
         if !json_mode {
@@ -587,7 +625,9 @@ async fn main() {
     if !json_mode {
         println!("  {} [*] Launching Stack VM Evaluator loop...{}", YELLOW, RESET);
     }
-    let vm = VM::new(backend);
+    // LAB-RACK-P9: attach pre-built dispatch table for call_contract support.
+    let mut vm = VM::new(backend);
+    vm.dispatch_table = p9_dispatch_table;
 
     let start_time = tokio::time::Instant::now();
     let result = vm.execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants).await;
