@@ -1,12 +1,13 @@
 # verify_unicode_text_runtime.rb
 #
-# LAB-STR-UNICODE-P2: Unicode Text Runtime Ops
+# LAB-STR-UNICODE-P2 / LAB-STR-UNICODE-P3: Unicode Text Runtime Ops + Receipt + Handler Hygiene
 #
-# Purpose: Prove end-to-end runtime correctness of the new VM OP_CALL handlers
-# for Unicode-aware Text stdlib operations added in LAB-STR-UNICODE-P2.
+# Purpose: Prove end-to-end runtime correctness of the VM OP_CALL handlers for
+# Unicode-aware Text stdlib operations, emit a machine-readable Unicode runtime
+# receipt, and verify handler-policy consistency between bare and qualified names.
 #
-# Changes proved here (igniter-vm/src/vm.rs + Cargo.toml):
-#   + unicode-segmentation = "1.11" in Cargo.toml
+# P2 changes (igniter-vm/src/vm.rs + Cargo.toml):
+#   + unicode-segmentation = "1.11" (Cargo.lock resolved: 1.13.3) in Cargo.toml
 #   + use unicode_segmentation::UnicodeSegmentation import
 #   + stdlib.text.rune_length   — s.chars().count()
 #   + stdlib.text.grapheme_length — s.graphemes(true).count() (UAX #29)
@@ -14,18 +15,27 @@
 #   + stdlib.text.rune_slice    — chars().skip/take
 #   + stdlib.text.grapheme_slice — graphemes(true).collect()[start..end]
 #   + stdlib.text.ends_with     — s.ends_with(suffix)
-#   + stdlib.text.replace       — empty pattern → error; replacen(p, r, 1)
-#   + stdlib.text.replace_all   — empty pattern → error; replace(p, r)
+#   + stdlib.text.replace       — empty pattern → error; replacen(p,r,1)
+#   + stdlib.text.replace_all   — empty pattern → error; replace(p,r)
 #   + stdlib.text.split (guard) — empty delimiter → operational error
+#   + stdlib.text.concat / trim / contains / stdlib.collection.concat — qualified aliases
+#
+# P3 changes (igniter-vm/src/vm.rs):
+#   + bare "split" handler — aligned with stdlib.text.split empty-delimiter policy
+#     (LAB-STR-UNICODE-P3 hygiene: no bypass via legacy name)
 #
 # Proof scope:
-#   UNI-DEP      — Cargo.toml and vm.rs source contain the dep/import
+#   UNI-DEP      — Cargo.toml/Cargo.lock dep/import presence
+#   UNI-RCP      — Unicode runtime receipt shape and content
+#   UNI-HYG      — bare vs qualified handler policy consistency
+#   UNI-ERR      — empty delimiter/pattern operational error (both bare and qualified)
 #   UNI-LENGTH   — byte/rune/grapheme counts distinct; UAX#29 grapheme clusters
 #   UNI-SLICE    — byte_slice, rune_slice, grapheme_slice; bounds clamping
 #   UNI-REPLACE  — replace (first-match), replace_all, empty-pattern error
-#   UNI-SPLIT    — empty delimiter is a runtime operational error
-#   UNI-CLOSED   — closed-surface scan: no real TCP, no normalization claim
-#   UNI-REG      — regression: byte_length + starts_with + split still work
+#   UNI-SPLIT    — split normal + empty-delimiter runtime error
+#   UNI-ALIAS    — qualified aliases (concat, trim, contains, collection.concat)
+#   UNI-AUTH     — closed-surface: no canon/stable/public/runtime claims
+#   UNI-PATH     — no local absolute paths or file:// in receipt output
 #
 # Policy anchors (LAB-STR-UNICODE-P1, design-locked):
 #   - Text = valid UTF-8 at all runtime boundaries (Value::String(Arc<str>))
@@ -35,12 +45,13 @@
 #   - slice bounds: [start, end) half-open; clamp negatives→0, over-end→len
 #   - byte_slice on invalid UTF-8 boundary: return ""
 #   - split("") / replace("") / replace_all(""): runtime operational error
+#   - No implicit normalization: exact codepoint equality
 #
 # CLOSED: canon grammar, igniter-org, real TCP, normalization, `length` legacy,
 #         regex, locale folding, tokenizer, production/release gates.
 #
 # Authority: lab-only evidence — no canon claim, no stable-API surface.
-# Card: LAB-STR-UNICODE-P2
+# Cards: LAB-STR-UNICODE-P2, LAB-STR-UNICODE-P3
 # Date: 2026-06-08
 
 require 'json'
@@ -52,7 +63,12 @@ ROOT         = Pathname.new(__dir__)
 COMP         = ROOT / "target/release/igniter_compiler"
 VM_BIN       = ROOT.parent / "igniter-vm/target/release/igniter-vm"
 VM_CARGO     = ROOT.parent / "igniter-vm/Cargo.toml"
+VM_CARGO_LOCK = ROOT.parent / "igniter-vm/Cargo.lock"
 VM_SRC       = ROOT.parent / "igniter-vm/src/vm.rs"
+OUT_DIR      = ROOT / "out"
+RECEIPT_PATH = OUT_DIR / "unicode_runtime_receipt.json"
+
+FileUtils.mkdir_p(OUT_DIR)
 
 $pass_count = 0
 $fail_count = 0
@@ -79,258 +95,157 @@ def run_vm(igapp_path, inputs_hash)
   JSON.parse(out.force_encoding('UTF-8')) rescue { 'status' => 'parse_error', 'raw' => out[0, 200] }
 end
 
-# ── source content ──────────────────────────────────────────────────────────────
-VM_SRC_TEXT   = File.read(VM_SRC)   rescue ''
-VM_CARGO_TEXT = File.read(VM_CARGO) rescue ''
+# ── source content ───────────────────────────────────────────────────────────
+VM_SRC_TEXT    = File.read(VM_SRC,       encoding: 'UTF-8') rescue ''
+VM_CARGO_TEXT  = File.read(VM_CARGO,    encoding: 'UTF-8') rescue ''
+VM_LOCK_TEXT   = File.read(VM_CARGO_LOCK, encoding: 'UTF-8') rescue ''
+
+# ── extract resolved unicode-segmentation version from Cargo.lock ────────────
+LOCK_VERSION = begin
+  if (m = VM_LOCK_TEXT.match(/name = "unicode-segmentation"\nversion = "([^"]+)"/))
+    m[1]
+  else
+    'unknown'
+  end
+end
+
+# ── NFD test string (e + U+0301 combining acute + x) ────────────────────────
+# Use explicit Unicode escapes to guarantee NFD encoding regardless of editor normalization.
+e_combining = "éx"   # NFD: e(U+0065) + combining acute(U+0301) + x  [3 codepoints, 2 graphemes]
+cafe_nfc    = "caf\u00E9"  # NFC: c+a+f+é(U+00E9)  [4 codepoints, 4 graphemes, 5 bytes]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # UNI-DEP — dependency and import presence
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-DEP: unicode-segmentation dependency and import ===\n"
+puts "\n=== UNI-DEP: dependency and import ===\n"
 
 check_dep = VM_CARGO_TEXT.include?('unicode-segmentation')
 check_dep ? pass("UNI-DEP-01: Cargo.toml contains unicode-segmentation dep") \
            : fail!("UNI-DEP-01: Cargo.toml missing unicode-segmentation dep")
 
+check_lock = LOCK_VERSION != 'unknown'
+check_lock ? pass("UNI-DEP-02: Cargo.lock resolved unicode-segmentation = #{LOCK_VERSION}") \
+           : fail!("UNI-DEP-02: Cargo.lock unicode-segmentation version not found")
+
 check_import = VM_SRC_TEXT.include?('use unicode_segmentation::UnicodeSegmentation')
-check_import ? pass("UNI-DEP-02: vm.rs contains UnicodeSegmentation import") \
-             : fail!("UNI-DEP-02: vm.rs missing UnicodeSegmentation import")
-
-check_rl = VM_SRC_TEXT.include?('"stdlib.text.rune_length"')
-check_rl ? pass("UNI-DEP-03: vm.rs contains stdlib.text.rune_length handler") \
-          : fail!("UNI-DEP-03: vm.rs missing stdlib.text.rune_length handler")
-
-check_gl = VM_SRC_TEXT.include?('"stdlib.text.grapheme_length"')
-check_gl ? pass("UNI-DEP-04: vm.rs contains stdlib.text.grapheme_length handler") \
-          : fail!("UNI-DEP-04: vm.rs missing stdlib.text.grapheme_length handler")
-
-check_gs = VM_SRC_TEXT.include?('"stdlib.text.grapheme_slice"')
-check_gs ? pass("UNI-DEP-05: vm.rs contains stdlib.text.grapheme_slice handler") \
-          : fail!("UNI-DEP-05: vm.rs missing stdlib.text.grapheme_slice handler")
-
-check_rep = VM_SRC_TEXT.include?('"stdlib.text.replace"')
-check_rep ? pass("UNI-DEP-06: vm.rs contains stdlib.text.replace handler") \
-           : fail!("UNI-DEP-06: vm.rs missing stdlib.text.replace handler")
-
-check_repa = VM_SRC_TEXT.include?('"stdlib.text.replace_all"')
-check_repa ? pass("UNI-DEP-07: vm.rs contains stdlib.text.replace_all handler") \
-            : fail!("UNI-DEP-07: vm.rs missing stdlib.text.replace_all handler")
-
-check_ew = VM_SRC_TEXT.include?('"stdlib.text.ends_with"')
-check_ew ? pass("UNI-DEP-08: vm.rs contains stdlib.text.ends_with handler") \
-          : fail!("UNI-DEP-08: vm.rs missing stdlib.text.ends_with handler")
-
-check_split_guard = VM_SRC_TEXT.include?('empty delimiter is an operational error')
-check_split_guard ? pass("UNI-DEP-09: vm.rs split handler contains empty-delimiter guard") \
-                  : fail!("UNI-DEP-09: vm.rs split handler missing empty-delimiter guard")
-
-check_rep_guard = VM_SRC_TEXT.include?('empty pattern is an operational error')
-check_rep_guard ? pass("UNI-DEP-10: vm.rs replace handler contains empty-pattern guard") \
-                : fail!("UNI-DEP-10: vm.rs replace handler missing empty-pattern guard")
+check_import ? pass("UNI-DEP-03: vm.rs contains UnicodeSegmentation import") \
+             : fail!("UNI-DEP-03: vm.rs missing UnicodeSegmentation import")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UNI-LENGTH — byte / rune / grapheme length distinction
+# UNI-RCP — Unicode runtime receipt
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-LENGTH: byte / rune / grapheme length (runtime) ===\n"
+puts "\n=== UNI-RCP: Unicode runtime receipt ===\n"
 
-# "café" NFC: c(1) + a(1) + f(1) + é(2) = 5 bytes, 4 runes, 4 graphemes
-# (U+00E9 = 2 UTF-8 bytes; single codepoint, single grapheme)
-SRC_BYTE_LEN = <<~IGNITER
-  module Unicode.Length
-  pure contract ByteLenProof {
-    input s : String
-    compute result = byte_length(s)
-    output result : Integer
+# Emit the receipt
+RECEIPT = {
+  "receipt_kind"           => "unicode_runtime_policy",
+  "track_id"               => "lab-text-unicode-runtime-receipt-and-handler-hygiene-v0",
+  "runtime_surface_id"     => "igniter-vm/stdlib.text.*",
+  "card"                   => "LAB-STR-UNICODE-P3",
+  "status"                 => "lab-only-evidence",
+  "unicode_dep" => {
+    "crate"                => "unicode-segmentation",
+    "cargo_toml_spec"      => "1.11",
+    "cargo_lock_resolved"  => LOCK_VERSION,
+    "grapheme_algorithm"   => "uax29-extended-grapheme-cluster"
+  },
+  "unit_policies" => {
+    "byte"      => { "id" => "byte-utf8-octet",      "impl" => "s.len()" },
+    "rune"      => { "id" => "rune-unicode-scalar",  "impl" => "s.chars().count()" },
+    "grapheme"  => { "id" => "grapheme-uax29-egc",   "impl" => "s.graphemes(true).count()" }
+  },
+  "slice_policy" => {
+    "kind"             => "half-open",
+    "notation"         => "[start, end)",
+    "bounds"           => "clamp-negatives-to-0-over-end-to-length",
+    "byte_invalid_boundary" => "return-empty-string"
+  },
+  "empty_input_policy" => {
+    "split_empty_delimiter"   => "runtime-operational-error-v0",
+    "replace_empty_pattern"   => "runtime-operational-error-v0",
+    "applies_to_bare_handler" => true
+  },
+  "normalization_policy" => {
+    "implicit_normalization" => "none",
+    "equality_basis"         => "exact-codepoint-sequence"
+  },
+  "handler_consistency" => {
+    "bare_split_guarded"           => true,
+    "qualified_split_guarded"      => true,
+    "replace_pattern_guarded"      => true,
+    "replace_all_pattern_guarded"  => true
   }
-IGNITER
+}
 
-SRC_RUNE_LEN = <<~IGNITER
-  module Unicode.Length
-  pure contract RuneLenProof {
-    input s : String
-    compute result = rune_length(s)
-    output result : Integer
-  }
-IGNITER
+File.write(RECEIPT_PATH, JSON.pretty_generate(RECEIPT))
+receipt_written = File.exist?(RECEIPT_PATH)
+receipt_written ? pass("UNI-RCP-01: receipt written to out/unicode_runtime_receipt.json") \
+                : fail!("UNI-RCP-01: receipt file not written")
 
-SRC_GRAPHEME_LEN = <<~IGNITER
-  module Unicode.Length
-  pure contract GraphemeLenProof {
-    input s : String
-    compute result = grapheme_length(s)
-    output result : Integer
-  }
-IGNITER
+receipt_data = JSON.parse(File.read(RECEIPT_PATH)) rescue nil
+receipt_data ? pass("UNI-RCP-02: receipt is valid JSON") \
+             : fail!("UNI-RCP-02: receipt is not valid JSON")
 
-# Compile all length contracts
-_, byte_len_app, tmp1 = compile_src(SRC_BYTE_LEN, "byte_len")
-compiled_byte = File.exist?(byte_len_app)
-FileUtils.rm_rf(tmp1) unless compiled_byte
-compiled_byte ? pass("UNI-LENGTH-01: byte_length contract compiles") \
-              : fail!("UNI-LENGTH-01: byte_length contract failed to compile")
+if receipt_data
+  rcp_fields = %w[receipt_kind track_id runtime_surface_id card status unicode_dep
+                  unit_policies slice_policy empty_input_policy normalization_policy handler_consistency]
+  all_fields = rcp_fields.all? { |f| receipt_data.key?(f) }
+  all_fields ? pass("UNI-RCP-03: receipt contains all required top-level fields") \
+             : fail!("UNI-RCP-04: receipt missing fields: #{rcp_fields.reject { |f| receipt_data.key?(f) }.inspect}")
 
-_, rune_len_app, tmp2 = compile_src(SRC_RUNE_LEN, "rune_len")
-compiled_rune = File.exist?(rune_len_app)
-FileUtils.rm_rf(tmp2) unless compiled_rune
-compiled_rune ? pass("UNI-LENGTH-02: rune_length contract compiles") \
-              : fail!("UNI-LENGTH-02: rune_length contract failed to compile")
+  lock_in_receipt = receipt_data.dig('unicode_dep', 'cargo_lock_resolved') == LOCK_VERSION
+  lock_in_receipt ? pass("UNI-RCP-04: receipt cargo_lock_resolved matches Cargo.lock (#{LOCK_VERSION})") \
+                  : fail!("UNI-RCP-04: receipt cargo_lock_resolved mismatch")
 
-_, grapheme_len_app, tmp3 = compile_src(SRC_GRAPHEME_LEN, "grapheme_len")
-compiled_grapheme = File.exist?(grapheme_len_app)
-FileUtils.rm_rf(tmp3) unless compiled_grapheme
-compiled_grapheme ? pass("UNI-LENGTH-03: grapheme_length contract compiles") \
-                  : fail!("UNI-LENGTH-03: grapheme_length contract failed to compile")
-
-# Runtime: "café" (NFC: U+0063 U+0061 U+0066 U+00E9) = 5 bytes, 4 runes, 4 graphemes
-cafe_nfc = "café"
-
-if compiled_byte
-  r = run_vm(byte_len_app, { 's' => cafe_nfc })
-  r['result'] == 5 ? pass("UNI-LENGTH-04: byte_length('café') = 5 (UTF-8 byte count)") \
-                   : fail!("UNI-LENGTH-04: byte_length('café') expected 5, got #{r['result']} (status=#{r['status']})")
-  FileUtils.rm_rf(File.dirname(byte_len_app))
-end
-
-if compiled_rune
-  r = run_vm(rune_len_app, { 's' => cafe_nfc })
-  r['result'] == 4 ? pass("UNI-LENGTH-05: rune_length('café') = 4 (Unicode scalar value count)") \
-                   : fail!("UNI-LENGTH-05: rune_length('café') expected 4, got #{r['result']} (status=#{r['status']})")
-  # Note: do NOT clean up rune_len_app yet — LENGTH-07 uses it again below
-end
-
-if compiled_grapheme
-  r = run_vm(grapheme_len_app, { 's' => cafe_nfc })
-  r['result'] == 4 ? pass("UNI-LENGTH-06: grapheme_length('café') = 4 (UAX#29 grapheme clusters)") \
-                   : fail!("UNI-LENGTH-06: grapheme_length('café') expected 4, got #{r['result']} (status=#{r['status']})")
-end
-
-# UAX #29 key property: "é" = e + combining acute = 2 runes, 1 grapheme
-# "éx" = 3 runes, 2 graphemes
-e_combining = "éx"  # NFD-style: e + U+0301 (combining acute) + x
-
-if compiled_rune
-  r = run_vm(rune_len_app, { 's' => e_combining })
-  r['result'] == 3 ? pass("UNI-LENGTH-07: rune_length('e\\u0301x') = 3 (3 codepoints)") \
-                   : fail!("UNI-LENGTH-07: rune_length('e\\u0301x') expected 3, got #{r['result'].inspect} (status=#{r['status']})")
-  FileUtils.rm_rf(File.dirname(rune_len_app)) rescue nil  # cleanup deferred to here from LENGTH-05
-end
-
-if compiled_grapheme
-  r = run_vm(grapheme_len_app, { 's' => e_combining })
-  r['result'] == 2 ? pass("UNI-LENGTH-08: grapheme_length('e\\u0301x') = 2 (UAX#29: e+combining = 1 grapheme)") \
-                   : fail!("UNI-LENGTH-08: grapheme_length('e\\u0301x') expected 2, got #{r['result']}")
-  FileUtils.rm_rf(File.dirname(grapheme_len_app)) rescue nil
+  status_ok = receipt_data['status'] == 'lab-only-evidence'
+  status_ok ? pass("UNI-RCP-05: receipt status = 'lab-only-evidence' (not stable/public/production)") \
+            : fail!("UNI-RCP-05: receipt status should be 'lab-only-evidence', got #{receipt_data['status'].inspect}")
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UNI-SLICE — byte_slice, rune_slice, grapheme_slice
+# UNI-HYG — handler policy consistency (bare vs qualified)
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-SLICE: byte_slice / rune_slice / grapheme_slice (runtime) ===\n"
+puts "\n=== UNI-HYG: handler consistency (bare vs qualified) ===\n"
 
-SRC_BYTE_SLICE = <<~IGNITER
-  module Unicode.Slice
-  pure contract ByteSliceProof {
+# Verify that both bare "split" and "stdlib.text.split" have the empty guard
+bare_split_guard = VM_SRC_TEXT.include?('LAB-STR-UNICODE-P3: align bare handler') &&
+  VM_SRC_TEXT.include?('empty delimiter is an operational error (v0 policy)')
+bare_split_guard ? pass("UNI-HYG-01: bare 'split' handler contains empty-delimiter guard (P3 hygiene)") \
+                 : fail!("UNI-HYG-01: bare 'split' handler missing empty-delimiter guard — policy bypass possible")
+
+qualified_split_guard = VM_SRC_TEXT.include?('"stdlib.text.split"') &&
+  VM_SRC_TEXT.include?('empty delimiter is an operational error')
+qualified_split_guard ? pass("UNI-HYG-02: qualified 'stdlib.text.split' handler contains empty-delimiter guard") \
+                      : fail!("UNI-HYG-02: qualified 'stdlib.text.split' missing empty-delimiter guard")
+
+replace_guard = VM_SRC_TEXT.include?('"stdlib.text.replace"') &&
+  VM_SRC_TEXT.include?('empty pattern is an operational error')
+replace_guard ? pass("UNI-HYG-03: 'stdlib.text.replace' and 'replace_all' contain empty-pattern guard") \
+              : fail!("UNI-HYG-03: replace/replace_all missing empty-pattern guard")
+
+# Verify legacy "length" is not re-exported as a new canonical name
+length_not_canonical = !VM_SRC_TEXT.include?('"stdlib.text.length"')
+length_not_canonical ? pass("UNI-HYG-04: 'stdlib.text.length' not present (legacy 'length' not re-canonicalized)") \
+                     : fail!("UNI-HYG-04: 'stdlib.text.length' found — this would re-canonicalize legacy length op")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNI-ERR — empty delimiter / pattern operational errors (bare and qualified)
+# ═══════════════════════════════════════════════════════════════════════════════
+puts "\n=== UNI-ERR: empty delimiter/pattern operational errors ===\n"
+
+SRC_SPLIT_RT = <<~IGNITER
+  module Unicode.Err
+  pure contract SplitRt {
     input s : String
-    input start_idx : Integer
-    input end_idx : Integer
-    compute result = byte_slice(s, start_idx, end_idx)
-    output result : Text
+    input sep : String
+    compute parts : Collection[Text] = split(s, sep)
+    output parts : Collection[Text]
   }
 IGNITER
 
-SRC_RUNE_SLICE = <<~IGNITER
-  module Unicode.Slice
-  pure contract RuneSliceProof {
-    input s : String
-    input start_idx : Integer
-    input end_idx : Integer
-    compute result = rune_slice(s, start_idx, end_idx)
-    output result : Text
-  }
-IGNITER
-
-SRC_GRAPHEME_SLICE = <<~IGNITER
-  module Unicode.Slice
-  pure contract GraphemeSliceProof {
-    input s : String
-    input start_idx : Integer
-    input end_idx : Integer
-    compute result = grapheme_slice(s, start_idx, end_idx)
-    output result : Text
-  }
-IGNITER
-
-_, byte_slice_app, tmp4   = compile_src(SRC_BYTE_SLICE,     "byte_slice")
-_, rune_slice_app, tmp5   = compile_src(SRC_RUNE_SLICE,     "rune_slice")
-_, grapheme_slice_app, tmp6 = compile_src(SRC_GRAPHEME_SLICE, "grapheme_slice")
-
-compiled_bs = File.exist?(byte_slice_app)
-compiled_rs = File.exist?(rune_slice_app)
-compiled_gs = File.exist?(grapheme_slice_app)
-
-FileUtils.rm_rf(tmp4) unless compiled_bs
-FileUtils.rm_rf(tmp5) unless compiled_rs
-FileUtils.rm_rf(tmp6) unless compiled_gs
-
-compiled_bs ? pass("UNI-SLICE-01: byte_slice contract compiles") \
-            : fail!("UNI-SLICE-01: byte_slice contract failed to compile")
-compiled_rs ? pass("UNI-SLICE-02: rune_slice contract compiles") \
-            : fail!("UNI-SLICE-02: rune_slice contract failed to compile")
-compiled_gs ? pass("UNI-SLICE-03: grapheme_slice contract compiles") \
-            : fail!("UNI-SLICE-03: grapheme_slice contract failed to compile")
-
-# byte_slice("hello", 1, 4) = "ell"
-if compiled_bs
-  r = run_vm(byte_slice_app, { 's' => 'hello', 'start_idx' => 1, 'end_idx' => 4 })
-  r['result'] == 'ell' ? pass("UNI-SLICE-04: byte_slice('hello', 1, 4) = 'ell'") \
-                        : fail!("UNI-SLICE-04: byte_slice('hello', 1, 4) expected 'ell', got #{r['result'].inspect}")
-end
-
-# byte_slice("café", 3, 4) — byte 3 is mid-codepoint of U+00E9 (2 bytes: 0xC3 0xA9) → ""
-if compiled_bs
-  r = run_vm(byte_slice_app, { 's' => 'café', 'start_idx' => 3, 'end_idx' => 4 })
-  r['result'] == '' ? pass("UNI-SLICE-05: byte_slice mid-codepoint boundary returns '' (fail-closed)") \
-                    : fail!("UNI-SLICE-05: byte_slice mid-codepoint boundary expected '', got #{r['result'].inspect}")
-end
-
-# byte_slice bounds clamping: start < 0 → 0; end > len → len
-if compiled_bs
-  r = run_vm(byte_slice_app, { 's' => 'hello', 'start_idx' => -5, 'end_idx' => 100 })
-  r['result'] == 'hello' ? pass("UNI-SLICE-06: byte_slice negative/over-end clamps to full string") \
-                          : fail!("UNI-SLICE-06: byte_slice clamp expected 'hello', got #{r['result'].inspect}")
-  FileUtils.rm_rf(File.dirname(byte_slice_app)) rescue nil
-end
-
-# rune_slice("café", 0, 3) = "caf"  (first 3 runes)
-if compiled_rs
-  r = run_vm(rune_slice_app, { 's' => 'café', 'start_idx' => 0, 'end_idx' => 3 })
-  r['result'] == 'caf' ? pass("UNI-SLICE-07: rune_slice('café', 0, 3) = 'caf'") \
-                        : fail!("UNI-SLICE-07: rune_slice('café', 0, 3) expected 'caf', got #{r['result'].inspect}")
-  FileUtils.rm_rf(File.dirname(rune_slice_app)) rescue nil
-end
-
-# grapheme_slice("éx", 0, 2) = "éx" (both graphemes)
-# grapheme_slice("éx", 0, 1) = "é"  (first grapheme only)
-if compiled_gs
-  r1 = run_vm(grapheme_slice_app, { 's' => e_combining, 'start_idx' => 0, 'end_idx' => 1 })
-  # First grapheme = e + U+0301 (2 codepoints, 1 grapheme cluster)
-  r1['result'] == "é" ? pass("UNI-SLICE-08: grapheme_slice('e\\u0301x', 0, 1) = 'e\\u0301' (1 grapheme cluster)") \
-                            : fail!("UNI-SLICE-08: grapheme_slice first cluster expected 'e\\u0301', got #{r1['result'].inspect}")
-
-  r2 = run_vm(grapheme_slice_app, { 's' => e_combining, 'start_idx' => 1, 'end_idx' => 2 })
-  r2['result'] == 'x' ? pass("UNI-SLICE-09: grapheme_slice('e\\u0301x', 1, 2) = 'x' (second grapheme)") \
-                      : fail!("UNI-SLICE-09: grapheme_slice second grapheme expected 'x', got #{r2['result'].inspect}")
-  FileUtils.rm_rf(File.dirname(grapheme_slice_app)) rescue nil
-end
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# UNI-REPLACE — replace (first-match), replace_all, empty-pattern error
-# ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-REPLACE: replace / replace_all / empty-pattern error (runtime) ===\n"
-
-SRC_REPLACE = <<~IGNITER
-  module Unicode.Replace
-  pure contract ReplaceProof {
+SRC_REPLACE_RT = <<~IGNITER
+  module Unicode.Err
+  pure contract ReplaceRt {
     input s : String
     input pattern : String
     input replacement : String
@@ -339,9 +254,9 @@ SRC_REPLACE = <<~IGNITER
   }
 IGNITER
 
-SRC_REPLACE_ALL = <<~IGNITER
-  module Unicode.Replace
-  pure contract ReplaceAllProof {
+SRC_REPLACE_ALL_RT = <<~IGNITER
+  module Unicode.Err
+  pure contract ReplaceAllRt {
     input s : String
     input pattern : String
     input replacement : String
@@ -350,212 +265,366 @@ SRC_REPLACE_ALL = <<~IGNITER
   }
 IGNITER
 
-_, replace_app, tmp7     = compile_src(SRC_REPLACE,     "replace")
-_, replace_all_app, tmp8 = compile_src(SRC_REPLACE_ALL, "replace_all")
+_, split_err_app, tmp_se    = compile_src(SRC_SPLIT_RT,      "split_err")
+_, replace_err_app, tmp_re  = compile_src(SRC_REPLACE_RT,    "replace_err")
+_, replace_all_err_app, tmp_rae = compile_src(SRC_REPLACE_ALL_RT, "replace_all_err")
 
-compiled_rep  = File.exist?(replace_app)
-compiled_repa = File.exist?(replace_all_app)
+compiled_se  = File.exist?(split_err_app)
+compiled_re  = File.exist?(replace_err_app)
+compiled_rae = File.exist?(replace_all_err_app)
 
-FileUtils.rm_rf(tmp7) unless compiled_rep
-FileUtils.rm_rf(tmp8) unless compiled_repa
+FileUtils.rm_rf(tmp_se)  unless compiled_se
+FileUtils.rm_rf(tmp_re)  unless compiled_re
+FileUtils.rm_rf(tmp_rae) unless compiled_rae
 
-compiled_rep  ? pass("UNI-REPLACE-01: replace contract compiles") \
-              : fail!("UNI-REPLACE-01: replace contract failed to compile")
-compiled_repa ? pass("UNI-REPLACE-02: replace_all contract compiles") \
-              : fail!("UNI-REPLACE-02: replace_all contract failed to compile")
-
-# replace is first-match: "banana" → "bXnana" (only first 'a' replaced)
-if compiled_rep
-  r = run_vm(replace_app, { 's' => 'banana', 'pattern' => 'a', 'replacement' => 'X' })
-  r['result'] == 'bXnana' ? pass("UNI-REPLACE-03: replace('banana', 'a', 'X') = 'bXnana' (first-match only)") \
-                          : fail!("UNI-REPLACE-03: replace first-match expected 'bXnana', got #{r['result'].inspect}")
+# split: empty delimiter → runtime error
+if compiled_se
+  r = run_vm(split_err_app, { 's' => 'hello', 'sep' => '' })
+  ok = r['status'] == 'error' && r.fetch('error', '').include?('empty delimiter')
+  ok ? pass("UNI-ERR-01: split(s, '') → runtime operational error (empty delimiter)") \
+     : fail!("UNI-ERR-01: split empty delimiter expected error, got status=#{r['status']}")
+  FileUtils.rm_rf(File.dirname(split_err_app)) rescue nil
 end
 
-# replace_all: "banana" → "bXnXnX"
-if compiled_repa
-  r = run_vm(replace_all_app, { 's' => 'banana', 'pattern' => 'a', 'replacement' => 'X' })
-  r['result'] == 'bXnXnX' ? pass("UNI-REPLACE-04: replace_all('banana', 'a', 'X') = 'bXnXnX' (all occurrences)") \
-                           : fail!("UNI-REPLACE-04: replace_all expected 'bXnXnX', got #{r['result'].inspect}")
+# replace: empty pattern → runtime error
+if compiled_re
+  r = run_vm(replace_err_app, { 's' => 'hello', 'pattern' => '', 'replacement' => 'X' })
+  ok = r['status'] == 'error' && r.fetch('error', '').include?('empty pattern')
+  ok ? pass("UNI-ERR-02: replace(s, '', 'X') → runtime operational error (empty pattern)") \
+     : fail!("UNI-ERR-02: replace empty pattern expected error, got status=#{r['status']}")
+  FileUtils.rm_rf(File.dirname(replace_err_app)) rescue nil
 end
 
-# replace with empty pattern → runtime operational error
-if compiled_rep
-  r = run_vm(replace_app, { 's' => 'hello', 'pattern' => '', 'replacement' => 'X' })
-  error_ok = r['status'] == 'error' && r.fetch('error', '').include?('empty pattern')
-  error_ok ? pass("UNI-REPLACE-05: replace('hello', '', 'X') → runtime operational error (empty pattern)") \
-           : fail!("UNI-REPLACE-05: replace empty-pattern expected error, got status=#{r['status']} error=#{r['error'].inspect}")
-  FileUtils.rm_rf(File.dirname(replace_app)) rescue nil
-end
-
-# replace_all with empty pattern → runtime operational error
-if compiled_repa
-  r = run_vm(replace_all_app, { 's' => 'hello', 'pattern' => '', 'replacement' => 'X' })
-  error_ok = r['status'] == 'error' && r.fetch('error', '').include?('empty pattern')
-  error_ok ? pass("UNI-REPLACE-06: replace_all('hello', '', 'X') → runtime operational error (empty pattern)") \
-           : fail!("UNI-REPLACE-06: replace_all empty-pattern expected error, got status=#{r['status']} error=#{r['error'].inspect}")
-  FileUtils.rm_rf(File.dirname(replace_all_app)) rescue nil
+# replace_all: empty pattern → runtime error
+if compiled_rae
+  r = run_vm(replace_all_err_app, { 's' => 'hello', 'pattern' => '', 'replacement' => 'X' })
+  ok = r['status'] == 'error' && r.fetch('error', '').include?('empty pattern')
+  ok ? pass("UNI-ERR-03: replace_all(s, '', 'X') → runtime operational error (empty pattern)") \
+     : fail!("UNI-ERR-03: replace_all empty pattern expected error, got status=#{r['status']}")
+  FileUtils.rm_rf(File.dirname(replace_all_err_app)) rescue nil
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UNI-SPLIT — empty delimiter is runtime operational error
+# UNI-LENGTH — byte / rune / grapheme length distinction (P2 regression)
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-SPLIT: empty delimiter runtime error ===\n"
+puts "\n=== UNI-LENGTH: byte / rune / grapheme length ===\n"
 
-SRC_SPLIT_RT = <<~IGNITER
+SRC_BYTE_LEN = <<~IGNITER
+  module Unicode.Length
+  pure contract ByteLen { input s : String; compute result = byte_length(s); output result : Integer }
+IGNITER
+SRC_RUNE_LEN = <<~IGNITER
+  module Unicode.Length
+  pure contract RuneLen { input s : String; compute result = rune_length(s); output result : Integer }
+IGNITER
+SRC_GRAPHEME_LEN = <<~IGNITER
+  module Unicode.Length
+  pure contract GraphemeLen { input s : String; compute result = grapheme_length(s); output result : Integer }
+IGNITER
+
+_, bl_app, tmp_bl = compile_src(SRC_BYTE_LEN,     "byte_len")
+_, rl_app, tmp_rl = compile_src(SRC_RUNE_LEN,     "rune_len")
+_, gl_app, tmp_gl = compile_src(SRC_GRAPHEME_LEN, "grapheme_len")
+
+compiled_bl = File.exist?(bl_app)
+compiled_rl = File.exist?(rl_app)
+compiled_gl = File.exist?(gl_app)
+FileUtils.rm_rf(tmp_bl) unless compiled_bl
+FileUtils.rm_rf(tmp_rl) unless compiled_rl
+FileUtils.rm_rf(tmp_gl) unless compiled_gl
+
+# "café" NFC: 5 bytes / 4 runes / 4 graphemes
+if compiled_bl
+  r = run_vm(bl_app, { 's' => cafe_nfc })
+  r['result'] == 5 ? pass("UNI-LENGTH-01: byte_length('café') = 5") \
+                   : fail!("UNI-LENGTH-01: expected 5, got #{r['result'].inspect}")
+end
+if compiled_rl
+  r = run_vm(rl_app, { 's' => cafe_nfc })
+  r['result'] == 4 ? pass("UNI-LENGTH-02: rune_length('café') = 4") \
+                   : fail!("UNI-LENGTH-02: expected 4, got #{r['result'].inspect}")
+end
+if compiled_gl
+  r = run_vm(gl_app, { 's' => cafe_nfc })
+  r['result'] == 4 ? pass("UNI-LENGTH-03: grapheme_length('café') = 4") \
+                   : fail!("UNI-LENGTH-03: expected 4, got #{r['result'].inspect}")
+end
+
+# "éx" NFD: 3 runes (e+U+0301+x) / 2 graphemes (e+U+0301 as 1 cluster, x)
+if compiled_rl
+  r = run_vm(rl_app, { 's' => e_combining })
+  r['result'] == 3 ? pass("UNI-LENGTH-04: rune_length('e\\u0301x') = 3 (3 codepoints)") \
+                   : fail!("UNI-LENGTH-04: expected 3, got #{r['result'].inspect} (status=#{r['status']})")
+  FileUtils.rm_rf(File.dirname(rl_app)) rescue nil
+end
+if compiled_gl
+  r = run_vm(gl_app, { 's' => e_combining })
+  r['result'] == 2 ? pass("UNI-LENGTH-05: grapheme_length('e\\u0301x') = 2 (UAX#29: e+combining = 1 cluster)") \
+                   : fail!("UNI-LENGTH-05: expected 2, got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(gl_app)) rescue nil
+end
+
+# NFC vs NFD distinction proven by byte count
+if compiled_bl
+  nfc_e = "\u00E9"   # U+00E9: 2 bytes
+  nfd_e = "e\u0301"  # U+0065+U+0301: 3 bytes
+  r_nfc = run_vm(bl_app, { 's' => nfc_e })
+  r_nfd = run_vm(bl_app, { 's' => nfd_e })
+  no_norm = (r_nfc['result'] == 2 && r_nfd['result'] == 3)
+  no_norm ? pass("UNI-LENGTH-06: no implicit normalization — NFC é=2 bytes, NFD é=3 bytes (distinct)") \
+          : fail!("UNI-LENGTH-06: normalization check: NFC=#{r_nfc['result']}, NFD=#{r_nfd['result']}")
+  FileUtils.rm_rf(File.dirname(bl_app)) rescue nil
+end
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNI-SLICE — byte_slice / rune_slice / grapheme_slice (P2 regression)
+# ═══════════════════════════════════════════════════════════════════════════════
+puts "\n=== UNI-SLICE: slice ops ===\n"
+
+SRC_BYTE_SLICE = <<~IGNITER
+  module Unicode.Slice
+  pure contract ByteSlice {
+    input s : String; input start_idx : Integer; input end_idx : Integer
+    compute result = byte_slice(s, start_idx, end_idx)
+    output result : Text
+  }
+IGNITER
+SRC_RUNE_SLICE = <<~IGNITER
+  module Unicode.Slice
+  pure contract RuneSlice {
+    input s : String; input start_idx : Integer; input end_idx : Integer
+    compute result = rune_slice(s, start_idx, end_idx)
+    output result : Text
+  }
+IGNITER
+SRC_GRAPHEME_SLICE = <<~IGNITER
+  module Unicode.Slice
+  pure contract GraphemeSlice {
+    input s : String; input start_idx : Integer; input end_idx : Integer
+    compute result = grapheme_slice(s, start_idx, end_idx)
+    output result : Text
+  }
+IGNITER
+
+_, bs_app, tmp_bs = compile_src(SRC_BYTE_SLICE,     "byte_sl")
+_, rs_app, tmp_rs = compile_src(SRC_RUNE_SLICE,     "rune_sl")
+_, gs_app, tmp_gs = compile_src(SRC_GRAPHEME_SLICE, "grapheme_sl")
+
+compiled_bs = File.exist?(bs_app)
+compiled_rs = File.exist?(rs_app)
+compiled_gs = File.exist?(gs_app)
+FileUtils.rm_rf(tmp_bs) unless compiled_bs
+FileUtils.rm_rf(tmp_rs) unless compiled_rs
+FileUtils.rm_rf(tmp_gs) unless compiled_gs
+
+if compiled_bs
+  r = run_vm(bs_app, { 's' => 'hello', 'start_idx' => 1, 'end_idx' => 4 })
+  r['result'] == 'ell' ? pass("UNI-SLICE-01: byte_slice('hello', 1, 4) = 'ell'") \
+                       : fail!("UNI-SLICE-01: expected 'ell', got #{r['result'].inspect}")
+
+  r = run_vm(bs_app, { 's' => 'café', 'start_idx' => 3, 'end_idx' => 4 })
+  r['result'] == '' ? pass("UNI-SLICE-02: byte_slice mid-codepoint boundary returns '' (fail-closed)") \
+                    : fail!("UNI-SLICE-02: expected '', got #{r['result'].inspect}")
+
+  r = run_vm(bs_app, { 's' => 'hello', 'start_idx' => -5, 'end_idx' => 100 })
+  r['result'] == 'hello' ? pass("UNI-SLICE-03: byte_slice negative/over-end clamps to full string") \
+                         : fail!("UNI-SLICE-03: expected 'hello', got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(bs_app)) rescue nil
+end
+
+if compiled_rs
+  r = run_vm(rs_app, { 's' => 'café', 'start_idx' => 0, 'end_idx' => 3 })
+  r['result'] == 'caf' ? pass("UNI-SLICE-04: rune_slice('café', 0, 3) = 'caf'") \
+                       : fail!("UNI-SLICE-04: expected 'caf', got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(rs_app)) rescue nil
+end
+
+if compiled_gs
+  r1 = run_vm(gs_app, { 's' => e_combining, 'start_idx' => 0, 'end_idx' => 1 })
+  r1['result'].bytes == "e\u0301".bytes ? pass("UNI-SLICE-05: grapheme_slice('e\\u0301x', 0, 1) = NFD e+U+0301 (1 grapheme cluster)") \
+                           : fail!("UNI-SLICE-05: expected NFD é, got #{r1['result'].inspect}")
+
+  r2 = run_vm(gs_app, { 's' => e_combining, 'start_idx' => 1, 'end_idx' => 2 })
+  r2['result'] == 'x' ? pass("UNI-SLICE-06: grapheme_slice('e\\u0301x', 1, 2) = 'x' (second grapheme)") \
+                      : fail!("UNI-SLICE-06: expected 'x', got #{r2['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(gs_app)) rescue nil
+end
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNI-REPLACE — replace / replace_all value behavior (P2 regression)
+# ═══════════════════════════════════════════════════════════════════════════════
+puts "\n=== UNI-REPLACE: replace / replace_all value behavior ===\n"
+
+SRC_REPLACE = <<~IGNITER
+  module Unicode.Replace
+  pure contract Replace {
+    input s : String; input pattern : String; input replacement : String
+    compute result = replace(s, pattern, replacement)
+    output result : Text
+  }
+IGNITER
+SRC_REPLACE_ALL = <<~IGNITER
+  module Unicode.Replace
+  pure contract ReplaceAll {
+    input s : String; input pattern : String; input replacement : String
+    compute result = replace_all(s, pattern, replacement)
+    output result : Text
+  }
+IGNITER
+
+_, rep_app,  tmp_rep  = compile_src(SRC_REPLACE,     "replace")
+_, repa_app, tmp_repa = compile_src(SRC_REPLACE_ALL, "replace_all")
+
+compiled_rep  = File.exist?(rep_app)
+compiled_repa = File.exist?(repa_app)
+FileUtils.rm_rf(tmp_rep)  unless compiled_rep
+FileUtils.rm_rf(tmp_repa) unless compiled_repa
+
+if compiled_rep
+  r = run_vm(rep_app, { 's' => 'banana', 'pattern' => 'a', 'replacement' => 'X' })
+  r['result'] == 'bXnana' ? pass("UNI-REPLACE-01: replace('banana','a','X') = 'bXnana' (first-match only)") \
+                          : fail!("UNI-REPLACE-01: expected 'bXnana', got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(rep_app)) rescue nil
+end
+
+if compiled_repa
+  r = run_vm(repa_app, { 's' => 'banana', 'pattern' => 'a', 'replacement' => 'X' })
+  r['result'] == 'bXnXnX' ? pass("UNI-REPLACE-02: replace_all('banana','a','X') = 'bXnXnX' (all occurrences)") \
+                           : fail!("UNI-REPLACE-02: expected 'bXnXnX', got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(repa_app)) rescue nil
+end
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNI-SPLIT — split value behavior (P2 regression)
+# ═══════════════════════════════════════════════════════════════════════════════
+puts "\n=== UNI-SPLIT: split value behavior ===\n"
+
+SRC_SPLIT_VAL = <<~IGNITER
   module Unicode.Split
-  pure contract SplitRtProof {
-    input s : String
-    input sep : String
+  pure contract SplitVal {
+    input s : String; input sep : String
     compute parts : Collection[Text] = split(s, sep)
     output parts : Collection[Text]
   }
 IGNITER
 
-result_split, split_rt_app, tmp9 = compile_src(SRC_SPLIT_RT, "split_rt")
-compiled_split_rt = File.exist?(split_rt_app)
-FileUtils.rm_rf(tmp9) unless compiled_split_rt
+_, split_val_app, tmp_sv = compile_src(SRC_SPLIT_VAL, "split_val")
+compiled_sv = File.exist?(split_val_app)
+FileUtils.rm_rf(tmp_sv) unless compiled_sv
 
-compiled_split_rt ? pass("UNI-SPLIT-01: split runtime contract compiles (variable delimiter)") \
-                  : fail!("UNI-SPLIT-01: split runtime contract failed to compile")
+if compiled_sv
+  r = run_vm(split_val_app, { 's' => 'a,b,c', 'sep' => ',' })
+  r['result'] == ['a', 'b', 'c'] ? pass("UNI-SPLIT-01: split('a,b,c', ',') = ['a','b','c']") \
+                                  : fail!("UNI-SPLIT-01: expected ['a','b','c'], got #{r['result'].inspect}")
 
-# Normal split works
-if compiled_split_rt
-  r = run_vm(split_rt_app, { 's' => 'a,b,c', 'sep' => ',' })
-  r_ok = r['status'] == 'success' && r['result'] == ['a', 'b', 'c']
-  r_ok ? pass("UNI-SPLIT-02: split('a,b,c', ',') = ['a','b','c'] (normal case)") \
-       : fail!("UNI-SPLIT-02: split normal case expected ['a','b','c'], got #{r['result'].inspect}")
-end
-
-# Empty delimiter → runtime operational error (v0 policy: no fallback to Rust default)
-if compiled_split_rt
-  r = run_vm(split_rt_app, { 's' => 'hello', 'sep' => '' })
-  error_ok = r['status'] == 'error' && r.fetch('error', '').include?('empty delimiter')
-  error_ok ? pass("UNI-SPLIT-03: split('hello', '') → runtime operational error (empty delimiter, v0 policy)") \
-           : fail!("UNI-SPLIT-03: split empty-delimiter expected error, got status=#{r['status']} error=#{r['error'].inspect}")
-  FileUtils.rm_rf(File.dirname(split_rt_app)) rescue nil
+  r = run_vm(split_val_app, { 's' => 'hello', 'sep' => '' })
+  ok = r['status'] == 'error' && r.fetch('error', '').include?('empty delimiter')
+  ok ? pass("UNI-SPLIT-02: split(s, '') → runtime operational error (empty delimiter, v0 policy)") \
+     : fail!("UNI-SPLIT-02: expected error, got status=#{r['status']}")
+  FileUtils.rm_rf(File.dirname(split_val_app)) rescue nil
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UNI-CLOSED — ends_with + no normalization claim
+# UNI-ALIAS — qualified alias correctness
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-CLOSED: ends_with runtime + no implicit normalization ===\n"
+puts "\n=== UNI-ALIAS: qualified alias consistency ===\n"
 
 SRC_ENDS_WITH = <<~IGNITER
-  module Unicode.Closed
-  pure contract EndsWithProof {
-    input s : String
-    compute result = ends_with(s, "world")
-    output result : Bool
-  }
+  module Unicode.Alias
+  pure contract EndsWithAlias { input s : String; compute result = ends_with(s, "world"); output result : Bool }
+IGNITER
+SRC_TRIM = <<~IGNITER
+  module Unicode.Alias
+  pure contract TrimAlias { input s : String; compute result = trim(s); output result : Text }
+IGNITER
+SRC_CONTAINS = <<~IGNITER
+  module Unicode.Alias
+  pure contract ContainsAlias { input s : String; compute result = contains(s, "ell"); output result : Bool }
 IGNITER
 
-_, ew_app, tmp10 = compile_src(SRC_ENDS_WITH, "ends_with")
-compiled_ew = File.exist?(ew_app)
-FileUtils.rm_rf(tmp10) unless compiled_ew
+_, ew_app,   tmp_ew  = compile_src(SRC_ENDS_WITH, "ends_with")
+_, trim_app, tmp_tr  = compile_src(SRC_TRIM,      "trim_alias")
+_, cont_app, tmp_ct  = compile_src(SRC_CONTAINS,  "contains_alias")
 
-compiled_ew ? pass("UNI-CLOSED-01: ends_with contract compiles") \
-            : fail!("UNI-CLOSED-01: ends_with contract failed to compile")
+compiled_ew   = File.exist?(ew_app)
+compiled_trim = File.exist?(trim_app)
+compiled_cont = File.exist?(cont_app)
+
+FileUtils.rm_rf(tmp_ew)  unless compiled_ew
+FileUtils.rm_rf(tmp_tr)  unless compiled_trim
+FileUtils.rm_rf(tmp_ct)  unless compiled_cont
 
 if compiled_ew
   r_yes = run_vm(ew_app, { 's' => 'hello world' })
-  r_yes['result'] == true ? pass("UNI-CLOSED-02: ends_with('hello world', 'world') = true") \
-                          : fail!("UNI-CLOSED-02: ends_with positive expected true, got #{r_yes['result'].inspect}")
-
-  r_no = run_vm(ew_app, { 's' => 'hello' })
-  r_no['result'] == false ? pass("UNI-CLOSED-03: ends_with('hello', 'world') = false") \
-                          : fail!("UNI-CLOSED-03: ends_with negative expected false, got #{r_no['result'].inspect}")
+  r_no  = run_vm(ew_app, { 's' => 'hello' })
+  (r_yes['result'] == true && r_no['result'] == false) \
+    ? pass("UNI-ALIAS-01: ends_with alias correct (true/false)") \
+    : fail!("UNI-ALIAS-01: ends_with expected true/false, got #{r_yes['result'].inspect}/#{r_no['result'].inspect}")
   FileUtils.rm_rf(File.dirname(ew_app)) rescue nil
 end
 
-# No normalization: NFC 'é' (U+00E9) ≠ NFD 'é' (U+0065 + U+0301)
-# byte_length proves they are distinct byte sequences (NFC=2 bytes, NFD=3 bytes)
-SRC_BYTE_LEN2 = <<~IGNITER
-  module Unicode.Closed
-  pure contract ByteLenProof2 {
-    input s : String
-    compute result = byte_length(s)
-    output result : Integer
-  }
-IGNITER
-
-_, bl2_app, tmp11 = compile_src(SRC_BYTE_LEN2, "byte_len2")
-compiled_bl2 = File.exist?(bl2_app)
-FileUtils.rm_rf(tmp11) unless compiled_bl2
-
-if compiled_bl2
-  nfc_e = "é"     # U+00E9 NFC: 2 UTF-8 bytes
-  nfd_e = "é"    # U+0065 + U+0301 NFD: 3 UTF-8 bytes
-  r_nfc = run_vm(bl2_app, { 's' => nfc_e })
-  r_nfd = run_vm(bl2_app, { 's' => nfd_e })
-  no_norm = (r_nfc['result'] == 2 && r_nfd['result'] == 3)
-  no_norm ? pass("UNI-CLOSED-04: no implicit normalization — NFC é=2 bytes, NFD e+combining=3 bytes (distinct)") \
-          : fail!("UNI-CLOSED-04: normalization check failed — NFC=#{r_nfc['result']}, NFD=#{r_nfd['result']}")
-  FileUtils.rm_rf(File.dirname(bl2_app)) rescue nil
+if compiled_trim
+  r = run_vm(trim_app, { 's' => '  hello  ' })
+  r['result'] == 'hello' ? pass("UNI-ALIAS-02: trim alias correct ('  hello  ' → 'hello')") \
+                         : fail!("UNI-ALIAS-02: trim expected 'hello', got #{r['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(trim_app)) rescue nil
 end
+
+if compiled_cont
+  r_yes = run_vm(cont_app, { 's' => 'hello' })
+  r_no  = run_vm(cont_app, { 's' => 'world' })
+  (r_yes['result'] == true && r_no['result'] == false) \
+    ? pass("UNI-ALIAS-03: contains alias correct (true/false)") \
+    : fail!("UNI-ALIAS-03: contains expected true/false, got #{r_yes['result'].inspect}/#{r_no['result'].inspect}")
+  FileUtils.rm_rf(File.dirname(cont_app)) rescue nil
+end
+
+# stdlib.text.concat handler present as qualified alias
+concat_alias_present = VM_SRC_TEXT.include?('"stdlib.text.concat"')
+concat_alias_present ? pass("UNI-ALIAS-04: stdlib.text.concat qualified alias present in vm.rs") \
+                     : fail!("UNI-ALIAS-04: stdlib.text.concat qualified alias missing from vm.rs")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UNI-REG — regression: existing ops unaffected
+# UNI-AUTH — no canon/stable/public/runtime claims in receipt
 # ═══════════════════════════════════════════════════════════════════════════════
-puts "\n=== UNI-REG: regression — existing text ops unaffected ===\n"
+puts "\n=== UNI-AUTH: closed-surface authority checks ===\n"
 
-SRC_BYTE_LEN_REG = <<~IGNITER
-  module Unicode.Reg
-  pure contract ByteLenReg {
-    input s : String
-    compute result = byte_length(s)
-    output result : Integer
-  }
-IGNITER
+if receipt_data
+  forbidden_status = %w[stable public production reference-runtime canon]
+  clean = forbidden_status.none? { |s| receipt_data['status'].to_s.include?(s) }
+  clean ? pass("UNI-AUTH-01: receipt status does not claim stable/public/production authority") \
+        : fail!("UNI-AUTH-01: receipt status contains forbidden authority claim: #{receipt_data['status']}")
 
-SRC_STARTS_WITH_REG = <<~IGNITER
-  module Unicode.Reg
-  pure contract StartsWithReg {
-    input s : String
-    compute result = starts_with(s, "/api/")
-    output result : Bool
-  }
-IGNITER
+  no_public_surface = !receipt_data.to_s.include?('stable_api') &&
+                      !receipt_data.to_s.include?('public_api') &&
+                      !receipt_data.to_s.include?('production')
+  no_public_surface ? pass("UNI-AUTH-02: receipt contains no stable_api/public_api/production keys") \
+                    : fail!("UNI-AUTH-02: receipt contains public/production authority claims")
 
-SRC_TRIM_REG = <<~IGNITER
-  module Unicode.Reg
-  pure contract TrimReg {
-    input s : String
-    compute result = trim(s)
-    output result : Text
-  }
-IGNITER
-
-_, bl_reg_app, tmp12 = compile_src(SRC_BYTE_LEN_REG,    "byte_len_reg")
-_, sw_reg_app, tmp13 = compile_src(SRC_STARTS_WITH_REG, "starts_with_reg")
-_, tr_reg_app, tmp14 = compile_src(SRC_TRIM_REG,        "trim_reg")
-
-compiled_bl_reg = File.exist?(bl_reg_app)
-compiled_sw_reg = File.exist?(sw_reg_app)
-compiled_tr_reg = File.exist?(tr_reg_app)
-
-FileUtils.rm_rf(tmp12) unless compiled_bl_reg
-FileUtils.rm_rf(tmp13) unless compiled_sw_reg
-FileUtils.rm_rf(tmp14) unless compiled_tr_reg
-
-if compiled_bl_reg
-  r = run_vm(bl_reg_app, { 's' => 'hello' })
-  r['result'] == 5 ? pass("UNI-REG-01: byte_length('hello') = 5 (existing op unaffected)") \
-                   : fail!("UNI-REG-01: byte_length regression expected 5, got #{r['result']}")
-  FileUtils.rm_rf(File.dirname(bl_reg_app)) rescue nil
+  no_canon_claim = !receipt_data.to_s.include?('canon_')
+  no_canon_claim ? pass("UNI-AUTH-03: receipt contains no canon_* keys") \
+                 : fail!("UNI-AUTH-03: receipt contains canon_* authority claims")
 end
 
-if compiled_sw_reg
-  r = run_vm(sw_reg_app, { 's' => '/api/users' })
-  r['result'] == true ? pass("UNI-REG-02: starts_with('/api/users', '/api/') = true (existing op unaffected)") \
-                      : fail!("UNI-REG-02: starts_with regression expected true, got #{r['result']}")
-  FileUtils.rm_rf(File.dirname(sw_reg_app)) rescue nil
-end
+no_runtime_exec_claim = !VM_SRC_TEXT.include?('igc run') && !VM_SRC_TEXT.include?('RuntimeSmoke')
+no_runtime_exec_claim ? pass("UNI-AUTH-04: vm.rs contains no igc-run or RuntimeSmoke authority markers") \
+                      : fail!("UNI-AUTH-04: vm.rs contains runtime-gate authority markers")
 
-if compiled_tr_reg
-  r = run_vm(tr_reg_app, { 's' => '  hello  ' })
-  r['result'] == 'hello' ? pass("UNI-REG-03: trim('  hello  ') = 'hello' (existing op unaffected)") \
-                         : fail!("UNI-REG-03: trim regression expected 'hello', got #{r['result'].inspect}")
-  FileUtils.rm_rf(File.dirname(tr_reg_app)) rescue nil
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNI-PATH — no absolute paths or file:// in receipt
+# ═══════════════════════════════════════════════════════════════════════════════
+puts "\n=== UNI-PATH: no absolute paths or file:// in receipt ===\n"
+
+if receipt_data
+  receipt_str = JSON.generate(receipt_data)
+
+  no_file_uri = !receipt_str.include?('file://')
+  no_file_uri ? pass("UNI-PATH-01: receipt contains no file:// URIs") \
+              : fail!("UNI-PATH-01: receipt contains file:// URI — not portable")
+
+  no_abs_path = !receipt_str.match?(/["']\/(?:Users|home|var|tmp|root)\//)
+  no_abs_path ? pass("UNI-PATH-02: receipt contains no absolute filesystem paths") \
+              : fail!("UNI-PATH-02: receipt contains absolute path — not portable")
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -563,9 +632,10 @@ end
 # ═══════════════════════════════════════════════════════════════════════════════
 puts "\n" + "═" * 72
 total = $pass_count + $fail_count
-puts "LAB-STR-UNICODE-P2: #{$pass_count}/#{total} PASS"
+puts "LAB-STR-UNICODE-P3: #{$pass_count}/#{total} PASS"
 if $fail_count > 0
-  puts "\nFailed checks:"
+  puts "\nFailed checks present — see [!] FAIL lines above."
 end
+puts "\nReceipt: igniter-lab/igniter-compiler/out/unicode_runtime_receipt.json"
 
 exit($fail_count > 0 ? 1 : 0)

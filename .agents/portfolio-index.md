@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-STR-UNICODE-P2: Unicode VM runtime ops — 43/43 PASS)
+**Last updated:** 2026-06-08 (LAB-STR-UNICODE-P3: handler hygiene + runtime receipt — 41/41 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -70,10 +70,12 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 29/29 PASS (P2: concat disambiguated) |
 | Lab STR-CORE-P3 value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lab | ✅ closed 2026-06-08 — verify_str_value_semantics.rb 33/33 PASS (compile-time; runtime-gated gaps documented) |
 | LAB-STR-UNICODE-P1 Unicode policy design | igniter-lab | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29, no normalization, bounds clamp, grapheme receipt design |
-| LAB-STR-UNICODE-P2 Unicode VM runtime ops | igniter-lab | ✅ closed 2026-06-08 — verify_unicode_text_runtime.rb 43/43 PASS; 8 new handlers + split guard; unicode-segmentation = "1.11" |
+| LAB-STR-UNICODE-P2 Unicode VM runtime ops | igniter-lab | ✅ closed 2026-06-08 — 8 functional ops (rune_length, grapheme_length, byte/rune/grapheme_slice, ends_with, replace, replace_all) + qualified aliases + split/replace empty-input guards; unicode-segmentation = "1.11" (lock: 1.13.3); verify_unicode_text_runtime.rb 43/43 PASS |
+| LAB-STR-UNICODE-P3 handler hygiene + receipt | igniter-lab | ✅ closed 2026-06-08 — bare `split` guard aligned (P3 hygiene, no bypass via legacy name); unicode_runtime_receipt.json emitted (lab-only-evidence); 41/41 PASS |
 
 **Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
 `stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics proven in lab VM.
+Handler-policy consistency proven (bare and qualified split/replace both fail-closed on empty input).
 Stable public API and runtime-execution gate remain closed.
 
 **v0 surface (14 ops):** `concat`, `trim`, `contains`, `starts_with`, `ends_with`, `split`, `replace`, `replace_all`,
@@ -125,9 +127,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P5 (VM stdlib.text.* alignment — 3 OP_CALL cases added; 5-route dispatch + param extraction execute end-to-end on VM) | igniter-lab | ✅ DONE | 20/20 |
 | LAB-RACK-P6 (TypeChecker == and < alignment — idiomatic equality in route dispatch; exact match via path=="/" + method=="GET") | igniter-lab | ✅ DONE | 32/32 |
 | LAB-RACK-P7 (VM named entrypoint selector — `--entry <name>` CLI flag; default contracts[0] preserved; unknown entry fails closed) | igniter-lab | ✅ DONE | 28/28 |
+| LAB-RACK-P8 (ContractRef dispatch boundary preflight — design locked: explicit `call_contract` stdlib op, dispatch table, depth ≤ 8, pure-callee-only in v0) | igniter-lab | ✅ DONE — design | — |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P7 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector proven end-to-end; ContractRef runtime dispatch still open | LAB-RACK-P8 next
+**Alignment gap:** LAB-RACK-P2..P8 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector proven end-to-end; P8 design locked for user-contract dispatch via `call_contract` | LAB-RACK-P9 next
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -231,14 +234,19 @@ Rack/middleware vocabulary is lab-only.
     slice bounds: [start,end) half-open; clamp; byte_slice invalid boundary → ""; split("") undefined v0
     grapheme backend: unicode-segmentation (UAX #29); version pin via Cargo.lock; canon receipt design
 20. ✅ LAB-STR-UNICODE-P2: Unicode VM runtime ops implementation (2026-06-08)
-    unicode-segmentation = "1.11" in Cargo.toml; UnicodeSegmentation import in vm.rs
-    New handlers: rune_length, grapheme_length, byte_slice, rune_slice, grapheme_slice, ends_with, replace, replace_all
-    split guard: empty delimiter → runtime operational error (v0 policy, no fallback)
-    replace/replace_all guard: empty pattern → runtime operational error
+    unicode-segmentation = "1.11" in Cargo.toml (lock: 1.13.3); UnicodeSegmentation import in vm.rs
+    8 functional ops: rune_length, grapheme_length, byte_slice, rune_slice, grapheme_slice, ends_with, replace, replace_all
     Qualified aliases: stdlib.text.concat, trim, contains; stdlib.collection.concat
+    empty-input guards: stdlib.text.split (empty delimiter → error); replace/replace_all (empty pattern → error)
     UAX #29 proven: rune_length("éx")=3, grapheme_length("éx")=2; NFC≠NFD no normalization
     verify_unicode_text_runtime.rb: 43/43 PASS
-21. ✅ PROP-041-P3/P4/P5: T2 structural-size relation — proof-local gate + authorization review + formal proposal (2026-06-08)
+21. ✅ LAB-STR-UNICODE-P3: handler hygiene + Unicode runtime receipt (2026-06-08)
+    bare "split" handler aligned with empty-delimiter fail-closed policy (LAB-STR-UNICODE-P3 hygiene)
+    before: bare split("","") → Rust default (split at every char) — silent policy bypass possible
+    after: bare split("","") → runtime operational error — no bypass via legacy handler name
+    unicode_runtime_receipt.json: status=lab-only-evidence; lock=1.13.3; 4 handler guards confirmed
+    verify_unicode_text_runtime.rb: 41/41 PASS (UNI-DEP/RCP/HYG/ERR/LENGTH/SLICE/REPLACE/SPLIT/ALIAS/AUTH/PATH)
+22. ✅ PROP-041-P3/P4/P5: T2 structural-size relation — proof-local gate + authorization review + formal proposal (2026-06-08)
     P3: T2TypeChecker + T2Emitter sub-classes; 28 fixtures; verify_prop041_t2.rb 48/48 PASS (T2a–T2h)
     P4: authorization review — experiment-pass accepted; formal proposal authoring opened; production edits closed
     P5: formal proposal authored — grammar surface, STDLIB_REGISTRY, trust levels, OOF-R8/R9, SIR shape, backward compat
@@ -281,7 +289,8 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; P2 concat disambiguation; verify_str_core.rb 29/29 PASS | — |
 | Lab STR-CORE-P3 value semantics | ✅ closed 2026-06-08 — compile-time unit separation + SIR shapes + OOF enforcement proven; runtime-gated gaps documented; verify_str_value_semantics.rb 33/33 PASS | — |
 | LAB-STR-UNICODE-P1 Unicode policy | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29 grapheme, no normalization, bounds policy, `unicode-segmentation` lab recommendation, receipt design | — |
-| LAB-STR-UNICODE-P2 Unicode VM ops | ✅ closed 2026-06-08 — 8 new handlers + split/replace guards; UAX#29 runtime proven; verify_unicode_text_runtime.rb 43/43 PASS | — |
+| LAB-STR-UNICODE-P2 Unicode VM ops | ✅ closed 2026-06-08 — 8 functional ops + qualified aliases + empty-input guards; UAX#29 runtime proven; 43/43 PASS | — |
+| LAB-STR-UNICODE-P3 handler hygiene | ✅ closed 2026-06-08 — bare split guard aligned; unicode_runtime_receipt.json; 41/41 PASS | — |
 | PROP-041 T2 structural-size P3/P4/P5 | ✅ closed 2026-06-08 — proof-local gate 48/48 PASS; formal proposal authored; grammar/OOF-R8/R9/SIR/trust locked | P6: production-edit planning authorization review |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 

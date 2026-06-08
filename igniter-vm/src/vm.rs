@@ -545,6 +545,11 @@ impl VM {
                             }
                             let s = args[0].as_str()?;
                             let sep = args[1].as_str()?;
+                            // LAB-STR-UNICODE-P3: align bare handler with stdlib.text.split policy
+                            // empty delimiter is an operational error (v0 policy); no bypass via legacy name
+                            if sep.is_empty() {
+                                return Err("split: empty delimiter is an operational error (v0 policy)".to_string());
+                            }
                             let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
                             Value::Array(Arc::new(parts))
                         }
