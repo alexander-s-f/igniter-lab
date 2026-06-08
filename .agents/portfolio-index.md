@@ -135,6 +135,12 @@ Rack/middleware vocabulary is lab-only.
    Active: OOF-L1 (typechecker), OOF-R2/R4 (classifier) → experiment-pass compiler surface
    Ch13 OOF-R2/R4 (service loop) migrated to OOF-SL* (PROP-037); conflict resolved
    Lab: G1+G2 closed, verify_loops.rb PASS, conformance fixture compiles all 3 contracts
+   Tracked: igniter-lang/.agents/work/gates/PROP-039-gate6-oof-registry-review.md
+9. ✅ PROP-039 gate 7: canonical conformance package — spine defined (2026-06-07)
+   Grammar forms (FiniteLoop/BudgetedLocalLoop/StructuralRecursion/FuelBoundedRecursion) + OOF codes
+   (OOF-L1/R2/R4) + SemanticIR shapes (loop_node) + lab consumption contract + PROP-037 boundary
+   Lab G1+G2 conformance status documented; future gaps: G3 (PROP-037 split), G4 (body), G5 (recur())
+   Tracked: igniter-lang/.agents/work/conformance/PROP-039-managed-repetition-conformance-package-v0.md
 
 ---
 
