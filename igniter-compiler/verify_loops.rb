@@ -4,6 +4,7 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
+require_relative '../tools/proof_harness/bounded_command'
 
 ROOT = Pathname.new(__dir__)
 SOURCE_FILE = ROOT / "fixtures/conformance/source/loops_and_recursion.ig"
@@ -17,16 +18,27 @@ puts "[*] Compiling loops_and_recursion.ig..."
 compiler_bin = ROOT / "target/release/igniter_compiler"
 unless compiler_bin.exist?
   puts "[!] Target release compiler not found, building..."
-  system("cargo build --release", chdir: ROOT.to_s)
+  # LAB-PROOF-HYGIENE-P1: bounded cargo build
+  build_r = BoundedCommand.run("cargo build --release",
+                               label: "cargo build --release",
+                               timeout: BoundedCommand::CARGO_TIMEOUT)
+  unless build_r.ok?
+    BoundedCommand.print_result(build_r)
+    puts "[!] Compiler build failed — aborting"
+    exit(1)
+  end
 end
 
-cmd_compile = "#{compiler_bin} compile #{SOURCE_FILE} --out #{OUT_APP}"
-compile_result = `#{cmd_compile}`
-unless $?.success?
+# LAB-PROOF-HYGIENE-P1: bounded compiler execution
+compile_r = BoundedCommand.run("#{compiler_bin} compile #{SOURCE_FILE} --out #{OUT_APP}",
+                               label: "compile:loops_and_recursion",
+                               timeout: BoundedCommand::EXEC_TIMEOUT)
+unless compile_r.ok?
   puts "[!] Compilation failed!"
-  puts compile_result
+  BoundedCommand.print_result(compile_r)
   exit(1)
 end
+compile_result = compile_r.combined
 puts "[+] Compilation successful!"
 
 # 2. Write inputs file
@@ -40,14 +52,18 @@ puts "[*] Inputs file written to #{INPUTS_FILE}"
 # 3. Run using igniter-vm via cargo run
 puts "[*] Executing LoopTester contract on IVM..."
 vm_cargo_toml = File.expand_path("../igniter-vm/Cargo.toml", __dir__)
-cmd_run = "cargo run --manifest-path #{vm_cargo_toml} --release -- run --contract #{OUT_APP} --inputs #{INPUTS_FILE} --json"
-vm_output = `#{cmd_run}`
-
-unless $?.success?
+# LAB-PROOF-HYGIENE-P1: bounded VM execution
+vm_r = BoundedCommand.run(
+  "cargo run --manifest-path #{vm_cargo_toml} --release -- run --contract #{OUT_APP} --inputs #{INPUTS_FILE} --json",
+  label: "vm:LoopTester",
+  timeout: BoundedCommand::CARGO_TIMEOUT
+)
+unless vm_r.ok?
   puts "[!] VM execution failed!"
-  puts vm_output
+  BoundedCommand.print_result(vm_r)
   exit(1)
 end
+vm_output = vm_r.stdout
 
 begin
   response = JSON.parse(vm_output)

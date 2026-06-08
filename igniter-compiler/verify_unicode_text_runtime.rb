@@ -58,6 +58,7 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
+require_relative '../tools/proof_harness/bounded_command'
 
 ROOT         = Pathname.new(__dir__)
 COMP         = ROOT / "target/release/igniter_compiler"
@@ -81,18 +82,26 @@ def compile_src(src, label)
   ig  = File.join(tmp, "#{label}.ig")
   out = File.join(tmp, "#{label}.igapp")
   File.write(ig, src)
-  result = `#{COMP} compile #{ig} --out #{out} 2>&1`
-  [result, out, tmp]
+  # LAB-PROOF-HYGIENE-P1: bounded execution — hard timeout, kills process group
+  r = BoundedCommand.run("#{COMP} compile #{ig} --out #{out}",
+                         label: "compile:#{label}",
+                         timeout: BoundedCommand::EXEC_TIMEOUT)
+  BoundedCommand.print_result(r) unless r.ok?
+  [r.combined, out, tmp]
 end
 
 def run_vm(igapp_path, inputs_hash)
-  tmp = Dir.mktmpdir("uni_vm")
+  tmp         = Dir.mktmpdir("uni_vm")
   inputs_file = File.join(tmp, "inputs.json")
   File.write(inputs_file, JSON.generate(inputs_hash))
-  out = `#{VM_BIN} run --contract #{igapp_path} --inputs #{inputs_file} --json 2>/dev/null`
+  # LAB-PROOF-HYGIENE-P1: bounded VM execution — hard timeout, kills process group
+  r = BoundedCommand.run("#{VM_BIN} run --contract #{igapp_path} --inputs #{inputs_file} --json",
+                         label: "vm:run",
+                         timeout: BoundedCommand::EXEC_TIMEOUT)
   FileUtils.rm_rf(tmp)
-  # Force UTF-8: backtick output is ASCII-8BIT; VM may return non-ASCII in result values
-  JSON.parse(out.force_encoding('UTF-8')) rescue { 'status' => 'parse_error', 'raw' => out[0, 200] }
+  BoundedCommand.print_result(r) unless r.ok?
+  # Force UTF-8: stdout may be ASCII-8BIT; VM may return non-ASCII in result values
+  JSON.parse(r.stdout.force_encoding('UTF-8')) rescue { 'status' => 'parse_error', 'raw' => r.stdout[0, 200] }
 end
 
 # ── source content ───────────────────────────────────────────────────────────

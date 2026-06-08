@@ -13,6 +13,7 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
+require_relative '../tools/proof_harness/bounded_command'
 
 ROOT = Pathname.new(__dir__)
 COMP = ROOT / "target/release/igniter_compiler"
@@ -28,8 +29,12 @@ def compile_src(src, label)
   ig  = File.join(tmp, "#{label}.ig")
   out = File.join(tmp, "#{label}.igapp")
   File.write(ig, src)
-  result = `#{COMP} compile #{ig} --out #{out} 2>&1`
-  [result, out, tmp]
+  # LAB-PROOF-HYGIENE-P1: bounded execution — hard timeout, kills process group
+  r = BoundedCommand.run("#{COMP} compile #{ig} --out #{out}",
+                         label: "compile:#{label}",
+                         timeout: BoundedCommand::EXEC_TIMEOUT)
+  BoundedCommand.print_result(r) unless r.ok?
+  [r.combined, out, tmp]
 end
 
 def load_sir(app_path)
@@ -50,7 +55,15 @@ end
 
 unless COMP.exist?
   puts "[*] Building compiler (release)..."
-  system("cargo build --release", chdir: ROOT.to_s)
+  # LAB-PROOF-HYGIENE-P1: bounded cargo build
+  r = BoundedCommand.run("cargo build --release",
+                         label: "cargo build --release",
+                         timeout: BoundedCommand::CARGO_TIMEOUT)
+  unless r.ok?
+    BoundedCommand.print_result(r)
+    puts "[!] Compiler build failed — aborting"
+    exit(1)
+  end
 end
 
 # ============================================================

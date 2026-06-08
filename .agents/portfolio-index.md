@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-STR-UNICODE-P3: handler hygiene + runtime receipt — 41/41 PASS)
+**Last updated:** 2026-06-08 (LAB-PROOF-HYGIENE-P1: proof harness timeout + process-group cleanup — 11/11 self-test PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -246,12 +246,22 @@ Rack/middleware vocabulary is lab-only.
     after: bare split("","") → runtime operational error — no bypass via legacy handler name
     unicode_runtime_receipt.json: status=lab-only-evidence; lock=1.13.3; 4 handler guards confirmed
     verify_unicode_text_runtime.rb: 41/41 PASS (UNI-DEP/RCP/HYG/ERR/LENGTH/SLICE/REPLACE/SPLIT/ALIAS/AUTH/PATH)
-22. ✅ PROP-041-P3/P4/P5: T2 structural-size relation — proof-local gate + authorization review + formal proposal (2026-06-08)
+22. ✅ PROP-041-P3/P4/P5/P6/P7: T2 structural-size relation — full production graduation (2026-06-08)
     P3: T2TypeChecker + T2Emitter sub-classes; 28 fixtures; verify_prop041_t2.rb 48/48 PASS (T2a–T2h)
     P4: authorization review — experiment-pass accepted; formal proposal authoring opened; production edits closed
     P5: formal proposal authored — grammar surface, STDLIB_REGISTRY, trust levels, OOF-R8/R9, SIR shape, backward compat
-    Q1–Q5 resolved: NUMERIC_ACCESSORS hardcoded; backward-compat allowance codified; one-decl-per-accessor; trust exhaustive; source="compiler_builtin"
-    Next: P6 production-edit planning authorization review
+    P6: production-edit planning — minimal diff plan authorized; P7 dispatched
+    P7: production implementation — parser.rb + classifier.rb + typechecker.rb + semanticir_emitter.rb updated
+        verify_prop041_t2_production.rb 48/48 PASS; verify_oof_r3.rb 33/33 PASS (OOF-R3 scope unweakened)
+        OOF-R8/R9 active in production pipeline; structural_size_v1 SemanticIR shape live
+    Next: LAB-TERM-T2 Rust symmetry
+23. ✅ LAB-PROOF-HYGIENE-P1: proof harness timeout + process-group cleanup (2026-06-08)
+    Root cause: unbounded backtick/system() calls left igniter_compiler at ~100% CPU for hours
+    tools/proof_harness/bounded_command.rb: hard timeout + process-group kill (SIGTERM → SIGKILL)
+    11 proof runners updated (10 in igniter-compiler/, 1 in igniter-vm/proofs/)
+    Self-test: test_bounded_command.rb 11/11 PASS
+    Remaining unbounded: proofs/ subdirectory, view-engine proofs → P2 candidate
+    Timeout policy: EXEC=10s, CARGO=120s, PROOF_WIDE=300s (all env-configurable)
 
 ---
 

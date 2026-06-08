@@ -4,16 +4,19 @@
 require 'json'
 require 'fileutils'
 require 'open3'
+require_relative '../../tools/proof_harness/bounded_command'
 
 def run_cmd(cmd, desc)
   puts "Running: #{cmd} (#{desc})..."
-  stdout, stderr, status = Open3.capture3(cmd)
-  if status.exitstatus == 0
+  # LAB-PROOF-HYGIENE-P1: bounded execution — hard timeout, kills process group
+  r = BoundedCommand.run(cmd, label: desc, timeout: BoundedCommand::CARGO_TIMEOUT)
+  if r.ok?
     puts "  [PASS] #{desc}"
-    { status: "PASS", output: stdout.to_s }
+    { status: "PASS", output: r.stdout }
   else
-    puts "  [FAIL] #{desc}\nStderr:\n#{stderr}"
-    { status: "FAIL", output: stderr.to_s }
+    BoundedCommand.print_result(r)
+    puts "  [FAIL] #{desc}"
+    { status: "FAIL", output: r.stderr }
   end
 end
 

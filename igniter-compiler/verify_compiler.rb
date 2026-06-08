@@ -4,6 +4,7 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
+require_relative '../tools/proof_harness/bounded_command'
 
 ROOT = Pathname.new(__dir__)
 SOURCE_DIR = ROOT / "fixtures/conformance/source"
@@ -16,7 +17,15 @@ BINARY = ROOT / "target/release/igniter_compiler"
 
 unless BINARY.exist?
   puts "[!] Compilation binary not found! Rebuilding..."
-  system("cargo build --release", chdir: ROOT.to_s)
+  # LAB-PROOF-HYGIENE-P1: bounded cargo build
+  build_r = BoundedCommand.run("cargo build --release",
+                               label: "cargo build --release",
+                               timeout: BoundedCommand::CARGO_TIMEOUT)
+  unless build_r.ok?
+    BoundedCommand.print_result(build_r)
+    puts "[!] Compiler build failed — aborting"
+    exit(1)
+  end
 end
 
 puts "[*] Testing igniter-compiler binary..."
@@ -45,15 +54,16 @@ TEST_CASES.each do |case_name|
 
   cmd = "#{BINARY} compile #{src_file} --out #{out_app}"
   puts "    Command: #{cmd}"
-  
-  result_json = `#{cmd}`
-  status = $?
 
-  unless status.success?
+  # LAB-PROOF-HYGIENE-P1: bounded compiler execution
+  r = BoundedCommand.run(cmd, label: "compile:#{case_name}", timeout: BoundedCommand::EXEC_TIMEOUT)
+  unless r.ok?
+    BoundedCommand.print_result(r)
     puts "[!] Compiler failed for #{case_name}!"
     success = false
     next
   end
+  result_json = r.stdout
 
   begin
     result = JSON.parse(result_json)
@@ -81,7 +91,7 @@ TEST_CASES.each do |case_name|
   if golden_app.exist?
     golden_manifest = JSON.parse(File.read(golden_app / "manifest.json"))
     compiled_manifest = JSON.parse(File.read(out_app / "manifest.json"))
-    
+
     puts "    Golden Fragment Class: #{golden_manifest['fragment_class']}"
     puts "    Compiled Fragment Class: #{compiled_manifest['fragment_class']}"
 

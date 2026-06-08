@@ -10,6 +10,7 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
+require_relative '../tools/proof_harness/bounded_command'
 
 ROOT         = Pathname.new(__dir__)
 FIXTURE      = ROOT / "fixtures/loops/budgeted_loop_canon_g1.ig"
@@ -28,7 +29,12 @@ failures = []
 # ── Step 1: build compiler if needed ──────────────────────────────────────────
 unless COMPILER_BIN.exist?
   puts "#{PASS} Building release compiler..."
-  unless system("cargo build --release", chdir: ROOT.to_s)
+  # LAB-PROOF-HYGIENE-P1: bounded cargo build
+  build_r = BoundedCommand.run("cargo build --release",
+                               label: "cargo build --release",
+                               timeout: BoundedCommand::CARGO_TIMEOUT)
+  unless build_r.ok?
+    BoundedCommand.print_result(build_r)
     puts "#{FAIL} Compiler build failed"
     exit(1)
   end
@@ -36,11 +42,16 @@ end
 
 # ── Step 2: compile canon fixture ─────────────────────────────────────────────
 puts "[*] Compiling #{FIXTURE.basename}..."
-compile_out = `#{COMPILER_BIN} compile #{FIXTURE} --out #{OUT_IGAPP} 2>&1`
-unless $?.success?
-  puts "#{FAIL} Compilation failed:\n#{compile_out}"
+# LAB-PROOF-HYGIENE-P1: bounded compiler execution
+compile_r = BoundedCommand.run("#{COMPILER_BIN} compile #{FIXTURE} --out #{OUT_IGAPP}",
+                               label: "compile:g1_canon_loop",
+                               timeout: BoundedCommand::EXEC_TIMEOUT)
+unless compile_r.ok?
+  BoundedCommand.print_result(compile_r)
+  puts "#{FAIL} Compilation failed:\n#{compile_r.combined}"
   exit(1)
 end
+compile_out = compile_r.stdout
 
 result_json = JSON.parse(compile_out) rescue {}
 
@@ -67,11 +78,18 @@ puts "[*] Inputs: #{inputs}"
 
 # ── Step 4: run on VM ─────────────────────────────────────────────────────────
 puts "[*] Running on VM..."
-vm_out = `cargo run --manifest-path #{VM_MANIFEST} --release -- run --contract #{OUT_IGAPP} --inputs #{OUT_INPUTS} --json 2>/dev/null`
-unless $?.success?
-  puts "#{FAIL} VM execution failed:\n#{vm_out}"
+# LAB-PROOF-HYGIENE-P1: bounded VM execution
+vm_r = BoundedCommand.run(
+  "cargo run --manifest-path #{VM_MANIFEST} --release -- run --contract #{OUT_IGAPP} --inputs #{OUT_INPUTS} --json",
+  label: "vm:g1_canon_loop",
+  timeout: BoundedCommand::CARGO_TIMEOUT
+)
+unless vm_r.ok?
+  BoundedCommand.print_result(vm_r)
+  puts "#{FAIL} VM execution failed"
   exit(1)
 end
+vm_out = vm_r.stdout
 
 vm_result = JSON.parse(vm_out) rescue {}
 if vm_result["status"] == "success"
