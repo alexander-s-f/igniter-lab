@@ -134,7 +134,7 @@ With boundaries:
 | ~~G3a: OOF-R2/R4 in classifier~~ | ✅ closed 2026-06-08 — classifier.rs adds OOF-R2 (recursive missing decreases) and OOF-R4 (fuel_bounded/decreases-fuel missing max_steps); verify_g3_conformance.rb PASS | — |
 | ~~G3b: FiniteLoop parser~~ | ✅ closed 2026-06-08 — `for Name item in source { body }` accepted by parser.rs; max_steps=None → loop_class="finite"; VM executes via u64::MAX fuel sentinel; verify_g3_conformance.rb PASS | — |
 | ~~G3c: IR shape kind="loop_node"~~ | ✅ closed 2026-06-08 — emitter.rs emits kind="loop_node" (was "loop") + loop_class, termination, source_ref, max_steps at top level; vm/compiler.rs updated; verify_g3_conformance.rb PASS | — |
-| G4: Body semantics | Loop body variables (`lead`, `item`) not validated by canon TypeChecker (deferred gate 5) | Future PROP-039 body-semantics gate |
+| ~~G4: Body semantics~~ | ✅ closed 2026-06-08 — `lead` keyword in parser.rs, OOF-L5/L7/L8 in classifier.rs + typechecker.rs, `body=[lead_node*,compute_node*]` + `item_type` in emitter.rs; two-track `body` (canon) / `body_nodes` (VM exec); verify_g4_body_semantics.rb 18/18 PASS | — |
 | G5: recur() primitive | `recursive contract` body uses `recur()` — canon primitive not yet in parser/runtime | Future gate after body-semantics authorization |
 | ~~G6: OOF-L1 semantic alignment~~ | ✅ closed 2026-06-08 — TypeChecker now emits OOF-L1 for FiniteLoop source not Collection[T] (canon meaning). Lab parser OOF-L1 ("unbounded loop") remains for `loop` without max_steps — lab-local, acceptable delta. | — |
 
@@ -148,6 +148,7 @@ Files updated:
 **verify_g1_canon_loop.rb status:** ✅ PASS — G1 closed 2026-06-07.
 **verify_loops.rb status:** ✅ PASS — G2 closed 2026-06-07. Full conformance file compiles and executes.
 **verify_g3_conformance.rb status:** ✅ PASS 14/14 — G3 closed 2026-06-08. G3a OOF-R2/R4 + G3b FiniteLoop + G3c IR shape all verified.
+**verify_g4_body_semantics.rb status:** ✅ PASS 18/18 — G4 closed 2026-06-08. `lead` keyword, OOF-L5/L7/L8, canon `body` + VM `body_nodes` two-track, `item_type`. Non-literal initial OOF-L5 precision-tested.
 
 ---
 

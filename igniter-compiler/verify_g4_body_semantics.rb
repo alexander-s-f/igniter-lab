@@ -237,16 +237,18 @@ puts "\n=== G8e: OOF-L8 fires (lead shadows outer / item) ===\n"
 # ============================================================
 
 # OOF-L8: lead shadows outer contract symbol
+# Fixture: clean Collection[Integer] source — no OOF-L1 contamination;
+# lead 'total' shadows outer compute 'total' → pure OOF-L8 signal.
 SRC_L8_OUTER = <<~IGNITER
   module G8
   contract L8Outer {
-    input total: Integer
-    compute result: Integer = 0
-    for Process item in total {
+    input items: Collection[Integer]
+    compute total: Integer = 0
+    for Process item in items {
       lead total: Integer = 0
       compute total = total + item
     }
-    output result: Integer
+    output total: Integer
   }
 IGNITER
 
@@ -323,6 +325,51 @@ if result.include?("OOF-L5")
   pass "G8f: OOF-L5 fires for nested loop inside loop body"
 else
   fail! "G8f: OOF-L5 NOT fired for nested loop (got: #{result[0..300]})"
+end
+
+# OOF-L5: lead initial is a non-literal expression (ref to loop item)
+# Gate 8 v0 rule: initial MUST be a static literal — `lead acc: Integer = item` is an OOF-L5.
+SRC_L5_NONLITERAL = <<~IGNITER
+  module G8
+  contract L5NonLiteral {
+    input items: Collection[Integer]
+    compute base: Integer = 0
+    for Process item in items {
+      lead acc: Integer = item
+      compute acc = acc + item
+    }
+    output base: Integer
+  }
+IGNITER
+
+result, _out, tmp = compile_src(SRC_L5_NONLITERAL, "l5_nonliteral")
+FileUtils.rm_rf(tmp)
+if result.include?("OOF-L5")
+  pass "G8f: OOF-L5 fires when lead initial is non-literal (ref to loop item)"
+else
+  fail! "G8f: OOF-L5 NOT fired for non-literal lead initial — lead acc: Integer = item (got: #{result[0..300]})"
+end
+
+# OOF-L5: lead initial is a non-literal expression (ref to outer compute)
+SRC_L5_NONLITERAL_OUTER = <<~IGNITER
+  module G8
+  contract L5NonLiteralOuter {
+    input items: Collection[Integer]
+    compute base: Integer = 42
+    for Process item in items {
+      lead acc: Integer = base
+      compute acc = acc + item
+    }
+    output base: Integer
+  }
+IGNITER
+
+result, _out, tmp = compile_src(SRC_L5_NONLITERAL_OUTER, "l5_nonliteral_outer")
+FileUtils.rm_rf(tmp)
+if result.include?("OOF-L5")
+  pass "G8f: OOF-L5 fires when lead initial is non-literal (ref to outer compute)"
+else
+  fail! "G8f: OOF-L5 NOT fired for non-literal lead initial — lead acc: Integer = base (got: #{result[0..300]})"
 end
 
 # ============================================================
