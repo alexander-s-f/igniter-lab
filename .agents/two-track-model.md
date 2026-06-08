@@ -136,7 +136,7 @@ With boundaries:
 | ~~G3c: IR shape kind="loop_node"~~ | ✅ closed 2026-06-08 — emitter.rs emits kind="loop_node" (was "loop") + loop_class, termination, source_ref, max_steps at top level; vm/compiler.rs updated; verify_g3_conformance.rb PASS | — |
 | G4: Body semantics | Loop body variables (`lead`, `item`) not validated by canon TypeChecker (deferred gate 5) | Future PROP-039 body-semantics gate |
 | G5: recur() primitive | `recursive contract` body uses `recur()` — canon primitive not yet in parser/runtime | Future gate after body-semantics authorization |
-| G6: OOF-L1 semantic alignment | Lab OOF-L1 = "unbounded loop" (parser); canon OOF-L1 = "source not Collection[T]" (TypeChecker) | Future diagnostic alignment pass |
+| ~~G6: OOF-L1 semantic alignment~~ | ✅ closed 2026-06-08 — TypeChecker now emits OOF-L1 for FiniteLoop source not Collection[T] (canon meaning). Lab parser OOF-L1 ("unbounded loop") remains for `loop` without max_steps — lab-local, acceptable delta. | — |
 
 **All updated fixtures now parse cleanly through canon pipeline:**
 `grammar_version="loop-v0" · sir=OK · pass=ok · type_errors=[]`

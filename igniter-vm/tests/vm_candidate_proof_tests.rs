@@ -236,7 +236,8 @@ async fn test_proof_vmg12_map_reduce_aggregates() {
 // VMG-13: Loop and Service Loop execution support
 #[tokio::test]
 async fn test_proof_vmg13_local_loops_and_service_loops() {
-    // 1. Loop test (Sum elements of an array)
+    // 1. BudgetedLocalLoop test (kind="loop_node", loop_class="budgeted") — sum [10,20,30] = 60
+    // G3c: kind was "loop"; now "loop_node" per canon SemanticIR shape
     let contract_json = serde_json::json!({
         "compute_nodes": [
             {
@@ -246,10 +247,11 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
             {
                 "name": "ProcessLeads",
                 "expr": {
-                    "kind": "loop",
+                    "kind": "loop_node",
+                    "loop_class": "budgeted",
                     "name": "ProcessLeads",
                     "expr": { "kind": "literal", "value": [10, 20, 30] },
-                    "options": { "max_steps": 100 },
+                    "max_steps": 100,
                     "body_nodes": [
                         {
                             "name": "sum",
@@ -271,13 +273,13 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation of loop contract failed");
-    
+    let bytecode = compiler.compile(&contract_json).expect("Compilation of BudgetedLocalLoop contract failed");
+
     let vm = VM::new(None);
     let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
     assert_eq!(res, Ok(Value::Integer(60)));
 
-    // 2. Loop fuel bounds execution error (max_steps: 2, array length: 3)
+    // 2. BudgetedLocalLoop fuel exhaustion — max_steps=2, array length=3 → OOF-L-FUEL
     let bad_contract_json = serde_json::json!({
         "compute_nodes": [
             {
@@ -287,10 +289,11 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
             {
                 "name": "ProcessLeads",
                 "expr": {
-                    "kind": "loop",
+                    "kind": "loop_node",
+                    "loop_class": "budgeted",
                     "name": "ProcessLeads",
                     "expr": { "kind": "literal", "value": [10, 20, 30] },
-                    "options": { "max_steps": 2 },
+                    "max_steps": 2,
                     "body_nodes": [
                         {
                             "name": "sum",
@@ -311,6 +314,46 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
     let bad_res = vm.execute(&bad_bytecode, &HashMap::new(), &HashMap::new()).await;
     assert!(bad_res.is_err());
     assert!(bad_res.unwrap_err().contains("OOF-L-FUEL"));
+
+    // 3. FiniteLoop test (kind="loop_node", loop_class="finite", max_steps absent → unlimited)
+    // G3b: FiniteLoop terminates via collection exhaustion; max_steps=0 → VM uses u64::MAX fuel sentinel
+    let finite_contract_json = serde_json::json!({
+        "compute_nodes": [
+            {
+                "name": "sum",
+                "expr": { "kind": "literal", "value": 0 }
+            },
+            {
+                "name": "SumAll",
+                "expr": {
+                    "kind": "loop_node",
+                    "loop_class": "finite",
+                    "name": "SumAll",
+                    "expr": { "kind": "literal", "value": [5, 10, 15] },
+                    // no max_steps → VM compiler defaults to 0 → fuel sentinel = u64::MAX
+                    "body_nodes": [
+                        {
+                            "name": "sum",
+                            "expr": {
+                                "kind": "binary_op",
+                                "operator": "+",
+                                "left": { "kind": "ref", "name": "sum" },
+                                "right": { "kind": "ref", "name": "item" }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "final_sum",
+                "expr": { "kind": "ref", "name": "sum" }
+            }
+        ]
+    });
+
+    let finite_bytecode = compiler.compile(&finite_contract_json).expect("Compilation of FiniteLoop failed");
+    let finite_res = vm.execute(&finite_bytecode, &HashMap::new(), &HashMap::new()).await;
+    assert_eq!(finite_res, Ok(Value::Integer(30))); // 5+10+15=30; collection_exhaustion terminates
 
     // 3. Service Loop test (Clock tick loading with field access tick.time)
     let service_contract_json = serde_json::json!({

@@ -357,6 +357,13 @@ impl TypeChecker {
                     let ty = self.type_ir(&serde_json::Value::String("Nil".to_string()));
                     symbol_types.insert(decl.name.clone(), ty.clone());
                     
+                    // G6 (PROP-039 canon OOF-L1): FiniteLoop (`for`) source must be Collection[T].
+                    // Canon: OOF-L1 fires in TypeChecker when for_loop source is not Collection[T].
+                    let loop_class_opt = decl.options.as_ref()
+                        .and_then(|o| o.get("loop_class"))
+                        .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None });
+                    let is_finite_loop = loop_class_opt.as_deref() == Some("finite");
+
                     let mut loop_var_types = HashMap::new();
                     if let Some(Expr::Ref { name: ref_name }) = &decl.expr {
                         let item_ty = if let Some(coll_ty) = symbol_types.get(ref_name) {
@@ -369,6 +376,18 @@ impl TypeChecker {
                                     .unwrap_or_else(|| serde_json::Value::String("Unknown".to_string()));
                                 self.type_ir(&param_val)
                             } else {
+                                // G6: for FiniteLoop, non-Collection source is an OOF-L1 (canon meaning)
+                                if is_finite_loop {
+                                    type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                        rule: "OOF-L1".to_string(),
+                                        message: format!(
+                                            "for loop '{}': source '{}' has type '{}' — must be Collection[T] (canon OOF-L1)",
+                                            decl.name, ref_name, ty_name
+                                        ),
+                                        node: decl.name.clone(),
+                                        line: None,
+                                    });
+                                }
                                 self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                             }
                         } else {
