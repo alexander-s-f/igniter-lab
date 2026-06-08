@@ -139,6 +139,20 @@ With boundaries:
 | ~~OOF-R3: syntactic variant decrease~~ | ✅ closed 2026-06-08 — classifier.rb decreases_variant extraction; typechecker.rb OOF-R3 per recur() site + dotted-path fail-closed; termination.variant_check="syntactic_v0" in SemanticIR; verify_oof_r3.rb 33/33 PASS | ~~Lab Rust symmetry — open~~ ✅ closed 2026-06-08 — verify_oof_r3.rb 34/34 PASS |
 | ~~G6: OOF-L1 semantic alignment~~ | ✅ closed 2026-06-08 — TypeChecker now emits OOF-L1 for FiniteLoop source not Collection[T] (canon meaning). Lab parser OOF-L1 ("unbounded loop") remains for `loop` without max_steps — lab-local, acceptable delta. | — |
 
+### Sync pass: 2026-06-08 (PROP-041-P3: T2 structural-size relation proof-local gate)
+
+| Delta | Before | After | Status |
+|---|---|---|---|
+| D6: T2 structural-size relation | `decreases items.tail` → OOF-R3 (dotted-path fail-closed) | `decreases items.accessor` accepted when size_relation registered; `structural_size_v1` + trust metadata in SemanticIR | ✅ proof-local only — production edits require PROP-041 auth |
+
+Proof-local pipeline: `T2TypeChecker` + `T2Emitter` sub-classes in experiment directory.
+STDLIB_REGISTRY hardcodes `Collection.tail/rest` (stdlib_certified).
+Module-level `size_relation TypeName accessor` → user_assumed entry.
+OOF-R8 = missing relation. OOF-R9 = call-site accessor mismatch.
+T1 regression intact: `syntactic_v0` programs unaffected.
+Canon production files untouched.
+**verify_prop041_t2.rb: 48/48 PASS** — experiment-pass 2026-06-08.
+
 ### Sync pass: 2026-06-08 (String Core track closed)
 
 | Delta | Before | After | Status |

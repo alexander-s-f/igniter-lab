@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-RACK-P6: TypeChecker == and < alignment 32/32; idiomatic equality in route dispatch)
+**Last updated:** 2026-06-08 (PROP-041-P3: T2 structural-size relation proof-local gate 48/48 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -93,6 +93,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | OOF-L2/L3/L4 | igniter-lang | candidates only — not yet proven |
 | OOF-R3 | igniter-lang | ✅ experiment-pass — OOF-R3 gate closed 2026-06-08; oof_r3_syntactic_variant_decrease_proof 33/33 |
 | OOF-R3 Lab Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — classifier.rs + typechecker.rs + emitter.rs; verify_oof_r3.rb 34/34 |
+| OOF-R8 (missing size_relation) / OOF-R9 (call-site mismatch) | igniter-lang | ✅ experiment-pass — PROP-041-P3 proof-local gate 2026-06-08; prop041_structural_size_relation_proof 48/48 |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -150,6 +151,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-038 | Compiler profile contract | accepted; partial-impl | schema + validator |
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
+| PROP-041 | T2 structural-size relation | ✅ experiment-pass (P3 proof-local gate) | OOF-R8/R9; production graduation requires separate auth |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -219,6 +221,13 @@ Rack/middleware vocabulary is lab-only.
     split→Collection[Text] params shape; replace/replace_all SIR fn names; regex pattern treated as literal Text
     Declared policy (runtime-gated): bounds clamp, split("","x"), replace_all overlap, byte_slice UTF-8 boundary
     verify_str_value_semantics.rb: 33/33 PASS
+19. ✅ PROP-041-P3: T2 structural-size relation proof-local gate (2026-06-08)
+    T2TypeChecker + T2Emitter sub-classes extend canon pipeline without production edits
+    STDLIB_REGISTRY: Collection.tail/rest (stdlib_certified). Module size_relation → user_assumed
+    OOF-R8 (missing relation) / OOF-R9 (call-site mismatch). Numeric accessor → OOF-R3 (T3 territory)
+    T1 regression: syntactic_v0 unaffected. Order-independent size_relation pre-scan
+    SemanticIR: variant_check="structural_size_v1" + size_relation {accessor, trust, source}
+    verify_prop041_t2.rb: 48/48 PASS (T2a–T2h)
 
 ---
 
@@ -255,6 +264,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
 | Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; P2 concat disambiguation; verify_str_core.rb 29/29 PASS | — |
 | Lab STR-CORE-P3 value semantics | ✅ closed 2026-06-08 — compile-time unit separation + SIR shapes + OOF enforcement proven; runtime-gated gaps documented; verify_str_value_semantics.rb 33/33 PASS | — |
+| PROP-041-P3 T2 structural-size (proof-local) | ✅ closed 2026-06-08 — proof-local gate 48/48 PASS; OOF-R8/R9; structural_size_v1 SIR shape proven | Production graduation: requires PROP-041 authorization + classifier.rb/typechecker.rb/emitter.rb edits |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
