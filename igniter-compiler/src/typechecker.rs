@@ -740,7 +740,12 @@ impl TypeChecker {
                         }
                     }
                     symbol_types.insert(decl.name.clone(), typed_expr.resolved_type.clone());
-                    typed_decls.push(self.typed_decl(decl, typed_expr.resolved_type, decl.expr.clone(), decl.deps.clone()));
+                    // igniter-string-core: rewrite concat calls before storing expr in TypedDecl.
+                    // This resolves the Collection/Text ambiguity so the emitter emits the
+                    // correct qualified fn name (stdlib.text.concat / stdlib.collection.concat).
+                    let rewritten_expr = decl.expr.as_ref()
+                        .map(|e| self.rewrite_concat_calls(e, &symbol_types));
+                    typed_decls.push(self.typed_decl(decl, typed_expr.resolved_type, rewritten_expr, decl.deps.clone()));
                     // PROP-039 gate 5: validate recur() calls in compute expressions
                     if let Some(expr) = &decl.expr {
                         self.check_recur_in_expr(
@@ -1234,6 +1239,115 @@ impl TypeChecker {
             }
         }
         return_type
+    }
+
+    /// Infer the surface type name of an expression without a full type-inference pass.
+    /// Used only to distinguish Collection vs Text for concat disambiguation.
+    fn quick_arg_type(&self, expr: &Expr, symbol_types: &HashMap<String, serde_json::Value>) -> String {
+        match expr {
+            Expr::Ref { name } => {
+                symbol_types.get(name)
+                    .map(|t| self.type_name(t))
+                    .unwrap_or_else(|| "Unknown".to_string())
+            }
+            Expr::Literal { type_tag, .. } => type_tag.clone(),
+            Expr::Call { fn_name, .. } => {
+                // Collection-producing fns
+                if matches!(fn_name.as_str(), "split" | "range" | "filter" | "map" | "flat_map"
+                    | "zip" | "take" | "stdlib.collection.concat") {
+                    "Collection".to_string()
+                } else if fn_name.starts_with("stdlib.text.") {
+                    "Text".to_string()
+                } else {
+                    "Unknown".to_string()
+                }
+            }
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    /// Recursively rewrite `concat` calls in an expression tree:
+    ///   - first arg type is Collection  → fn_name = "stdlib.collection.concat"
+    ///   - otherwise (Text/String/Unknown) → fn_name = "stdlib.text.concat"
+    /// All other ops are left untouched.
+    fn rewrite_concat_calls(
+        &self,
+        expr: &Expr,
+        symbol_types: &HashMap<String, serde_json::Value>,
+    ) -> Expr {
+        match expr {
+            Expr::Call { fn_name, args } => {
+                let rewritten_args: Vec<Expr> = args.iter()
+                    .map(|a| self.rewrite_concat_calls(a, symbol_types))
+                    .collect();
+                let new_fn = if fn_name == "concat" {
+                    let first_type = args.first()
+                        .map(|a| self.quick_arg_type(a, symbol_types))
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    if first_type == "Collection" {
+                        "stdlib.collection.concat".to_string()
+                    } else {
+                        "stdlib.text.concat".to_string()
+                    }
+                } else {
+                    fn_name.clone()
+                };
+                Expr::Call { fn_name: new_fn, args: rewritten_args }
+            },
+            Expr::BinaryOp { op, left, right } => Expr::BinaryOp {
+                op: op.clone(),
+                left: Box::new(self.rewrite_concat_calls(left, symbol_types)),
+                right: Box::new(self.rewrite_concat_calls(right, symbol_types)),
+            },
+            Expr::UnaryOp { op, operand } => Expr::UnaryOp {
+                op: op.clone(),
+                operand: Box::new(self.rewrite_concat_calls(operand, symbol_types)),
+            },
+            Expr::FieldAccess { object, field } => Expr::FieldAccess {
+                object: Box::new(self.rewrite_concat_calls(object, symbol_types)),
+                field: field.clone(),
+            },
+            Expr::IndexAccess { object, index } => Expr::IndexAccess {
+                object: Box::new(self.rewrite_concat_calls(object, symbol_types)),
+                index: Box::new(self.rewrite_concat_calls(index, symbol_types)),
+            },
+            Expr::IfExpr { cond, then, else_block } => {
+                use crate::parser::{BlockBody, Stmt};
+                fn rewrite_block(
+                    tc: &TypeChecker,
+                    block: &BlockBody,
+                    sym: &HashMap<String, serde_json::Value>,
+                ) -> BlockBody {
+                    let stmts = block.stmts.iter().map(|s| match s {
+                        Stmt::Let { name, expr } => Stmt::Let {
+                            name: name.clone(),
+                            expr: tc.rewrite_concat_calls(expr, sym),
+                        },
+                        Stmt::ExprStmt { expr } => Stmt::ExprStmt {
+                            expr: tc.rewrite_concat_calls(expr, sym),
+                        },
+                    }).collect();
+                    let return_expr = block.return_expr.as_ref()
+                        .map(|e| Box::new(tc.rewrite_concat_calls(e, sym)));
+                    BlockBody { stmts, return_expr }
+                }
+                Expr::IfExpr {
+                    cond: Box::new(self.rewrite_concat_calls(cond, symbol_types)),
+                    then: rewrite_block(self, then, symbol_types),
+                    else_block: else_block.as_ref().map(|b| rewrite_block(self, b, symbol_types)),
+                }
+            },
+            Expr::ArrayLiteral { items } => Expr::ArrayLiteral {
+                items: items.iter().map(|i| self.rewrite_concat_calls(i, symbol_types)).collect(),
+            },
+            Expr::RecordLiteral { fields } => Expr::RecordLiteral {
+                fields: fields.iter().map(|(k, v)| {
+                    (k.clone(), self.rewrite_concat_calls(v, symbol_types))
+                }).collect(),
+            },
+            // Leaf nodes: clone as-is
+            _ => expr.clone(),
+        }
     }
 
     // ---- end igniter-string-core helpers ------------------------------------

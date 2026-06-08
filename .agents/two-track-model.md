@@ -150,7 +150,11 @@ String literals (`type_tag="String"`) accepted as `Text` args (v0 compat rule).
 `Collection[Text]` return type for `split` proven via parametrised type IR.
 SemanticIR: `kind: "call"`, `fn: "stdlib.text.*"` — no new IR kind, consistent with integer ops.
 
-Lab Rust symmetry (`Lab STR-CORE`): **not yet authorized**. Future conformance gate.
+Lab Rust symmetry (`Lab STR-CORE`): ✅ **closed 2026-06-08** — TypeChecker + partial SemanticIR symmetry proven.
+`text_arg_compatible`/`check_text_stdlib_call` helpers; all 14 ops; canon OOF-TY0 message format.
+`rewrite_concat_calls` pass (LAB-STR-CORE-P2): `concat(Text, Text)` → `stdlib.text.concat`;
+`concat(Collection, ...)` → `stdlib.collection.concat`. Emitter attaches `resolved_type` for all qualified text ops.
+**verify_str_core.rb: 29/29 PASS** (STR-TC · STR-COMPAT · STR-OOF · STR-SIR · STR-CLOSED · STR-REG).
 
 **verify_g_string_core status:** ✅ 60/60 PASS — String Core closed 2026-06-08.
 

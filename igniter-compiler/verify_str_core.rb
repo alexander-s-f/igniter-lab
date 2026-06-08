@@ -5,7 +5,7 @@
 #   STR-TC    (8): Rust typechecker accepts all 14 text ops with Text args (no OOF)
 #   STR-COMPAT(2): v0 compat rule — String literals accepted as Text args
 #   STR-OOF   (5): OOF-TY0 fires for arity and type mismatches (canon message format)
-#   STR-SIR   (4): SemanticIR has kind=call, fn=stdlib.text.*, resolved_type
+#   STR-SIR   (7): SemanticIR has kind=call, fn=stdlib.text.*, resolved_type (incl. concat)
 #   STR-CLOSED(3): closed surfaces (regex/locale/tokenize) produce OOF-TY0
 #   STR-REG   (2): regression — integer arithmetic and recur() unaffected
 
@@ -364,6 +364,57 @@ if bytes_node
 else
   fail! "STR-SIR: could not find 'bytes' compute node"
   fail! "STR-SIR: (skipping byte_length resolved_type check)"
+end
+FileUtils.rm_rf(tmp)
+
+# STR-SIR: concat fn disambiguation — stdlib.text.concat for Text args
+result, app_path, tmp = compile_src(SRC_CONCAT_TRIM, "sir_concat_sir")
+sir = load_sir(app_path)
+cn = find_compute_nodes(sir, "ConcatTrim")
+
+concat_node = cn.find { |n| n["name"] == "joined" }
+if concat_node
+  expr = concat_node["expr"]
+  if expr && expr["fn"] == "stdlib.text.concat"
+    pass "STR-SIR: concat(Text, Text) → expr.fn = 'stdlib.text.concat' (disambiguated)"
+  else
+    fail! "STR-SIR: concat expr.fn = '#{expr&.dig("fn")}', expected 'stdlib.text.concat'"
+  end
+  if expr && expr.key?("resolved_type") && expr["resolved_type"]["name"] == "Text"
+    pass "STR-SIR: concat resolved_type.name = 'Text'"
+  else
+    fail! "STR-SIR: concat resolved_type = '#{expr&.dig("resolved_type")&.inspect}', expected Text"
+  end
+else
+  fail! "STR-SIR: could not find 'joined' compute node for concat check"
+  fail! "STR-SIR: (skipping concat resolved_type check)"
+end
+FileUtils.rm_rf(tmp)
+
+# STR-SIR: Collection concat remains as stdlib.collection.concat (not stdlib.text.concat)
+SRC_COLLECTION_CONCAT = <<~IGNITER
+  module StrCore
+  pure contract CollConcat {
+    input a: Collection[Integer]
+    input b: Collection[Integer]
+    compute merged: Collection[Integer] = concat(a, b)
+    output merged: Collection[Integer]
+  }
+IGNITER
+
+result, app_path, tmp = compile_src(SRC_COLLECTION_CONCAT, "sir_coll_concat")
+sir = load_sir(app_path)
+cn = find_compute_nodes(sir, "CollConcat")
+merged_node = cn.find { |n| n["name"] == "merged" }
+if merged_node
+  expr = merged_node["expr"]
+  if expr && expr["fn"] == "stdlib.collection.concat"
+    pass "STR-SIR: concat(Collection, Collection) → expr.fn = 'stdlib.collection.concat'"
+  else
+    fail! "STR-SIR: collection concat expr.fn = '#{expr&.dig("fn")}', expected 'stdlib.collection.concat'"
+  end
+else
+  fail! "STR-SIR: could not find 'merged' compute node for collection concat check"
 end
 FileUtils.rm_rf(tmp)
 

@@ -463,8 +463,9 @@ impl Emitter {
                     return Value::Object(new_map);
                 }
                 // igniter-string-core-units-and-pure-stdlib-boundary-v0:
-                // Rewrite unambiguous text stdlib bare names to stdlib.text.* and
-                // attach resolved_type. concat is excluded (overloaded with Collection concat).
+                // (A) Rewrite unambiguous text stdlib bare names to stdlib.text.* + attach resolved_type.
+                // (B) For already-qualified stdlib.text.* names (from typechecker concat rewrite),
+                //     attach resolved_type so the IR is fully annotated.
                 {
                     const TEXT_STDLIB_OPS: &[&str] = &[
                         "trim", "contains", "starts_with", "ends_with", "split",
@@ -474,7 +475,7 @@ impl Emitter {
                     ];
                     fn text_return_type(fn_name: &str) -> serde_json::Value {
                         let name = match fn_name {
-                            "trim" | "replace" | "replace_all" |
+                            "concat" | "trim" | "replace" | "replace_all" |
                             "byte_slice" | "rune_slice" | "grapheme_slice" => "Text",
                             "contains" | "starts_with" | "ends_with" => "Bool",
                             "byte_length" | "rune_length" | "grapheme_length" => "Integer",
@@ -499,6 +500,7 @@ impl Emitter {
                     if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
                         if let Some(fn_val) = map.get("fn").and_then(|f| f.as_str()) {
                             if TEXT_STDLIB_OPS.contains(&fn_val) {
+                                // (A) bare name → qualify + attach resolved_type
                                 let qualified = format!("stdlib.text.{}", fn_val);
                                 let resolved_type = text_return_type(fn_val);
                                 let args: Vec<serde_json::Value> = map.get("args")
@@ -511,6 +513,32 @@ impl Emitter {
                                 new_map.insert("args".to_string(), serde_json::Value::Array(args));
                                 new_map.insert("resolved_type".to_string(), resolved_type);
                                 return serde_json::Value::Object(new_map);
+                            }
+                            // (B) already-qualified stdlib.text.* (from typechecker concat rewrite)
+                            // — attach resolved_type if not already present.
+                            if fn_val.starts_with("stdlib.text.") || fn_val == "stdlib.collection.concat" {
+                                if !map.contains_key("resolved_type") {
+                                    let base = fn_val.strip_prefix("stdlib.text.").unwrap_or("concat");
+                                    let resolved_type = if fn_val == "stdlib.collection.concat" {
+                                        // Collection[T] — use first arg's param if knowable, else Unknown
+                                        let mut col = serde_json::Map::new();
+                                        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                                        col.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                        serde_json::Value::Object(col)
+                                    } else {
+                                        text_return_type(base)
+                                    };
+                                    let args: Vec<serde_json::Value> = map.get("args")
+                                        .and_then(|a| a.as_array())
+                                        .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                                        .unwrap_or_default();
+                                    let mut new_map = serde_json::Map::new();
+                                    new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
+                                    new_map.insert("fn".to_string(), serde_json::Value::String(fn_val.to_string()));
+                                    new_map.insert("args".to_string(), serde_json::Value::Array(args));
+                                    new_map.insert("resolved_type".to_string(), resolved_type);
+                                    return serde_json::Value::Object(new_map);
+                                }
                             }
                         }
                     }
@@ -574,7 +602,10 @@ impl Emitter {
             if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
                 return self.semantic_expr(val);
             }
-            // igniter-string-core: delegate text stdlib calls to semantic_expr for stdlib.text.* rewrite
+            // igniter-string-core: delegate text stdlib calls to semantic_expr for
+            // stdlib.text.* rewrite + resolved_type annotation.
+            // Covers both bare names (trim, contains, ...) and already-qualified names
+            // (stdlib.text.concat, stdlib.collection.concat) from the typechecker rewrite.
             {
                 const TEXT_STDLIB_OPS_C: &[&str] = &[
                     "trim", "contains", "starts_with", "ends_with", "split",
@@ -584,7 +615,10 @@ impl Emitter {
                 ];
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
                     if let Some(fn_val) = map.get("fn").and_then(|f| f.as_str()) {
-                        if TEXT_STDLIB_OPS_C.contains(&fn_val) {
+                        if TEXT_STDLIB_OPS_C.contains(&fn_val)
+                            || fn_val.starts_with("stdlib.text.")
+                            || fn_val == "stdlib.collection.concat"
+                        {
                             return self.semantic_expr(val);
                         }
                     }
