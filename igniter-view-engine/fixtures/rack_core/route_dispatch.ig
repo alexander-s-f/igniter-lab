@@ -11,15 +11,18 @@ module Rack.P4.RouteDispatch
 -- compiler (OOF-TY0). Route and method dispatch uses starts_with and > instead:
 --   starts_with(path,  "/articles/") → /articles/:id routes
 --   starts_with(path,  "/articles")  → /articles exact (in else branch of above)
---   length(path) > 1                 → non-root path (else → 404)
+--   byte_length(path) > 1            → non-root path (byte_length("/") == 1; else → 404)
 --   starts_with(method, "GET")       → GET method
 --   starts_with(method, "POST")      → POST method
+--
+-- Note: byte_length is the canonical Text stdlib op (not legacy length).
+-- byte_length("/") == 1; any longer path returns byte_length > 1.
 --
 -- Route table:
 --   GET  /              → 200
 --   GET  /articles/:id  → 200  (any path under /articles/)
 --   POST /articles      → 201
---   *    /missing       → 404  (unknown path with length > 1)
+--   *    /missing       → 404  (unknown path with byte_length > 1)
 --   POST /articles/:id  → 405  (route exists, wrong method)
 
 pure contract RouteDispatch {
@@ -33,7 +36,7 @@ pure contract RouteDispatch {
       if starts_with(path, "/articles") {
         if starts_with(method, "POST") { 201 } else { 405 }
       } else {
-        if length(path) > 1 { 404 } else { 200 }
+        if byte_length(path) > 1 { 404 } else { 200 }
       }
     }
 
