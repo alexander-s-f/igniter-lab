@@ -136,6 +136,7 @@ With boundaries:
 | ~~G3c: IR shape kind="loop_node"~~ | ✅ closed 2026-06-08 — emitter.rs emits kind="loop_node" (was "loop") + loop_class, termination, source_ref, max_steps at top level; vm/compiler.rs updated; verify_g3_conformance.rb PASS | — |
 | ~~G4: Body semantics~~ | ✅ closed 2026-06-08 — `lead` keyword in parser.rs, OOF-L5/L7/L8 in classifier.rs + typechecker.rs, `body=[lead_node*,compute_node*]` + `item_type` in emitter.rs; two-track `body` (canon) / `body_nodes` (VM exec); verify_g4_body_semantics.rb 18/18 PASS | — |
 | ~~G5: recur() primitive~~ | ✅ closed 2026-06-08 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr node in emitter.rs; verify_g5_recur.rb 18/18 PASS | — |
+| ~~OOF-R3: syntactic variant decrease~~ | ✅ closed 2026-06-08 — classifier.rb decreases_variant extraction; typechecker.rb OOF-R3 per recur() site + dotted-path fail-closed; termination.variant_check="syntactic_v0" in SemanticIR; verify_oof_r3.rb 33/33 PASS | Lab Rust symmetry — open |
 | ~~G6: OOF-L1 semantic alignment~~ | ✅ closed 2026-06-08 — TypeChecker now emits OOF-L1 for FiniteLoop source not Collection[T] (canon meaning). Lab parser OOF-L1 ("unbounded loop") remains for `loop` without max_steps — lab-local, acceptable delta. | — |
 
 ### Sync pass: 2026-06-08 (String Core track closed)

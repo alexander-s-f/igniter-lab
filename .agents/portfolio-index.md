@@ -66,7 +66,8 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | PROP-039: loop-class vocabulary + recursion design | igniter-lang | ✅ accepted; Gates 1+3+4+5+6+7+8 closed; Gate 5 recur() closed |
 | FiniteLoop / BudgetedLocalLoop / StructuralRecursion / FuelBoundedRecursion | igniter-lang | ✅ experiment-pass compiler surface |
 | OOF-L1/L5/L7/L8 / OOF-R1/R2/R4/R5/R6/R7 | igniter-lang | ✅ experiment-pass — active in TypeChecker/Classifier |
-| OOF-L2/L3/L4 / OOF-R3 | igniter-lang | candidates only — not yet proven |
+| OOF-L2/L3/L4 | igniter-lang | candidates only — not yet proven |
+| OOF-R3 | igniter-lang | ✅ experiment-pass — OOF-R3 gate closed 2026-06-08; oof_r3_syntactic_variant_decrease_proof 33/33 |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -184,6 +185,11 @@ Rack/middleware vocabulary is lab-only.
 14. ✅ Lab G5: Rust symmetry for G5 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr in emitter.rs (2026-06-08)
     recur() context-check, arity-check, type-check, single-output-check all symmetric with canon
     verify_g5_recur.rb: 18/18 PASS
+15. ✅ OOF-R3 gate: syntactic variant decrease proof — canon TypeChecker gate (2026-06-08)
+    classifier.rb: decreases_variant extraction; typechecker.rb: OOF-R3 per recur() site + dotted-path fail-closed
+    semanticir_emitter.rb: termination.variant_check="syntactic_v0" on clean contracts
+    Whitelist: variant-N, variant.tail, variant.rest. Exempt: fuel_bounded, decreases fuel.
+    verify_oof_r3.rb: 33/33 PASS
 
 ---
 
