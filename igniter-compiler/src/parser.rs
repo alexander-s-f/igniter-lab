@@ -273,6 +273,13 @@ pub enum BodyDecl {
     MaxSteps {
         value: u64,
     },
+    /// PROP-039 gate 8: `lead name: Type = literal` inside loop body
+    #[serde(rename = "lead")]
+    Lead {
+        name: String,
+        type_annotation: TypeRef,
+        initial: Expr,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1235,6 +1242,8 @@ impl Parser {
             // G3b: FiniteLoop — `for Name item in source { body }` (no max_steps; collection_exhaustion)
             "for" => { self.advance(); self.parse_for_loop_decl().ok() }
             "invariant" => { self.advance(); self.parse_invariant_decl().ok() }
+            // PROP-039 gate 8: lead binding inside loop body
+            "lead" => { self.advance(); self.parse_lead_decl().ok() }
             // G2: structural meta-declarations for recursive/fuel_bounded contracts
             "decreases" => { self.advance(); self.parse_decreases_body_decl().ok() }
             "max_steps" => { self.advance(); self.parse_max_steps_body_decl().ok() }
@@ -1607,6 +1616,16 @@ impl Parser {
         let tok = self.expect_type(TokenType::IntLit)?;
         let value = tok.value.parse::<u64>().unwrap_or(0);
         Ok(BodyDecl::MaxSteps { value })
+    }
+
+    /// PROP-039 gate 8: parse `lead name: Type = literal` inside loop body
+    fn parse_lead_decl(&mut self) -> Result<BodyDecl, String> {
+        let name = self.name_token()?;
+        self.expect_type(TokenType::Colon)?;
+        let type_annotation = self.parse_type_ref()?;
+        self.expect_type(TokenType::Assign)?;
+        let initial = self.parse_expr()?;
+        Ok(BodyDecl::Lead { name, type_annotation, initial })
     }
 
     fn parse_loop_or_service_loop_decl(&mut self) -> Result<BodyDecl, String> {

@@ -261,8 +261,14 @@ impl Classifier {
                     symbol_fragments.insert(name.clone(), "core".to_string());
                     symbol_kinds.insert(name.clone(), "loop".to_string());
                     for inner in loop_body {
-                        if let BodyDecl::Compute { name: inner_name, .. } = inner {
-                            symbol_kinds.insert(inner_name.clone(), "compute".to_string());
+                        match inner {
+                            BodyDecl::Compute { name: inner_name, .. } => {
+                                symbol_kinds.insert(inner_name.clone(), "compute".to_string());
+                            }
+                            BodyDecl::Lead { name: lead_name, .. } => {
+                                symbol_kinds.insert(lead_name.clone(), "lead".to_string());
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -851,6 +857,10 @@ impl Classifier {
                     // Also keep "item" as generic alias so old body patterns still resolve
                     symbol_fragments.insert("item".to_string(), "core".to_string());
 
+                    // Snapshot outer contract symbols for OOF-L8 shadow check (before body pre-scan registers body targets)
+                    let outer_symbol_keys: std::collections::HashSet<String> =
+                        symbol_fragments.keys().cloned().collect();
+
                     // Collect deps from loop body compute nodes
                     let mut body_deps = Vec::new();
                     for body_node in loop_body {
@@ -903,52 +913,113 @@ impl Classifier {
                     loop_options.insert("item".to_string(), WindowValue::Str(var_name.clone()));
 
                     let mut inner_classified = Vec::new();
+                    let mut lead_names: Vec<String> = Vec::new();
                     for inner_decl in loop_body {
-                        if let BodyDecl::Compute { name: inner_name, expr: inner_expr, type_annotation: inner_type_annotation } = inner_decl {
-                            let inner_deps = self.expr_refs(inner_expr);
-                            let mut inner_missing = Vec::new();
-                            for dep in &inner_deps {
-                                if dep != &var_name && dep != "item" && !symbol_fragments.contains_key(dep) && symbol_kinds.get(dep).map(|s| s.as_str()) != Some("compute") {
-                                    inner_missing.push(dep.clone());
-                                    diagnostics.push(ClassifierDiagnostic {
-                                        rule: "OOF-P1".to_string(),
-                                        message: format!("Unresolved symbol: {}", dep),
-                                        node: inner_name.clone(),
-                                        line: None,
-                                    });
+                        match inner_decl {
+                            BodyDecl::Compute { name: inner_name, expr: inner_expr, type_annotation: inner_type_annotation } => {
+                                let inner_deps = self.expr_refs(inner_expr);
+                                let mut inner_missing = Vec::new();
+                                for dep in &inner_deps {
+                                    if dep != &var_name && dep != "item" && !symbol_fragments.contains_key(dep) && symbol_kinds.get(dep).map(|s| s.as_str()) != Some("compute") {
+                                        inner_missing.push(dep.clone());
+                                        diagnostics.push(ClassifierDiagnostic {
+                                            rule: "OOF-P1".to_string(),
+                                            message: format!("Unresolved symbol: {}", dep),
+                                            node: inner_name.clone(),
+                                            line: None,
+                                        });
+                                    }
                                 }
+                                let upstream_oof = inner_deps.iter().any(|dep| dep != &var_name && dep != "item" && symbol_fragments.get(dep).map(|s| s.as_str()) == Some("oof"));
+                                let mut inner_fragment = if inner_missing.is_empty() && !upstream_oof { "core".to_string() } else { "oof".to_string() };
+                                if inner_fragment != "oof" && expr_has_io_call(inner_expr) {
+                                    inner_fragment = "escape".to_string();
+                                }
+
+                                symbol_fragments.insert(inner_name.clone(), inner_fragment.clone());
+
+                                inner_classified.push(ClassifiedDecl {
+                                    decl_id: format!("compute:{}", inner_name),
+                                    kind: "compute".to_string(),
+                                    name: inner_name.clone(),
+                                    fragment_class: inner_fragment,
+                                    deps: inner_deps,
+                                    missing_refs: inner_missing,
+                                    type_annotation: inner_type_annotation.as_ref().map(|t| serde_json::to_value(t).unwrap()),
+                                    expr_kind: Some(self.expr_kind(inner_expr)),
+                                    expr: Some(inner_expr.clone()),
+                                    options: None,
+                                    node_fragment_class: None,
+                                    value_fragment_class: None,
+                                    required_capability: None,
+                                    temporal_axis: None,
+                                    predicate_ref: None,
+                                    severity: None,
+                                    label: None,
+                                    message: None,
+                                    overridable_with: None,
+                                    lifecycle: None,
+                                    body_nodes: None,
+                                });
                             }
-                            let upstream_oof = inner_deps.iter().any(|dep| dep != &var_name && dep != "item" && symbol_fragments.get(dep).map(|s| s.as_str()) == Some("oof"));
-                            let mut inner_fragment = if inner_missing.is_empty() && !upstream_oof { "core".to_string() } else { "oof".to_string() };
-                            if inner_fragment != "oof" && expr_has_io_call(inner_expr) {
-                                inner_fragment = "escape".to_string();
+                            // PROP-039 gate 8: lead binding inside loop body
+                            BodyDecl::Lead { name: lead_name, type_annotation: lead_type, initial: lead_initial } => {
+                                // OOF-L8: lead must not shadow outer contract symbols or loop item variable
+                                // Use outer_symbol_keys snapshot (before body targets were pre-registered)
+                                if outer_symbol_keys.contains(lead_name.as_str()) && !lead_names.contains(lead_name) {
+                                    if lead_name == &var_name || lead_name == "item" {
+                                        diagnostics.push(ClassifierDiagnostic {
+                                            rule: "OOF-L8".to_string(),
+                                            message: format!("lead '{}' in loop '{}' shadows loop item variable '{}'", lead_name, name, var_name),
+                                            node: name.clone(),
+                                            line: None,
+                                        });
+                                    } else {
+                                        diagnostics.push(ClassifierDiagnostic {
+                                            rule: "OOF-L8".to_string(),
+                                            message: format!("lead '{}' in loop '{}' shadows outer contract symbol", lead_name, name),
+                                            node: name.clone(),
+                                            line: None,
+                                        });
+                                    }
+                                }
+                                // Register lead name so subsequent compute nodes can reference it
+                                symbol_fragments.insert(lead_name.clone(), "core".to_string());
+                                lead_names.push(lead_name.clone());
+                                inner_classified.push(ClassifiedDecl {
+                                    decl_id: format!("lead:{}", lead_name),
+                                    kind: "lead".to_string(),
+                                    name: lead_name.clone(),
+                                    fragment_class: "core".to_string(),
+                                    deps: Vec::new(),
+                                    missing_refs: Vec::new(),
+                                    type_annotation: Some(serde_json::to_value(lead_type).unwrap()),
+                                    expr_kind: Some("literal".to_string()),
+                                    expr: Some(lead_initial.clone()),
+                                    options: None,
+                                    node_fragment_class: None,
+                                    value_fragment_class: None,
+                                    required_capability: None,
+                                    temporal_axis: None,
+                                    predicate_ref: None,
+                                    severity: None,
+                                    label: None,
+                                    message: None,
+                                    overridable_with: None,
+                                    lifecycle: None,
+                                    body_nodes: None,
+                                });
                             }
-                            
-                            symbol_fragments.insert(inner_name.clone(), inner_fragment.clone());
-                            
-                            inner_classified.push(ClassifiedDecl {
-                                decl_id: format!("compute:{}", inner_name),
-                                kind: "compute".to_string(),
-                                name: inner_name.clone(),
-                                fragment_class: inner_fragment,
-                                deps: inner_deps,
-                                missing_refs: inner_missing,
-                                type_annotation: inner_type_annotation.as_ref().map(|t| serde_json::to_value(t).unwrap()),
-                                expr_kind: Some(self.expr_kind(inner_expr)),
-                                expr: Some(inner_expr.clone()),
-                                options: None,
-                                node_fragment_class: None,
-                                value_fragment_class: None,
-                                required_capability: None,
-                                temporal_axis: None,
-                                predicate_ref: None,
-                                severity: None,
-                                label: None,
-                                message: None,
-                                overridable_with: None,
-                                lifecycle: None,
-                                body_nodes: None,
-                            });
+                            // PROP-039 gate 8: nested loops in body are OOF-L5 (v0 restriction)
+                            BodyDecl::Loop { name: nested_name, .. } | BodyDecl::ServiceLoop { name: nested_name, .. } => {
+                                diagnostics.push(ClassifierDiagnostic {
+                                    rule: "OOF-L5".to_string(),
+                                    message: format!("nested loop '{}' in loop body '{}' is not supported in v0", nested_name, name),
+                                    node: name.clone(),
+                                    line: None,
+                                });
+                            }
+                            _ => {}
                         }
                     }
 
@@ -979,6 +1050,16 @@ impl Classifier {
                 // G2: decreases/max_steps are structural meta-declarations for recursive/fuel_bounded
                 // contracts. No ClassifiedDecl produced; used only for contract-level OOF checks.
                 BodyDecl::Decreases { .. } | BodyDecl::MaxSteps { .. } => {}
+                // PROP-039 gate 8: lead at contract level is OOF-L5 (only valid inside loop body)
+                BodyDecl::Lead { name, .. } => {
+                    diagnostics.push(ClassifierDiagnostic {
+                        rule: "OOF-L5".to_string(),
+                        message: format!("lead declaration '{}' is only valid inside a loop body", name),
+                        node: name.clone(),
+                        line: None,
+                    });
+                    // Do NOT add to declarations — it's an error node
+                }
                 BodyDecl::ServiceLoop { name, interval, body: loop_body } => {
                     // Service loops are always ESCAPE
                     symbol_fragments.insert(name.clone(), "escape".to_string());

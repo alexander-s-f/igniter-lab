@@ -1172,16 +1172,52 @@ impl Emitter {
         // expr for VM compiler backward compat
         node.insert("expr".to_string(), self.semantic_expr(&json!(decl.expr)));
 
-        let mut body_nodes = Vec::new();
+        // PROP-039 gate 8: item_type from collection element type
+        if let Some(item_type_val) = decl.options.as_ref()
+            .and_then(|o| o.get("item_type"))
+            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+        {
+            node.insert("item_type".to_string(), Value::String(item_type_val));
+        }
+
+        // PROP-039 gate 8: body_nodes (VM execution — compute only) and body (canon typed IR)
+        let mut body_nodes_vm = Vec::new();
+        let mut canon_body = Vec::new();
         if let Some(nodes) = &decl.body_nodes {
             for inner in nodes {
-                if let Some(val) = self.typed_node(inner, declarations) {
-                    body_nodes.push(val);
+                if inner.kind == "lead" {
+                    // lead_node for canon body
+                    let type_str = inner.type_info.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| inner.type_info.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    canon_body.push(json!({
+                        "kind": "lead_node",
+                        "name": inner.name,
+                        "type": type_str,
+                        "initial": self.semantic_expr(&json!(inner.expr))
+                    }));
+                } else if inner.kind == "compute" {
+                    // compute_node for canon body
+                    canon_body.push(json!({
+                        "kind": "compute_node",
+                        "name": inner.name,
+                        "expr": self.semantic_expr(&json!(inner.expr))
+                    }));
+                    // Also emit to body_nodes for VM backward compat
+                    if let Some(val) = self.typed_node(inner, declarations) {
+                        body_nodes_vm.push(val);
+                    }
+                } else if let Some(val) = self.typed_node(inner, declarations) {
+                    body_nodes_vm.push(val);
                 }
             }
         }
-        // body_nodes: lab-local (VM executes body). Canon has body=[] (deferred).
-        node.insert("body_nodes".to_string(), Value::Array(body_nodes));
+        // body_nodes: lab-local VM execution field (compute nodes only — backward compat)
+        node.insert("body_nodes".to_string(), Value::Array(body_nodes_vm));
+        // body: canon gate 8 typed IR (lead_node + compute_node)
+        node.insert("body".to_string(), Value::Array(canon_body));
         Value::Object(node)
     }
 

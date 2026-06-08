@@ -414,17 +414,118 @@ impl TypeChecker {
                     }
                     
                     let mut typed_body_nodes = Vec::new();
+                    let mut lead_names: Vec<String> = Vec::new();
+
+                    // Derive item_type string for gate 8 canon body
+                    // Use body_symbol_types["item"] which has the element type already resolved
+                    let item_type_str = {
+                        let item_var = decl.options.as_ref()
+                            .and_then(|o| o.get("item"))
+                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .unwrap_or_else(|| "item".to_string());
+                        body_symbol_types.get(&item_var)
+                            .or_else(|| body_symbol_types.get("item"))
+                            .and_then(|ty| ty.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                            .unwrap_or_else(|| "Unknown".to_string())
+                    };
+
                     if let Some(body_nodes) = &decl.body_nodes {
+                        // Extract item variable name for OOF-L7 checks
+                        let item_var = decl.options.as_ref()
+                            .and_then(|o| o.get("item"))
+                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .unwrap_or_else(|| "item".to_string());
+
+                        // PROP-039 gate 8: OOF-L7/OOF-L5 target checks only apply when the body
+                        // has at least one `lead` binding (gate-8 mode). Without lead, the old
+                        // accumulation pattern (compute outer_symbol = ...) remains valid for VM compat.
+                        let is_gate8_body = body_nodes.iter().any(|n| n.kind == "lead");
+
                         for inner_decl in body_nodes {
-                            if inner_decl.kind == "compute" {
-                                let mut typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions);
-                                body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
-                                typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                            match inner_decl.kind.as_str() {
+                                "lead" => {
+                                    // PROP-039 gate 8: validate lead initial is a literal
+                                    let is_literal = inner_decl.expr.as_ref()
+                                        .map(|e| matches!(e, Expr::Literal { .. }))
+                                        .unwrap_or(false);
+                                    if !is_literal {
+                                        type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                            rule: "OOF-L5".to_string(),
+                                            message: format!(
+                                                "lead '{}' in loop '{}': initial value must be a static literal in v0",
+                                                inner_decl.name, decl.name
+                                            ),
+                                            node: decl.name.clone(),
+                                            line: None,
+                                        });
+                                    }
+                                    lead_names.push(inner_decl.name.clone());
+                                    // Derive type from annotation (stored in classifier as JSON)
+                                    let lead_type_ir = inner_decl.type_annotation.as_ref()
+                                        .map(|t| self.type_ir(t))
+                                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                                    let type_str = lead_type_ir.get("name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Unknown")
+                                        .to_string();
+                                    // Add lead to body symbol types for subsequent computes
+                                    body_symbol_types.insert(
+                                        inner_decl.name.clone(),
+                                        self.type_ir(&serde_json::Value::String(type_str))
+                                    );
+                                    typed_body_nodes.push(self.typed_decl(inner_decl, lead_type_ir, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                }
+                                "compute" => {
+                                    // PROP-039 gate 8: OOF-L7/OOF-L5 target checks (gate-8 mode only)
+                                    let target = &inner_decl.name;
+                                    if is_gate8_body {
+                                        if target == &item_var || target == "item" {
+                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                                rule: "OOF-L7".to_string(),
+                                                message: format!(
+                                                    "body compute in loop '{}' targets loop item '{}' — item is read-only",
+                                                    decl.name, target
+                                                ),
+                                                node: decl.name.clone(),
+                                                line: None,
+                                            });
+                                        } else if symbol_types.contains_key(target.as_str()) && !lead_names.contains(target) {
+                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                                rule: "OOF-L7".to_string(),
+                                                message: format!(
+                                                    "body compute in loop '{}' targets outer contract symbol '{}' — outer state is read-only",
+                                                    decl.name, target
+                                                ),
+                                                node: decl.name.clone(),
+                                                line: None,
+                                            });
+                                        } else if !lead_names.contains(target) && !symbol_types.contains_key(target.as_str()) && target != &item_var && target != "item" {
+                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                                rule: "OOF-L5".to_string(),
+                                                message: format!(
+                                                    "body compute in loop '{}' targets '{}' which is not a declared lead binding",
+                                                    decl.name, target
+                                                ),
+                                                node: decl.name.clone(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+
+                                    let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions);
+                                    body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
+                                    typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                }
+                                _ => {}
                             }
                         }
                     }
-                    
+
                     let mut typed_loop_decl = self.typed_decl(decl, ty, decl.expr.clone(), decl.deps.clone());
+                    // Store item_type in options for gate 8 emitter
+                    if let Some(opts) = &mut typed_loop_decl.options {
+                        opts.insert("item_type".to_string(), crate::parser::WindowValue::Str(item_type_str));
+                    }
                     typed_loop_decl.body_nodes = Some(typed_body_nodes);
                     typed_decls.push(typed_loop_decl);
                 }
