@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (PROP-041-P3: T2 structural-size relation proof-local gate 48/48 PASS)
+**Last updated:** 2026-06-08 (LAB-STR-UNICODE-P2: Unicode VM runtime ops — 43/43 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -70,9 +70,11 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 29/29 PASS (P2: concat disambiguated) |
 | Lab STR-CORE-P3 value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lab | ✅ closed 2026-06-08 — verify_str_value_semantics.rb 33/33 PASS (compile-time; runtime-gated gaps documented) |
 | LAB-STR-UNICODE-P1 Unicode policy design | igniter-lab | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29, no normalization, bounds clamp, grapheme receipt design |
+| LAB-STR-UNICODE-P2 Unicode VM runtime ops | igniter-lab | ✅ closed 2026-06-08 — verify_unicode_text_runtime.rb 43/43 PASS; 8 new handlers + split guard; unicode-segmentation = "1.11" |
 
 **Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
-`stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics and stable public API closed.
+`stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics proven in lab VM.
+Stable public API and runtime-execution gate remain closed.
 
 **v0 surface (14 ops):** `concat`, `trim`, `contains`, `starts_with`, `ends_with`, `split`, `replace`, `replace_all`,
 `byte_length`, `rune_length`, `grapheme_length`, `byte_slice`, `rune_slice`, `grapheme_slice`
@@ -122,9 +124,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P4 (static route dispatch — 5-route data-plane table + :id param extraction; stdlib.text.* VM gap found) | igniter-lab | ✅ DONE | 27/27 |
 | LAB-RACK-P5 (VM stdlib.text.* alignment — 3 OP_CALL cases added; 5-route dispatch + param extraction execute end-to-end on VM) | igniter-lab | ✅ DONE | 20/20 |
 | LAB-RACK-P6 (TypeChecker == and < alignment — idiomatic equality in route dispatch; exact match via path=="/" + method=="GET") | igniter-lab | ✅ DONE | 32/32 |
+| LAB-RACK-P7 (VM named entrypoint selector — `--entry <name>` CLI flag; default contracts[0] preserved; unknown entry fails closed) | igniter-lab | ✅ DONE | 28/28 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P6 → lang | Static pipeline + ContractRef gap map + 5-route dispatch proven end-to-end; TypeChecker == and < closed; VM entrypoint selector + ContractRef dispatch still open | LAB-RACK-P7 next
+**Alignment gap:** LAB-RACK-P2..P7 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector proven end-to-end; ContractRef runtime dispatch still open | LAB-RACK-P8 next
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -152,7 +155,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-038 | Compiler profile contract | accepted; partial-impl | schema + validator |
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
-| PROP-041 | T2 structural-size relation | ✅ experiment-pass (P3 proof-local gate) | OOF-R8/R9; production graduation requires separate auth |
+| PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -227,14 +230,20 @@ Rack/middleware vocabulary is lab-only.
     No implicit normalization; exact codepoint equality; trim = Unicode Pattern_White_Space
     slice bounds: [start,end) half-open; clamp; byte_slice invalid boundary → ""; split("") undefined v0
     grapheme backend: unicode-segmentation (UAX #29); version pin via Cargo.lock; canon receipt design
-    Next: auth card for unicode-segmentation dep + VM ops implementation
-20. ✅ PROP-041-P3: T2 structural-size relation proof-local gate (2026-06-08)
-    T2TypeChecker + T2Emitter sub-classes extend canon pipeline without production edits
-    STDLIB_REGISTRY: Collection.tail/rest (stdlib_certified). Module size_relation → user_assumed
-    OOF-R8 (missing relation) / OOF-R9 (call-site mismatch). Numeric accessor → OOF-R3 (T3 territory)
-    T1 regression: syntactic_v0 unaffected. Order-independent size_relation pre-scan
-    SemanticIR: variant_check="structural_size_v1" + size_relation {accessor, trust, source}
-    verify_prop041_t2.rb: 48/48 PASS (T2a–T2h)
+20. ✅ LAB-STR-UNICODE-P2: Unicode VM runtime ops implementation (2026-06-08)
+    unicode-segmentation = "1.11" in Cargo.toml; UnicodeSegmentation import in vm.rs
+    New handlers: rune_length, grapheme_length, byte_slice, rune_slice, grapheme_slice, ends_with, replace, replace_all
+    split guard: empty delimiter → runtime operational error (v0 policy, no fallback)
+    replace/replace_all guard: empty pattern → runtime operational error
+    Qualified aliases: stdlib.text.concat, trim, contains; stdlib.collection.concat
+    UAX #29 proven: rune_length("éx")=3, grapheme_length("éx")=2; NFC≠NFD no normalization
+    verify_unicode_text_runtime.rb: 43/43 PASS
+21. ✅ PROP-041-P3/P4/P5: T2 structural-size relation — proof-local gate + authorization review + formal proposal (2026-06-08)
+    P3: T2TypeChecker + T2Emitter sub-classes; 28 fixtures; verify_prop041_t2.rb 48/48 PASS (T2a–T2h)
+    P4: authorization review — experiment-pass accepted; formal proposal authoring opened; production edits closed
+    P5: formal proposal authored — grammar surface, STDLIB_REGISTRY, trust levels, OOF-R8/R9, SIR shape, backward compat
+    Q1–Q5 resolved: NUMERIC_ACCESSORS hardcoded; backward-compat allowance codified; one-decl-per-accessor; trust exhaustive; source="compiler_builtin"
+    Next: P6 production-edit planning authorization review
 
 ---
 
@@ -271,8 +280,9 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
 | Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; P2 concat disambiguation; verify_str_core.rb 29/29 PASS | — |
 | Lab STR-CORE-P3 value semantics | ✅ closed 2026-06-08 — compile-time unit separation + SIR shapes + OOF enforcement proven; runtime-gated gaps documented; verify_str_value_semantics.rb 33/33 PASS | — |
-| LAB-STR-UNICODE-P1 Unicode policy | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29 grapheme, no normalization, bounds policy, `unicode-segmentation` lab recommendation, receipt design | Next: auth card for VM dep + ops implementation |
-| PROP-041-P3 T2 structural-size (proof-local) | ✅ closed 2026-06-08 — proof-local gate 48/48 PASS; OOF-R8/R9; structural_size_v1 SIR shape proven | Production graduation: requires PROP-041 authorization + classifier.rb/typechecker.rb/emitter.rb edits |
+| LAB-STR-UNICODE-P1 Unicode policy | ✅ design-locked 2026-06-08 — UTF-8 validity, UAX #29 grapheme, no normalization, bounds policy, `unicode-segmentation` lab recommendation, receipt design | — |
+| LAB-STR-UNICODE-P2 Unicode VM ops | ✅ closed 2026-06-08 — 8 new handlers + split/replace guards; UAX#29 runtime proven; verify_unicode_text_runtime.rb 43/43 PASS | — |
+| PROP-041 T2 structural-size P3/P4/P5 | ✅ closed 2026-06-08 — proof-local gate 48/48 PASS; formal proposal authored; grammar/OOF-R8/R9/SIR/trust locked | P6: production-edit planning authorization review |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---

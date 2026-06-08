@@ -22,14 +22,46 @@ impl Compiler {
     }
 
     // Compile a high-level contract graph into linear bytecode instructions.
+    // Defaults to contracts[0] (backward-compatible). See compile_entry for named selection.
     pub fn compile(&mut self, contract_jv: &serde_json::Value) -> Result<Vec<Instruction>, String> {
+        self.compile_entry(contract_jv, None)
+    }
+
+    // LAB-RACK-P7: Named entrypoint selector.
+    // When entry_name is Some(name), selects the contract whose "contract_name" (SemanticIR
+    // field) or "name" matches. Falls back to contracts[0] when None (default behavior).
+    // Fails closed with a descriptive error listing available contract names when the
+    // requested entry is not found.
+    pub fn compile_entry(&mut self, contract_jv: &serde_json::Value, entry_name: Option<&str>) -> Result<Vec<Instruction>, String> {
         self.instructions.clear();
         self.compute_node_registers.clear();
         self.next_register = 1000;
 
-        // Extract contract object: support semantic_ir_program format or direct contract JSON
+        // Extract contract object: support semantic_ir_program format or direct contract JSON.
+        // LAB-RACK-P7: with entry_name, search by contract_name; else contracts[0] (default).
         let contract_obj = if let Some(contracts_arr) = contract_jv.get("contracts").and_then(|c| c.as_array()) {
-            contracts_arr.get(0).ok_or("No contracts found in semantic_ir_program")?
+            if let Some(name) = entry_name {
+                contracts_arr.iter()
+                    .find(|c| {
+                        c.get("contract_name").and_then(|n| n.as_str()) == Some(name)
+                            || c.get("name").and_then(|n| n.as_str()) == Some(name)
+                    })
+                    .ok_or_else(|| {
+                        let available: Vec<&str> = contracts_arr.iter()
+                            .filter_map(|c| {
+                                c.get("contract_name").and_then(|n| n.as_str())
+                                    .or_else(|| c.get("name").and_then(|n| n.as_str()))
+                            })
+                            .collect();
+                        format!(
+                            "Entry '{}' not found in igapp (available: [{}])",
+                            name,
+                            if available.is_empty() { "none".to_string() } else { available.join(", ") }
+                        )
+                    })?
+            } else {
+                contracts_arr.get(0).ok_or("No contracts found in semantic_ir_program")?
+            }
         } else {
             contract_jv
         };

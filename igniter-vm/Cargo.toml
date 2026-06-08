@@ -22,3 +22,5 @@ crc32fast = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4"] }
 igniter_stdlib = { path = "../igniter-stdlib" }
+# LAB-STR-UNICODE-P2: UAX #29 extended grapheme clusters for stdlib.text.grapheme_*
+unicode-segmentation = "1.11"

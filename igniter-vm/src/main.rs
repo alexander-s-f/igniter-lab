@@ -212,6 +212,8 @@ async fn main() {
     let mut as_of = None;
     let mut tbackend_addr = None;
     let mut json_mode = false;
+    // LAB-RACK-P7: named entrypoint selector (--entry <contract_name>)
+    let mut entry_name: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -272,6 +274,20 @@ async fn main() {
             "--json" | "-j" => {
                 json_mode = true;
                 i += 1;
+            }
+            // LAB-RACK-P7: named entrypoint selector
+            "--entry" | "--entrypoint" | "-e" => {
+                if i + 1 < args.len() {
+                    entry_name = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    if json_mode {
+                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --entry option" }));
+                    } else {
+                        eprintln!("  {}Error: Missing value for --entry option{}", RED, RESET);
+                    }
+                    std::process::exit(1);
+                }
             }
             other => {
                 if json_mode {
@@ -370,7 +386,8 @@ async fn main() {
         println!("  {} [*] Compiling Contract AST to Bytecode...{}", YELLOW, RESET);
     }
     let mut compiler = Compiler::new();
-    let bytecode = match compiler.compile(&contract_json) {
+    // LAB-RACK-P7: use compile_entry; passes entry_name=None for default (contracts[0]).
+    let bytecode = match compiler.compile_entry(&contract_json, entry_name.as_deref()) {
         Ok(bc) => bc,
         Err(e) => {
             if json_mode {
@@ -500,10 +517,19 @@ async fn main() {
         }
     }
 
+    // LAB-RACK-P7: read modifier from the selected entry (by name if --entry provided, else contracts[0]).
     let modifier = contract_json.get("modifier")
         .or_else(|| {
             if let Some(contracts_arr) = contract_json.get("contracts").and_then(|c| c.as_array()) {
-                contracts_arr.get(0).and_then(|c| c.get("modifier"))
+                let selected = if let Some(ref name) = entry_name {
+                    contracts_arr.iter().find(|c| {
+                        c.get("contract_name").and_then(|n| n.as_str()) == Some(name.as_str())
+                            || c.get("name").and_then(|n| n.as_str()) == Some(name.as_str())
+                    })
+                } else {
+                    contracts_arr.get(0)
+                };
+                selected.and_then(|c| c.get("modifier"))
             } else {
                 None
             }
