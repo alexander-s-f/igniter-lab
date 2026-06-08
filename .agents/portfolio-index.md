@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-08
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -152,6 +152,21 @@ Rack/middleware vocabulary is lab-only.
     G3c: IR shape kind="loop_node" (was "loop"); loop_class, termination, source_ref, max_steps at top level
          emitter.rs + vm/compiler.rs; BudgetedLocalLoop and FiniteLoop both verified
     verify_g3_conformance.rb: 14/14 PASS
+11. ✅ Canon Gate 8: loop body semantics — `lead` keyword, lead_node+compute_node IR shape, OOF-L5/L7/L8 (2026-06-08)
+    `lead name: Type = expr` loop-carried binding; body scope rules; OOF-L7 (read-only item), OOF-L8 (shadow)
+    loop_body_semantics_proof: 100/100 PASS
+    Tracked: igniter-lang/experiments/loop_body_semantics_proof/
+12. ✅ Lab G4: Rust symmetry for Gate 8 — `lead` parser, OOF-L5/L7/L8 classifier+typechecker, two-track body (2026-06-08)
+    `body=[lead_node*,compute_node*]` + `item_type` in emitter.rs; `body_nodes` VM execution field preserved
+    verify_g4_body_semantics.rb: 18/18 PASS (incl. non-literal OOF-L5, clean OOF-L8 fixture)
+13. ✅ Canon G5: recur() call semantics — OOF-R1/R5/R6/R7, `recur_call` sub-expr in SemanticIR (2026-06-08)
+    Context validation (OOF-R1), arity (OOF-R5), type (OOF-R6), single-output (OOF-R7)
+    recur_call is sub-expression only — must NOT appear as top-level node
+    recursive_body_proof: 100/100 PASS
+    Tracked: igniter-lang/experiments/recursive_body_proof/
+14. ✅ Lab G5: Rust symmetry for G5 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr in emitter.rs (2026-06-08)
+    recur() context-check, arity-check, type-check, single-output-check all symmetric with canon
+    verify_g5_recur.rb: 18/18 PASS
 
 ---
 
@@ -178,7 +193,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | LAB-RACK-P2 → lang | Static pipeline algebra proven (46/46); dynamic VM dispatch gap open | LAB-RACK-P3 next |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4 conformance + Canon G5 recur() closed | canon G5 recur() closed 2026-06-08; lab Rust G5 symmetry pending |
+| PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4+G5 conformance + Canon G5 recur() closed | lab Rust G5 symmetry closed 2026-06-08 — verify_g5_recur.rb 18/18 PASS |
 | Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |
 | Lab G2 | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` contract modifiers + `decreases`/`max_steps` body decls | — |
 | Lab G3 | ✅ closed 2026-06-08 — G3a OOF-R2/R4 in classifier + G3b FiniteLoop `for Name item in source` + G3c IR shape `kind="loop_node"` | — |
