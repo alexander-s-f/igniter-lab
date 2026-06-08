@@ -160,7 +160,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
-| PROP-039 loop impl | Gates 1+3+4+5+6 closed + Lab G1+G2 conformance | Gate 7 (alternate implementation conformance route) — future work |
+| PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7 closed + Lab G1+G2 conformance | Conformance spine complete; next: PROP-037 lab G3 (fixture split) or body-semantics gate |
 | Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |
 | Lab G2 | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` contract modifiers + `decreases`/`max_steps` body decls | G3 (PROP-037 fixture split) — future work |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
