@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-PROOF-HYGIENE-P1: proof harness timeout + process-group cleanup — 11/11 self-test PASS)
+**Last updated:** 2026-06-08 (LAB-COMPILER-LIVENESS-P1: compiler liveness risk map + diagnostic taxonomy design)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -262,6 +262,14 @@ Rack/middleware vocabulary is lab-only.
     Self-test: test_bounded_command.rb 11/11 PASS
     Remaining unbounded: proofs/ subdirectory, view-engine proofs → P2 candidate
     Timeout policy: EXEC=10s, CARGO=120s, PROOF_WIDE=300s (all env-configurable)
+24. ✅ LAB-COMPILER-LIVENESS-P1: compiler liveness risk map + diagnostic taxonomy (2026-06-08)
+    Research/design only — no compiler code changed
+    Risk map: 9 stages audited; MEDIUM risk in Rust typechecker/form-resolver/emitter (stack depth, no limit)
+    Proposed E-COMPILER-BUDGET / E-COMPILER-CYCLE / E-COMPILER-NONPROGRESS / E-COMPILER-INTERNAL-INVARIANT codes
+    Audit receipt shape: is_source_program_fault:false + is_compiler_internal:true (distinct from OOF)
+    Four-way distinction: OOF (source) / E-COMPILER (compiler) / harness timeout / runtime max_steps
+    Gates: P2 (instrumentation, non-fatal) → P3 (hard limits, E-COMPILER-BUDGET) → P4 (full guard)
+    Next: LAB-COMPILER-LIVENESS-P2 (instrumentation pass — start here before P3 calibration)
 
 ---
 
