@@ -74,6 +74,23 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 **Boundary:** Lab/Rust implementations are conformance consumers of canon proofs, not language authority.
 Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/production remain closed.
 
+### String Core (igniter-string-core-units-and-pure-stdlib-boundary-v0)
+
+| Artifact | Repo | Status | Checks |
+|---|---|---|---|
+| Track doc | igniter-lang | ✅ CLOSED 2026-06-08 | — |
+| Canon proof | igniter-lang | ✅ 60/60 PASS | `string_core_proof.rb` |
+| Lab Rust symmetry | igniter-lab | ⬜ not yet authorized | — |
+
+**v0 surface (14 ops):** `concat`, `trim`, `contains`, `starts_with`, `ends_with`, `split`, `replace`, `replace_all`, `byte_length`, `rune_length`, `grapheme_length`, `byte_slice`, `rune_slice`, `grapheme_slice`
+**Type:** `Text`; string literals (`type_tag="String"`) accepted as `Text` args (v0 compat)
+**SemanticIR:** `kind: "call"`, `fn: "stdlib.text.*"`; no new IR kind
+**Closed:** regex, locale case fold, tokenizer, TextEngine, method syntax, runtime
+
+**Track doc:** `igniter-lang/.agents/work/tracks/string-core-units-pure-stdlib-boundary-v0.md`
+
+---
+
 ### External Progression / Service Liveness (PROP-037)
 
 | Artifact | Repo | Status |
@@ -200,6 +217,8 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Lab G4 | ✅ closed 2026-06-08 — `lead` keyword, OOF-L5/L7/L8, canon `body=[lead_node*,compute_node*]` + `item_type`, two-track `body`/`body_nodes`; verify_g4_body_semantics.rb 18/18 PASS | — |
 | Canon G5 | ✅ closed 2026-06-08 — `recur()` context validation (OOF-R1), arity (OOF-R5), type (OOF-R6), single-output (OOF-R7), SemanticIR `recur_call` sub-expr; recursive_body_proof 100/100 PASS | — |
 | Lab G5 | ✅ closed 2026-06-08 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr in emitter.rs; verify_g5_recur.rb 18/18 PASS | — |
+| Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
+| Lab String Core (Rust symmetry) | ⬜ not yet authorized | — |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---

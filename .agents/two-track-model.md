@@ -138,6 +138,23 @@ With boundaries:
 | ~~G5: recur() primitive~~ | ✅ closed 2026-06-08 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr node in emitter.rs; verify_g5_recur.rb 18/18 PASS | — |
 | ~~G6: OOF-L1 semantic alignment~~ | ✅ closed 2026-06-08 — TypeChecker now emits OOF-L1 for FiniteLoop source not Collection[T] (canon meaning). Lab parser OOF-L1 ("unbounded loop") remains for `loop` without max_steps — lab-local, acceptable delta. | — |
 
+### Sync pass: 2026-06-08 (String Core track closed)
+
+| Delta | Before | After | Status |
+|---|---|---|---|
+| D5: String stdlib surface | No text operations in canon typechecker (OOF-TY0 for all calls) | `Text` type + 14 pure ops (concat/trim/predicates/split/replace/lengths/slices); `stdlib.text.*` IR path | ✅ closed |
+
+Canon `TEXT_STDLIB_FNS` registry in `typechecker.rb` — 14 entries, `infer_text_call` method.
+String literals (`type_tag="String"`) accepted as `Text` args (v0 compat rule).
+`Collection[Text]` return type for `split` proven via parametrised type IR.
+SemanticIR: `kind: "call"`, `fn: "stdlib.text.*"` — no new IR kind, consistent with integer ops.
+
+Lab Rust symmetry (`Lab STR-CORE`): **not yet authorized**. Future conformance gate.
+
+**verify_g_string_core status:** ✅ 60/60 PASS — String Core closed 2026-06-08.
+
+---
+
 **All updated fixtures now parse cleanly through canon pipeline:**
 `grammar_version="loop-v0" · sir=OK · pass=ok · type_errors=[]`
 
