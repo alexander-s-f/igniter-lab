@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-COMPILER-LIVENESS-P3: calibrated E-COMPILER-BUDGET hard limits — 38/38 PASS)
+**Last updated:** 2026-06-08 (LAB-COMPILER-LIVENESS-P4: emitter/parser calibration + cycle preflight — 40/40 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -302,6 +302,17 @@ Rack/middleware vocabulary is lab-only.
     verify_liveness_p3.rb: 38/38 PASS; verify_liveness_p2.rb: 25/25 PASS (backward compat)
     E-COMPILER-BUDGET lab-local per CR-002; no canon OOF codes; no grammar/VM/lang changes
     Next: LAB-COMPILER-LIVENESS-P4 (calibrate emitter/parser observe-only; E-COMPILER-CYCLE candidate)
+27. ✅ LAB-COMPILER-LIVENESS-P4: emitter/parser calibration + E-COMPILER-CYCLE preflight (2026-06-08)
+    em_lower: calibrated to 30 (30-term form expression); mirrors tc_infer; P3 budget implicitly bounds it
+    em_pipeline: calibrated to 10 (9 nested filters in if_expr); bounded by source nesting depth
+    parse_import: STRUCTURAL BOUND — lexer merges uppercase-dotted paths to single Ident token;
+      counter always 0 (no imports) or 1 (any import); cannot exceed 1 without lexer change
+    E-COMPILER-CYCLE: risk classified LOW for all passes (finite AST, no form-calls-form, no back-edges)
+    compiler_error sidecar: stdout-only is correct (unreliable record worse than no record)
+    All three counters confirmed observe-only (data-justified, not assumption-based)
+    New fixtures: liveness_emitter_form_lower.ig, liveness_emitter_pipeline_depth.ig, liveness_parser_import_steps.ig
+    verify_liveness_p4.rb: 40/40 PASS; verify_liveness_p3.rb: 38/38 PASS; verify_liveness_p2.rb: 25/25 PASS
+    Next: LAB-COMPILER-LIVENESS-P5 if: form-calls-form grammar change, production corpus data, or E-COMPILER-BUDGET PROP
 
 ---
 
