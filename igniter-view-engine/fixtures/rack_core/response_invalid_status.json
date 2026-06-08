@@ -1,0 +1,7 @@
+{
+  "status": 999,
+  "headers": {
+    "Content-Type": "text/plain"
+  },
+  "body": ["This status code is not valid HTTP"]
+}

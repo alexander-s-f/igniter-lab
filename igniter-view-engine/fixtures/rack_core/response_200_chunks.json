@@ -1,0 +1,8 @@
+{
+  "status": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "27"
+  },
+  "body": ["{\"message\":\"Hello, Igniter!\"}"]
+}

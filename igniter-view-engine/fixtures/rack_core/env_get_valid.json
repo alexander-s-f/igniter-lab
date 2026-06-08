@@ -1,0 +1,12 @@
+{
+  "REQUEST_METHOD": "GET",
+  "PATH_INFO": "/articles/42",
+  "QUERY_STRING": "page=1&sort=desc",
+  "HTTP_ACCEPT": "application/json",
+  "HTTP_HOST": "example.com",
+  "HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.9",
+  "SERVER_NAME": "example.com",
+  "SERVER_PORT": "443",
+  "rack.url_scheme": "https",
+  "rack.input": ""
+}

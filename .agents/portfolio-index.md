@@ -87,6 +87,7 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | Artifact | Repo | Status | Checks |
 |---|---|---|---|
 | LAB-LANG-HTTP-TYPES-P1 (ContractRef, middleware compose, IgniterFailure) | igniter-lab | ✅ DONE | ~41/41 |
+| LAB-RACK-P2 (HttpRequest/Response Records, RackEnvAdapter, RackTupleAdapter, HandlerContract, static middleware pipeline, typed failures, closed-surface) | igniter-lab | ✅ DONE | 46/46 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
@@ -175,6 +176,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 |---|---|---|
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
+| LAB-RACK-P2 → lang | Static pipeline algebra proven (46/46); dynamic VM dispatch gap open | LAB-RACK-P3 next |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
 | PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4 conformance + Canon G5 recur() closed | canon G5 recur() closed 2026-06-08; lab Rust G5 symmetry pending |
 | Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |

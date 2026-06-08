@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": ["{\"error\":\"Bad Request\",\"detail\":\"missing required field: product_id\"}"]
+}

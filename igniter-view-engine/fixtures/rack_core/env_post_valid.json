@@ -1,0 +1,12 @@
+{
+  "REQUEST_METHOD": "POST",
+  "PATH_INFO": "/api/orders",
+  "QUERY_STRING": "",
+  "HTTP_ACCEPT": "application/json",
+  "HTTP_CONTENT_TYPE": "application/json",
+  "HTTP_HOST": "api.example.com",
+  "SERVER_NAME": "api.example.com",
+  "SERVER_PORT": "443",
+  "rack.url_scheme": "https",
+  "rack.input": "{\"product_id\":99,\"qty\":2}"
+}

@@ -1,0 +1,10 @@
+{
+  "REQUEST_METHOD": "CONNECT",
+  "PATH_INFO": "/proxy/example.com",
+  "QUERY_STRING": "",
+  "HTTP_HOST": "proxy.example.com",
+  "SERVER_NAME": "proxy.example.com",
+  "SERVER_PORT": "8080",
+  "rack.url_scheme": "http",
+  "rack.input": ""
+}

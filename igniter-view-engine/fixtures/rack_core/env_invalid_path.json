@@ -1,0 +1,10 @@
+{
+  "REQUEST_METHOD": "GET",
+  "PATH_INFO": "no-leading-slash/articles/42",
+  "QUERY_STRING": "",
+  "HTTP_HOST": "example.com",
+  "SERVER_NAME": "example.com",
+  "SERVER_PORT": "80",
+  "rack.url_scheme": "http",
+  "rack.input": ""
+}
