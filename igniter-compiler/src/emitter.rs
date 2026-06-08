@@ -340,7 +340,13 @@ impl Emitter {
                     let mut node = Map::new();
                     node.insert("kind".to_string(), Value::String("compute".to_string()));
                     node.insert("name".to_string(), Value::String(decl.name.clone()));
-                    node.insert("expr".to_string(), self.semantic_expr(&json!(decl.expr)));
+                    // PROP-039 gate 5: intercept recur() calls to emit recur_call sub-nodes
+                    let return_type_str = decl.type_info.get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let lowered_expr = self.semantic_expr_for_compute(&json!(decl.expr), &return_type_str);
+                    node.insert("expr".to_string(), lowered_expr);
                     node.insert("type".to_string(), decl.type_info.clone());
                     node.insert("deps".to_string(), json!(decl.deps));
                     node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
@@ -403,6 +409,20 @@ impl Emitter {
         }
         match val {
             Value::Object(map) => {
+                // PROP-039 gate 5: recur() call → recur_call sub-expression node
+                if map.get("kind").and_then(|k| k.as_str()) == Some("call")
+                    && map.get("fn").and_then(|f| f.as_str()) == Some("recur")
+                {
+                    let args: Vec<Value> = map.get("args")
+                        .and_then(|a| a.as_array())
+                        .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                        .unwrap_or_default();
+                    let mut node = Map::new();
+                    node.insert("kind".to_string(), Value::String("recur_call".to_string()));
+                    node.insert("args".to_string(), Value::Array(args));
+                    node.insert("return_type".to_string(), Value::String("Unknown".to_string()));
+                    return Value::Object(node);
+                }
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call") && map.get("fn").and_then(|f| f.as_str()) == Some("stdlib.numeric.add") {
                     let type_args_borrow = self.current_type_args.borrow();
                     let concrete_type = type_args_borrow
@@ -466,6 +486,43 @@ impl Emitter {
             }
             _ => val.clone(),
         }
+    }
+
+    /// PROP-039 gate 5: like semantic_expr but intercepts recur() calls to emit
+    /// recur_call sub-expression nodes with return_type hint. Used when lowering
+    /// compute node expressions where we know the result type.
+    fn semantic_expr_for_compute(&self, val: &Value, return_type: &str) -> Value {
+        if let Some(map) = val.as_object() {
+            if map.get("kind").and_then(|k| k.as_str()) == Some("call")
+                && map.get("fn").and_then(|f| f.as_str()) == Some("recur")
+            {
+                let args: Vec<Value> = map.get("args")
+                    .and_then(|a| a.as_array())
+                    .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                    .unwrap_or_default();
+                let mut node = Map::new();
+                node.insert("kind".to_string(), Value::String("recur_call".to_string()));
+                node.insert("args".to_string(), Value::Array(args));
+                node.insert("return_type".to_string(), Value::String(return_type.to_string()));
+                return Value::Object(node);
+            }
+            // For non-recur expressions, recurse but still intercept nested recur() calls
+            // We don't know their return_type in nested position, so use "Unknown"
+            if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
+                return self.semantic_expr(val);
+            }
+            let mut new_map = Map::new();
+            for (k, v) in map {
+                if k != "deps" {
+                    new_map.insert(k.clone(), self.semantic_expr_for_compute(v, return_type));
+                }
+            }
+            return Value::Object(new_map);
+        }
+        if let Value::Array(arr) = val {
+            return Value::Array(arr.iter().map(|item| self.semantic_expr_for_compute(item, return_type)).collect());
+        }
+        self.semantic_expr(val)
     }
 
     fn lower_resolved_forms(&self, semantic_ir: &mut Value, resolved_program: &Value) {

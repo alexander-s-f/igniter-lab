@@ -327,6 +327,27 @@ impl TypeChecker {
             }
         }
 
+        // PROP-039 gate 5: recur() context for validation
+        let contract_modifier = classified.modifier.as_str();
+        let recur_authorized = matches!(contract_modifier, "recursive" | "fuel_bounded");
+        // Inputs in declaration order for positional arg mapping
+        let recur_input_names: Vec<String> = classified.declarations.iter()
+            .filter(|d| d.kind == "input")
+            .map(|d| d.name.clone())
+            .collect();
+        let recur_output_count = classified.declarations.iter()
+            .filter(|d| d.kind == "output")
+            .count();
+        // The single output type (for recur() return-type inference)
+        let recur_output_type: Option<serde_json::Value> = if recur_output_count == 1 {
+            classified.declarations.iter()
+                .find(|d| d.kind == "output")
+                .and_then(|d| d.type_annotation.as_ref())
+                .map(|ta| self.type_ir(ta))
+        } else {
+            None
+        };
+
         for decl in &classified.declarations {
             match decl.kind.as_str() {
                 "input" | "read" | "stream" => {
@@ -515,6 +536,22 @@ impl TypeChecker {
                                     let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions);
                                     body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
                                     typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                    // PROP-039 gate 5: recur() in loop body is always OOF-R1
+                                    if let Some(expr) = &inner_decl.expr {
+                                        self.check_recur_in_expr(
+                                            expr,
+                                            false, // loop body is never a recur-authorized context
+                                            &[],
+                                            0,
+                                            &body_symbol_types,
+                                            olap_env,
+                                            &local_type_shapes,
+                                            &mut type_errors,
+                                            &mut type_warnings,
+                                            &decl.name,
+                                            functions,
+                                        );
+                                    }
                                 }
                                 _ => {}
                             }
@@ -660,8 +697,37 @@ impl TypeChecker {
                 }
                 "compute" | "snapshot" => {
                     let mut typed_expr = self.infer_expr(decl.expr.as_ref().unwrap(), &symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &decl.name, functions);
+                    // PROP-039 gate 5: if recur_authorized and expr contains recur(),
+                    // use the contract output type to resolve the compute node's type.
+                    // This prevents a spurious OOF-TY0 at the output check when recur()
+                    // is used (infer_expr returns Unknown for recur()).
+                    if recur_authorized {
+                        if let Some(expr) = &decl.expr {
+                            if expr_has_call(expr, "recur") {
+                                if let Some(ref ot) = recur_output_type {
+                                    typed_expr.resolved_type = ot.clone();
+                                }
+                            }
+                        }
+                    }
                     symbol_types.insert(decl.name.clone(), typed_expr.resolved_type.clone());
                     typed_decls.push(self.typed_decl(decl, typed_expr.resolved_type, decl.expr.clone(), decl.deps.clone()));
+                    // PROP-039 gate 5: validate recur() calls in compute expressions
+                    if let Some(expr) = &decl.expr {
+                        self.check_recur_in_expr(
+                            expr,
+                            recur_authorized,
+                            &recur_input_names,
+                            recur_output_count,
+                            &symbol_types,
+                            olap_env,
+                            &local_type_shapes,
+                            &mut type_errors,
+                            &mut type_warnings,
+                            &decl.name,
+                            functions,
+                        );
+                    }
                 }
                 "output" => {
                     let expected = self.type_ir(decl.type_annotation.as_ref().unwrap());
@@ -874,6 +940,132 @@ impl TypeChecker {
             uncertain_from: None,
             metrics_from: None,
             body_nodes: None,
+        }
+    }
+
+    /// PROP-039 gate 5: walk an expression tree looking for recur() calls and
+    /// validate their context, arity, and argument types.
+    fn check_recur_in_expr(
+        &self,
+        expr: &Expr,
+        recur_authorized: bool,
+        recur_input_names: &[String],
+        recur_output_count: usize,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+    ) {
+        match expr {
+            Expr::Call { fn_name, args } if fn_name == "recur" => {
+                if !recur_authorized {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-R1".to_string(),
+                        message: format!(
+                            "recur() in '{}' — invalid recur context: recur() is only valid inside a recursive or fuel_bounded contract",
+                            node_name
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                    return;
+                }
+                if recur_output_count != 1 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-R7".to_string(),
+                        message: format!(
+                            "recur() in '{}' — contract must have exactly one output (has {}); multi-output recur() deferred to v1",
+                            node_name, recur_output_count
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                    return;
+                }
+                if args.len() != recur_input_names.len() {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-R5".to_string(),
+                        message: format!(
+                            "recur() arity mismatch in '{}' — {} arg(s) given, {} input(s) expected",
+                            node_name, args.len(), recur_input_names.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    for (idx, (arg, input_name)) in args.iter().zip(recur_input_names.iter()).enumerate() {
+                        let expected_type = symbol_types.get(input_name)
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({"name": "Unknown", "params": []}));
+                        let mut dummy_errors = Vec::new();
+                        let mut dummy_warnings = Vec::new();
+                        let arg_typed = self.infer_expr(
+                            arg, symbol_types, olap_env, type_shapes,
+                            &mut dummy_errors, &mut dummy_warnings,
+                            node_name, functions,
+                        );
+                        let actual = self.type_name(&arg_typed.resolved_type);
+                        let expected = self.type_name(&expected_type);
+                        if actual != "Unknown" && expected != "Unknown" && actual != expected {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-R6".to_string(),
+                                message: format!(
+                                    "recur() arg {} type mismatch in '{}' — expected {}, got {}",
+                                    idx + 1, node_name, expected, actual
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    }
+                }
+            }
+            // Recurse into sub-expressions
+            Expr::Call { fn_name: _, args } => {
+                for arg in args {
+                    self.check_recur_in_expr(arg, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.check_recur_in_expr(left, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(right, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+            }
+            Expr::UnaryOp { operand, .. } => {
+                self.check_recur_in_expr(operand, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+            }
+            Expr::IndexAccess { object, index } => {
+                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                self.check_recur_in_expr(index, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+            }
+            Expr::IfExpr { cond, then, else_block } => {
+                self.check_recur_in_expr(cond, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                // then/else_block are BlockBody — walk stmts and return_expr
+                for stmt in &then.stmts {
+                    if let Stmt::Let { expr, .. } = stmt {
+                        self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    }
+                }
+                if let Some(re) = &then.return_expr {
+                    self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                }
+                if let Some(eb) = else_block {
+                    for stmt in &eb.stmts {
+                        if let Stmt::Let { expr, .. } = stmt {
+                            self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                        }
+                    }
+                    if let Some(re) = &eb.return_expr {
+                        self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1992,13 +2184,21 @@ impl TypeChecker {
                                         }
                                     }
                                 }
-                                
+
                                 let mut res = serde_json::Map::new();
                                 res.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
                                 let t_type = self.type_ir(&serde_json::Value::String("WriteReceipt".to_string()));
                                 let e_type = self.type_ir(&serde_json::Value::String("IoError".to_string()));
                                 res.insert("params".to_string(), serde_json::Value::Array(vec![t_type, e_type]));
                                 resolved_type = serde_json::Value::Object(res);
+                            }
+                            // PROP-039 gate 5: recur() — return Unknown here; full validation
+                            // happens via check_recur_in_expr in the "compute" case of
+                            // typecheck_contract. We suppress OOF-TY0 "Unknown function" noise.
+                            "recur" => {
+                                is_resolved = true;
+                                // resolved_type stays Unknown — contract output type is not
+                                // accessible inside infer_expr; check_recur_in_expr handles it.
                             }
                             _ => {}
                         }
