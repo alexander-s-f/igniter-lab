@@ -896,6 +896,9 @@ impl Classifier {
                     if let Some(steps) = max_steps {
                         loop_options.insert("max_steps".to_string(), WindowValue::Int(*steps as i64));
                     }
+                    // G3b: loop_class for emitter IR shape (finite = no budget, budgeted = max_steps)
+                    let loop_class = if max_steps.is_some() { "budgeted" } else { "finite" };
+                    loop_options.insert("loop_class".to_string(), WindowValue::Str(loop_class.to_string()));
                     // G1: store resolved item variable name for downstream stages
                     loop_options.insert("item".to_string(), WindowValue::Str(var_name.clone()));
 
@@ -1097,6 +1100,34 @@ impl Classifier {
 
         // Escape checks on pure/observed/irreversible contracts
         let modifier = contract.modifier.clone();
+
+        // G3a (PROP-039 conformance): OOF-R2/R4 — recursive/fuel_bounded structural checks
+        {
+            let has_decreases = contract.body.iter().any(|d| matches!(d, BodyDecl::Decreases { .. }));
+            let has_max_steps_body = contract.body.iter().any(|d| matches!(d, BodyDecl::MaxSteps { .. }));
+            let decreases_fuel = contract.body.iter().any(|d| {
+                if let BodyDecl::Decreases { variant } = d { variant == "fuel" } else { false }
+            });
+
+            if modifier == "recursive" && !has_decreases {
+                diagnostics.push(ClassifierDiagnostic {
+                    rule: "OOF-R2".to_string(),
+                    message: format!("recursive contract '{}' is missing a decreases declaration", contract.name),
+                    node: contract.name.clone(),
+                    line: None,
+                });
+            }
+            if (modifier == "fuel_bounded" && !has_max_steps_body)
+                || (modifier == "recursive" && decreases_fuel && !has_max_steps_body)
+            {
+                diagnostics.push(ClassifierDiagnostic {
+                    rule: "OOF-R4".to_string(),
+                    message: format!("contract '{}' is missing a max_steps declaration", contract.name),
+                    node: contract.name.clone(),
+                    line: None,
+                });
+            }
+        }
         if modifier == "pure" {
             if declarations.iter().any(|d| d.fragment_class == "escape" && d.kind != "service_loop") {
                 diagnostics.push(ClassifierDiagnostic {

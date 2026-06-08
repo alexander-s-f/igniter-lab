@@ -125,15 +125,18 @@ With boundaries:
 | D3: Recursive form | `def f(...) -> T decreases fuel { ... }` | `fuel_bounded contract` + `recursive contract` | ✅ closed in fixtures |
 | D4: Service loop boundary | Mixed in PROP-039 file | Annotated as PROP-037 territory, inline form commented out | ✅ boundary marked |
 
-### Remaining Conformance Gaps (as of 2026-06-07)
+### Remaining Conformance Gaps (as of 2026-06-08)
 
 | Gap | Description | Action needed |
 |---|---|---|
 | ~~G1: Rust compiler item-variable~~ | ✅ closed 2026-06-07 — parser.rs/classifier.rs/typechecker.rs/emitter.rs/vm/compiler.rs updated; verify_g1_canon_loop.rb PASS | — |
 | ~~G2: Rust compiler modifiers~~ | ✅ closed 2026-06-07 — `recursive`/`fuel_bounded` added to modifier match; `Decreases`/`MaxSteps` BodyDecl variants added; verify_loops.rb PASS | — |
-| G3: PROP-037 fixture split | `clock.every` service loop is annotated but not moved to a separate PROP-037 fixture | New PROP-037 conformance fixture when PROP-037 conformance work begins |
+| ~~G3a: OOF-R2/R4 in classifier~~ | ✅ closed 2026-06-08 — classifier.rs adds OOF-R2 (recursive missing decreases) and OOF-R4 (fuel_bounded/decreases-fuel missing max_steps); verify_g3_conformance.rb PASS | — |
+| ~~G3b: FiniteLoop parser~~ | ✅ closed 2026-06-08 — `for Name item in source { body }` accepted by parser.rs; max_steps=None → loop_class="finite"; VM executes via u64::MAX fuel sentinel; verify_g3_conformance.rb PASS | — |
+| ~~G3c: IR shape kind="loop_node"~~ | ✅ closed 2026-06-08 — emitter.rs emits kind="loop_node" (was "loop") + loop_class, termination, source_ref, max_steps at top level; vm/compiler.rs updated; verify_g3_conformance.rb PASS | — |
 | G4: Body semantics | Loop body variables (`lead`, `item`) not validated by canon TypeChecker (deferred gate 5) | Future PROP-039 body-semantics gate |
 | G5: recur() primitive | `recursive contract` body uses `recur()` — canon primitive not yet in parser/runtime | Future gate after body-semantics authorization |
+| G6: OOF-L1 semantic alignment | Lab OOF-L1 = "unbounded loop" (parser); canon OOF-L1 = "source not Collection[T]" (TypeChecker) | Future diagnostic alignment pass |
 
 **All updated fixtures now parse cleanly through canon pipeline:**
 `grammar_version="loop-v0" · sir=OK · pass=ok · type_errors=[]`
@@ -144,6 +147,7 @@ Files updated:
 
 **verify_g1_canon_loop.rb status:** ✅ PASS — G1 closed 2026-06-07.
 **verify_loops.rb status:** ✅ PASS — G2 closed 2026-06-07. Full conformance file compiles and executes.
+**verify_g3_conformance.rb status:** ✅ PASS 14/14 — G3 closed 2026-06-08. G3a OOF-R2/R4 + G3b FiniteLoop + G3c IR shape all verified.
 
 ---
 

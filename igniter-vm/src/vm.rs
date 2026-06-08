@@ -1629,14 +1629,17 @@ impl VM {
 
                 OP_LOOP_START => {
                     let name = inst.args.get(0).ok_or("Missing loop name arg")?.as_str()?.to_string();
-                    let max_steps = inst.args.get(1).ok_or("Missing max_steps arg")?.as_integer()? as u64;
+                    let raw_steps = inst.args.get(1).ok_or("Missing max_steps arg")?.as_integer()? as u64;
+                    // G3b: max_steps=0 means FiniteLoop (no budget — terminates via collection exhaustion).
+                    // Use u64::MAX as sentinel so the fuel-exhaustion check never fires.
+                    let fuel = if raw_steps == 0 { u64::MAX } else { raw_steps };
                     let collection_val = stack.pop().ok_or("LOOP_START expects collection on stack")?;
                     let collection = match collection_val {
                         Value::Array(arr) => (*arr).clone(),
                         _ => return Err(format!("LOOP_START expects Array, got {:?}", collection_val)),
                     };
-                    
-                    loop_stack.push(LoopFrame { name, collection, index: 0, fuel: max_steps });
+
+                    loop_stack.push(LoopFrame { name, collection, index: 0, fuel });
                     ip += 1;
                 }
 

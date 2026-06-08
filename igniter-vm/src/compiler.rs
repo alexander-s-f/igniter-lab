@@ -77,7 +77,7 @@ impl Compiler {
             // 2. Compile each compute node's expression and store in register
             for node in nodes_arr {
                 let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-                if kind == "loop" || kind == "service_loop_node" {
+                if kind == "loop_node" || kind == "service_loop_node" {
                     self.compile_expr(node)?;
                 } else {
                     let expr = node.get("expression")
@@ -332,16 +332,21 @@ impl Compiler {
                 self.emit(OP_MAP_REDUCE, vec![Value::String(Arc::from(serialized))]);
             }
 
-            "loop" => {
+            "loop_node" => {
+                // G3c: kind="loop_node" (was "loop"); G3b: finite loops have max_steps=0 (unlimited)
                 let loop_name = node.get("name").and_then(|n| n.as_str()).ok_or("Missing loop name")?;
                 let collection = node.get("expr").or_else(|| node.get("expression")).ok_or("Missing loop collection expr")?;
-                
+
                 // Compile collection expression (pushes collection to stack)
                 self.compile_expr(collection)?;
-                
-                let max_steps = node.get("options")
-                    .and_then(|o| o.get("max_steps"))
-                    .and_then(|ms| ms.as_i64().or_else(|| ms.get("value").and_then(|v| v.as_i64())))
+
+                // G3b: read max_steps from top-level (new emitter) or options (old compat)
+                // max_steps=0 means FiniteLoop (unlimited — VM uses u64::MAX, see vm.rs OP_LOOP_START)
+                let max_steps = node.get("max_steps")
+                    .and_then(|ms| ms.as_i64())
+                    .or_else(|| node.get("options")
+                        .and_then(|o| o.get("max_steps"))
+                        .and_then(|ms| ms.as_i64().or_else(|| ms.get("value").and_then(|v| v.as_i64()))))
                     .unwrap_or(0);
                 
                 // 1. LOOP_START (pops collection, creates frame)

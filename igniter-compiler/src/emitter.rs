@@ -1122,23 +1122,56 @@ impl Emitter {
 
     fn loop_node(&self, decl: &TypedDecl, declarations: &[TypedDecl]) -> Value {
         let mut node = Map::new();
-        node.insert("kind".to_string(), Value::String("loop".to_string()));
+        // G3c: canon SemanticIR shape — kind="loop_node" (was "loop")
+        node.insert("kind".to_string(), Value::String("loop_node".to_string()));
         node.insert("name".to_string(), Value::String(decl.name.clone()));
-        node.insert("expr".to_string(), self.semantic_expr(&json!(decl.expr)));
-        node.insert("type".to_string(), decl.type_info.clone());
-        node.insert("deps".to_string(), json!(decl.deps));
-        node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
-        // G1: propagate explicit item variable name for VM compiler binding
+
+        // G3b/G3c: loop_class from classifier options ("finite" | "budgeted")
+        let loop_class = decl.options.as_ref()
+            .and_then(|o| o.get("loop_class"))
+            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.as_str()) } else { None })
+            .unwrap_or("budgeted");
+        node.insert("loop_class".to_string(), Value::String(loop_class.to_string()));
+
+        // termination evidence — canon SemanticIR field
+        let termination = if loop_class == "finite" {
+            "collection_exhaustion"
+        } else {
+            "budget_exhaustion"
+        };
+        node.insert("termination".to_string(), Value::String(termination.to_string()));
+
+        // source_ref: collection name (canon SemanticIR field)
+        if let Some(crate::parser::Expr::Ref { name: ref ref_name }) = decl.expr {
+            node.insert("source_ref".to_string(), Value::String(ref_name.clone()));
+        }
+
+        // G1: item variable
         if let Some(item_var) = decl.options.as_ref()
             .and_then(|o| o.get("item"))
             .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
         {
             node.insert("item".to_string(), Value::String(item_var));
         }
+
+        // max_steps at top level for budgeted loops (canon + VM compat)
+        if let Some(max_steps_val) = decl.options.as_ref()
+            .and_then(|o| o.get("max_steps"))
+            .and_then(|v| if let crate::parser::WindowValue::Int(n) = v { Some(*n) } else { None })
+        {
+            node.insert("max_steps".to_string(), Value::Number(max_steps_val.into()));
+        }
+
+        node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+
+        // Keep full options for downstream consumers (VM compiler reads max_steps here too)
         if let Some(options) = &decl.options {
             node.insert("options".to_string(), serde_json::to_value(options).unwrap());
         }
-        
+
+        // expr for VM compiler backward compat
+        node.insert("expr".to_string(), self.semantic_expr(&json!(decl.expr)));
+
         let mut body_nodes = Vec::new();
         if let Some(nodes) = &decl.body_nodes {
             for inner in nodes {
@@ -1147,6 +1180,7 @@ impl Emitter {
                 }
             }
         }
+        // body_nodes: lab-local (VM executes body). Canon has body=[] (deferred).
         node.insert("body_nodes".to_string(), Value::Array(body_nodes));
         Value::Object(node)
     }

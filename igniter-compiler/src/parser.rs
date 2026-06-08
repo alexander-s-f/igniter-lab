@@ -1232,6 +1232,8 @@ impl Parser {
             "stream" => { self.advance(); self.parse_stream_decl().ok() }
             "fold_stream" => { self.advance(); self.parse_fold_stream_decl().ok() }
             "loop" => { self.advance(); self.parse_loop_or_service_loop_decl().ok() }
+            // G3b: FiniteLoop — `for Name item in source { body }` (no max_steps; collection_exhaustion)
+            "for" => { self.advance(); self.parse_for_loop_decl().ok() }
             "invariant" => { self.advance(); self.parse_invariant_decl().ok() }
             // G2: structural meta-declarations for recursive/fuel_bounded contracts
             "decreases" => { self.advance(); self.parse_decreases_body_decl().ok() }
@@ -1683,6 +1685,48 @@ impl Parser {
             item,
             collection,
             max_steps,
+            body,
+        })
+    }
+
+    /// G3b: Parse `for Name item in source { body }` — FiniteLoop (no max_steps).
+    /// Termination is via collection exhaustion (OOF-L1 fires if source is not Collection[T]).
+    /// Reuses BodyDecl::Loop with max_steps=None; classifier derives loop_class="finite".
+    fn parse_for_loop_decl(&mut self) -> Result<BodyDecl, String> {
+        let name_tok = self.current().cloned().ok_or("EOF")?;
+        let name = self.name_token()?;
+        if name.is_empty() {
+            self.add_parse_error("OOF-L3", "for loop must have an explicit name (Postulate 28)", &name, name_tok.line, name_tok.col);
+        }
+
+        // Canon form requires explicit item variable: `for Name item in source`
+        let item = if !self.peek_kw("in") && !self.peek_type(TokenType::Eof) {
+            self.name_token().unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        self.expect_kw("in")?;
+
+        // Collection source (OOF-L1 fires at TypeChecker stage if not Collection[T])
+        let collection = self.parse_expr()?;
+
+        // No max_steps for FiniteLoop — termination is collection exhaustion
+
+        self.expect_type(TokenType::LBrace)?;
+        let mut body = Vec::new();
+        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+            if let Some(b) = self.parse_body_decl() {
+                body.push(b);
+            }
+        }
+        self.expect_type(TokenType::RBrace)?;
+
+        Ok(BodyDecl::Loop {
+            name,
+            item,
+            collection,
+            max_steps: None,
             body,
         })
     }
