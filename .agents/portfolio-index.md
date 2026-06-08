@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-RACK-P3: ContractRef VM dispatch preflight 25/25)
+**Last updated:** 2026-06-08 (LAB-RACK-P4: static route dispatch 27/27; stdlib.text.* VM gap found)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -67,7 +67,7 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | `Text` canonical type | igniter-lang | ✅ TypeChecker + ch3/ch2/ch8 reconciled |
 | `stdlib.text.*` (14 ops) | igniter-lang | ✅ experiment-pass — 60/60 PASS |
 | `source/string_extension.ig` | igniter-lang | ✅ superseded → `TextWorkflow`; old `StringWorkflow` legacy/held |
-| Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 26/26 PASS |
+| Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 29/29 PASS (P2: concat disambiguated) |
 | Value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lang | ⬜ separate gate |
 
 **Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
@@ -117,6 +117,7 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-LANG-HTTP-TYPES-P1 (ContractRef, middleware compose, IgniterFailure) | igniter-lab | ✅ DONE | ~41/41 |
 | LAB-RACK-P2 (HttpRequest/Response Records, RackEnvAdapter, RackTupleAdapter, HandlerContract, static middleware pipeline, typed failures, closed-surface) | igniter-lab | ✅ DONE | 46/46 |
 | LAB-RACK-P3 (ContractRef VM dispatch preflight — precise gap map at each compiler/VM layer) | igniter-lab | ✅ DONE | 25/25 |
+| LAB-RACK-P4 (static route dispatch — 5-route data-plane table + :id param extraction; stdlib.text.* VM gap found) | igniter-lab | ✅ DONE | 27/27 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
@@ -207,8 +208,8 @@ Rack/middleware vocabulary is lab-only.
     verify_oof_r3.rb: 34/34 PASS
 17. ✅ Lab STR-CORE: Rust text stdlib symmetry — typechecker.rs + emitter.rs (2026-06-08)
     text_arg_compatible/check_text_stdlib_call helpers; all 14 ops; canon OOF-TY0 format; stdlib.text.* IR rewrite in emitter
-    Note: concat fn-name not rewritten in SemanticIR (Collection-concat overload; lab divergence)
-    verify_str_core.rb: 26/26 PASS
+    P2 (LAB-STR-CORE-P2): rewrite_concat_calls pass — concat(Text,Text)→stdlib.text.concat; concat(Collection,...)→stdlib.collection.concat
+    verify_str_core.rb: 29/29 PASS
 
 ---
 
@@ -233,8 +234,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 |---|---|---|
 | NET-P2..P6 → lang | Lab delegation algebra has no grammar analog beyond PROP-035 | Runtime injection — Phase 2 |
 | HTTP-TYPES → lang | ContractRef not in grammar; lab pressure only | Separate PROP when HTTP track matures |
-| LAB-RACK-P2 → lang | Static pipeline algebra proven (46/46); dynamic VM dispatch gap open | LAB-RACK-P3 next |
-| LAB-RACK-P3 → lang | Gap map complete (25/25): parser=none, typechecker=gap, VM entrypoint=gap, VM dispatch=gap; ContractRef[A,B] accepted as type_ref | LAB-RACK-P4 next (static route table) |
+| LAB-RACK-P2/P3/P4 → lang | Static pipeline proven; ContractRef gap mapped; 5-route data-plane table compiles; VM stdlib.text.* gap blocks execution | LAB-RACK-P5 next (VM stdlib.text.* alignment) |
 | Web Framework → lang | LayoutEngine is lab-only; lab pressure only | Separate PROP when view track matures |
 | PROP-039 loop impl | ✅ Gates 1+3+4+5+6+7+8 closed + Lab G1+G2+G3+G4+G5 conformance + Canon G5 recur() closed | lab Rust G5 symmetry closed 2026-06-08 — verify_g5_recur.rb 18/18 PASS |
 | Lab G1 | ✅ closed 2026-06-07 — Rust lab parser accepts `loop Name item in source` | — |
@@ -244,7 +244,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Canon G5 | ✅ closed 2026-06-08 — `recur()` context validation (OOF-R1), arity (OOF-R5), type (OOF-R6), single-output (OOF-R7), SemanticIR `recur_call` sub-expr; recursive_body_proof 100/100 PASS | — |
 | Lab G5 | ✅ closed 2026-06-08 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr in emitter.rs; verify_g5_recur.rb 18/18 PASS | — |
 | Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
-| Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; verify_str_core.rb 26/26 PASS | — |
+| Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; P2 concat disambiguation; verify_str_core.rb 29/29 PASS | — |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---
