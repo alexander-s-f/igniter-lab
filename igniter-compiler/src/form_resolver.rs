@@ -136,6 +136,8 @@ impl FormResolver {
         ambiguities:   &mut Vec<AmbiguityEvent>,
         diagnostics:   &mut Vec<FormDiagnostic>,
     ) {
+        // LAB-COMPILER-LIVENESS-P2: non-fatal depth counter (RAII — auto-decrements on all exits)
+        let _depth_guard = crate::liveness::FrWalkGuard::enter();
         match expr {
             Expr::BinaryOp { op, left, right } => {
                 let left_type = Self::expr_type(left, symbol_types);

@@ -2,6 +2,55 @@ use crate::parser::{Expr, TypeRef, WindowValue, Stmt, ExprOrBlock, OlapPointDecl
 use crate::classifier::{ClassifiedProgram, ClassifiedContract, ClassifiedDecl, ClassifiedSymbol, DependencyGraph, ClassifierDiagnostic};
 use std::collections::{HashMap, HashSet};
 
+// ── PROP-041 T2: structural-size relation ────────────────────────────────────
+
+/// Registry entry for a structural-size relation.
+/// NOT a full termination proof — structural evidence with trust metadata only.
+#[derive(Debug, Clone)]
+pub struct T2RegistryEntry {
+    pub trust: String,  // "stdlib_certified" | "user_assumed"
+    pub source: String, // "compiler_builtin" | module name
+}
+
+/// T2 context for a contract currently being typechecked.
+#[derive(Debug, Clone)]
+pub struct T2Context {
+    pub kind: T2Kind,
+    pub dv: String,      // dotted-path variant, e.g. "items.tail"
+    pub subject: String, // e.g. "items"
+    pub accessor: String,// e.g. "tail"
+    pub trust: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum T2Kind {
+    T2Pass, // registered relation — SIR structural_size_v1
+    T2R8,   // missing relation — OOF-R8
+    T2R3,   // numeric accessor — OOF-R3
+}
+
+/// Build STDLIB_SIZE_REGISTRY: hardcoded stdlib_certified entries.
+/// Only Collection.tail and Collection.rest are certified in v1.
+fn stdlib_size_registry() -> HashMap<(String, String), T2RegistryEntry> {
+    let mut m = HashMap::new();
+    m.insert(
+        ("Collection".to_string(), "tail".to_string()),
+        T2RegistryEntry { trust: "stdlib_certified".to_string(), source: "compiler_builtin".to_string() },
+    );
+    m.insert(
+        ("Collection".to_string(), "rest".to_string()),
+        T2RegistryEntry { trust: "stdlib_certified".to_string(), source: "compiler_builtin".to_string() },
+    );
+    m
+}
+
+/// Numeric accessors are T3 territory — route to OOF-R3, not OOF-R8.
+/// Closed list in v1; not user-extensible.
+const NUMERIC_ACCESSORS: &[&str] = &["count", "length", "size", "total_count", "num_items", "num_elements"];
+
+// ── end PROP-041 T2 ──────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TypedProgram {
     pub kind: String, // "typed_program"
@@ -43,6 +92,13 @@ pub struct TypedContract {
     /// PROP-039 OOF-R3: clean (non-dotted) decreases variant propagated to SemanticIR emitter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decreases_variant: Option<String>,
+    /// PROP-041 T2: dotted-path decreases variant when a registered size_relation passes.
+    /// Present only when T2 dispatch succeeds; mutually exclusive with decreases_variant for the same contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decreases_variant_t2: Option<String>,
+    /// PROP-041 T2: trust/source evidence for structural_size_v1 SemanticIR emission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_relation_evidence: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assumption_refs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,8 +188,12 @@ impl TypeChecker {
         // Build OLAP points environment
         let olap_env = self.build_olap_env(classified.olap_points.as_ref().unwrap_or(&Vec::new()));
 
+        // PROP-041 T2: build size-relation registry (stdlib + user-declared).
+        // Built once before the contracts loop so all contracts share the same registry.
+        let size_registry = self.build_size_registry(classified);
+
         for contract in &classified.contracts {
-            let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions);
+            let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions, &size_registry);
             type_errors.append(&mut tc.type_errors.clone());
             if let Some(mut w) = tc.type_warnings.clone() {
                 type_warnings.append(&mut w);
@@ -291,6 +351,7 @@ impl TypeChecker {
         olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
         assumptions: &[serde_json::Value],
         functions: &[crate::parser::FunctionDecl],
+        size_registry: &HashMap<(String, String), T2RegistryEntry>,
     ) -> TypedContract {
         let mut type_errors = classified.oof_log.clone();
         let mut type_warnings = Vec::new();
@@ -351,25 +412,25 @@ impl TypeChecker {
             None
         };
 
-        // PROP-039 OOF-R3: decreases variant context
-        // dotted-path variants are fail-closed at contract level
+        // PROP-039 OOF-R3 / PROP-041 T2: decreases variant dispatch
+        // Dotted-path: T2 registry lookup (numeric → OOF-R3, registered → T2, missing → OOF-R8).
+        // Simple identifier: kept as-is for OOF-R3 call-site checks.
+        let t2_context: Option<T2Context>;
         let clean_decreases_variant: Option<String> = match &classified.decreases_variant {
             Some(v) if v.contains('.') => {
-                type_errors.push(ClassifierDiagnostic {
-                    rule: "OOF-R3".to_string(),
-                    message: format!(
-                        "contract '{}' — decreases variant '{}' is a dotted-path; \
-                         structural decrease proof for dotted-path variants not supported in v0 \
-                         (use simple identifier variant)",
-                        classified.name, v
-                    ),
-                    node: classified.name.clone(),
-                    line: None,
-                });
-                None  // don't do per-recur() checks for dotted-path
+                // PROP-041 T2 dispatch
+                let ctx = self.handle_t2_variant(v, classified, &mut type_errors, size_registry);
+                t2_context = ctx;
+                None  // dotted-path never kept as a raw variant in @recur_context
             }
-            Some(v) => Some(v.clone()),
-            None => None,
+            Some(v) => {
+                t2_context = None;
+                Some(v.clone())
+            }
+            None => {
+                t2_context = None;
+                None
+            }
         };
         // Positional index of the decreases variant in the input list
         let decreases_variant_pos: Option<usize> = clean_decreases_variant.as_ref()
@@ -763,13 +824,26 @@ impl TypeChecker {
                             clean_decreases_variant.as_deref(),
                             decreases_variant_pos,
                         );
+                        // PROP-041 T2: OOF-R9 call-site structural-size check
+                        if let Some(ctx) = &t2_context {
+                            if ctx.kind == T2Kind::T2Pass {
+                                self.check_t2_callsite_in_expr(expr, &mut type_errors, &decl.name, ctx, &recur_input_names);
+                            }
+                        }
                     }
                 }
                 "output" => {
                     let expected = self.type_ir(decl.type_annotation.as_ref().unwrap());
                     let actual = symbol_types.get(&decl.name).cloned().unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
 
-                    if self.type_name(&actual) != self.type_name(&expected) && !self.blocking_rule_present(&type_errors) {
+                    // LAB-RACK-P9: Unknown actual type is treated as compatible with any
+                    // declared output type. call_contract returns Unknown (callee output type
+                    // is not verifiable at compile time in v0), and the VM enforces correctness
+                    // at runtime. Without this guard the TypeChecker would reject every contract
+                    // that forwards a call_contract result as an output.
+                    if self.type_name(&actual) != self.type_name(&expected)
+                        && self.type_name(&actual) != "Unknown"
+                        && !self.blocking_rule_present(&type_errors) {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
                             message: format!("Type mismatch: expected {}, got {}", self.type_name(&expected), self.type_name(&actual)),
@@ -850,12 +924,205 @@ impl TypeChecker {
             type_errors: self.dedupe_errors(&type_errors),
             type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
             decreases_variant: clean_decreases_variant,
+            // PROP-041 T2: propagate structural-size evidence for SemanticIR structural_size_v1 emission
+            decreases_variant_t2: t2_context.as_ref().and_then(|ctx| {
+                if ctx.kind == T2Kind::T2Pass { Some(ctx.dv.clone()) } else { None }
+            }),
+            size_relation_evidence: t2_context.as_ref().and_then(|ctx| {
+                if ctx.kind == T2Kind::T2Pass {
+                    Some(serde_json::json!({
+                        "trust": ctx.trust,
+                        "source": ctx.source
+                    }))
+                } else {
+                    None
+                }
+            }),
             assumption_refs: classified.assumption_refs.clone(),
             specialization_of: classified.specialization_of.clone(),
             type_args: classified.type_args.clone(),
             implements: classified.implements.clone(),
         }
     }
+
+    // ── PROP-041 T2: private helpers ────────────────────────────────────────────
+
+    /// Build the per-typecheck size registry: STDLIB entries + user-declared entries.
+    /// Keys are (TypeName, accessor); values are trust/source metadata.
+    /// Source for user entries = module name (mirrors Ruby build_size_registry).
+    fn build_size_registry(&self, classified: &ClassifiedProgram) -> HashMap<(String, String), T2RegistryEntry> {
+        let mut registry = stdlib_size_registry();
+        let mod_name = classified.module.clone().unwrap_or_else(|| "unknown".to_string());
+        for sr in &classified.size_relations {
+            registry.insert(
+                (sr.type_name.clone(), sr.accessor.clone()),
+                T2RegistryEntry { trust: "user_assumed".to_string(), source: mod_name.clone() },
+            );
+        }
+        registry
+    }
+
+    /// T2 dotted-path dispatch: fires OOF-R3/R8 or returns a T2Pass context.
+    /// NOT a full termination proof — structural evidence with trust metadata only.
+    fn handle_t2_variant(
+        &self,
+        dv: &str,
+        classified: &ClassifiedContract,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        size_registry: &HashMap<(String, String), T2RegistryEntry>,
+    ) -> Option<T2Context> {
+        let dot_pos = match dv.find('.') {
+            Some(p) => p,
+            None => return None,
+        };
+        let subject  = &dv[..dot_pos];
+        let accessor = &dv[dot_pos + 1..];
+
+        // Numeric accessor → OOF-R3 (design decision 4: not T2 territory)
+        if NUMERIC_ACCESSORS.contains(&accessor) {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-R3".to_string(),
+                message: format!(
+                    "recur() decreases variant '{}' in '{}' — numeric accessor '{}' is not a structural-size relation; \
+                     use a simple numeric identifier as the decreases variant",
+                    dv, classified.name, accessor
+                ),
+                node: classified.name.clone(),
+                line: None,
+            });
+            return Some(T2Context {
+                kind: T2Kind::T2R3,
+                dv: dv.to_string(),
+                subject: subject.to_string(),
+                accessor: accessor.to_string(),
+                trust: String::new(),
+                source: String::new(),
+            });
+        }
+
+        // Resolve the subject's declared type from input declarations.
+        // type_annotation is a type_ir hash: {"kind":"type_ref","name":"Collection","params":[...]}
+        let type_name_str: String = classified.declarations.iter()
+            .find(|d| d.kind == "input" && d.name == subject)
+            .and_then(|d| d.type_annotation.as_ref())
+            .map(|ta| {
+                if let Some(obj) = ta.as_object() {
+                    obj.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
+                } else if let Some(s) = ta.as_str() {
+                    s.split('[').next().unwrap_or("Unknown").trim().to_string()
+                } else {
+                    "Unknown".to_string()
+                }
+            })
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        // Registry lookup: (TypeName, accessor)
+        if let Some(entry) = size_registry.get(&(type_name_str.clone(), accessor.to_string())) {
+            Some(T2Context {
+                kind: T2Kind::T2Pass,
+                dv: dv.to_string(),
+                subject: subject.to_string(),
+                accessor: accessor.to_string(),
+                trust: entry.trust.clone(),
+                source: entry.source.clone(),
+            })
+        } else {
+            // OOF-R8: missing structural size relation
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-R8".to_string(),
+                message: format!(
+                    "Missing structural size relation for '{}' in '{}' — \
+                     no size_relation declaration for {}.{}; \
+                     add 'size_relation {} {}' at module level",
+                    dv, classified.name, type_name_str, accessor, type_name_str, accessor
+                ),
+                node: classified.name.clone(),
+                line: None,
+            });
+            Some(T2Context {
+                kind: T2Kind::T2R8,
+                dv: dv.to_string(),
+                subject: subject.to_string(),
+                accessor: accessor.to_string(),
+                trust: String::new(),
+                source: String::new(),
+            })
+        }
+    }
+
+    /// T2 call-site check: walks an expression tree looking for recur() calls.
+    /// When found, checks that the variant-position arg is exactly `subject.accessor`.
+    /// Fires OOF-R9 on mismatch.
+    fn check_t2_callsite_in_expr(
+        &self,
+        expr: &Expr,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        ctx: &T2Context,
+        input_names: &[String],
+    ) {
+        match expr {
+            Expr::Call { fn_name, args } if fn_name == "recur" => {
+                if let Some(subject_pos) = input_names.iter().position(|n| n == &ctx.subject) {
+                    if subject_pos < args.len() {
+                        let variant_arg = &args[subject_pos];
+                        if !self.t2_structural_arg(variant_arg, &ctx.subject, &ctx.accessor) {
+                            let arg_desc = syntactic_arg_desc(variant_arg);
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-R9".to_string(),
+                                message: format!(
+                                    "recur() in '{}' — structural size call-site mismatch: \
+                                     expected '{}.{}' at argument position {}, got: {}; \
+                                     the recur() argument must be the declared structural accessor",
+                                    node_name, ctx.subject, ctx.accessor, subject_pos + 1, arg_desc
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Expr::Call { fn_name: _, args } => {
+                for arg in args {
+                    self.check_t2_callsite_in_expr(arg, type_errors, node_name, ctx, input_names);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.check_t2_callsite_in_expr(left, type_errors, node_name, ctx, input_names);
+                self.check_t2_callsite_in_expr(right, type_errors, node_name, ctx, input_names);
+            }
+            Expr::UnaryOp { operand, .. } => {
+                self.check_t2_callsite_in_expr(operand, type_errors, node_name, ctx, input_names);
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.check_t2_callsite_in_expr(object, type_errors, node_name, ctx, input_names);
+            }
+            Expr::IndexAccess { object, index } => {
+                self.check_t2_callsite_in_expr(object, type_errors, node_name, ctx, input_names);
+                self.check_t2_callsite_in_expr(index, type_errors, node_name, ctx, input_names);
+            }
+            // IfExpr bodies are block-level; recur() at T2 call-site is in compute expressions.
+            // No recursive descent needed here for production fixtures.
+            Expr::IfExpr { cond, .. } => {
+                self.check_t2_callsite_in_expr(cond, type_errors, node_name, ctx, input_names);
+            }
+            _ => {}
+        }
+    }
+
+    /// True when `expr` is exactly `subject.accessor` (field access on a ref).
+    fn t2_structural_arg(&self, expr: &Expr, subject: &str, accessor: &str) -> bool {
+        if let Expr::FieldAccess { object, field } = expr {
+            if field != accessor { return false; }
+            if let Expr::Ref { name } = object.as_ref() {
+                return name == subject;
+            }
+        }
+        false
+    }
+
+    // ── end PROP-041 T2 private helpers ─────────────────────────────────────────
 
     fn collect_escape_refs(&self, body: &ExprOrBlock, stream_symbols: &HashSet<String>, lambda_params: &mut HashSet<String>, escape_refs: &mut Vec<String>) {
         match body {
@@ -1378,6 +1645,8 @@ impl TypeChecker {
         node_name: &str,
         functions: &[crate::parser::FunctionDecl],
     ) -> TypedExpression {
+        // LAB-COMPILER-LIVENESS-P2: non-fatal depth counter (RAII — auto-decrements on all exits)
+        let _depth_guard = crate::liveness::TcInferGuard::enter();
         match expr {
             Expr::Literal { value, type_tag } => {
                 let ty = self.type_ir(&serde_json::Value::String(type_tag.clone()));
@@ -1394,10 +1663,17 @@ impl TypeChecker {
                 }
             }
             Expr::Ref { name } => {
+                let in_symbols = symbol_types.contains_key(name);
+                let in_olap    = olap_env.contains_key(name);
                 let ty = symbol_types.get(name).cloned()
                     .or_else(|| olap_env.get(name).and_then(|o| o.get("type")).cloned())
                     .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                if self.type_name(&ty) == "Unknown" {
+                // OOF-P1 fires only when the symbol is truly undeclared (not in symbol_types
+                // or olap_env). A declared symbol with Unknown type is acceptable — it is
+                // opaque (e.g. returned by call_contract), not missing.
+                // LAB-RACK-P9: suppressed for symbols declared with Unknown type so that
+                // compute nodes that use call_contract results are not falsely rejected.
+                if !in_symbols && !in_olap {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-P1".to_string(),
                         message: format!("Unresolved symbol: {}", name),
@@ -2420,6 +2696,40 @@ impl TypeChecker {
                                 is_resolved = true;
                                 // resolved_type stays Unknown — contract output type is not
                                 // accessible inside infer_expr; check_recur_in_expr handles it.
+                            }
+                            // LAB-RACK-P9: explicit named user-contract dispatch.
+                            // call_contract("ContractName", arg1, arg2, ...) dispatches to a
+                            // named contract in the loaded igapp at VM runtime.
+                            // Return type: Unknown (callee output type not verified in v0;
+                            // dispatch table lookup happens at VM execute time).
+                            // First arg must be String (contract name); remaining args are
+                            // positional inputs matched to callee's input declaration order.
+                            // Cross-contract type verification deferred to a later card.
+                            "call_contract" => {
+                                is_resolved = true;
+                                if typed_args.is_empty() {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-TY0".to_string(),
+                                        message: "call_contract requires at least one argument (contract name as String)".to_string(),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else {
+                                    let name_arg_type = self.type_name(&typed_args[0].resolved_type);
+                                    if name_arg_type != "String" && name_arg_type != "Unknown" {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-TY0".to_string(),
+                                            message: format!(
+                                                "call_contract: first argument must be String (contract name), got {}",
+                                                name_arg_type
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                    }
+                                }
+                                // resolved_type stays Unknown — callee output type not
+                                // verifiable in v0 without a cross-contract type table.
                             }
                             _ => {}
                         }

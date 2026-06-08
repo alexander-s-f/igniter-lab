@@ -190,6 +190,9 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     emit_res.resolved_program = resolved_json;
     emitter.apply_form_lowering(&mut emit_res);
 
+    // LAB-COMPILER-LIVENESS-P2: collect instrumentation stats after all passes complete
+    let liveness_stats = igniter_compiler::liveness::collect_stats();
+
     // Inject all form diagnostics into compilation report (P7/P9 fail-closed evidence)
     if !form_all_diags.is_empty() {
         if let Some(report) = emit_res.compilation_report.as_object_mut() {
@@ -231,7 +234,7 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
         let warnings: Vec<Value> = emit_res.compilation_report.get("diagnostics").unwrap().as_array().unwrap()
             .iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("warning")).cloned().collect();
 
-        let result = json!({
+        let mut result = json!({
             "kind": "compiler_result",
             "format_version": "0.1.0",
             "status": "oof",
@@ -252,6 +255,11 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
             "diagnostics": errors,
             "warnings": warnings
         });
+        // LAB-COMPILER-LIVENESS-P2: inject instrumentation receipt
+        result.as_object_mut().unwrap().insert(
+            "liveness_instrumentation".to_string(),
+            liveness_stats.to_json(),
+        );
 
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(false);
@@ -266,7 +274,7 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     let comp_report_ref = manifest.get("compilation_report_ref").unwrap().as_str().unwrap().to_string();
     let sem_ir_ref = manifest.get("semantic_ir_ref").unwrap().as_str().unwrap().to_string();
 
-    let result = json!({
+    let mut result = json!({
         "kind": "compiler_result",
         "format_version": "0.1.0",
         "status": "ok",
@@ -292,6 +300,11 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
             .collect::<Vec<_>>(),
         "runtime_smoke": Value::Null
     });
+    // LAB-COMPILER-LIVENESS-P2: inject instrumentation receipt
+    result.as_object_mut().unwrap().insert(
+        "liveness_instrumentation".to_string(),
+        liveness_stats.to_json(),
+    );
 
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(true)

@@ -20,7 +20,21 @@ pub struct SourceFile {
     pub pipelines: Vec<PipelineDecl>,
     pub olap_points: Vec<OlapPointDecl>,
     pub assumptions: Vec<AssumptionDecl>,
+    /// PROP-041 T2: module-level `size_relation TypeName accessor` declarations
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub size_relations: Vec<SizeRelationDecl>,
     pub parse_errors: Vec<ParseErrorDetail>,
+}
+
+/// PROP-041 T2: module-level structural-size relation declaration.
+/// Syntax: `size_relation TypeName accessor`
+/// NOT a full termination proof — structural evidence with trust metadata only.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SizeRelationDecl {
+    pub kind: String, // "size_relation"
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub accessor: String,
 }
 
 // ── Form System ────────────────────────────────────────────────────────────────
@@ -609,6 +623,11 @@ impl Parser {
         }
     }
 
+    /// PROP-041 T2: parse a plain identifier name token (alias for name_token).
+    fn parse_name(&mut self) -> Result<String, String> {
+        self.name_token()
+    }
+
     fn add_parse_error(&mut self, rule: &str, message: &str, token: &str, line: usize, col: usize) {
         self.errors.push(ParseErrorDetail {
             rule: rule.to_string(),
@@ -632,6 +651,8 @@ impl Parser {
         let mut pipelines = Vec::new();
         let mut olap_points = Vec::new();
         let mut assumptions = Vec::new();
+        // PROP-041 T2: module-level size_relation declarations
+        let mut size_relations = Vec::new();
 
         if self.peek_kw("module") {
             self.advance();
@@ -658,6 +679,8 @@ impl Parser {
                 Ok(Some(TopDecl::Pipeline(p))) => pipelines.push(p),
                 Ok(Some(TopDecl::OlapPoint(o))) => olap_points.push(o),
                 Ok(Some(TopDecl::Assumptions(mut a))) => assumptions.append(&mut a),
+                // PROP-041 T2: size_relation module-level declarations
+                Ok(Some(TopDecl::SizeRelation(sr))) => size_relations.push(sr),
                 _ => {
                     self.advance();
                 }
@@ -682,6 +705,7 @@ impl Parser {
             pipelines,
             olap_points,
             assumptions,
+            size_relations,
             parse_errors: self.errors.clone(),
         }
     }
@@ -752,7 +776,11 @@ impl Parser {
         let mut path_parts = vec![self.name_token()?];
         let mut names = None;
 
+        // LAB-COMPILER-LIVENESS-P2: reset per-import step counter before the loop
+        crate::liveness::start_import();
         loop {
+            // LAB-COMPILER-LIVENESS-P2: record each loop iteration as one step
+            crate::liveness::record_import_step();
             if self.peek_type(TokenType::Dot) && self.peek(1).map_or(false, |t| t.token_type == TokenType::LBrace) {
                 self.advance(); self.advance();
                 let mut n_list = Vec::new();
@@ -824,12 +852,26 @@ impl Parser {
             "pipeline" => { self.advance(); self.parse_pipeline_decl().map(|p| Some(TopDecl::Pipeline(p))) }
             "olap_point" => { self.advance(); self.parse_olap_point_decl().map(|o| Some(TopDecl::OlapPoint(o))) }
             "assumptions" => { self.advance(); self.parse_assumptions_block().map(|a| Some(TopDecl::Assumptions(a))) }
+            // PROP-041 T2: `size_relation TypeName accessor`
+            "size_relation" => { self.advance(); self.parse_size_relation_decl().map(|sr| Some(TopDecl::SizeRelation(sr))) }
             _ => {
                 self.add_parse_error("OOF-G1", &format!("Unexpected top-level token: {}", tok.value), &tok.value, tok.line, tok.col);
                 self.advance();
                 Ok(None)
             }
         }
+    }
+
+    /// PROP-041 T2: Parse `size_relation TypeName accessor`.
+    /// NOT a full termination proof — structural evidence with trust metadata only.
+    fn parse_size_relation_decl(&mut self) -> Result<SizeRelationDecl, String> {
+        let type_name = self.name_token()?;
+        let accessor = self.name_token()?;
+        Ok(SizeRelationDecl {
+            kind: "size_relation".to_string(),
+            type_name,
+            accessor,
+        })
     }
 
     fn parse_assumptions_block(&mut self) -> Result<Vec<AssumptionDecl>, String> {
@@ -2574,4 +2616,6 @@ pub enum TopDecl {
     Pipeline(PipelineDecl),
     OlapPoint(OlapPointDecl),
     Assumptions(Vec<AssumptionDecl>),
+    /// PROP-041 T2: module-level `size_relation TypeName accessor`
+    SizeRelation(SizeRelationDecl),
 }

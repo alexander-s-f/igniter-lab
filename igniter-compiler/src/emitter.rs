@@ -266,9 +266,26 @@ impl Emitter {
             }
         }
 
-        // PROP-039 OOF-R3: emit termination.variant_check for recursive contracts with named decreases variant
+        // PROP-041 T2 / PROP-039 OOF-R3: emit termination evidence.
+        // T2 path (structural_size_v1) takes precedence when typechecker set decreases_variant_t2.
+        // T1 path (syntactic_v0) is byte-for-byte preserved.
+        // NOTE: T2 is structural evidence with trust metadata — NOT a full termination proof.
         if contract.modifier == "recursive" {
-            if let Some(ref dv) = contract.decreases_variant {
+            if let Some(ref dv_t2) = contract.decreases_variant_t2 {
+                let accessor = dv_t2.splitn(2, '.').nth(1).unwrap_or(dv_t2.as_str());
+                let evidence = contract.size_relation_evidence.as_ref();
+                let trust  = evidence.and_then(|e| e.get("trust")).and_then(|v| v.as_str()).unwrap_or("user_assumed");
+                let source = evidence.and_then(|e| e.get("source")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let mut term = Map::new();
+                term.insert("decreases".to_string(), Value::String(dv_t2.clone()));
+                term.insert("variant_check".to_string(), Value::String("structural_size_v1".to_string()));
+                let mut sr_obj = Map::new();
+                sr_obj.insert("accessor".to_string(), Value::String(accessor.to_string()));
+                sr_obj.insert("trust".to_string(), Value::String(trust.to_string()));
+                sr_obj.insert("source".to_string(), Value::String(source.to_string()));
+                term.insert("size_relation".to_string(), Value::Object(sr_obj));
+                contract_ir.insert("termination".to_string(), Value::Object(term));
+            } else if let Some(ref dv) = contract.decreases_variant {
                 let mut term = Map::new();
                 term.insert("decreases".to_string(), Value::String(dv.clone()));
                 term.insert("variant_check".to_string(), Value::String("syntactic_v0".to_string()));
@@ -692,6 +709,8 @@ impl Emitter {
     }
 
     fn lower_expr_for_targets(&self, expr: &Value, targets: &[Value]) -> Value {
+        // LAB-COMPILER-LIVENESS-P2: non-fatal depth counter (RAII — auto-decrements on all exits)
+        let _depth_guard = crate::liveness::EmLowerGuard::enter();
         let Some(map) = expr.as_object() else {
             return expr.clone();
         };
@@ -1220,6 +1239,8 @@ impl Emitter {
     }
 
     fn build_pipeline(&self, current: &Value, pipeline: &mut Vec<Value>) -> Value {
+        // LAB-COMPILER-LIVENESS-P2: non-fatal depth counter (RAII — auto-decrements on all exits)
+        let _depth_guard = crate::liveness::EmPipelineGuard::enter();
         if let Some(map) = current.as_object() {
             if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
                 if let Some(fn_name) = map.get("fn").and_then(|f| f.as_str()) {
