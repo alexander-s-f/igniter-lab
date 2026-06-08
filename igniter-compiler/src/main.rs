@@ -190,8 +190,65 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     emit_res.resolved_program = resolved_json;
     emitter.apply_form_lowering(&mut emit_res);
 
-    // LAB-COMPILER-LIVENESS-P2: collect instrumentation stats after all passes complete
+    // LAB-COMPILER-LIVENESS-P2/P3: collect instrumentation stats after all passes complete
     let liveness_stats = igniter_compiler::liveness::collect_stats();
+
+    // LAB-COMPILER-LIVENESS-P3: E-COMPILER-BUDGET — check before ok/oof evaluation.
+    // Budget breach is a compiler-internal condition; it is NOT a source-language OOF.
+    // Reported as status:"compiler_error" with E-COMPILER-BUDGET diagnostics.
+    // Authority: lab-only per CR-002; E-COMPILER-* codes do not enter canon.
+    if liveness_stats.has_budget_breach() {
+        let breach_diags: Vec<Value> = liveness_stats.budget_breaches.iter().map(|b| {
+            json!({
+                "rule":     "E-COMPILER-BUDGET",
+                "severity": "error",
+                "message":  format!(
+                    "Compiler internal recursion budget exceeded: {} reached depth {} (limit {}). \
+                     This is a compiler-internal diagnostic — not a source-language OOF. \
+                     The source program may be semantically valid; the compiler cannot \
+                     safely complete this traversal within the configured depth budget. \
+                     To raise the limit: set {} (current: {}).",
+                    b.counter, b.depth, b.limit,
+                    match b.counter.as_str() {
+                        "typechecker.infer_expr.max_depth"  => "IGNITER_LIVENESS_BUDGET_TC_INFER",
+                        "form_resolver.walk_expr.max_depth" => "IGNITER_LIVENESS_BUDGET_FR_WALK",
+                        _ => "IGNITER_LIVENESS_BUDGET_*",
+                    },
+                    b.limit
+                ),
+                "node":                  "liveness_budget",
+                "is_compiler_internal":  true,
+                "is_source_program_fault": false,
+                "authority":             "lab_only_e_compiler_budget"
+            })
+        }).collect();
+
+        let mut result = json!({
+            "kind":           "compiler_result",
+            "format_version": "0.1.0",
+            "status":         "compiler_error",
+            "program_id":     Value::Null,
+            "source_path":    source_path,
+            "source_hash":    source_hash,
+            "grammar_version": parsed.grammar_version,
+            "stages": {
+                "parse":    "ok",
+                "classify": "ok",
+                "typecheck": "compiler_budget_exceeded",
+                "emit":     "skipped",
+                "assemble": "skipped"
+            },
+            "igapp_path":     Value::Null,
+            "diagnostics":    breach_diags,
+            "warnings":       []
+        });
+        result.as_object_mut().unwrap().insert(
+            "liveness_instrumentation".to_string(),
+            liveness_stats.to_json(),
+        );
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(false);
+    }
 
     // Inject all form diagnostics into compilation report (P7/P9 fail-closed evidence)
     if !form_all_diags.is_empty() {

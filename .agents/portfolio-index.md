@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-RACK-P9: explicit named user-contract dispatch via call_contract — 60/60 PASS)
+**Last updated:** 2026-06-08 (LAB-COMPILER-LIVENESS-P3: calibrated E-COMPILER-BUDGET hard limits — 38/38 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -292,6 +292,16 @@ Rack/middleware vocabulary is lab-only.
     Trust model: stdlib_certified (Collection.tail/rest, compiler_builtin) / user_assumed (source = module name)
     T2 = structural evidence with trust metadata — NOT a full termination proof; lab ≠ canon authority
     Next: LAB-COMPILER-LIVENESS-P3 (hard limits + E-COMPILER-BUDGET diagnostics; use P2 data)
+26. ✅ LAB-COMPILER-LIVENESS-P3: calibrated E-COMPILER-BUDGET hard limits (2026-06-08)
+    Fatal budget: tc.infer_expr limit=1000, fr.walk_expr limit=1000 (5× P2 adversarial max of 200)
+    Observe-only: emitter/parser counters (insufficient calibration data — P2 measured 0)
+    Budget breach → status="compiler_error" + E-COMPILER-BUDGET (is_compiler_internal=true, is_source_program_fault=false)
+    1100-term breach fixture confirms fail-closed at depth 1001 > limit 1000
+    200-term P2 probe still accepted (depth 200 < 1000) — no regression
+    Canonical fixtures: ok, breaches=[]; OOF fixtures: still oof; stdout always valid JSON
+    verify_liveness_p3.rb: 38/38 PASS; verify_liveness_p2.rb: 25/25 PASS (backward compat)
+    E-COMPILER-BUDGET lab-local per CR-002; no canon OOF codes; no grammar/VM/lang changes
+    Next: LAB-COMPILER-LIVENESS-P4 (calibrate emitter/parser observe-only; E-COMPILER-CYCLE candidate)
 
 ---
 
