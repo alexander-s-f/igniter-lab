@@ -8,6 +8,8 @@ use crate::value::Value;
 use crate::instructions::*;
 use crate::tbackend::TBackend;
 use igniter_stdlib::decimal::Decimal;
+// LAB-STR-UNICODE-P2: UAX #29 extended grapheme cluster segmentation
+use unicode_segmentation::UnicodeSegmentation;
 
 fn parse_utc(dt_str: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(dt_str) {
@@ -578,6 +580,10 @@ impl VM {
                             }
                             let s = args[0].as_str()?;
                             let sep = args[1].as_str()?;
+                            // LAB-STR-UNICODE-P2: empty delimiter is an operational error (policy v0)
+                            if sep.is_empty() {
+                                return Err("stdlib.text.split: empty delimiter is an operational error (v0 policy)".to_string());
+                            }
                             let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
                             Value::Array(Arc::new(parts))
                         }
@@ -588,6 +594,145 @@ impl VM {
                             let s = args[0].as_str()?;
                             Value::Integer(s.len() as i64)
                         }
+                        // ── LAB-STR-UNICODE-P2: Unicode Text runtime ops ────────────────────
+                        // lab-text-unicode-runtime-ops-implementation-proof-v0
+                        // Policy: Text = valid UTF-8; rune = Unicode scalar; grapheme = UAX #29
+                        "stdlib.text.rune_length" => {
+                            if args.len() != 1 {
+                                return Err(format!("stdlib.text.rune_length expects exactly 1 argument, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            Value::Integer(s.chars().count() as i64)
+                        }
+                        "stdlib.text.grapheme_length" => {
+                            if args.len() != 1 {
+                                return Err(format!("stdlib.text.grapheme_length expects exactly 1 argument, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            Value::Integer(s.graphemes(true).count() as i64)
+                        }
+                        "stdlib.text.byte_slice" => {
+                            if args.len() != 3 {
+                                return Err(format!("stdlib.text.byte_slice expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            let raw_start = args[1].as_integer()?;
+                            let raw_end   = args[2].as_integer()?;
+                            let byte_len  = s.len() as i64;
+                            let start = raw_start.max(0).min(byte_len) as usize;
+                            let end   = raw_end.max(0).min(byte_len) as usize;
+                            if start >= end {
+                                Value::String(Arc::from(""))
+                            } else {
+                                // fail-closed: invalid UTF-8 boundary → ""
+                                Value::String(Arc::from(s.get(start..end).unwrap_or("")))
+                            }
+                        }
+                        "stdlib.text.rune_slice" => {
+                            if args.len() != 3 {
+                                return Err(format!("stdlib.text.rune_slice expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            let raw_start = args[1].as_integer()?;
+                            let raw_end   = args[2].as_integer()?;
+                            let rune_count = s.chars().count() as i64;
+                            let start = raw_start.max(0).min(rune_count) as usize;
+                            let end   = raw_end.max(0).min(rune_count) as usize;
+                            if start >= end {
+                                Value::String(Arc::from(""))
+                            } else {
+                                let result: String = s.chars().skip(start).take(end - start).collect();
+                                Value::String(Arc::from(result.as_str()))
+                            }
+                        }
+                        "stdlib.text.grapheme_slice" => {
+                            if args.len() != 3 {
+                                return Err(format!("stdlib.text.grapheme_slice expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            let raw_start = args[1].as_integer()?;
+                            let raw_end   = args[2].as_integer()?;
+                            let graphemes: Vec<&str> = s.graphemes(true).collect();
+                            let g_count = graphemes.len() as i64;
+                            let start = raw_start.max(0).min(g_count) as usize;
+                            let end   = raw_end.max(0).min(g_count) as usize;
+                            if start >= end {
+                                Value::String(Arc::from(""))
+                            } else {
+                                Value::String(Arc::from(graphemes[start..end].join("")))
+                            }
+                        }
+                        "stdlib.text.ends_with" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.text.ends_with expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let s      = args[0].as_str()?;
+                            let suffix = args[1].as_str()?;
+                            Value::Bool(s.ends_with(suffix))
+                        }
+                        "stdlib.text.replace" => {
+                            if args.len() != 3 {
+                                return Err(format!("stdlib.text.replace expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let s           = args[0].as_str()?;
+                            let pattern     = args[1].as_str()?;
+                            let replacement = args[2].as_str()?;
+                            if pattern.is_empty() {
+                                return Err("stdlib.text.replace: empty pattern is an operational error (v0 policy)".to_string());
+                            }
+                            Value::String(Arc::from(s.replacen(pattern, replacement, 1).as_str()))
+                        }
+                        "stdlib.text.replace_all" => {
+                            if args.len() != 3 {
+                                return Err(format!("stdlib.text.replace_all expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let s           = args[0].as_str()?;
+                            let pattern     = args[1].as_str()?;
+                            let replacement = args[2].as_str()?;
+                            if pattern.is_empty() {
+                                return Err("stdlib.text.replace_all: empty pattern is an operational error (v0 policy)".to_string());
+                            }
+                            Value::String(Arc::from(s.replace(pattern, replacement).as_str()))
+                        }
+                        // Qualified aliases for ops with bare-name legacy handlers.
+                        // Compiler emits stdlib.text.* names; these aliases bridge legacy bare-name handlers.
+                        "stdlib.text.concat" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.text.concat expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let a = args[0].as_str()?;
+                            let b = args[1].as_str()?;
+                            Value::String(Arc::from(format!("{}{}", a, b)))
+                        }
+                        "stdlib.text.trim" => {
+                            if args.len() != 1 {
+                                return Err(format!("stdlib.text.trim expects exactly 1 argument, got {}", args.len()));
+                            }
+                            let s = args[0].as_str()?;
+                            Value::String(Arc::from(s.trim()))
+                        }
+                        "stdlib.text.contains" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.text.contains expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let s   = args[0].as_str()?;
+                            let sub = args[1].as_str()?;
+                            Value::Bool(s.contains(sub))
+                        }
+                        "stdlib.collection.concat" => {
+                            if args.len() != 2 {
+                                return Err(format!("stdlib.collection.concat expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            match (&args[0], &args[1]) {
+                                (Value::Array(a), Value::Array(b)) => {
+                                    let mut merged: Vec<Value> = a.iter().cloned().collect();
+                                    merged.extend(b.iter().cloned());
+                                    Value::Array(Arc::new(merged))
+                                }
+                                _ => return Err("stdlib.collection.concat: both arguments must be collections".to_string()),
+                            }
+                        }
+                        // ── end LAB-STR-UNICODE-P2 ──────────────────────────────────────────
                         "diff_seconds" => {
                             if args.len() != 2 {
                                 return Err(format!("diff_seconds expects exactly 2 arguments, got {}", args.len()));
