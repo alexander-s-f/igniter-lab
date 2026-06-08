@@ -1153,6 +1153,91 @@ impl TypeChecker {
         type_info.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
     }
 
+    // igniter-string-core-units-and-pure-stdlib-boundary-v0 helpers ----------
+
+    /// v0 compat rule: "Text" positions accept both "Text" and "String" literals.
+    fn text_arg_compatible(&self, actual: &str, expected: &str) -> bool {
+        if expected == "Text" {
+            actual == "Text" || actual == "String"
+        } else {
+            actual == expected
+        }
+    }
+
+    /// Collection[Text] return type for split.
+    fn collection_text_type(&self) -> serde_json::Value {
+        let text_inner = self.type_ir(&serde_json::Value::String("Text".to_string()));
+        let mut col = serde_json::Map::new();
+        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+        col.insert("params".to_string(), serde_json::Value::Array(vec![text_inner]));
+        serde_json::Value::Object(col)
+    }
+
+    /// Canonical return type for a stdlib.text.* op name.
+    fn text_stdlib_return_type(&self, fn_name: &str) -> serde_json::Value {
+        match fn_name {
+            "concat" | "trim" | "replace" | "replace_all" |
+            "byte_slice" | "rune_slice" | "grapheme_slice" => {
+                self.type_ir(&serde_json::Value::String("Text".to_string()))
+            }
+            "contains" | "starts_with" | "ends_with" => {
+                self.type_ir(&serde_json::Value::String("Bool".to_string()))
+            }
+            "byte_length" | "rune_length" | "grapheme_length" => {
+                self.type_ir(&serde_json::Value::String("Integer".to_string()))
+            }
+            "split" => self.collection_text_type(),
+            _ => self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+        }
+    }
+
+    /// Type-check a stdlib.text.* call.
+    /// OOF-TY0 message format matches canon:
+    ///   arity:  "stdlib.text.{fn}: expected N argument(s), got M"
+    ///   type:   "stdlib.text.{fn} arg N: expected T, got ActualT"
+    fn check_text_stdlib_call(
+        &self,
+        fn_name: &str,
+        typed_args: &[TypedExpression],
+        expected_arg_types: &[&str],
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+    ) -> serde_json::Value {
+        let expected_count = expected_arg_types.len();
+        let return_type = self.text_stdlib_return_type(fn_name);
+        if typed_args.len() != expected_count {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-TY0".to_string(),
+                message: format!(
+                    "stdlib.text.{}: expected {} argument(s), got {}",
+                    fn_name, expected_count, typed_args.len()
+                ),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return return_type;
+        }
+        for (idx, (typed_arg, &expected)) in
+            typed_args.iter().zip(expected_arg_types.iter()).enumerate()
+        {
+            let actual = self.type_name(&typed_arg.resolved_type);
+            if actual != "Unknown" && !self.text_arg_compatible(&actual, expected) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-TY0".to_string(),
+                    message: format!(
+                        "stdlib.text.{} arg {}: expected {}, got {}",
+                        fn_name, idx + 1, expected, actual
+                    ),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+        }
+        return_type
+    }
+
+    // ---- end igniter-string-core helpers ------------------------------------
+
     fn blocking_rule_present(&self, errors: &[ClassifierDiagnostic]) -> bool {
         let blocking = ["OOF-P1", "OOF-CE4", "OOF-OS2", "OOF-H1", "OOF-BT1", "OOF-BT2", "OOF-BT3", "OOF-BT4", "OOF-TM1", "OOF-TM3", "OOF-TM4", "OOF-TM5", "OOF-TM6", "OOF-S3", "OOF-O3", "OOF-O4", "OOF-O5", "OOF-IV3"];
         errors.iter().any(|e| blocking.contains(&e.rule.as_str()))
@@ -1796,47 +1881,39 @@ impl TypeChecker {
                                 is_resolved = true;
                                 resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
                             }
-                            "length" | "trim" => {
+                            // igniter-string-core-units-and-pure-stdlib-boundary-v0 text ops
+                            "length" => {
+                                // held/legacy — ambiguous length; accept Text or String, return Integer
                                 is_resolved = true;
-                                if typed_args.len() != 1 {
-                                    type_errors.push(ClassifierDiagnostic {
-                                        rule: "OOF-TM1".to_string(),
-                                        message: format!("{} expects exactly 1 argument, got {}", fn_name, typed_args.len()),
-                                        node: node_name.to_string(),
-                                        line: None,
-                                    });
-                                } else {
-                                    let arg_type = &typed_args[0].resolved_type;
-                                    let arg_name = self.type_name(arg_type);
-                                    if arg_name != "String" && arg_name != "Unknown" {
-                                        type_errors.push(ClassifierDiagnostic {
-                                            rule: "OOF-TY0".to_string(),
-                                            message: format!("Type mismatch: expected String, got {}", arg_name),
-                                            node: node_name.to_string(),
-                                            line: None,
-                                        });
-                                    }
-                                }
-                                resolved_type = if fn_name == "length" {
-                                    self.type_ir(&serde_json::Value::String("Integer".to_string()))
-                                } else {
-                                    self.type_ir(&serde_json::Value::String("String".to_string()))
-                                };
+                                // call the helper only for its side-effect (OOF-TY0 on arity/type mismatch)
+                                let _ = self.check_text_stdlib_call(
+                                    "length", &typed_args, &["Text"], type_errors, node_name,
+                                );
+                                resolved_type = self.type_ir(&serde_json::Value::String("Integer".to_string()));
+                            }
+                            "trim" => {
+                                is_resolved = true;
+                                resolved_type = self.check_text_stdlib_call(
+                                    "trim", &typed_args, &["Text"], type_errors, node_name,
+                                );
                             }
                             "concat" => {
                                 is_resolved = true;
                                 if typed_args.len() != 2 {
                                     type_errors.push(ClassifierDiagnostic {
-                                        rule: "OOF-TM1".to_string(),
-                                        message: format!("concat expects exactly 2 arguments, got {}", typed_args.len()),
+                                        rule: "OOF-TY0".to_string(),
+                                        message: format!(
+                                            "stdlib.text.concat: expected 2 argument(s), got {}",
+                                            typed_args.len()
+                                        ),
                                         node: node_name.to_string(),
                                         line: None,
                                     });
                                     resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                 } else {
                                     let first_name = self.type_name(&typed_args[0].resolved_type);
-                                    if first_name == "Collection" || first_name == "Unknown" {
-                                        // Collection concat: preserve element type
+                                    if first_name == "Collection" {
+                                        // Collection concat: preserve element type (lab-local behavior)
                                         let inner_ty = self.get_param(&typed_args[0].resolved_type, 0)
                                             .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
                                         let mut col = serde_json::Map::new();
@@ -1844,78 +1921,44 @@ impl TypeChecker {
                                         col.insert("params".to_string(), serde_json::Value::Array(vec![inner_ty]));
                                         resolved_type = serde_json::Value::Object(col);
                                     } else {
-                                        // String concat
-                                        for arg_typed in &typed_args {
-                                            let arg_type = &arg_typed.resolved_type;
-                                            let arg_name = self.type_name(arg_type);
-                                            if arg_name != "String" && arg_name != "Unknown" {
-                                                type_errors.push(ClassifierDiagnostic {
-                                                    rule: "OOF-TY0".to_string(),
-                                                    message: format!("Type mismatch: expected String, got {}", arg_name),
-                                                    node: node_name.to_string(),
-                                                    line: None,
-                                                });
-                                            }
-                                        }
-                                        resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                        // stdlib.text.concat: accepts Text or String (v0 compat)
+                                        resolved_type = self.check_text_stdlib_call(
+                                            "concat", &typed_args, &["Text", "Text"],
+                                            type_errors, node_name,
+                                        );
                                     }
                                 }
                             }
                             "split" => {
                                 is_resolved = true;
-                                if typed_args.len() != 2 {
-                                    type_errors.push(ClassifierDiagnostic {
-                                        rule: "OOF-TM1".to_string(),
-                                        message: format!("split expects exactly 2 arguments, got {}", typed_args.len()),
-                                        node: node_name.to_string(),
-                                        line: None,
-                                    });
-                                } else {
-                                    for arg_typed in &typed_args {
-                                        let arg_type = &arg_typed.resolved_type;
-                                        let arg_name = self.type_name(arg_type);
-                                        if arg_name != "String" && arg_name != "Unknown" {
-                                            type_errors.push(ClassifierDiagnostic {
-                                                rule: "OOF-TY0".to_string(),
-                                                message: format!("Type mismatch: expected String, got {}", arg_name),
-                                                node: node_name.to_string(),
-                                                line: None,
-                                            });
-                                        }
-                                    }
-                                }
-                                let mut col = serde_json::Map::new();
-                                col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
-                                let mut inner_ty = serde_json::Map::new();
-                                inner_ty.insert("name".to_string(), serde_json::Value::String("String".to_string()));
-                                inner_ty.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-                                col.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]));
-                                resolved_type = serde_json::Value::Object(col);
+                                resolved_type = self.check_text_stdlib_call(
+                                    "split", &typed_args, &["Text", "Text"], type_errors, node_name,
+                                );
                             }
-                            "contains" | "starts_with" => {
+                            "contains" | "starts_with" | "ends_with" => {
                                 is_resolved = true;
-                                if typed_args.len() != 2 {
-                                    type_errors.push(ClassifierDiagnostic {
-                                        rule: "OOF-TM1".to_string(),
-                                        message: format!("{} expects exactly 2 arguments, got {}", fn_name, typed_args.len()),
-                                        node: node_name.to_string(),
-                                        line: None,
-                                    });
-                                } else {
-                                    for arg_typed in &typed_args {
-                                        let arg_type = &arg_typed.resolved_type;
-                                        let arg_name = self.type_name(arg_type);
-                                        if arg_name != "String" && arg_name != "Unknown" {
-                                            type_errors.push(ClassifierDiagnostic {
-                                                rule: "OOF-TY0".to_string(),
-                                                message: format!("Type mismatch: expected String, got {}", arg_name),
-                                                node: node_name.to_string(),
-                                                line: None,
-                                            });
-                                        }
-                                    }
-                                }
-                                resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+                                resolved_type = self.check_text_stdlib_call(
+                                    fn_name, &typed_args, &["Text", "Text"], type_errors, node_name,
+                                );
+                            }
+                            "replace" | "replace_all" => {
+                                is_resolved = true;
+                                resolved_type = self.check_text_stdlib_call(
+                                    fn_name, &typed_args, &["Text", "Text", "Text"], type_errors, node_name,
+                                );
+                            }
+                            "byte_length" | "rune_length" | "grapheme_length" => {
+                                is_resolved = true;
+                                resolved_type = self.check_text_stdlib_call(
+                                    fn_name, &typed_args, &["Text"], type_errors, node_name,
+                                );
+                            }
+                            "byte_slice" | "rune_slice" | "grapheme_slice" => {
+                                is_resolved = true;
+                                resolved_type = self.check_text_stdlib_call(
+                                    fn_name, &typed_args, &["Text", "Integer", "Integer"],
+                                    type_errors, node_name,
+                                );
                             }
                             "find" => {
                                 is_resolved = true;

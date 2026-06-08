@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08
+**Last updated:** 2026-06-08 (portfolio block merge: Text/String Core deduped)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -67,14 +67,21 @@ to undeclared profiles now trigger OOF-M8 at classify time.
 | `Text` canonical type | igniter-lang | ✅ TypeChecker + ch3/ch2/ch8 reconciled |
 | `stdlib.text.*` (14 ops) | igniter-lang | ✅ experiment-pass — 60/60 PASS |
 | `source/string_extension.ig` | igniter-lang | ✅ superseded → `TextWorkflow`; old `StringWorkflow` legacy/held |
-| Lab STR-CORE Rust symmetry | igniter-lab | ⬜ not yet authorized |
+| Lab STR-CORE Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — verify_str_core.rb 26/26 PASS |
 | Value-semantics proof (bounds, UTF-8, UAX #29) | igniter-lang | ⬜ separate gate |
 
 **Formula:** `Text` is canonical contract type for text values. `String` literal compat via v0 rule only.
 `stdlib.text.*` is experiment-pass compiler surface. Runtime Unicode/value semantics and stable public API closed.
 
+**v0 surface (14 ops):** `concat`, `trim`, `contains`, `starts_with`, `ends_with`, `split`, `replace`, `replace_all`,
+`byte_length`, `rune_length`, `grapheme_length`, `byte_slice`, `rune_slice`, `grapheme_slice`
+
+**SemanticIR:** `kind: "call"`, `fn: "stdlib.text.*"`; no new IR kind needed (consistent with `stdlib.integer.*`)
+
 **Closed:** runtime execution, bounds policy, locale case folding, regex, tokenizer,
 TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
+
+**Track doc:** `igniter-lang/.agents/work/tracks/string-core-units-pure-stdlib-boundary-v0.md`
 
 ### Managed Recursion and Loop Classes (PROP-039)
 
@@ -92,21 +99,6 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 
 **Boundary:** Lab/Rust implementations are conformance consumers of canon proofs, not language authority.
 Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/production remain closed.
-
-### String Core (igniter-string-core-units-and-pure-stdlib-boundary-v0)
-
-| Artifact | Repo | Status | Checks |
-|---|---|---|---|
-| Track doc | igniter-lang | ✅ CLOSED 2026-06-08 | — |
-| Canon proof | igniter-lang | ✅ 60/60 PASS | `string_core_proof.rb` |
-| Lab Rust symmetry | igniter-lab | ⬜ not yet authorized | — |
-
-**v0 surface (14 ops):** `concat`, `trim`, `contains`, `starts_with`, `ends_with`, `split`, `replace`, `replace_all`, `byte_length`, `rune_length`, `grapheme_length`, `byte_slice`, `rune_slice`, `grapheme_slice`
-**Type:** `Text`; string literals (`type_tag="String"`) accepted as `Text` args (v0 compat)
-**SemanticIR:** `kind: "call"`, `fn: "stdlib.text.*"`; no new IR kind
-**Closed:** regex, locale case fold, tokenizer, TextEngine, method syntax, runtime
-
-**Track doc:** `igniter-lang/.agents/work/tracks/string-core-units-pure-stdlib-boundary-v0.md`
 
 ---
 
@@ -212,6 +204,10 @@ Rack/middleware vocabulary is lab-only.
     decreases_variant extraction; OOF-R3 per recur() site + dotted-path fail-closed; termination.variant_check in SemanticIR
     Collection.tail/rest whitelist in FieldAccess inference; syntactic_decrease + syntactic_arg_desc free functions
     verify_oof_r3.rb: 34/34 PASS
+17. ✅ Lab STR-CORE: Rust text stdlib symmetry — typechecker.rs + emitter.rs (2026-06-08)
+    text_arg_compatible/check_text_stdlib_call helpers; all 14 ops; canon OOF-TY0 format; stdlib.text.* IR rewrite in emitter
+    Note: concat fn-name not rewritten in SemanticIR (Collection-concat overload; lab divergence)
+    verify_str_core.rb: 26/26 PASS
 
 ---
 
@@ -246,7 +242,7 @@ quarantine bucket. Nothing there is a default dependency — review explicitly b
 | Canon G5 | ✅ closed 2026-06-08 — `recur()` context validation (OOF-R1), arity (OOF-R5), type (OOF-R6), single-output (OOF-R7), SemanticIR `recur_call` sub-expr; recursive_body_proof 100/100 PASS | — |
 | Lab G5 | ✅ closed 2026-06-08 — OOF-R1/R5/R6/R7 in typechecker.rs, `recur_call` sub-expr in emitter.rs; verify_g5_recur.rb 18/18 PASS | — |
 | Canon String Core | ✅ closed 2026-06-08 — 14 text stdlib ops (concat/trim/contains/starts_with/ends_with/split/replace/replace_all/byte_length/rune_length/grapheme_length/byte_slice/rune_slice/grapheme_slice); TEXT_STDLIB_FNS registry in typechecker.rb; string_core_proof 60/60 PASS | — |
-| Lab String Core (Rust symmetry) | ⬜ not yet authorized | — |
+| Lab String Core (Rust symmetry) | ✅ closed 2026-06-08 — typechecker.rs + emitter.rs; verify_str_core.rb 26/26 PASS | — |
 | experiments/ archive | ~150 experiments, Stage 1/2 closed | DA-005: archive pass (low priority) |
 
 ---

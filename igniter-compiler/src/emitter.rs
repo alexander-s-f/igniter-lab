@@ -462,6 +462,59 @@ impl Emitter {
                     new_map.insert("operands".to_string(), Value::Array(operands));
                     return Value::Object(new_map);
                 }
+                // igniter-string-core-units-and-pure-stdlib-boundary-v0:
+                // Rewrite unambiguous text stdlib bare names to stdlib.text.* and
+                // attach resolved_type. concat is excluded (overloaded with Collection concat).
+                {
+                    const TEXT_STDLIB_OPS: &[&str] = &[
+                        "trim", "contains", "starts_with", "ends_with", "split",
+                        "replace", "replace_all",
+                        "byte_length", "rune_length", "grapheme_length",
+                        "byte_slice", "rune_slice", "grapheme_slice",
+                    ];
+                    fn text_return_type(fn_name: &str) -> serde_json::Value {
+                        let name = match fn_name {
+                            "trim" | "replace" | "replace_all" |
+                            "byte_slice" | "rune_slice" | "grapheme_slice" => "Text",
+                            "contains" | "starts_with" | "ends_with" => "Bool",
+                            "byte_length" | "rune_length" | "grapheme_length" => "Integer",
+                            "split" => "Collection",
+                            _ => "Unknown",
+                        };
+                        if name == "Collection" {
+                            let mut col = serde_json::Map::new();
+                            col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                            let mut inner = serde_json::Map::new();
+                            inner.insert("name".to_string(), serde_json::Value::String("Text".to_string()));
+                            inner.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                            col.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner)]));
+                            serde_json::Value::Object(col)
+                        } else {
+                            let mut m = serde_json::Map::new();
+                            m.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                            m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                            serde_json::Value::Object(m)
+                        }
+                    }
+                    if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
+                        if let Some(fn_val) = map.get("fn").and_then(|f| f.as_str()) {
+                            if TEXT_STDLIB_OPS.contains(&fn_val) {
+                                let qualified = format!("stdlib.text.{}", fn_val);
+                                let resolved_type = text_return_type(fn_val);
+                                let args: Vec<serde_json::Value> = map.get("args")
+                                    .and_then(|a| a.as_array())
+                                    .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                                    .unwrap_or_default();
+                                let mut new_map = serde_json::Map::new();
+                                new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
+                                new_map.insert("fn".to_string(), serde_json::Value::String(qualified));
+                                new_map.insert("args".to_string(), serde_json::Value::Array(args));
+                                new_map.insert("resolved_type".to_string(), resolved_type);
+                                return serde_json::Value::Object(new_map);
+                            }
+                        }
+                    }
+                }
                 if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
                     let mut new_map = Map::new();
                     new_map.insert("kind".to_string(), Value::String("if_expr".to_string()));
@@ -520,6 +573,22 @@ impl Emitter {
             // We don't know their return_type in nested position, so use "Unknown"
             if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
                 return self.semantic_expr(val);
+            }
+            // igniter-string-core: delegate text stdlib calls to semantic_expr for stdlib.text.* rewrite
+            {
+                const TEXT_STDLIB_OPS_C: &[&str] = &[
+                    "trim", "contains", "starts_with", "ends_with", "split",
+                    "replace", "replace_all",
+                    "byte_length", "rune_length", "grapheme_length",
+                    "byte_slice", "rune_slice", "grapheme_slice",
+                ];
+                if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
+                    if let Some(fn_val) = map.get("fn").and_then(|f| f.as_str()) {
+                        if TEXT_STDLIB_OPS_C.contains(&fn_val) {
+                            return self.semantic_expr(val);
+                        }
+                    }
+                }
             }
             let mut new_map = Map::new();
             for (k, v) in map {
