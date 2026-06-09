@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -208,9 +208,18 @@ Rack/middleware vocabulary is lab-only.
 | LAB-RESULT-ENVELOPE-P2 (Third-domain kind-discriminant pressure — form validation domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] 3rd context; kind-discriminant confirmed cross-domain; ValidationMapper three-layer confirmed; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | igniter-lab | ✅ DONE — analysis | governance |
 | PROP-044-P1 (Kind-discriminated outcome convention and sum type requirements — proposal authoring; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | igniter-lang | ✅ DONE — proposal authored | governance |
 
-**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **7 proofs**, 3 domains), kind-discriminant (**confirmed cross-domain** — 3 domains), Map[String,String] (**3 contexts**: transport headers + job metadata + form metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
+**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **7 proofs**, 3 domains), kind-discriminant (**confirmed cross-domain** — 3 domains + QueryResult = 4th), Map[String,String] (**4 contexts**: transport headers + job metadata + form metadata + query metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
 **Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; no sum type grammar (variant/match/type-narrowing) — primary remaining blocker for grammar proposal (P2).  
-**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → **P1 AUTHORED** — convention doc written; grammar gap enumerated; P2 (grammar proposal) requires explicit authorization.
+**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → **P1 AUTHORED** — convention doc written; grammar gap enumerated; P2 (grammar proposal) requires explicit authorization.  
+**LAB-QUERY-P1:** Query/Arel-like data access boundary defined — QueryPlan v0 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied) all expressible as named Records today; ORM permanently closed; joins/aggregates deferred to v1; StorageCapability boundary modelled on PROP-035; LAB-QUERY-P2 authorized (42 checks).
+
+### Data Access / Query (LAB-QUERY)
+
+| Artifact | Repo | Status | Notes |
+|---|---|---|---|
+| LAB-QUERY-P1 (Research: Arel-like query intent as typed records — QueryPlan/QueryResult/FilterPredicate/OrderBy types; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary; denial-as-data 5-kind QueryResult; LAB-QUERY-P2 authorized) | igniter-lab | ✅ DONE — research + design boundary | lang / research |
+
+**Boundary:** QueryPlan v0 = pure CORE contracts; no grammar changes; no SQL; no DB connections. ORM/ActiveRecord permanently incompatible. `IO.StorageCapability` required for any future execution path (follows PROP-035 model). QueryResult follows KDR convention (PROP-044-P1).
 
 ### Web Framework / View Engine (Lab only)
 
@@ -594,6 +603,32 @@ Rack/middleware vocabulary is lab-only.
     verify_lab_vm_map_p1.rb: 48/48 PASS
       VMAP-COMPILE 4/4 | VMAP-TYPES 5/5 | VMAP-GET 6/6 | VMAP-HAS 4/4 | VMAP-OR 6/6 |
       VMAP-BRIDGE 4/4 | VMAP-RACK 4/4 | VMAP-SIDEKIQ 4/4 | VMAP-CLOSED 5/5 | VMAP-GAP 6/6
+
+41. ✅ LAB-QUERY-P1: Query/Arel-like data access pressure boundary research (2026-06-09)
+    Category: lang / Track: lab-query-arel-like-data-access-pressure-boundary-v0
+    Route: RESEARCH / DESIGN / LAB-ONLY
+    Depends on: PROP-043-P5, LAB-RESULT-ENVELOPE-P2, LAB-STDLIB-NET-P9, LAB-RACK-P14, LAB-SIDEKIQ-P5, LAB-CONCURRENCY-P4
+    Core formula: Query v0 = typed intent AST + capability boundary + mocked execution
+    QueryPlan v0 types (all expressible as named Records today — no new grammar):
+      QuerySource { table:String, schema:String }
+      Projection  { fields:Collection[String], include_all:Bool }
+      FilterPredicate { field:String, op:String, value:String }  -- op: eq/neq/gt/gte/lt/lte/is_null
+      OrderBy     { field:String, direction:String }
+      QueryPlan   { source, projection, filters:Collection[FilterPredicate], order:Collection[OrderBy], limit:Integer, kind:String }
+      QueryResult { kind:String, rows:Collection[Map[String,String]], count:Integer, message:String, metadata:Map[String,String] }
+      StorageDenied { table:String, op:String, reason:String, kind:String }
+    QueryResult kind vocabulary: rows / empty / denied / query_error / system_error
+    Arel/ORM classification:
+      Adopt: query-as-data, delayed execution, predicate composition, explicit projection, renderer/executor separation
+      Permanently closed: ORM, ActiveRecord, lazy relations, global connection, callbacks, save!, implicit transactions, dynamic columns
+      Deferred to v1: joins, aggregates, write ops, OR/NOT predicates, typed Row[T]
+    Fragment classification: plan-building = CORE; execution (future) = ESCAPE → STORAGE class
+    Capability boundary: IO.StorageCapability (follows PROP-035 model); pure plan-building needs none
+    Denial-as-data: QueryResult{kind:"denied"} — never exception; 8th domain proof opportunity
+    TBackend distinction: Store[T] = temporal substrate (PROP-008); QueryPlan = relational intent — orthogonal tracks
+    Next authorized: LAB-QUERY-P2 (fixture: 5 contracts; proof runner: 42 checks; QPLAN-COMPILE/TYPES/BUILD/DENIED/MAP/VM/ROUTE/COMPARE/CLOSED)
+    Doc: igniter-lab/lab-docs/lang/lab-query-arel-like-data-access-pressure-boundary-v0.md
+    Card: igniter-lab/.agents/work/cards/lang/LAB-QUERY-P1.md
 
 40. ✅ PROP-044-P1: Kind-discriminated outcome convention and sum type requirements (2026-06-09)
     Category: lang / governance / Track: kind-discriminated-outcome-convention-and-sum-type-requirements-v0
