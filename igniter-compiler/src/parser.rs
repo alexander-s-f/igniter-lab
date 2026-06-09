@@ -1620,7 +1620,10 @@ impl Parser {
     }
 
     /// G2: parse `decreases <variant>` body declaration inside recursive contracts.
-    /// variant may be a simple identifier ("fuel") or a dotted path ("items.remaining").
+    /// variant may be:
+    ///   - a simple identifier:      "fuel" / "n"              → T1
+    ///   - a dotted path:            "items.tail"              → T2
+    ///   - a function-call form:     "count(items)"            → T3 (PROP-042)
     fn parse_decreases_body_decl(&mut self) -> Result<BodyDecl, String> {
         let mut parts = Vec::new();
         // Collect the first identifier/keyword token
@@ -1628,7 +1631,28 @@ impl Parser {
             if matches!(tok.token_type, TokenType::Ident | TokenType::Keyword) {
                 parts.push(tok.value.clone());
                 self.advance();
-                // Collect dotted continuations (e.g. .remaining)
+
+                // PROP-042 T3: function-call form — decreases count(items)
+                if self.peek_type(TokenType::LParen) {
+                    self.advance(); // consume (
+                    let arg = if let Some(arg_tok) = self.current().cloned() {
+                        if matches!(arg_tok.token_type, TokenType::Ident | TokenType::Keyword) {
+                            self.advance();
+                            arg_tok.value.clone()
+                        } else {
+                            "unknown".to_string()
+                        }
+                    } else {
+                        "unknown".to_string()
+                    };
+                    if self.peek_type(TokenType::RParen) {
+                        self.advance(); // consume )
+                    }
+                    let variant = format!("{}({})", parts[0], arg);
+                    return Ok(BodyDecl::Decreases { variant });
+                }
+
+                // T1 / T2: simple identifier or dotted path
                 while self.peek_type(TokenType::Dot) {
                     self.advance(); // consume dot
                     if let Some(next) = self.current().cloned() {

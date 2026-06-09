@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-RECORD-VM-P2: dispatched record field access — OP_GET_FIELD added; RackResponse + JobReceipt field access end-to-end; 42/42 PASS)
+**Last updated:** 2026-06-09 (PROP-043-P2: Map[K,V] proof-local experiment — 42/42 PASS; OOF-MAP1/2/3 candidates proven; stdlib.map.get/has_key/from_pairs/or_else type rules confirmed; FullRackResponse headers pressure clean; T1/P12 regressions clean)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -107,6 +107,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | PROP-042-P3 T3 acceptance decision | igniter-lang | ✅ CLOSED 2026-06-09 — P2 accepted; OOF-R10/R11 → experiment-pass; P4 production-edit planning authorized |
 | PROP-042-P4 T3 production-edit planning | igniter-lang | ✅ CLOSED 2026-06-09 — exact +112-line plan; classifier no-change; OOF-R9 confirmed production-safe; P5 authorized |
 | PROP-042-P5 T3 production implementation | igniter-lang | ✅ CLOSED 2026-06-09 — parser.rb + typechecker.rb + semanticir_emitter.rb; numeric_measure_v0 live; 45/45 PASS; T1/T2/R3 regressions clean; LAB-T3-P1 unblocked |
+| LAB-T3-P1 Rust T3 numeric measure symmetry | igniter-lab | ✅ CLOSED 2026-06-09 — parser.rs + typechecker.rs + emitter.rs; OOF-P1 suppression via RefCell<T3Context>; verify_t3_numeric_measure.rb 45/45; T2/R9/R3/G5 regressions clean |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -179,6 +180,7 @@ Rack/middleware vocabulary is lab-only.
 |---|---|---|---|
 | LAB-DYNAMIC-DATA-P1: taxonomy + pressure map + boundary research | igniter-lab | ✅ CLOSED 2026-06-09 | Map/Record/JsonValue/Table/Unknown — research only |
 | PROP-043-P1: Map[K,V] Stage 1 design lock | igniter-lang | ✅ CLOSED 2026-06-09 | 15 decisions; stdlib.map.* v0 surface; OOF-MAP1/2/3 candidates; P2 fixture matrix ≥18 checks |
+| PROP-043-P2: Map[K,V] proof-local experiment | igniter-lang | ✅ CLOSED 2026-06-09 | MapPipeline + 15 fixtures + verify script; 42/42 PASS; OOF-MAP1/2/3 candidates proven; map_get/has_key/from_pairs/or_else type rules; FullRackResponse headers clean |
 
 **Three-tier hierarchy (research finding):**
 1. Named `Record` — known-schema data (proven: P12/P13/Sidekiq-P4)
@@ -187,7 +189,7 @@ Rack/middleware vocabulary is lab-only.
 
 **Closed surfaces:** `Map[String, Any]` at contract boundaries; `Unknown` as user type; `Table/DataFrame` before Stage 2 OLAPPoint; `null` as a language value; runtime-only schema validation.
 
-**Next design work:** ✅ PROP-043-P1 design lock complete (Map[K,V] Stage 1 — 15 decisions, stdlib.map.*, OOF-MAP1/2/3, P2 fixture matrix ≥18 checks). Next: PROP-043-P2 proof-local experiment. Named Record production promotion (PROP-004 amendment). JSON boundary stdlib deferred (no lab use case yet). Table/DataFrame hold (Stage 2).
+**Next design work:** ✅ PROP-043-P2 proof-local experiment closed (42/42 PASS; OOF-MAP1/2/3 candidates proven; stdlib.map.get/has_key/from_pairs/or_else type rules confirmed). Next: PROP-043-P3 (promote OOF-MAP1/2/3 to canon, expand stdlib.map.* surface, address param-unification in field positions). Named Record production promotion (PROP-004 amendment). JSON boundary stdlib deferred (no lab use case yet). Table/DataFrame hold (Stage 2).
 
 ---
 
@@ -207,7 +209,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
 | PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
-| PROP-043 | Map[K,V] Stage 1 design lock | ✅ P1 design lock complete | 15 decisions; String-only keys v0; Option[V] lookup; from_pairs construction; OOF-MAP1/2/3; P2 proof-local next |
+| PROP-043 | Map[K,V] Stage 1 + proof-local | ✅ P1+P2 complete | 15 decisions; String-only keys v0; 42/42 PASS; OOF-MAP1/2/3 candidates proven; stdlib.map.get/has_key/from_pairs/or_else; P3 (canon promotion) next |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -404,7 +406,20 @@ Rack/middleware vocabulary is lab-only.
         MAP-D (FullRackResponse+headers) + MAP-E (SemanticIR shapes) + MAP-F (regression) = ≥18 checks
     Proposal: igniter-lang/.agents/work/proposals/PROP-043-map-kv-stage1-v0.md
     Card: igniter-lang/.agents/work/cards/lang/PROP-043-P1.md
-    Next: PROP-043-P2 proof-local experiment in igniter-lang/experiments/prop043_map_kv_proof/
+32. ✅ PROP-043-P2: Map[K,V] proof-local experiment (2026-06-09)
+    Depends on: PROP-043-P1, LAB-DYNAMIC-DATA-P1, LAB-RACK-P13, LAB-RECORD-VM-P1
+    MapPipeline: MapTypeChecker < IgniterLang::TypeChecker; @output_type_hints pre-scan; no production edits
+    15 fixtures: MAP-A (3 valid annotations) + MAP-B (3 OOF candidates) + MAP-C (3 stdlib lookups) +
+        MAP-D (4 Rack pressure) + MAP-F (2 regression/boundary) = 15 fixture files
+    Type rules proven: map_get(Map[String,V], String)→Option[V]; or_else(Option[V],V)→V; has_key→Bool;
+        from_pairs(Collection[HeaderPair])→Map[String,String] via @type_shapes[elem]["value"] field
+    FullRackResponse {headers: Map[String,String]}: record literal resolved correctly via output_type_hints
+    OOF-MAP1/2/3 candidates proven; OOF-MAP3 output-only behavior confirmed
+    JSON, Any, mutation, real TCP all remain closed; no SemanticIR kind added
+    verify_prop043_map.rb: 42/42 PASS (MAP-A 7 + MAP-B 8 + MAP-C 7 + MAP-D 9 + MAP-E 5 + MAP-F 6)
+    Card: igniter-lang/.agents/work/cards/lang/PROP-043-P2.md
+    Next: PROP-043-P3 — promote OOF-MAP1/2/3 to canon; expand stdlib.map.* (keys/values/merge/size/to_pairs);
+        param-unification in field positions; map literal syntax design options
 
 ---
 

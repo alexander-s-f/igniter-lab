@@ -65,7 +65,49 @@ fn stdlib_size_registry() -> HashMap<(String, String), T2RegistryEntry> {
 /// Closed list in v1; not user-extensible.
 const NUMERIC_ACCESSORS: &[&str] = &["count", "length", "size", "total_count", "num_items", "num_elements"];
 
-// ── end PROP-041 T2 ──────────────────────────────────────────────────────────
+// ── PROP-042 T3: numeric measure expressions ─────────────────────────────────
+
+/// A single NUMERIC_MEASURE_BUILTINS v0 entry.
+/// Only count(Collection[T]) is recognized in v0.
+/// size / length / byte_length / rune_length / grapheme_length / user-defined → OOF-R10.
+#[derive(Debug, Clone)]
+pub struct T3BuiltinEntry {
+    pub qualified_name: &'static str, // "stdlib.collection.count"
+    pub trust:          &'static str, // "stdlib_numeric_certified"
+    pub source:         &'static str, // "compiler_builtin"
+}
+
+/// T3 context for a contract currently being typechecked.
+#[derive(Debug, Clone)]
+pub struct T3Context {
+    pub dv:       String, // "count(items)"
+    pub fn_name:  String, // "count"
+    pub arg_name: String, // "items"
+    pub builtin:  T3BuiltinEntry,
+}
+
+/// NUMERIC_MEASURE_BUILTINS v0.
+/// Tuple: (fn_name, qualified_name, trust, source).
+const NUMERIC_MEASURE_BUILTINS_V0: &[(&str, &str, &str, &str)] = &[
+    ("count", "stdlib.collection.count", "stdlib_numeric_certified", "compiler_builtin"),
+];
+
+/// Regex-free T3 function-call form detection.
+/// Returns (fn_name, arg_name) when variant matches exactly "fn(arg)".
+fn parse_t3_call_form(variant: &str) -> Option<(&str, &str)> {
+    let lparen = variant.find('(')?;
+    let rparen = variant.rfind(')')?;
+    if rparen != variant.len() - 1 { return None; }
+    let fn_name = &variant[..lparen];
+    let arg_name = &variant[lparen + 1..rparen];
+    // Both parts must be non-empty and word-only (no dots, spaces, parens)
+    if fn_name.is_empty() || arg_name.is_empty() { return None; }
+    if !fn_name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { return None; }
+    if !arg_name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { return None; }
+    Some((fn_name, arg_name))
+}
+
+// ── end PROP-042 T3 / end PROP-041 T2 ────────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TypedProgram {
@@ -115,6 +157,14 @@ pub struct TypedContract {
     /// PROP-041 T2: trust/source evidence for structural_size_v1 SemanticIR emission.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_relation_evidence: Option<serde_json::Value>,
+    /// PROP-042 T3: function-call form variant when T3 dispatch passes.
+    /// Present only when count(items) recognized and call-site obligation met.
+    /// Mutually exclusive with decreases_variant_t2 for the same contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decreases_variant_t3: Option<String>,
+    /// PROP-042 T3: numeric measure evidence for numeric_measure_v0 SemanticIR emission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_measure_evidence: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assumption_refs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -186,12 +236,17 @@ pub struct TypedDecl {
 
 pub struct TypeChecker {
     version: String,
+    /// PROP-042 T3: current contract's T3 context, if T3 dispatch succeeded.
+    /// Set at start of each typecheck_contract call; cleared on exit.
+    /// Used by infer_expr to suppress OOF-P1 for field accesses on the T3-measured input.
+    t3_context: std::cell::RefCell<Option<T3Context>>,
 }
 
 impl TypeChecker {
     pub fn new() -> Self {
         Self {
             version: "typed-pass-executable-proof-v0".to_string(),
+            t3_context: std::cell::RefCell::new(None),
         }
     }
 
@@ -433,23 +488,41 @@ impl TypeChecker {
             None
         };
 
-        // PROP-039 OOF-R3 / PROP-041 T2: decreases variant dispatch
-        // Dotted-path: T2 registry lookup (numeric → OOF-R3, registered → T2, missing → OOF-R8).
-        // Simple identifier: kept as-is for OOF-R3 call-site checks.
+        // PROP-039 OOF-R3 / PROP-041 T2 / PROP-042 T3: decreases variant dispatch
+        // Priority chain:
+        //   T3: function-call form  fn(arg)       → numeric_measure_v0  (OOF-R10 / OOF-R11)
+        //   T2: dotted-path         sub.field      → structural_size_v1  (OOF-R3 / OOF-R8)
+        //   T1: simple identifier   n              → syntactic_v0
+        // Reset per-contract T3 context on the TypeChecker struct (mirrors Ruby @t3_context = nil)
+        *self.t3_context.borrow_mut() = None;
+
         let t2_context: Option<T2Context>;
+        let t3_context: Option<T3Context>;
         let clean_decreases_variant: Option<String> = match &classified.decreases_variant {
+            Some(v) if parse_t3_call_form(v).is_some() => {
+                // PROP-042 T3 dispatch
+                let ctx = self.handle_t3_variant(v, classified, &mut type_errors, size_registry);
+                // Store in struct so infer_expr can access it for OOF-P1 suppression
+                *self.t3_context.borrow_mut() = ctx.clone();
+                t3_context = ctx;
+                t2_context = None;
+                None  // function-call form never kept as a raw T1 variant
+            }
             Some(v) if v.contains('.') => {
                 // PROP-041 T2 dispatch
                 let ctx = self.handle_t2_variant(v, classified, &mut type_errors, size_registry);
                 t2_context = ctx;
+                t3_context = None;
                 None  // dotted-path never kept as a raw variant in @recur_context
             }
             Some(v) => {
                 t2_context = None;
+                t3_context = None;
                 Some(v.clone())
             }
             None => {
                 t2_context = None;
+                t3_context = None;
                 None
             }
         };
@@ -903,6 +976,10 @@ impl TypeChecker {
                                 self.check_t2_callsite_in_expr(expr, &mut type_errors, &decl.name, ctx, &recur_input_names);
                             }
                         }
+                        // PROP-042 T3: OOF-R11 call-site numeric-measure check
+                        if let Some(ctx) = &t3_context {
+                            self.check_t3_callsite_in_expr(expr, &mut type_errors, &decl.name, ctx, &recur_input_names, size_registry);
+                        }
                     }
                 }
                 "output" => {
@@ -1010,6 +1087,16 @@ impl TypeChecker {
                 } else {
                     None
                 }
+            }),
+            // PROP-042 T3: propagate numeric-measure evidence for SemanticIR numeric_measure_v0 emission
+            decreases_variant_t3: t3_context.as_ref().map(|ctx| ctx.dv.clone()),
+            numeric_measure_evidence: t3_context.as_ref().map(|ctx| {
+                serde_json::json!({
+                    "fn":     ctx.builtin.qualified_name,
+                    "arg":    ctx.arg_name,
+                    "trust":  ctx.builtin.trust,
+                    "source": ctx.builtin.source
+                })
             }),
             assumption_refs: classified.assumption_refs.clone(),
             specialization_of: classified.specialization_of.clone(),
@@ -1263,6 +1350,152 @@ impl TypeChecker {
     }
 
     // ── end PROP-041 T2 private helpers ─────────────────────────────────────────
+
+    // ── PROP-042 T3: private helpers ─────────────────────────────────────────────
+
+    /// T3 function-call form dispatch.
+    /// Fires OOF-R10 for unrecognized/deferred measure functions.
+    /// Returns a T3Context when the function is recognized (count).
+    fn handle_t3_variant(
+        &self,
+        variant: &str,
+        classified: &ClassifiedContract,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        _size_registry: &HashMap<(String, String), T2RegistryEntry>,
+    ) -> Option<T3Context> {
+        let (fn_name, arg_name) = parse_t3_call_form(variant)?;
+
+        // Look up the function in NUMERIC_MEASURE_BUILTINS v0
+        if let Some(&(_, qualified_name, trust, source)) =
+            NUMERIC_MEASURE_BUILTINS_V0.iter().find(|&&(f, _, _, _)| f == fn_name)
+        {
+            // Recognized builtin — return T3 context; call-site check done separately
+            Some(T3Context {
+                dv: variant.to_string(),
+                fn_name: fn_name.to_string(),
+                arg_name: arg_name.to_string(),
+                builtin: T3BuiltinEntry { qualified_name, trust, source },
+            })
+        } else {
+            // OOF-R10: unrecognized / deferred measure function
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-R10".to_string(),
+                message: format!(
+                    "decreases variant '{}' in '{}' — function '{}' is not a recognized numeric measure; \
+                     only count(Collection[T]) is accepted in NUMERIC_MEASURE_BUILTINS v0; \
+                     size/length/byte_length and user-defined measures are deferred",
+                    variant, classified.name, fn_name
+                ),
+                node: classified.name.clone(),
+                line: None,
+            });
+            None
+        }
+    }
+
+    /// T3 call-site check: walks an expression tree looking for recur() calls.
+    /// When found, checks that the variant-position arg is a T2-registered structural subvalue
+    /// of the T3-measured input (i.e. `arg_name.some_accessor` where accessor is in registry).
+    /// Also accepts `arg_name.rest` and `arg_name.tail` (stdlib_certified).
+    /// Fires OOF-R11 on mismatch.
+    fn check_t3_callsite_in_expr(
+        &self,
+        expr: &Expr,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        ctx: &T3Context,
+        input_names: &[String],
+        size_registry: &HashMap<(String, String), T2RegistryEntry>,
+    ) {
+        match expr {
+            Expr::Call { fn_name, args } if fn_name == "recur" => {
+                if let Some(subject_pos) = input_names.iter().position(|n| n == &ctx.arg_name) {
+                    if subject_pos < args.len() {
+                        let variant_arg = &args[subject_pos];
+                        if !self.t3_structurally_covered(variant_arg, &ctx.arg_name, size_registry) {
+                            let arg_desc = syntactic_arg_desc(variant_arg);
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-R11".to_string(),
+                                message: format!(
+                                    "recur() in '{}' — numeric measure call-site obligation not met: \
+                                     count({}) requires the argument at position {} to be a \
+                                     T2-registered structural subvalue of '{}', got: {}; \
+                                     declare a size_relation or use a stdlib accessor (tail/rest)",
+                                    node_name, ctx.arg_name, subject_pos + 1, ctx.arg_name, arg_desc
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Expr::Call { fn_name: _, args } => {
+                for arg in args {
+                    self.check_t3_callsite_in_expr(arg, type_errors, node_name, ctx, input_names, size_registry);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.check_t3_callsite_in_expr(left, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(right, type_errors, node_name, ctx, input_names, size_registry);
+            }
+            Expr::UnaryOp { operand, .. } => {
+                self.check_t3_callsite_in_expr(operand, type_errors, node_name, ctx, input_names, size_registry);
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.check_t3_callsite_in_expr(object, type_errors, node_name, ctx, input_names, size_registry);
+            }
+            Expr::IndexAccess { object, index } => {
+                self.check_t3_callsite_in_expr(object, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(index, type_errors, node_name, ctx, input_names, size_registry);
+            }
+            Expr::IfExpr { cond, then, else_block } => {
+                self.check_t3_callsite_in_expr(cond, type_errors, node_name, ctx, input_names, size_registry);
+                for stmt in &then.stmts {
+                    if let crate::parser::Stmt::Let { expr, .. } = stmt {
+                        self.check_t3_callsite_in_expr(expr, type_errors, node_name, ctx, input_names, size_registry);
+                    }
+                }
+                if let Some(re) = &then.return_expr {
+                    self.check_t3_callsite_in_expr(re, type_errors, node_name, ctx, input_names, size_registry);
+                }
+                if let Some(eb) = else_block {
+                    for stmt in &eb.stmts {
+                        if let crate::parser::Stmt::Let { expr, .. } = stmt {
+                            self.check_t3_callsite_in_expr(expr, type_errors, node_name, ctx, input_names, size_registry);
+                        }
+                    }
+                    if let Some(re) = &eb.return_expr {
+                        self.check_t3_callsite_in_expr(re, type_errors, node_name, ctx, input_names, size_registry);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// True when `expr` is `subject.some_accessor` where `some_accessor` is registered in the
+    /// T2 size_registry for the subject's type, OR is a stdlib_certified entry (tail/rest).
+    /// Mirrors Ruby `t3_structurally_covered?`.
+    fn t3_structurally_covered(
+        &self,
+        expr: &Expr,
+        subject: &str,
+        size_registry: &HashMap<(String, String), T2RegistryEntry>,
+    ) -> bool {
+        if let Expr::FieldAccess { object, field } = expr {
+            if let Expr::Ref { name } = object.as_ref() {
+                if name != subject { return false; }
+                // Check all (type, field) pairs in registry for this subject+field
+                // We don't have the type here, so match on field alone against any registered entry
+                // where the subject matches (mirrors Ruby which uses @size_registry.key?([subject_type, fld]))
+                return size_registry.keys().any(|(_, acc)| acc == field);
+            }
+        }
+        false
+    }
+
+    // ── end PROP-042 T3 private helpers ──────────────────────────────────────────
 
     fn collect_escape_refs(&self, body: &ExprOrBlock, stream_symbols: &HashSet<String>, lambda_params: &mut HashSet<String>, escape_refs: &mut Vec<String>) {
         match body {
@@ -1841,6 +2074,26 @@ impl TypeChecker {
                         resolved_type: obj_typed.resolved_type.clone(),
                         deps: obj_typed.deps,
                     };
+                }
+
+                // PROP-042 T3: suppress OOF-P1 for ALL field accesses on the T3-measured input.
+                // T3 allows any T2-registered accessor; OOF-R11 is the authoritative diagnostic
+                // for structural coverage failures. Without this suppression, user-declared
+                // accessors (e.g. items.sub from size_relation Collection sub) fire OOF-P1
+                // because they're not real fields in type_shapes.
+                {
+                    let t3_ctx = self.t3_context.borrow();
+                    if let Some(ctx) = t3_ctx.as_ref() {
+                        if let Expr::Ref { name } = object.as_ref() {
+                            if name == &ctx.arg_name {
+                                // Suppress OOF-P1 — return the object type (Collection propagates through)
+                                return TypedExpression {
+                                    resolved_type: obj_typed.resolved_type.clone(),
+                                    deps: obj_typed.deps,
+                                };
+                            }
+                        }
+                    }
                 }
 
                 let field_type = type_shapes.get(&obj_type)

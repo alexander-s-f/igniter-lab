@@ -266,12 +266,31 @@ impl Emitter {
             }
         }
 
-        // PROP-041 T2 / PROP-039 OOF-R3: emit termination evidence.
-        // T2 path (structural_size_v1) takes precedence when typechecker set decreases_variant_t2.
-        // T1 path (syntactic_v0) is byte-for-byte preserved.
-        // NOTE: T2 is structural evidence with trust metadata — NOT a full termination proof.
+        // PROP-042 T3 / PROP-041 T2 / PROP-039 OOF-R3: emit termination evidence.
+        // Priority chain:
+        //   T3 path (numeric_measure_v0) — decreases_variant_t3 set by typechecker
+        //   T2 path (structural_size_v1) — decreases_variant_t2 set by typechecker
+        //   T1 path (syntactic_v0)       — byte-for-byte preserved
+        // NOTE: T3/T2 are compiler-controlled evidence — NOT full termination proofs.
         if contract.modifier == "recursive" {
-            if let Some(ref dv_t2) = contract.decreases_variant_t2 {
+            if let Some(ref dv_t3) = contract.decreases_variant_t3 {
+                // T3: numeric_measure_v0
+                let evidence = contract.numeric_measure_evidence.as_ref();
+                let fn_name  = evidence.and_then(|e| e.get("fn")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let arg      = evidence.and_then(|e| e.get("arg")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let trust    = evidence.and_then(|e| e.get("trust")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let source   = evidence.and_then(|e| e.get("source")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let mut term = Map::new();
+                term.insert("decreases".to_string(),     Value::String(dv_t3.clone()));
+                term.insert("variant_check".to_string(), Value::String("numeric_measure_v0".to_string()));
+                let mut nm_obj = Map::new();
+                nm_obj.insert("fn".to_string(),     Value::String(fn_name.to_string()));
+                nm_obj.insert("arg".to_string(),    Value::String(arg.to_string()));
+                nm_obj.insert("trust".to_string(),  Value::String(trust.to_string()));
+                nm_obj.insert("source".to_string(), Value::String(source.to_string()));
+                term.insert("numeric_measure".to_string(), Value::Object(nm_obj));
+                contract_ir.insert("termination".to_string(), Value::Object(term));
+            } else if let Some(ref dv_t2) = contract.decreases_variant_t2 {
                 let accessor = dv_t2.splitn(2, '.').nth(1).unwrap_or(dv_t2.as_str());
                 let evidence = contract.size_relation_evidence.as_ref();
                 let trust  = evidence.and_then(|e| e.get("trust")).and_then(|v| v.as_str()).unwrap_or("user_assumed");
