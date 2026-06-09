@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -409,7 +409,19 @@ Rack/middleware vocabulary is lab-only.
     New fixtures: liveness_emitter_form_lower.ig, liveness_emitter_pipeline_depth.ig, liveness_parser_import_steps.ig
     verify_liveness_p4.rb: 40/40 PASS; verify_liveness_p3.rb: 38/38 PASS; verify_liveness_p2.rb: 25/25 PASS
     Next: LAB-COMPILER-LIVENESS-P5 if: form-calls-form grammar change, production corpus data, or E-COMPILER-BUDGET PROP
-28. ✅ LAB-TERM-T2-P2: OOF-R9 branch and multi-recur edge hardening (2026-06-08)
+28. ✅ LAB-COMPILER-LIVENESS-P5: parser non-progress and subprocess timeout hardening (2026-06-09)
+    Root cause: peek_type returned false for Eof when current()=None (past EOF sentinel); all while!peek_type(Eof) loops hung
+    Fix 1 (parser.rs): peek_type returns true for Eof when current()=None — single-function, zero semantic change
+    Fix 2 (parser.rs): parse_body_decl_with_recovery wraps output/compute — on Err: advance, emit OOF-P1, skip to boundary
+    Fix 3 (parser.rs): parse_type_decl field loop — explicit match-on-Err for name/colon/type; OOF-P1 per bad field
+    BoundedCommand (verify_liveness_p5.rb): Process.spawn + killer thread (SIGTERM then SIGKILL); 15s default timeout
+    Process invariant: pgrep count unchanged before/after 5 malformed compiles (P5-I)
+    stdout bounded: all malformed inputs < 1KB, well-formed < 64KB cap; all valid JSON (P5-J)
+    New fixtures: 5 malformed hang fixtures + 1 well-formed regression guard
+    verify_liveness_p5.rb: 46/46 PASS; verify_liveness_p4.rb: 40/40 PASS (backward compat)
+    No new OOF codes, no language semantics change, no canon impact, no runtime/VM change
+    Next: extend parse_body_decl_with_recovery to all body-decl keywords; BoundedCommand for VM runner
+29. ✅ LAB-TERM-T2-P2: OOF-R9 branch and multi-recur edge hardening (2026-06-08)
     Root cause: check_t2_callsite_in_expr IfExpr arm only walked cond, not then/else_block bodies
     Fix: extended IfExpr arm to mirror check_recur_in_expr exactly (stmts + return_expr for both branches)
     5 new fixtures: multi_recur_both_correct, multi_recur_one_wrong, if_both_branches_correct,

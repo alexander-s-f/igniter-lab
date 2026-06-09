@@ -572,7 +572,13 @@ impl Parser {
     }
 
     fn peek_type(&self, t_type: TokenType) -> bool {
-        self.current().map_or(false, |t| t.token_type == t_type)
+        // LAB-COMPILER-LIVENESS-P5: treat "past end of token stream" as EOF so every
+        // `while !peek_type(Eof)` loop terminates even when inner parsers over-consume
+        // past the explicit EOF sentinel via expect_type or advance().
+        match self.current() {
+            None => t_type == TokenType::Eof,
+            Some(t) => t.token_type == t_type,
+        }
     }
 
     fn peek_value(&self, val: &str) -> bool {
@@ -1266,14 +1272,55 @@ impl Parser {
         Ok(TypeRefNode { name, type_args })
     }
 
+    /// LAB-COMPILER-LIVENESS-P5: helper — when a body-decl parser returns Err, record the
+    /// error and skip to the next body boundary so the body loop makes guaranteed progress.
+    fn parse_body_decl_with_recovery<F>(&mut self, kw: &str, kw_line: usize, kw_col: usize, f: F) -> Option<BodyDecl>
+    where
+        F: FnOnce(&mut Self) -> Result<BodyDecl, String>,
+    {
+        let start_pos = self.pos;
+        match f(self) {
+            Ok(decl) => Some(decl),
+            Err(msg) => {
+                // Only emit a new error if the inner parser didn't already consume any tokens
+                // beyond the keyword, and specifically if we haven't already added a parse error
+                // for this exact location (to avoid duplicate diagnostics from nested errors).
+                let advanced = self.pos > start_pos;
+                if !advanced {
+                    // Inner parser consumed nothing (e.g., keyword was the last token).
+                    // Ensure we advance at least one token so the body loop makes progress.
+                    self.advance();
+                }
+                self.add_parse_error(
+                    "OOF-P1",
+                    &format!("Malformed {} declaration: {}", kw, msg),
+                    kw,
+                    kw_line,
+                    kw_col,
+                );
+                // Skip to the next body boundary so subsequent decls can still be parsed.
+                self.skip_until_body_boundary();
+                None
+            }
+        }
+    }
+
     fn parse_body_decl(&mut self) -> Option<BodyDecl> {
         let tok = self.current()?.clone();
         match tok.value.as_str() {
             "input" => { self.advance(); self.parse_input_decl().ok() }
             "capability" => { self.advance(); self.parse_capability_decl().ok() }
             "effect" => { self.advance(); self.parse_effect_decl().ok() }
-            "output" => { self.advance(); self.parse_output_decl().ok() }
-            "compute" => { self.advance(); self.parse_compute_decl().ok() }
+            "output" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("output", tok.line, tok.col,
+                    |p| p.parse_output_decl())
+            }
+            "compute" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("compute", tok.line, tok.col,
+                    |p| p.parse_compute_decl())
+            }
             "read" => { self.advance(); self.parse_read_decl().ok() }
             "snapshot" => { self.advance(); self.parse_snapshot_decl().ok() }
             "window" => { self.advance(); self.parse_window_decl().ok() }
@@ -1850,9 +1897,59 @@ impl Parser {
         self.expect_type(TokenType::LBrace)?;
         let mut fields = Vec::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
-            let fname = self.name_token()?;
-            self.expect_type(TokenType::Colon)?;
-            let ftype = self.parse_type_ref()?;
+            // LAB-COMPILER-LIVENESS-P5: recover from malformed field declarations
+            // (missing colon, missing type, non-identifier field name) without hanging.
+            let fname = match self.name_token() {
+                Ok(n) => n,
+                Err(_) => {
+                    // Current token is not an identifier — skip it and continue.
+                    if let Some(bad_tok) = self.current().cloned() {
+                        self.add_parse_error("OOF-P1",
+                            &format!("Expected field name in type '{}', got {:?}({})",
+                                name, bad_tok.token_type, bad_tok.value),
+                            &bad_tok.value, bad_tok.line, bad_tok.col);
+                    }
+                    self.advance();
+                    continue;
+                }
+            };
+            if !self.peek_type(TokenType::Colon) {
+                // Field name present but missing ':' — emit diagnostic, skip to next field or '}'.
+                if let Some(bad_tok) = self.current().cloned() {
+                    self.add_parse_error("OOF-P1",
+                        &format!("Field '{}' in type '{}' missing ':' and type annotation", fname, name),
+                        &bad_tok.value, bad_tok.line, bad_tok.col);
+                } else {
+                    self.add_parse_error("OOF-P1",
+                        &format!("Field '{}' in type '{}' missing ':' and type annotation", fname, name),
+                        &fname, 0, 0);
+                }
+                // Skip until we reach '}', EOF, or a token that looks like a new field name.
+                while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof)
+                    && !self.peek_type(TokenType::Comma) {
+                    self.advance();
+                }
+                if self.peek_type(TokenType::Comma) { self.advance(); }
+                continue;
+            }
+            self.advance(); // consume ':'
+            let ftype = match self.parse_type_ref() {
+                Ok(t) => t,
+                Err(msg) => {
+                    if let Some(bad_tok) = self.current().cloned() {
+                        self.add_parse_error("OOF-P1",
+                            &format!("Field '{}' in type '{}' has invalid type annotation: {}", fname, name, msg),
+                            &bad_tok.value, bad_tok.line, bad_tok.col);
+                    }
+                    // Skip to next field boundary.
+                    while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof)
+                        && !self.peek_type(TokenType::Comma) {
+                        self.advance();
+                    }
+                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                    continue;
+                }
+            };
             let optional = if self.peek_type(TokenType::Question) {
                 self.advance(); true
             } else {
