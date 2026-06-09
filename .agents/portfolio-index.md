@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-RACK-P11: call_contract TypeChecker literal callee resolution — 47/47 PASS)
+**Last updated:** 2026-06-09 (LAB-RACK-P12: typed response single-output dispatch — 45/45 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -102,6 +102,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | PROP-041 T2 production (structural_size_v1 SemanticIR) | igniter-lang | ✅ PROP-041-P7 production — verify_prop041_t2_production.rb 48/48; verify_oof_r3.rb 33/33 |
 | LAB-TERM-T2-P1 Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — parser.rs + classifier.rs + typechecker.rs + emitter.rs; verify_t2_structural_size_relation.rb 52/52 PASS |
 | LAB-TERM-T2-P2 OOF-R9 edge hardening | igniter-lab | ✅ closed 2026-06-08 — IfExpr fix; multi-recur/branch/nested-arith; verify_t2_oof_r9_edge_cases.rb 21/21 PASS |
+| PROP-042-P1 T3 numeric measure proposal | igniter-lang | ✅ proposal authored 2026-06-09 — grammar + builtins + OOF-R10/R11 + SemanticIR + call-site obligation + P2 fixture matrix |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -134,9 +135,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P9 (explicit named user-contract dispatch via `call_contract` — DispatchEntry, cycle detection, MAX_CALL_DEPTH=8, pure-callee-only, TypeChecker OOF-P1/Unknown fixes) | igniter-lab | ✅ DONE | 60/60 |
 | LAB-RACK-P10 (call_contract output type verification design preflight — SemanticIR metadata confirmed, literal/dynamic distinction confirmed, module registry pattern viable, not ContractRef) | igniter-lab | ✅ DONE — design | 39/39 |
 | LAB-RACK-P11 (call_contract TypeChecker literal callee resolution — build_contract_registry, two-tier policy, Tier 1 resolves output type, OOF-TY0 for unknown/effect/arity/self-recursion literal callees) | igniter-lab | ✅ DONE | 47/47 |
+| LAB-RACK-P12 (typed response single-output dispatch — RackResponse type, handler RecordLiteral support, Tier 1 resolves dispatcher compute to RackResponse, Tier 2 stays Unknown) | igniter-lab | ✅ DONE | 45/45 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P11 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector + explicit `call_contract` dispatch + literal callee type resolution implemented. Still open: multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
+**Alignment gap:** LAB-RACK-P2..P12 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector + explicit `call_contract` dispatch + literal callee type resolution + typed structured response output implemented. Still open: nominal record type checking (structural→named, P13 candidate), VM record construction, headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -147,9 +149,10 @@ Rack/middleware vocabulary is lab-only.
 |---|---|---|---|
 | LAB-SIDEKIQ-P1 (Sidekiq reimplementation feasibility and language pressure map — job-as-contract, dispatch table, BudgetedLocalLoop retry analogy, closed surfaces) | igniter-lab | ✅ RESEARCH COMPLETE | — |
 | LAB-SIDEKIQ-P2 (static job dispatch table — 3 pure job contracts + JobDispatcher, VM-backed via lab-only `call_contract`, all fail-closed cases, P9 regression green) | igniter-lab | ✅ DONE | 54/54 |
+| LAB-SIDEKIQ-P3 (BudgetedLocalLoop retry policy — `RetryPolicy` arithmetic, `RetrySimulator` PROP-039 loop fuel enforcement `max_steps:5`, `RetryWithDispatch` dispatch+budget composability) | igniter-lab | ✅ DONE | 43/43 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P2 → lang | Static job dispatch table proved using LAB-RACK-P9 `call_contract` with zero VM/compiler changes. P3 candidates: JobReceipt schema (P3a) or BudgetedLocalLoop retry policy (P3b). Effect-callee dispatch deferred until P10/P11 clarify `call_contract` output typing. Still open: async execution, queue storage, retry policy, non-uniform arity dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P3 → lang | Retry budget proved as pure Integer arithmetic (no clock, no queue). BudgetedLocalLoop bounded iteration proved via OP_LOOP_STEP fuel enforcement. Dispatch + budget arithmetic composability proved. Still open: async retry, queue storage, JobReceipt schema (P4, pending P11 output typing), effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 
@@ -177,6 +180,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
+| PROP-042 | T3 numeric measure expressions | ✅ proposal-authored (P1 CLOSED) | Proof-local gate → P2; OOF-R10/R11 candidates; `count(Collection[T])` only v0 |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -337,7 +341,20 @@ Rack/middleware vocabulary is lab-only.
     OOF-R3/R8 precedence unchanged; T1 syntactic_v0 unaffected; no new OOF codes; no canon changes
     verify_t2_oof_r9_edge_cases.rb: 21/21 PASS
     Regression: verify_t2_structural_size_relation.rb 52/52; verify_oof_r3.rb 34/34; verify_g5_recur.rb 18/18
-    LAB-TERM-T2 track complete (P1+P2). Next: PROP-041 T3 (numeric measures) when authorized.
+    LAB-TERM-T2 track complete (P1+P2). Next: PROP-042 T3 numeric measure proposal.
+29. ✅ PROP-042-P1: T3 numeric measure expressions — formal proposal authored (2026-06-09)
+    Depends on: PROP-041-T3-P1 design lock (CLOSED)
+    Grammar: `decreases count(items)` function-call form; dispatch branch new (not T1/T2)
+    NUMERIC_MEASURE_BUILTINS v0: count(Collection[T]) only; stdlib_numeric_certified trust; compiler_builtin source
+    NUMERIC_ACCESSORS (T2) unchanged — T3 opens function-call path only, not dotted path
+    OOF-R10 (unrecognized measure fn) + OOF-R11 (decrease obligation not met) — candidates until P2 gate
+    SemanticIR: variant_check="numeric_measure_v0", numeric_measure.{fn, arg, trust, source}
+    Call-site obligation: T2 structural coverage → numeric decrease implied (T2 registry reused)
+    Backward compat: T1/T2 unchanged; T3-unaware compiler may emit OOF-R3 (conformance allowance)
+    Proposal: igniter-lang/.agents/work/proposals/PROP-042-t3-numeric-measure-expressions-v0.md
+    Card: igniter-lang/.agents/work/cards/lang/PROP-042-P1.md
+    Deferred: Text length measures, user-defined measures, size/length aliases, count(x)-1 (T4)
+    Next: PROP-042-P2 proof-local experiment gate (≥19 fixtures, T3a–T3i)
 
 ---
 

@@ -180,24 +180,42 @@ DEPTH_CHAIN_SRC = begin
   "module Test.DepthChain\n\n" + parts.join("\n\n")
 end
 
+# LAB-SIDEKIQ-P3 fix (2026-06-09):
+# SelfDispatch was removed from job_dispatch_table.ig because the P10 TypeChecker now
+# detects self-recursion via literal callee resolution at COMPILE TIME (OOF-TY0), not
+# at VM runtime. SelfDispatch is tested below as a separate inline compile-time check.
+SELF_DISPATCH_SRC = <<~IG
+  module Test.SelfDispatch
+
+  pure contract SelfDispatch {
+    input  job_id  : String
+    input  arg1    : Integer
+    input  arg2    : Integer
+    compute result = call_contract("SelfDispatch", job_id, arg1, arg2)
+    output result  : Integer
+  }
+IG
+
 NONSTR_RESULT  = compile_inline(NON_STRING_JOB_SRC, 'non_string_job')
 ARITY_RESULT   = compile_inline(ARITY_SHORT_SRC,    'arity_short')
 EFFECT_RESULT  = compile_inline(EFFECT_JOB_SRC,     'effect_job')
 DEPTH_RESULT   = compile_inline(DEPTH_CHAIN_SRC,    'depth_chain_job')
+SELF_RESULT    = compile_inline(SELF_DISPATCH_SRC,  'self_dispatch_job')
 
 puts "LAB-SIDEKIQ-P2: Static Job Dispatch Table with Pure Job Contracts"
 puts "═" * 72
 
 # ── SJOB-COMPILE ──────────────────────────────────────────────────────────────
-section 'SJOB-COMPILE: job_dispatch_table.ig compiles (5 contracts accepted)'
+section 'SJOB-COMPILE: job_dispatch_table.ig compiles (4 contracts accepted)'
 
 check('SJOB-COMPILE-01: fixture compiles with status=ok') do
   JOB_RESULT['status'] == 'ok'
 end
 
-check('SJOB-COMPILE-02: all 5 contracts present in igapp') do
+check('SJOB-COMPILE-02: all 4 core contracts present in igapp') do
+  # SelfDispatch removed (P10 TypeChecker now catches literal self-recursion at compile time).
   contracts = JOB_RESULT['contracts'] || []
-  %w[ProcessOrderJob ComputeReportJob ValidatePaymentJob JobDispatcher SelfDispatch].all? do |c|
+  %w[ProcessOrderJob ComputeReportJob ValidatePaymentJob JobDispatcher].all? do |c|
     contracts.include?(c)
   end
 end
@@ -211,8 +229,10 @@ check('SJOB-COMPILE-04: all stages ok (parse, classify, typecheck, emit, assembl
   %w[parse classify typecheck emit assemble].all? { |s| stages[s] == 'ok' }
 end
 
-check('SJOB-COMPILE-05: effect_job fixture compiles ok (effect callee accepted by compiler)') do
-  EFFECT_RESULT['status'] == 'ok'
+check('SJOB-COMPILE-05: effect_job fixture rejected at compile time with OOF-TY0 (P10: effect callee detected via literal resolution)') do
+  # P10 TypeChecker resolves literal callee "EffectWorker" statically and rejects at compile time.
+  EFFECT_RESULT['status'] == 'oof' &&
+    (EFFECT_RESULT['diagnostics'] || []).any? { |d| d['rule'] == 'OOF-TY0' }
 end
 
 check('SJOB-COMPILE-06: depth_chain fixture compiles ok (depth caught at VM not compile time)') do
@@ -364,39 +384,35 @@ check('SJOB-FC-03c: non-string job_class → diagnostic mentions "String"') do
   diags.any? { |d| d['message'].to_s.include?('String') }
 end
 
-# FC-04: effect callee blocked
-FC04 = run_vm(EFFECT_RESULT['igapp_path'] || EFFECT_RESULT['_out_dir'],
-  { 'job_id' => 'jid-e', 'arg1' => 5, 'arg2' => 1 },
-  entry_name: 'EffectJobDispatcher')
-
-check('SJOB-FC-04a: effect callee → status=error') do
-  FC04['status'] == 'error'
+# FC-04: effect callee rejected at COMPILE TIME (P10 TypeChecker literal resolution)
+# call_contract("EffectWorker", ...) with a literal callee is resolved statically;
+# OOF-TY0 fires because EffectWorker is not pure.
+check('SJOB-FC-04a: effect callee → compile-time OOF-TY0 (P10 literal callee resolution)') do
+  EFFECT_RESULT['status'] == 'oof'
 end
 
-check('SJOB-FC-04b: effect callee error mentions "not pure"') do
-  FC04['error'].to_s.include?('not pure')
+check('SJOB-FC-04b: effect callee compile error mentions "not pure"') do
+  (EFFECT_RESULT['diagnostics'] || []).any? { |d| d['message'].to_s.include?('not pure') }
 end
 
-check('SJOB-FC-04c: effect callee error names the job contract and modifier') do
-  err = FC04['error'].to_s
-  err.include?('EffectWorker') && err.include?('effect')
+check('SJOB-FC-04c: effect callee compile error names the job contract') do
+  (EFFECT_RESULT['diagnostics'] || []).any? { |d| d['message'].to_s.include?('EffectWorker') }
 end
 
-# FC-05: self-dispatch cycle
-FC05 = run_vm(JOB_IGAPP,
-  { 'job_id' => 'jid-s', 'arg1' => 1, 'arg2' => 0 },
-  entry_name: 'SelfDispatch')
-
-check('SJOB-FC-05a: self-dispatch cycle → status=error') do
-  FC05['status'] == 'error'
+# FC-05: self-dispatch cycle rejected at COMPILE TIME (P10 TypeChecker literal resolution)
+# call_contract("SelfDispatch", ...) inside SelfDispatch is detected as self-recursion
+# by the TypeChecker via literal callee resolution. OOF-TY0 fires at compile time.
+# (Previously a VM-level cycle error; P10 moves this check earlier.)
+check('SJOB-FC-05a: self-dispatch cycle → compile-time OOF-TY0 (P10 literal callee resolution)') do
+  SELF_RESULT['status'] == 'oof'
 end
 
-check('SJOB-FC-05b: self-dispatch error mentions "cycle detected"') do
-  FC05['error'].to_s.include?('cycle detected')
+check('SJOB-FC-05b: self-dispatch compile error mentions "self-recursion"') do
+  (SELF_RESULT['diagnostics'] || []).any? { |d| d['message'].to_s.include?('self-recursion') }
 end
 
-check('SJOB-FC-05c: self-dispatch error mentions SelfDispatch twice (self -> self)') do
-  FC05['error'].to_s.scan('SelfDispatch').size >= 2
+check('SJOB-FC-05c: self-dispatch compile error mentions SelfDispatch') do
+  (SELF_RESULT['diagnostics'] || []).any? { |d| d['message'].to_s.include?('SelfDispatch') }
 end
 
 # FC-06: depth > 8 blocked

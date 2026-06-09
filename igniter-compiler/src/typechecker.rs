@@ -3013,6 +3013,32 @@ impl TypeChecker {
                     deps,
                 }
             }
+            Expr::RecordLiteral { fields } => {
+                // LAB-RACK-P12: RecordLiteral type inference.
+                // All field expressions are typed for dependency collection and error
+                // propagation. The literal itself resolves to Unknown — nominal record
+                // type matching (structural → named) requires explicit type annotation
+                // context not available in infer_expr; deferred to a future card.
+                //
+                // The Unknown resolved type is compatible with any declared output type
+                // via the P9/P11 Unknown output compatibility rule. The declared
+                // output type annotation (e.g. `output response : RackResponse`) drives
+                // the module contract registry, so P11 callers can still resolve
+                // call_contract("Handler", ...) → RackResponse from the registry.
+                let mut deps = Vec::new();
+                for expr in fields.values() {
+                    let typed = self.infer_expr(
+                        expr, symbol_types, olap_env, type_shapes,
+                        type_errors, type_warnings, node_name, functions,
+                        contract_registry, current_contract_name,
+                    );
+                    deps.extend(typed.deps);
+                }
+                TypedExpression {
+                    resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    deps,
+                }
+            }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-TY0".to_string(),

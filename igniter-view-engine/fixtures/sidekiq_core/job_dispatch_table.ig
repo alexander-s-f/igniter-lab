@@ -67,15 +67,10 @@ pure contract JobDispatcher {
   output result    : Integer
 }
 
--- ── Fail-closed test contracts ────────────────────────────────────────────────
-
--- SelfDispatch: attempts to dispatch to itself.
--- Proves: self-recursion blocked by cycle detection at VM runtime.
--- Expected error: "dispatch cycle detected (SelfDispatch -> SelfDispatch)"
-pure contract SelfDispatch {
-  input  job_id  : String
-  input  arg1    : Integer
-  input  arg2    : Integer
-  compute result = call_contract("SelfDispatch", job_id, arg1, arg2)
-  output result  : Integer
-}
+-- NOTE (2026-06-09, LAB-SIDEKIQ-P3 fix):
+-- SelfDispatch was removed from this fixture.
+-- With the P10 TypeChecker (literal callee static resolution), a contract that calls
+-- call_contract("SelfDispatch", ...) from within SelfDispatch triggers OOF-TY0 at
+-- COMPILE TIME, not at VM runtime. This causes the whole igapp to fail to compile.
+-- Self-dispatch cycle detection is verified via a separate inline fixture in
+-- verify_sidekiq_p2_job_dispatch.rb (SELF_DISPATCH_SRC / SELF_RESULT).
