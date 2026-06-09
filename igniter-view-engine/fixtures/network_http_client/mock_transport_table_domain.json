@@ -1,0 +1,61 @@
+{
+  "transport_id": "mock-http-transport-domain-v0",
+  "description": "Deterministic domain fixture for upstream call-contract composition proofs. Item-scoped routes. No real network I/O.",
+  "routes": [
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/items/1",
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"id\":1,\"name\":\"Widget\",\"price\":9.99}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/items/99",
+      "response": {
+        "status": 404,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"error\":\"not_found\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/items/flaky",
+      "response": {
+        "status": 503,
+        "headers": { "content-type": "application/json", "retry-after": "1" },
+        "body": "{\"error\":\"service_unavailable\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/items/500error",
+      "response": {
+        "status": 500,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"error\":\"internal_server_error\"}"
+      }
+    },
+    {
+      "method": "POST",
+      "host": "api.example.com",
+      "path": "/items",
+      "response": {
+        "status": 201,
+        "headers": { "content-type": "application/json", "location": "/items/2" },
+        "body": "{\"id\":2,\"name\":\"Gadget\",\"created\":true}"
+      }
+    }
+  ],
+  "fallback_response": {
+    "status": 404,
+    "headers": { "content-type": "text/plain" },
+    "body": "Not Found"
+  }
+}
