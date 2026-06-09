@@ -1,0 +1,16 @@
+{
+  "_comment": "Sample HttpResponse with Map[String,String] headers — proof-local fixture for LAB-STDLIB-NET-P7",
+  "_type": "HttpResponse",
+  "_field_types": {
+    "status":  "Integer",
+    "headers": "Map[String,String]",
+    "body":    "String"
+  },
+  "status": 200,
+  "headers": {
+    "content-type":   "application/json",
+    "x-request-id":   "req-001",
+    "cache-control":  "no-cache"
+  },
+  "body": "{\"status\":\"ok\"}"
+}
