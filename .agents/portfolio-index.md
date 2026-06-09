@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (PROP-044-P2: variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expression; type narrowing rules; OOF-KIND1..5 formal definitions; SemanticIR shapes (variant_decl/variant_construct/match_node); parser+typechecker extension points; 15 design decisions locked; P3 parser impl requires explicit auth) | (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -207,10 +207,11 @@ Rack/middleware vocabulary is lab-only.
 | LAB-RESULT-ENVELOPE-P1 (Contract result envelope taxonomy + promotion boundary — 5 reusable patterns confirmed; HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; two RetryEnvelope shapes incompatible; denial-as-data is strongest invariant (6 proofs); no canon promotion; next: LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2) | igniter-lab | ✅ DONE — analysis | governance |
 | LAB-RESULT-ENVELOPE-P2 (Third-domain kind-discriminant pressure — form validation domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] 3rd context; kind-discriminant confirmed cross-domain; ValidationMapper three-layer confirmed; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | igniter-lab | ✅ DONE — analysis | governance |
 | PROP-044-P1 (Kind-discriminated outcome convention and sum type requirements — proposal authoring; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | igniter-lang | ✅ DONE — proposal authored | governance |
+| PROP-044-P2 (variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expr; type narrowing rules; OOF-KIND1..5 formal defs; SemanticIR shapes; parser+typechecker extension points; 15 decisions locked; P3 parser impl requires explicit auth) | igniter-lang | ✅ DONE — grammar design authored | governance |
 
 **Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **7 proofs**, 3 domains), kind-discriminant (**confirmed cross-domain** — 3 domains + QueryResult = 4th), Map[String,String] (**4 contexts**: transport headers + job metadata + form metadata + query metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
-**Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; no sum type grammar (variant/match/type-narrowing) — primary remaining blocker for grammar proposal (P2).  
-**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → **P1 AUTHORED** — convention doc written; grammar gap enumerated; P2 (grammar proposal) requires explicit authorization.  
+**Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; ~~grammar design~~ → ✅ PROP-044-P2 authored; parser implementation (P3) requires explicit authorization.  
+**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → ~~P1 AUTHORED~~ → **P2 GRAMMAR DESIGN AUTHORED** — variant+match EBNF; OOF-KIND1..5 defined; SemanticIR shapes specified; P3 parser implementation requires explicit authorization.  
 **LAB-QUERY-P1:** Query/Arel-like data access boundary defined — QueryPlan v0 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied) all expressible as named Records today; ORM permanently closed; joins/aggregates deferred to v1; StorageCapability boundary modelled on PROP-035; LAB-QUERY-P2 authorized (42 checks).
 
 ### Data Access / Query (LAB-QUERY)
@@ -268,7 +269,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
 | PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
 | PROP-043 | Map[K,V] Stage 1 — production live + Rust lab symmetry | ✅ P1+P2+P3+P4+P5 complete; LAB-MAP-RUST-P1 closed | OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else live; C1 fix; Record/Map bridge: map_get(response.headers,key)→Option[String]; 55/55 PASS; Rust symmetry 32/32 PASS; all regressions clean |
-| PROP-044 | Kind-discriminated outcome convention + sum type requirements | ✅ P1 proposal-authoring complete | Convention doc: KDR pattern; denial-as-data invariant; 3-domain corpus; grammar gap (variant+match+narrowing); OOF-KIND1..4 reserved; production impl blocked; P2 grammar proposal authorized |
+| PROP-044 | Kind-discriminated outcome convention + sum type requirements | ✅ P1+P2 design complete | P1: KDR convention; denial-as-data; OOF-KIND1..4 reserved. P2: VariantDecl+MatchExpr EBNF; VariantConstruct; type narrowing; OOF-KIND1..5 formal defs; SemanticIR shapes; parser+typechecker extension points; 15 decisions locked. P3 parser impl requires explicit auth |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -575,12 +576,13 @@ Rack/middleware vocabulary is lab-only.
       JobReceipt:            SIDEKIQ-LOCAL — job_class/job_id Sidekiq-specific
       RetryEnvelope (P8/P5): INCOMPATIBLE SHAPES — P8 embeds HttpResult; P5 is re-enqueue instruction; don't unify
 
-    No canon proposals authorized. Primary blockers: ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; no sum type grammar (variant/match/narrowing) — sole remaining blocker for grammar proposal
+    No canon proposals authorized. Primary blockers: ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; ~~grammar design~~ → ✅ PROP-044-P2 authored; parser implementation (P3) requires explicit authorization
     Next authorized routes:
       ✅ immediate: LAB-VM-MAP-P1 CLOSED (48/48 PASS)
       ✅ next: LAB-RESULT-ENVELOPE-P2 CLOSED (50/50 PASS — 3rd domain; PROP-044 unblocked for authoring)
       ✅ next: PROP-044-P1 CLOSED (convention doc authored; grammar gap enumerated; OOF-KIND1..4 reserved)
-      next (explicit auth required): PROP-044-P2 grammar proposal (variant+match+type-narrowing design)
+      ✅ next: PROP-044-P2 CLOSED (VariantDecl+MatchExpr EBNF; OOF-KIND1..5; SemanticIR shapes; 15 decisions)
+      next (explicit auth required): PROP-044-P3 parser implementation (variant+match parsing)
 
 38. ✅ LAB-VM-MAP-P1: VM runtime map_get/map_has_key/or_else over Map[String,String] (2026-06-09)
     Category: lang / vm / Track: lab-vm-map-ops-runtime-proof-v0
@@ -603,6 +605,38 @@ Rack/middleware vocabulary is lab-only.
     verify_lab_vm_map_p1.rb: 48/48 PASS
       VMAP-COMPILE 4/4 | VMAP-TYPES 5/5 | VMAP-GET 6/6 | VMAP-HAS 4/4 | VMAP-OR 6/6 |
       VMAP-BRIDGE 4/4 | VMAP-RACK 4/4 | VMAP-SIDEKIQ 4/4 | VMAP-CLOSED 5/5 | VMAP-GAP 6/6
+
+42. ✅ PROP-044-P2: variant+match grammar design (2026-06-09)
+    Category: lang / Track: variant-and-exhaustive-match-design-v0
+    Route: PROPOSAL / GRAMMAR DESIGN ONLY
+    Depends on: PROP-044-P1, PROP-004 (ch3 type grammar), PROP-026 (parser OOF hardening)
+    Grammar designed (no implementation):
+      VariantDecl: new TopDecl form — "variant" Name "{" VariantArm+ "}"
+        VariantArm: Name ("{" ArmField* "}")? — unit arms and record arms both supported
+        Parse AST: { kind: "variant", name, arms: [{ name, fields: [{name, type_annotation}] }] }
+      VariantConstruct: PascalCase-ident + "{" in parse_primary → { kind: "variant_construct", arm, fields }
+      MatchExpr: new parse_primary form — "match" Expr "{" MatchArm+ "}"
+        MatchArm: ArmPattern "{" Bindings "}" "=>" Expr | "_" "=>" Expr
+        Parse AST: { kind: "match_expr", subject, arms: [{ pattern: {arm, bindings}, body }] }
+      Type narrowing: per-arm binding scope; arm field types from variant declaration
+      v0 restrictions: subject = ref or field-access only; no guards; no nested match
+    OOF-KIND codes (formal definitions — candidates, not active):
+      OOF-KIND1: non-exhaustive match (typechecker, error) — missing arm, no wildcard
+      OOF-KIND2: arm/binding not in variant (classifier+typechecker, error)
+      OOF-KIND3: unreachable arm (typechecker, warning) — wildcard before last, duplicate
+      OOF-KIND4: match subject not a variant type (typechecker, error)
+      OOF-KIND5: arm result types do not unify (typechecker, error) — new in P2
+    SemanticIR shapes (design only): variant_decl (in variant_defs); variant_construct (expr);
+      match_node (expr; exhaustive flag; per-arm bindings+resolved_types)
+    Parser extension points: 4 sites identified (TopDecl dispatch; parse_primary kw branch;
+      parse_primary ident/PascalCase branch; keyword table)
+    Typechecker extension points: @variant_shapes store; check_variant_decl;
+      infer_variant_construct; infer_match_expr
+    15 design decisions locked (D1..D15)
+    Closed: parser impl (P3 req. auth); typechecker (P4); emitter (P5); VM (P6);
+            OOF activation; Option match; stable API
+    Design doc: igniter-lang/.agents/work/proposals/PROP-044-variant-and-exhaustive-match-design-v0.md
+    Card: igniter-lang/.agents/work/cards/lang/PROP-044-P2.md
 
 41. ✅ LAB-QUERY-P1: Query/Arel-like data access pressure boundary research (2026-06-09)
     Category: lang / Track: lab-query-arel-like-data-access-pressure-boundary-v0
