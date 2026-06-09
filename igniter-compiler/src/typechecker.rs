@@ -457,6 +457,25 @@ impl TypeChecker {
         let decreases_variant_pos: Option<usize> = clean_decreases_variant.as_ref()
             .and_then(|v| recur_input_names.iter().position(|n| n == v));
 
+        // LAB-RACK-P13: pre-scan output declarations to build a map of
+        // compute-node-name → expected named record type.  Used in the compute
+        // phase to validate RecordLiteral field shapes against the declared
+        // output type annotation before the output check runs.
+        // Only entries whose expected type name appears in local_type_shapes are
+        // recorded — primitive / Collection / Unknown expected types are excluded.
+        let output_type_hints: HashMap<String, String> = classified.declarations.iter()
+            .filter(|d| d.kind == "output")
+            .filter_map(|d| {
+                let ann = d.type_annotation.as_ref()?;
+                let type_name = self.type_name(&self.type_ir(ann));
+                if local_type_shapes.contains_key(&type_name) {
+                    Some((d.name.clone(), type_name))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         for decl in &classified.declarations {
             match decl.kind.as_str() {
                 "input" | "read" | "stream" => {
@@ -817,6 +836,39 @@ impl TypeChecker {
                             if expr_has_call(expr, "recur") {
                                 if let Some(ref ot) = recur_output_type {
                                     typed_expr.resolved_type = ot.clone();
+                                }
+                            }
+                        }
+                    }
+                    // LAB-RACK-P13: nominal record type checking.
+                    // If this compute node is Unknown (e.g. from a RecordLiteral) and there
+                    // is an output declaration expecting a named record type, validate the
+                    // RecordLiteral field names and types against the declared schema.
+                    // On success:  upgrade resolved_type from Unknown → the named record type
+                    //              (so the compute node appears as RackResponse in the SIR).
+                    // On failure:  emit specific OOF-TY0 errors; leave resolved_type Unknown
+                    //              (the output-level Unknown-compat rule still applies, so no
+                    //              duplicate "type mismatch" error is emitted).
+                    // Uncontextualized RecordLiterals (no output hint) remain Unknown.
+                    if self.type_name(&typed_expr.resolved_type) == "Unknown" {
+                        if let Some(Expr::RecordLiteral { fields }) = decl.expr.as_ref() {
+                            if let Some(expected_type_name) = output_type_hints.get(&decl.name) {
+                                if let Some(shape) = local_type_shapes.get(expected_type_name.as_str()).cloned() {
+                                    let errors_before = type_errors.len();
+                                    self.check_record_literal_shape(
+                                        fields,
+                                        &shape,
+                                        expected_type_name,
+                                        &decl.name,
+                                        &symbol_types,
+                                        &mut type_errors,
+                                    );
+                                    if type_errors.len() == errors_before {
+                                        // All checks passed — upgrade compute node type
+                                        typed_expr.resolved_type = self.type_ir(
+                                            &serde_json::Value::String(expected_type_name.clone())
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -3279,6 +3331,103 @@ impl TypeChecker {
             }
         }
         deduped
+    }
+
+    // ── LAB-RACK-P13: nominal record type checking ────────────────────────────
+
+    /// Validate a RecordLiteral expression against a named record type schema.
+    /// Emits OOF-TY0 for:
+    ///   - missing required fields (present in schema but absent from literal)
+    ///   - unexpected fields (present in literal but absent from schema)
+    ///   - field value type mismatches (where the field value type is resolvable)
+    ///
+    /// Called from the compute phase after `infer_expr` returns Unknown.
+    /// The caller upgrades the compute node type to the named type IFF no errors
+    /// are emitted by this method.
+    ///
+    /// Field types are checked via `infer_field_expr_type` — only Ref and Literal
+    /// expressions are resolved; complex expressions return None (Unknown-compat:
+    /// field type check is skipped, which is intentionally permissive in v0).
+    fn check_record_literal_shape(
+        &self,
+        fields: &HashMap<String, Expr>,
+        expected_shape: &HashMap<String, serde_json::Value>,
+        expected_type_name: &str,
+        node_name: &str,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+    ) {
+        // 1. Missing required fields
+        for expected_field_name in expected_shape.keys() {
+            if !fields.contains_key(expected_field_name) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-TY0".to_string(),
+                    message: format!(
+                        "Record type '{}': required field '{}' is missing from literal at node '{}'",
+                        expected_type_name, expected_field_name, node_name
+                    ),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+        }
+
+        // 2. Unexpected / extra fields
+        for field_name in fields.keys() {
+            if !expected_shape.contains_key(field_name) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-TY0".to_string(),
+                    message: format!(
+                        "Record type '{}': unexpected field '{}' in literal at node '{}' (not declared in type)",
+                        expected_type_name, field_name, node_name
+                    ),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+        }
+
+        // 3. Field value type checks (Ref / Literal only; complex exprs → skipped)
+        for (field_name, field_expr) in fields {
+            if let Some(expected_field_type_ir) = expected_shape.get(field_name) {
+                let expected_field_type = self.type_name(expected_field_type_ir);
+                if let Some(actual_field_type) = self.infer_field_expr_type(field_expr, symbol_types) {
+                    if actual_field_type != expected_field_type && actual_field_type != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!(
+                                "Record type '{}': field '{}' expects {}, got {} at node '{}'",
+                                expected_type_name, field_name,
+                                expected_field_type, actual_field_type, node_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Infer the type name of a simple field expression (Ref or Literal).
+    /// Returns None for complex expressions — the caller treats None as Unknown-compat
+    /// and skips the field type check rather than emitting a spurious error.
+    ///
+    /// This is intentionally limited to the two common cases in v0 record literals:
+    ///   - `field: some_var`   → look up `some_var` in symbol_types
+    ///   - `field: 200`        → derive from Literal type_tag (Integer / String / Bool)
+    ///
+    /// More complex field expressions (arithmetic, function calls, etc.) return None.
+    fn infer_field_expr_type(
+        &self,
+        expr: &Expr,
+        symbol_types: &HashMap<String, serde_json::Value>,
+    ) -> Option<String> {
+        match expr {
+            Expr::Ref { name } => symbol_types.get(name).map(|t| self.type_name(t)),
+            Expr::Literal { type_tag, .. } => Some(type_tag.clone()),
+            _ => None,
+        }
     }
 }
 

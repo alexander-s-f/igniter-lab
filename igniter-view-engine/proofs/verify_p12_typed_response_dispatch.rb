@@ -243,17 +243,19 @@ check('P12-STATIC-02: StaticNotFoundDispatcher.response compute → RackResponse
   sir_node_type(MAIN_SIR, 'StaticNotFoundDispatcher', 'response') == 'RackResponse'
 end
 
-# RecordLiteral compute nodes → Unknown (nominal type matching deferred)
-check('P12-STATIC-03: GetRootHandler.response compute → Unknown (RecordLiteral)') do
-  sir_node_type(MAIN_SIR, 'GetRootHandler', 'response') == 'Unknown'
+# RecordLiteral compute nodes — upgraded to RackResponse by P13 nominal record checking.
+# (P12 original: these were Unknown; P13 closes the gap by validating fields against
+# the declared output type annotation and upgrading the compute node type.)
+check('P12-STATIC-03: GetRootHandler.response compute → RackResponse (P13 upgraded)') do
+  sir_node_type(MAIN_SIR, 'GetRootHandler', 'response') == 'RackResponse'
 end
 
-check('P12-STATIC-04: NotFoundHandler.response compute → Unknown (RecordLiteral)') do
-  sir_node_type(MAIN_SIR, 'NotFoundHandler', 'response') == 'Unknown'
+check('P12-STATIC-04: NotFoundHandler.response compute → RackResponse (P13 upgraded)') do
+  sir_node_type(MAIN_SIR, 'NotFoundHandler', 'response') == 'RackResponse'
 end
 
-check('P12-STATIC-05: MethodNotAllowedHandler.response compute → Unknown (RecordLiteral)') do
-  sir_node_type(MAIN_SIR, 'MethodNotAllowedHandler', 'response') == 'Unknown'
+check('P12-STATIC-05: MethodNotAllowedHandler.response compute → RackResponse (P13 upgraded)') do
+  sir_node_type(MAIN_SIR, 'MethodNotAllowedHandler', 'response') == 'RackResponse'
 end
 
 # Handler compute: status and body_val still get concrete types (non-record)
@@ -417,10 +419,12 @@ end
 # ── P12-GAP ───────────────────────────────────────────────────────────────────
 section 'P12-GAP: gap packet valid'
 
-check('P12-GAP-01: RecordLiteral compute returns Unknown (nominal type matching deferred)') do
-  # Handler response compute nodes are Unknown — structural→named record gap acknowledged
-  sir_node_type(MAIN_SIR, 'GetRootHandler', 'response') == 'Unknown' &&
-    sir_node_type(MAIN_SIR, 'NotFoundHandler', 'response') == 'Unknown'
+check('P12-GAP-01: RecordLiteral nominal checking now implemented in P13') do
+  # P12 documented the gap: RecordLiteral → Unknown (structural→named matching deferred).
+  # P13 closed this gap: check_record_literal_shape validates fields and upgrades to named type.
+  # Verify P13 upgrade is in effect: handler response nodes now resolve to RackResponse.
+  sir_node_type(MAIN_SIR, 'GetRootHandler', 'response') == 'RackResponse' &&
+    sir_node_type(MAIN_SIR, 'NotFoundHandler', 'response') == 'RackResponse'
 end
 
 check('P12-GAP-02: TypeChecker proof only — VM record construction not verified in P12') do
