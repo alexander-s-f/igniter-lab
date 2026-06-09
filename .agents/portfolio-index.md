@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-RESULT-ENVELOPE-P1: Governance taxonomy of result envelopes across NET/Rack/Sidekiq — 5 reusable patterns confirmed (denial-as-data, kind-discriminant, budget-loop, Map[String,String], three-layer composition); HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; no canon promotion; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (LAB-CONCURRENCY-P2: Capability-aware effect scheduling policy boundary; PolicyEvaluator 6-gate sequence; EffectSpec resource keys + capability denial; 8 fixtures; parity property proved; PolicySchedulingReceipt telemetry-only; 59/59 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy of result envelopes across NET/Rack/Sidekiq — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -193,8 +193,9 @@ Rack/middleware vocabulary is lab-only.
 | Artifact | Repo | Status | Checks |
 |---|---|---|---|
 | LAB-CONCURRENCY-P1 (pure-DAG parallel scheduling boundary — wave-based concurrent eligibility; SequentialScheduler == ParallelSchedulerSimulation result identity proved; effectful nodes serialized in v0; SchedulingReceipt telemetry only; 5 inline graph fixtures: diamond, fanout, chain, mixed-effectful, impure-siblings; DagValidator cycle+dep checks; DagWaves read-isolation invariant; Category: lang, Track: lab-deterministic-pure-dag-parallel-scheduling-boundary-v0) | igniter-lab | ✅ DONE | 57/57 |
+| LAB-CONCURRENCY-P2 (capability-aware effect scheduling policy boundary — PolicyEvaluator 6-gate sequence: capability_denied→no_policy→unknown_resource→resource_conflict→category_closed→eligible; EffectSpec resource_keys + effect_category + capability_id; 8 fixtures (default_effect_serialized, read_read_disjoint, write_write_same, read_write_same, net_disjoint, net_same_host_closed, unknown_resource_key, denied_capability); parity: eligible==serialized result_values; PolicySchedulingReceipt telemetry only; P1 pure-DAG regression green; Category: lang, Track: lab-capability-aware-effect-scheduling-policy-boundary-v0) | igniter-lab | ✅ DONE | 59/59 |
 
-**Boundary:** Lab-only. SchedulingReceipt is telemetry evidence only — it does not create language semantic authority or open runtime concurrency authority. No `Thread`/`Fiber`/async-runtime infrastructure used. Concurrent-effectful dispatch remains closed in v0; requires a scheduling capability or policy fixture in a future gate. Parity invariant proved: `result_values` identical for all 5 fixtures across all intra-wave orderings.
+**Boundary:** Lab-only. `PolicySchedulingReceipt` and `SchedulingReceipt` are telemetry evidence only — they do not create language semantic authority or open runtime concurrency authority. No `Thread`/`Fiber`/async-runtime infrastructure used. Concurrent-effectful dispatch requires explicit `SchedulingPolicy` (P2); overlapping writes and unknown resource keys always fail-closed; capability denial is Gate 1. Parity invariant proved across all fixtures: `result_values` identical regardless of `concurrent_eligible` flag.
 
 ### Governance (Design / Classification)
 
