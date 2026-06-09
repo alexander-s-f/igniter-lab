@@ -1,0 +1,51 @@
+{
+  "transport_id": "mock-http-transport-v0",
+  "description": "Deterministic fixture-driven response table. No real network I/O.",
+  "routes": [
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/health",
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json", "x-request-id": "test-001" },
+        "body": "{\"status\":\"ok\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/",
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "text/plain" },
+        "body": "OK"
+      }
+    },
+    {
+      "method": "POST",
+      "host": "api.example.com",
+      "path": "/data",
+      "response": {
+        "status": 201,
+        "headers": { "content-type": "application/json", "location": "/data/1" },
+        "body": "{\"id\":1,\"created\":true}"
+      }
+    },
+    {
+      "method": "POST",
+      "host": "api.example.com",
+      "path": "/submit",
+      "response": {
+        "status": 201,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"accepted\":true}"
+      }
+    }
+  ],
+  "fallback_response": {
+    "status": 404,
+    "headers": { "content-type": "text/plain" },
+    "body": "Not Found"
+  }
+}

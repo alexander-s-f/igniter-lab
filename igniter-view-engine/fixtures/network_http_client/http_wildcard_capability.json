@@ -1,0 +1,21 @@
+{
+  "capability_id": "cap-http-client-wildcard",
+  "resource_type": "network",
+  "protocol": "tcp",
+  "direction": "connect",
+  "bind_address": null,
+  "allowed_hosts": ["*"],
+  "allowed_port_ranges": [{ "min": 443, "max": 443 }],
+  "loopback_only": false,
+  "connect_allowed": true,
+  "listen_allowed": false,
+  "send_allowed": true,
+  "receive_allowed": true,
+  "tls_required": true,
+  "http_policy": {
+    "allowed_methods": ["GET"],
+    "timeout_budget_ms": 3000,
+    "max_redirects": 0,
+    "policy_source": "lab-http-client-policy-v0"
+  }
+}
