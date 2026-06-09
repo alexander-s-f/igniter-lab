@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-RACK-P14: Rack-shaped ContractResult composition — 6-branch kind→FullRackResponse (found/created/not_found/capability_denied/upstream_error/upstream_unavailable); map_get→Option[String]+or_else→String TypeChecker-proved; 10 contracts compiled; VM-proved 9/10 (map_get gap acknowledged); 60/60 PASS)
+**Last updated:** 2026-06-09 (LAB-RESULT-ENVELOPE-P1: Governance taxonomy of result envelopes across NET/Rack/Sidekiq — 5 reusable patterns confirmed (denial-as-data, kind-discriminant, budget-loop, Map[String,String], three-layer composition); HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; no canon promotion; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -195,6 +195,15 @@ Rack/middleware vocabulary is lab-only.
 | LAB-CONCURRENCY-P1 (pure-DAG parallel scheduling boundary — wave-based concurrent eligibility; SequentialScheduler == ParallelSchedulerSimulation result identity proved; effectful nodes serialized in v0; SchedulingReceipt telemetry only; 5 inline graph fixtures: diamond, fanout, chain, mixed-effectful, impure-siblings; DagValidator cycle+dep checks; DagWaves read-isolation invariant; Category: lang, Track: lab-deterministic-pure-dag-parallel-scheduling-boundary-v0) | igniter-lab | ✅ DONE | 57/57 |
 
 **Boundary:** Lab-only. SchedulingReceipt is telemetry evidence only — it does not create language semantic authority or open runtime concurrency authority. No `Thread`/`Fiber`/async-runtime infrastructure used. Concurrent-effectful dispatch remains closed in v0; requires a scheduling capability or policy fixture in a future gate. Parity invariant proved: `result_values` identical for all 5 fixtures across all intra-wave orderings.
+
+### Governance (Design / Classification)
+
+| Artifact | Repo | Status | Notes |
+|---|---|---|---|
+| LAB-RESULT-ENVELOPE-P1 (Contract result envelope taxonomy + promotion boundary — 5 reusable patterns confirmed; HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; two RetryEnvelope shapes incompatible; denial-as-data is strongest invariant (6 proofs); no canon promotion; next: LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2) | igniter-lab | ✅ DONE — analysis | governance |
+
+**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — 6 proofs), kind-discriminant (de facto convention), attempt+max_attempts budget (PROP-039 aligned), Map[String,String] (production — PROP-043-P5), three-layer composition (HttpResult→ContractResult→consumer).  
+**Blockers for any canon proposal:** VM map_get bytecode open; only 2 application domains; no sum type grammar support.
 
 ### Web Framework / View Engine (Lab only)
 
@@ -504,6 +513,34 @@ Rack/middleware vocabulary is lab-only.
     Key finding: C1 fix chains through: @type_shapes["JobInput"]["metadata"]=Map[String,String] →
         job.metadata field_access → Map[String,String] → map_get → Option[String] (not Unknown)
     All 4 job paths with Map[String,String] metadata proved; BudgetedLocalLoop retry behavior proved
+
+37. ✅ LAB-RESULT-ENVELOPE-P1: Contract result envelope taxonomy and promotion boundary (2026-06-09)
+    Category: governance / Track: lab-contract-result-envelope-taxonomy-and-promotion-boundary-v0
+    Route: DESIGN / GOVERNANCE / LAB-ONLY — analysis only; no code, no production changes
+    Source: NET-P8/P9 + RACK-P14 + SIDEKIQ-P5 + RECORD-VM-P1/P2/P3 + PROP-043-P5
+
+    Five confirmed reusable patterns (Category A):
+      denial-as-data:       6-proof corpus (P6/P7/P8/P9/P14/P5) — strongest invariant; design law candidate
+                            Every consumer handles capability denial as typed data; no exception/raise anywhere
+      kind-discriminant:    HttpResult (3 values) + ContractResult (6 values); de facto lab convention
+                            for typed unions; not yet syntax-supported (no sum types in grammar)
+      budget-loop:          attempt+max_attempts in P8 RetryEnvelope + P5 RetryEnvelope + P5 JobReceipt
+                            PROP-039 BudgetedLocalLoop confirmed as the right abstraction
+      Map[String,String]:   PROP-043-P5 already production; headers (transport) + metadata (job) both use same shape
+      three-layer:          HttpResult → ContractResult → consumer; appeared independently in P14 + P5
+
+    Domain-local (stay classified):
+      HttpResult:            NETWORK-LOCAL — 3-variant; `denied` HTTP-specific; transport internals
+      ContractResult:        HTTP-DOMAIN-LOCAL — name too generic; 6-kind HTTP-bound; recommend future rename
+      FullRackResponse:      RACK-LOCAL — integer HTTP status; Rack-only consumer
+      JobReceipt:            SIDEKIQ-LOCAL — job_class/job_id Sidekiq-specific
+      RetryEnvelope (P8/P5): INCOMPATIBLE SHAPES — P8 embeds HttpResult; P5 is re-enqueue instruction; don't unify
+
+    No canon proposals authorized. Primary blockers: VM map_get bytecode (open); only 2 app domains; no sum types
+    Next authorized routes:
+      immediate: LAB-VM-MAP-P1 (VM map_get bytecode — closes runtime gap for Map-typed envelopes)
+      short_term: LAB-RESULT-ENVELOPE-P2 (non-HTTP third-domain pressure — tests kind-discriminant generalization)
+      medium_term: PROP-044 tentative (kind-discriminant convention; requires LAB-RESULT-ENVELOPE-P2 first)
 
 34. ✅ PROP-043-P4: Map[K,V] production-edit planning (2026-06-09)
     Depends on: PROP-043-P3, PROP-043-P2, PROP-043-P1
