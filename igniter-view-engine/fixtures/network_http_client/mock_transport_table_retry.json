@@ -1,0 +1,61 @@
+{
+  "transport_id": "mock-http-transport-retry-v0",
+  "description": "Deterministic fixture for retry-scenario proofs. Includes 5xx and 4xx routes. No real network I/O.",
+  "routes": [
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/health",
+      "response": {
+        "status": 200,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"status\":\"ok\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/flaky",
+      "response": {
+        "status": 503,
+        "headers": { "content-type": "application/json", "retry-after": "1" },
+        "body": "{\"error\":\"service_unavailable\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/bad",
+      "response": {
+        "status": 400,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"error\":\"bad_request\"}"
+      }
+    },
+    {
+      "method": "GET",
+      "host": "api.example.com",
+      "path": "/error",
+      "response": {
+        "status": 500,
+        "headers": { "content-type": "application/json" },
+        "body": "{\"error\":\"internal_server_error\"}"
+      }
+    },
+    {
+      "method": "POST",
+      "host": "api.example.com",
+      "path": "/data",
+      "response": {
+        "status": 201,
+        "headers": { "content-type": "application/json", "location": "/data/1" },
+        "body": "{\"id\":1,\"created\":true}"
+      }
+    }
+  ],
+  "fallback_response": {
+    "status": 404,
+    "headers": { "content-type": "text/plain" },
+    "body": "Not Found"
+  }
+}

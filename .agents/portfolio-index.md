@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-STDLIB-NET-P7: HTTP boundary Map alignment — Map[String,String] headers for HttpRequest/Response proved; map_get/or_else/has_key type rules; OOF-MAP1/2/3; redaction preserves Map shape; policy unchanged; 55/55 PASS; P6 regression 48/48)
+**Last updated:** 2026-06-09 (LAB-STDLIB-NET-P8: HttpResult typed envelope ok/denied/error; RetryPolicy 5xx-retryable/4xx-not/denial-not; RetrySimulatorP8 BudgetedLocalLoop analog; capability denial as data; Map[String,String] headers; 50/50 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -29,6 +29,7 @@
 | LAB-STDLIB-NET-P6 (dead grant, compose bind_address) | igniter-lab | ✅ DONE | ~36/36 |
 | LAB-STDLIB-NET-P6/HTTP (HTTP-client boundary — typed HttpRequest/Response records, capability policy, mocked transport, telemetry redaction, error taxonomy; Category: lang, Track: lab-network-http-client-request-response-boundary-proof-v0) | igniter-lab | ✅ DONE | 48/48 |
 | LAB-STDLIB-NET-P7 (HTTP boundary Map alignment — Map[String,String] headers; map_get/or_else/has_key type rules; OOF-MAP1/2/3; redaction preserves Map shape; policy unchanged; P6 regression green; Category: lang, Track: lab-network-http-boundary-record-map-alignment-v0) | igniter-lab | ✅ DONE | 55/55 |
+| LAB-STDLIB-NET-P8 (HTTP error result + retry envelope — HttpResult ok/denied/error; RetryPolicy 5xx/4xx/denial; RetrySimulatorP8 BudgetedLocalLoop analog; capability denial as data; Map headers; E-HTTP-SERVER-ERROR/CLIENT-ERROR; Category: lang, Track: lab-network-http-error-result-and-retry-envelope-proof-v0) | igniter-lab | ✅ DONE | 50/50 |
 | PROP-035: capability/effect_binding grammar + OOF-M2/M4/M5 | igniter-lang | ✅ experiment-pass | 64/64 |
 | `lab-docs/lang/lab-igniter-lang-io-capability-grammar-v0.md` | igniter-lab | ✅ bridge doc | — |
 
@@ -38,7 +39,10 @@ HTTP-client boundary (P6/HTTP): typed HttpRequest/Response records + capability 
 + telemetry redaction proved (48/48). Real network I/O, DNS, TLS, and accept-loop startup remain closed.
 Map alignment (P7): Map[String,String] headers proved for both record shapes; map_get/or_else typechain
 clean; redaction preserves Map shape; policy is header-agnostic; 55/55 PASS.
-PROP-043-P5 production Map landed 2026-06-09 (47/47); P7 uses same proof-local architecture.
+PROP-043-P5 production Map with Record/Map bridge landed 2026-06-09 (55/55); P7 uses same proof-local architecture.
+Error result + retry envelope (P8): HttpResult typed envelope (ok/denied/error discriminant); RetryPolicy
+5xx→retry/4xx→no retry/denial→no retry; RetrySimulatorP8 BudgetedLocalLoop analog (no scheduler/clock);
+capability denial as typed data through full envelope; 50/50 PASS.
 
 ### Profile System (PROP-033 / PROP-040)
 
@@ -155,7 +159,7 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RECORD-MAP-P1 (Record/Map bridge — FullRackResponse {headers: Map[String,String]} proved; SIR params preserved through field access; VM store/retrieve works; C1 confirmed active (fix in P5); map_get gap documented; OOF-MAP1/2/3 in MapPipeline) | igniter-lab | ✅ DONE | 51/51 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | VM record construction proved (P1); field access proved (P2); nested record field values proved (P3); Map[String,String] record field bridge proved (RECORD-MAP-P1, SIR params preserved). Still open: three-level chained field access, Tier 2 type resolution, map_get production (PROP-043-P5), headers map lookup end-to-end, multi-output callee.
+**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | VM record construction proved (P1); field access proved (P2); nested record field values proved (P3); Map[String,String] record field bridge proved (RECORD-MAP-P1, SIR params preserved). PROP-043-P5 closed: map_get(response.headers,key)→Option[String] + or_else→String end-to-end in production TypeChecker (55/55); C1 fix landed. Still open: three-level chained field access, Tier 2 type resolution, VM map_get bytecode, multi-output callee.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -174,7 +178,7 @@ Rack/middleware vocabulary is lab-only.
 | LAB-RECORD-MAP-P1 (Record/Map bridge — JobEnvelope {meta: Map[String,String]} proved; VM meta field store/retrieve; C1 confirmed; see shared section above) | igniter-lab | ✅ DONE (shared) | 51/51 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | JobReceipt record typed and VM-executed (P1/P2); nested record field values proved (P3); Map[String,String] meta field bridge proved (RECORD-MAP-P1). Still open: three-level chained field access, enum/status type system, map_get production (PROP-043-P5), async retry, queue storage, effect-callee dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | JobReceipt record typed and VM-executed (P1/P2); nested record field values proved (P3); Map[String,String] meta field bridge proved (RECORD-MAP-P1). PROP-043-P5 closed: map_get/or_else production TypeChecker live (55/55); C1 fix landed. Still open: three-level chained field access, enum/status type system, VM map_get bytecode, async retry, queue storage, effect-callee dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 
@@ -194,16 +198,16 @@ Rack/middleware vocabulary is lab-only.
 | PROP-043-P2: Map[K,V] proof-local experiment | igniter-lang | ✅ CLOSED 2026-06-09 | MapPipeline + 15 fixtures + verify script; 42/42 PASS; OOF-MAP1/2/3 candidates proven; map_get/has_key/from_pairs/or_else type rules; FullRackResponse headers clean |
 | PROP-043-P3: Map[K,V] acceptance decision | igniter-lang | ✅ CLOSED 2026-06-09 | P2 accepted; OOF-MAP1/2/3 → experiment-pass; Map[String,V] v0 accepted; map_empty conditional (C2); 9 P4-Q items; P4 authorized |
 | PROP-043-P4: Map[K,V] production-edit planning | igniter-lang | ✅ CLOSED 2026-06-09 | 2-file scope: classifier.rb (1-line C1 fix) + typechecker.rb (+175 lines); SIR emitter + parser no change; or_else new addition; C1/C2 resolved; OOF-MAP wording locked; P5 authorized |
-| PROP-043-P5: Map[K,V] production implementation | igniter-lang | ✅ CLOSED 2026-06-09 | classifier.rb C1 fix (1 line) + typechecker.rb (+180 lines, 2 changed); MAP_STDLIB_FNS; OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else + array_literal + record_literal; FullRackResponse headers proved end-to-end; verify_prop043_map_production.rb 47/47 PASS; OOF-R3/T2/T3 regressions clean; Lab Rust Map unblocked |
+| PROP-043-P5: Map[K,V] production implementation + Record/Map bridge | igniter-lang | ✅ CLOSED 2026-06-09 | classifier.rb C1 fix + typechecker.rb (+180 lines); OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else; MAP-BRIDGE: map_get(response.headers,key)→Option[String] + or_else→String proved; C1 fix closes LAB-RECORD-MAP-P1 gap; verify_prop043_map_production.rb 55/55 PASS; all regressions clean; Lab Rust Map unblocked |
 
 **Three-tier hierarchy (research finding):**
 1. Named `Record` — known-schema data (proven: P12/P13/Sidekiq-P4)
-2. `Map[K, V]` — dynamic-key homogeneous-value (grammar-only; NOT yet Stage 1 proven; immediate gap: headers)
+2. `Map[K, V]` — dynamic-key homogeneous-value (✅ Stage 1 production live — PROP-043-P5; OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else + Record/Map bridge proved)
 3. `JsonValue` tagged sum (stdlib) — outermost IO boundary only; deferred
 
 **Closed surfaces:** `Map[String, Any]` at contract boundaries; `Unknown` as user type; `Table/DataFrame` before Stage 2 OLAPPoint; `null` as a language value; runtime-only schema validation.
 
-**Next design work:** ✅ PROP-043-P5 production implementation closed (47/47 PASS; OOF-MAP1/2/3 active; Map[String,V] live in production TypeChecker; C1 fix in classifier.rb + typechecker.rb; or_else/record_literal/array_literal added; all regressions clean). Next: Lab-Map-Rust-P1 (Rust lab Map symmetry — now unblocked). v1 expansion (keys/values/merge/size/to_pairs/map-literal) remains closed. Named Record production promotion (PROP-004 amendment). JSON boundary deferred. Table/DataFrame hold (Stage 2).
+**Next design work:** ✅ PROP-043-P5 closed with Record/Map bridge (55/55 PASS; OOF-MAP1/2/3 active; Map[String,V] live in production TypeChecker; C1 fix closes LAB-RECORD-MAP-P1 gap; map_get(response.headers,key)→Option[String] + or_else→String proved end-to-end; all regressions clean). Next: Lab-Map-Rust-P1 (Rust lab Map symmetry — now unblocked). v1 expansion (keys/values/merge/size/to_pairs/map-literal) remains closed. Named Record production promotion (PROP-004 amendment). JSON boundary deferred. Table/DataFrame hold (Stage 2).
 
 ---
 
@@ -223,7 +227,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
 | PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
-| PROP-043 | Map[K,V] Stage 1 — production live | ✅ P1+P2+P3+P4+P5 complete | OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else live; C1 fix; FullRackResponse headers proved; 47/47 PASS; T1/T2/T3 regressions clean; Lab Rust Map symmetry next |
+| PROP-043 | Map[K,V] Stage 1 — production live + Record/Map bridge | ✅ P1+P2+P3+P4+P5 complete | OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else live; C1 fix; Record/Map bridge: map_get(response.headers,key)→Option[String]; 55/55 PASS; T1/T2/T3 regressions clean; Lab Rust Map symmetry next |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -444,23 +448,28 @@ Rack/middleware vocabulary is lab-only.
     Track: igniter-lang/.agents/work/tracks/prop043-map-kv-proof-local-acceptance-decision-v0.md
     Card: igniter-lang/.agents/work/cards/lang/PROP-043-P3.md
     Next: PROP-043-P4 production-edit planning (no production file edits; planning only)
-35. ✅ PROP-043-P5: Map[K,V] production implementation (2026-06-09)
-    Depends on: PROP-043-P4
+35. ✅ PROP-043-P5: Map[K,V] production implementation + Record/Map bridge (2026-06-09)
+    Track: map-kv-production-implementation-with-record-bridge-v0
+    Depends on: PROP-043-P4, LAB-RECORD-MAP-P1
     classifier.rb: 1-line C1 fix (line 52: normalize_type → normalized_type_annotation for field annotations)
     typechecker.rb: MAP_STDLIB_FNS constant; @output_type_hints pre-scan; OOF-MAP annotation scan;
         array_literal/record_literal arms in infer_expr; MAP dispatch + or_else in infer_call;
-        13 new private methods (infer_map_call, infer_map_get, infer_map_has_key, infer_map_from_pairs,
+        14 new private methods (infer_map_call, infer_map_get, infer_map_has_key, infer_map_from_pairs,
         infer_from_pairs_value_type, infer_map_empty, infer_or_else, infer_array_literal,
         infer_record_literal, check_map_annotation, param_type_name, map_type_ir, option_type_ir,
         collection_type_ir_from); 1-line type_shapes C1 fix (line 118)
     No parser/emitter/VM changes (confirmed)
-    Production verify: verify_prop043_map_production.rb 47/47 PASS
+    Bridge fixture: map_d_header_record_bridge.ig (ContentTypeFromResponse + HeaderPresenceCheck)
+    Production verify: verify_prop043_map_production.rb 55/55 PASS
         MAP-A 7/7 (annotation acceptance + C1 param preservation)
         MAP-B 8/8 (OOF-MAP1/2/3 isolation)
         MAP-C 7/7 (map_get/or_else/has_key type rules)
         MAP-D 9/9 (FullRackResponse headers C1 end-to-end)
         MAP-E 5/5 (SemanticIR fn names + resolved_type)
         MAP-F 11/11 (regressions + closed surfaces + production-specific C1/C2/v1 checks)
+        MAP-BRIDGE 8/8 (map_get(response.headers,key)→Option[String]; or_else→String; C1 closes gap)
+    Record/Map bridge key finding: C1 fix makes @type_shapes["FullRackResponse"]["headers"]=Map[String,String];
+        field access returns Map[String,String] (not Map no-params); map_get→Option[String] (not Option[Unknown])
     Regressions: verify_oof_r3.rb 33/33; verify_prop041_t2_production.rb 48/48;
         verify_prop042_t3_production.rb 45/45; verify_prop043_map.rb (proof-local) 42/42
     Next: Lab-Map-Rust-P1 (Rust lab Map[String,V] symmetry — unblocked by P5 graduation)
