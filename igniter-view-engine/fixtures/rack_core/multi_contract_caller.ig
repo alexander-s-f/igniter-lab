@@ -61,10 +61,13 @@ pure contract CallerGate {
   output status : Integer
 }
 
--- SelfRecurse: attempts to call itself (must fail at VM dispatch with cycle error).
--- Proves: self-recursion closed in v0
-pure contract SelfRecurse {
+-- SelfRecurseDyn: attempts to call itself via a DYNAMIC callee name (variable, not literal).
+-- The literal self-call form ("SelfRecurseDyn") is caught at compile time in P11.
+-- The dynamic form tests that the VM's __call_chain__ guard still catches self-recursion at runtime.
+-- Proves: self-recursion closed in v0 (VM cycle detection via Tier 2 dispatch)
+pure contract SelfRecurseDyn {
   input  n : Integer
-  compute result = call_contract("SelfRecurse", n)
+  compute self_name = "SelfRecurseDyn"
+  compute result    = call_contract(self_name, n)
   output result : Integer
 }

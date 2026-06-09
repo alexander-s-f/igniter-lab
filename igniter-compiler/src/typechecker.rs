@@ -30,6 +30,22 @@ pub enum T2Kind {
     T2R3,   // numeric accessor — OOF-R3
 }
 
+// ── LAB-RACK-P11: module contract registry ────────────────────────────────────
+
+/// Registry entry for a same-module contract — used to resolve literal callee names
+/// in `call_contract("Name", ...)` at compile time.
+/// Built once in `typecheck()` before the contract loop (mirrors build_size_registry).
+#[derive(Debug, Clone)]
+pub struct ContractRegistryEntry {
+    pub modifier: String,
+    pub input_count: usize,
+    pub input_names: Vec<String>,
+    pub input_types: Vec<serde_json::Value>,
+    pub single_output_type: Option<serde_json::Value>, // None if 0 or >1 outputs
+    pub single_output_name: Option<String>,
+    pub contract_name: String,
+}
+
 /// Build STDLIB_SIZE_REGISTRY: hardcoded stdlib_certified entries.
 /// Only Collection.tail and Collection.rest are certified in v1.
 fn stdlib_size_registry() -> HashMap<(String, String), T2RegistryEntry> {
@@ -192,8 +208,12 @@ impl TypeChecker {
         // Built once before the contracts loop so all contracts share the same registry.
         let size_registry = self.build_size_registry(classified);
 
+        // LAB-RACK-P11: build module contract registry for literal callee resolution.
+        // Built once before the loop so all contracts see the full module.
+        let contract_registry = self.build_contract_registry(classified);
+
         for contract in &classified.contracts {
-            let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions, &size_registry);
+            let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions, &size_registry, &contract_registry);
             type_errors.append(&mut tc.type_errors.clone());
             if let Some(mut w) = tc.type_warnings.clone() {
                 type_warnings.append(&mut w);
@@ -352,6 +372,7 @@ impl TypeChecker {
         assumptions: &[serde_json::Value],
         functions: &[crate::parser::FunctionDecl],
         size_registry: &HashMap<(String, String), T2RegistryEntry>,
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
     ) -> TypedContract {
         let mut type_errors = classified.oof_log.clone();
         let mut type_warnings = Vec::new();
@@ -621,7 +642,7 @@ impl TypeChecker {
                                         }
                                     }
 
-                                    let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions);
+                                    let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions, contract_registry, &classified.name);
                                     body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
                                     typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
                                     // PROP-039 gate 5: recur() in loop body is always OOF-R1
@@ -669,7 +690,7 @@ impl TypeChecker {
                     if let Some(body_nodes) = &decl.body_nodes {
                         for inner_decl in body_nodes {
                             if inner_decl.kind == "compute" {
-                                let mut typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions);
+                                let mut typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions, contract_registry, &classified.name);
                                 body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
                                 typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
                             }
@@ -786,7 +807,7 @@ impl TypeChecker {
                     });
                 }
                 "compute" | "snapshot" => {
-                    let mut typed_expr = self.infer_expr(decl.expr.as_ref().unwrap(), &symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &decl.name, functions);
+                    let mut typed_expr = self.infer_expr(decl.expr.as_ref().unwrap(), &symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &decl.name, functions, contract_registry, &classified.name);
                     // PROP-039 gate 5: if recur_authorized and expr contains recur(),
                     // use the contract output type to resolve the compute node's type.
                     // This prevents a spurious OOF-TY0 at the output check when recur()
@@ -958,6 +979,53 @@ impl TypeChecker {
                 (sr.type_name.clone(), sr.accessor.clone()),
                 T2RegistryEntry { trust: "user_assumed".to_string(), source: mod_name.clone() },
             );
+        }
+        registry
+    }
+
+    /// LAB-RACK-P11: build the module contract registry for literal callee resolution.
+    /// Maps contract_name → ContractRegistryEntry.
+    /// Built from ClassifiedProgram.contracts before the contract loop, so all
+    /// contracts see the full module (order-independent single pass over declarations).
+    fn build_contract_registry(&self, classified: &ClassifiedProgram) -> HashMap<String, ContractRegistryEntry> {
+        let mut registry = HashMap::new();
+        for contract in &classified.contracts {
+            let modifier = contract.modifier.clone();
+            let input_decls: Vec<&ClassifiedDecl> = contract.declarations.iter()
+                .filter(|d| d.kind == "input")
+                .collect();
+            let output_decls: Vec<&ClassifiedDecl> = contract.declarations.iter()
+                .filter(|d| d.kind == "output")
+                .collect();
+
+            let input_count = input_decls.len();
+            let input_names: Vec<String> = input_decls.iter()
+                .map(|d| d.name.clone())
+                .collect();
+            let input_types: Vec<serde_json::Value> = input_decls.iter()
+                .filter_map(|d| d.type_annotation.clone())
+                .collect();
+
+            let single_output_type = if output_decls.len() == 1 {
+                output_decls[0].type_annotation.clone()
+            } else {
+                None
+            };
+            let single_output_name = if output_decls.len() == 1 {
+                Some(output_decls[0].name.clone())
+            } else {
+                None
+            };
+
+            registry.insert(contract.name.clone(), ContractRegistryEntry {
+                modifier,
+                input_count,
+                input_names,
+                input_types,
+                single_output_type,
+                single_output_name,
+                contract_name: contract.name.clone(),
+            });
         }
         registry
     }
@@ -1328,10 +1396,12 @@ impl TypeChecker {
                             .unwrap_or_else(|| serde_json::json!({"name": "Unknown", "params": []}));
                         let mut dummy_errors = Vec::new();
                         let mut dummy_warnings = Vec::new();
+                        let empty_registry: HashMap<String, ContractRegistryEntry> = HashMap::new();
                         let arg_typed = self.infer_expr(
                             arg, symbol_types, olap_env, type_shapes,
                             &mut dummy_errors, &mut dummy_warnings,
                             node_name, functions,
+                            &empty_registry, node_name,
                         );
                         let actual = self.type_name(&arg_typed.resolved_type);
                         let expected = self.type_name(&expected_type);
@@ -1664,6 +1734,8 @@ impl TypeChecker {
         type_warnings: &mut Vec<ClassifierDiagnostic>,
         node_name: &str,
         functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
     ) -> TypedExpression {
         // LAB-COMPILER-LIVENESS-P2: non-fatal depth counter (RAII — auto-decrements on all exits)
         let _depth_guard = crate::liveness::TcInferGuard::enter();
@@ -1707,7 +1779,7 @@ impl TypeChecker {
                 }
             }
             Expr::FieldAccess { object, field } => {
-                let obj_typed = self.infer_expr(object, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                let obj_typed = self.infer_expr(object, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                 let obj_type = self.type_name(&obj_typed.resolved_type);
 
                 // OOF-R3 v0 whitelist: Collection.tail / Collection.rest return Collection[T]
@@ -1739,8 +1811,8 @@ impl TypeChecker {
                 }
             }
             Expr::BinaryOp { op, left, right } => {
-                let left_typed = self.infer_expr(left, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                let right_typed = self.infer_expr(right, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                let left_typed = self.infer_expr(left, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let right_typed = self.infer_expr(right, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                 let (resolved_op, res_type) = self.operator_type(op, &left_typed.resolved_type, &right_typed.resolved_type, type_errors, node_name);
 
                 let mut deps = left_typed.deps;
@@ -1753,7 +1825,7 @@ impl TypeChecker {
             }
             Expr::IfExpr { cond, then, else_block } => {
                 // cond must be Bool (OOF-IF1)
-                let cond_typed = self.infer_expr(cond, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                let cond_typed = self.infer_expr(cond, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                 if self.type_name(&cond_typed.resolved_type) != "Bool" && self.type_name(&cond_typed.resolved_type) != "Unknown" {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-IF1".to_string(),
@@ -1794,8 +1866,8 @@ impl TypeChecker {
                     };
                 }
 
-                let then_typed = self.infer_expr(then_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                let else_typed = self.infer_expr(else_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                let then_typed = self.infer_expr(then_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let else_typed = self.infer_expr(else_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
 
                 let then_name = self.type_name(&then_typed.resolved_type);
                 let else_name = self.type_name(&else_typed.resolved_type);
@@ -1837,8 +1909,8 @@ impl TypeChecker {
                         });
                         return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new() };
                     }
-                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                    let as_of_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                    let as_of_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
 
                     if self.type_name(&as_of_typed.resolved_type) != "DateTime" && self.type_name(&as_of_typed.resolved_type) != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
@@ -1888,9 +1960,9 @@ impl TypeChecker {
                         });
                         return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new() };
                     }
-                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                    let vt_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
-                    let tt_typed = self.infer_expr(&args[2], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                    let vt_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                    let tt_typed = self.infer_expr(&args[2], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
 
                     for (idx, axis_ref) in [&vt_typed, &tt_typed].iter().enumerate() {
                         let axis_name = if idx == 0 { "valid_time" } else { "transaction_time" };
@@ -1931,7 +2003,7 @@ impl TypeChecker {
 
                     let mut typed_args = Vec::new();
                     for arg in args {
-                        let arg_typed = self.infer_expr(arg, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                        let arg_typed = self.infer_expr(arg, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                         deps.extend(arg_typed.deps.clone());
                         typed_args.push(arg_typed);
                     }
@@ -2121,7 +2193,7 @@ impl TypeChecker {
                                         let mut temp_errors = Vec::new();
                                         lambda_return_type = match body.as_ref() {
                                             ExprOrBlock::Expr(e) => {
-                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                 body_typed.resolved_type
                                             }
                                             ExprOrBlock::Block(block) => {
@@ -2130,17 +2202,17 @@ impl TypeChecker {
                                                     match stmt {
                                                         Stmt::Let { name, expr } => {
                                                             local_symbols.insert(name.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                         Stmt::ExprStmt { expr } => {
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                     }
                                                 }
                                                 if let Some(re) = &block.return_expr {
-                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                     last_type = re_typed.resolved_type;
                                                 }
                                                 last_type
@@ -2176,7 +2248,7 @@ impl TypeChecker {
                                     self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                                 };
                                 let first_arg_name = self.type_name(&first_arg_type);
-                                
+
                                 let mut lambda_return_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                 if args.len() >= 2 {
                                     if let Expr::Lambda { params, body } = &args[1] {
@@ -2187,7 +2259,7 @@ impl TypeChecker {
                                         let mut temp_errors = Vec::new();
                                         lambda_return_type = match body.as_ref() {
                                             ExprOrBlock::Expr(e) => {
-                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                 body_typed.resolved_type
                                             }
                                             ExprOrBlock::Block(block) => {
@@ -2196,17 +2268,17 @@ impl TypeChecker {
                                                     match stmt {
                                                         Stmt::Let { name, expr } => {
                                                             local_symbols.insert(name.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                         Stmt::ExprStmt { expr } => {
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                     }
                                                 }
                                                 if let Some(re) = &block.return_expr {
-                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                     last_type = re_typed.resolved_type;
                                                 }
                                                 last_type
@@ -2718,13 +2790,10 @@ impl TypeChecker {
                                 // accessible inside infer_expr; check_recur_in_expr handles it.
                             }
                             // LAB-RACK-P9: explicit named user-contract dispatch.
-                            // call_contract("ContractName", arg1, arg2, ...) dispatches to a
-                            // named contract in the loaded igapp at VM runtime.
-                            // Return type: Unknown (callee output type not verified in v0;
-                            // dispatch table lookup happens at VM execute time).
-                            // First arg must be String (contract name); remaining args are
-                            // positional inputs matched to callee's input declaration order.
-                            // Cross-contract type verification deferred to a later card.
+                            // LAB-RACK-P11: two-tier callee resolution.
+                            //   Tier 1 — literal string callee: look up module contract registry;
+                            //            resolve output type or emit OOF-TY0.
+                            //   Tier 2 — dynamic callee (ref / computed): Unknown; VM fail-closed.
                             "call_contract" => {
                                 is_resolved = true;
                                 if typed_args.is_empty() {
@@ -2746,10 +2815,80 @@ impl TypeChecker {
                                             node: node_name.to_string(),
                                             line: None,
                                         });
+                                    } else {
+                                        // LAB-RACK-P11 Tier 1: literal string callee → static lookup.
+                                        // Inspect the raw first arg to detect a literal string.
+                                        if let Some(first_raw_arg) = args.get(0) {
+                                            if let Expr::Literal { type_tag, value: callee_name_val } = first_raw_arg {
+                                                if type_tag == "String" {
+                                                    if let Some(callee_name) = callee_name_val.as_str() {
+                                                    // positional arg count = total args minus the callee name
+                                                    let positional_count = args.len() - 1;
+                                                    match contract_registry.get(callee_name) {
+                                                        None => {
+                                                            type_errors.push(ClassifierDiagnostic {
+                                                                rule: "OOF-TY0".to_string(),
+                                                                message: format!(
+                                                                    "call_contract: unknown callee '{}' — not found in this module",
+                                                                    callee_name
+                                                                ),
+                                                                node: node_name.to_string(),
+                                                                line: None,
+                                                            });
+                                                        }
+                                                        Some(entry) if entry.modifier != "pure" => {
+                                                            type_errors.push(ClassifierDiagnostic {
+                                                                rule: "OOF-TY0".to_string(),
+                                                                message: format!(
+                                                                    "call_contract: callee '{}' is not pure (modifier: {}); only pure contracts may be called via call_contract in v0",
+                                                                    callee_name, entry.modifier
+                                                                ),
+                                                                node: node_name.to_string(),
+                                                                line: None,
+                                                            });
+                                                        }
+                                                        Some(entry) if entry.contract_name == current_contract_name => {
+                                                            type_errors.push(ClassifierDiagnostic {
+                                                                rule: "OOF-TY0".to_string(),
+                                                                message: format!(
+                                                                    "call_contract: self-recursion via '{}' is closed in v0; use recur() for recursive contracts",
+                                                                    callee_name
+                                                                ),
+                                                                node: node_name.to_string(),
+                                                                line: None,
+                                                            });
+                                                        }
+                                                        Some(entry) if positional_count != entry.input_count => {
+                                                            type_errors.push(ClassifierDiagnostic {
+                                                                rule: "OOF-TY0".to_string(),
+                                                                message: format!(
+                                                                    "call_contract: callee '{}' expects {} input(s), got {}",
+                                                                    callee_name, entry.input_count, positional_count
+                                                                ),
+                                                                node: node_name.to_string(),
+                                                                line: None,
+                                                            });
+                                                        }
+                                                        Some(entry) => {
+                                                            // Valid literal callee.
+                                                            if let Some(ref out_type) = entry.single_output_type {
+                                                                // Single-output pure callee — resolve to its output type.
+                                                                resolved_type = self.type_ir(out_type);
+                                                            }
+                                                            // Multi-output → resolved_type stays Unknown (deferred).
+                                                        }
+                                                    }
+                                                    } // end if let Some(callee_name)
+                                                }
+                                                // type_tag != "String" → handled by name_arg_type check above
+                                            }
+                                            // Tier 2: non-literal first arg (Ref, BinaryOp, etc.)
+                                            // → resolved_type stays Unknown; VM fail-closed as in P9.
+                                        }
                                     }
                                 }
-                                // resolved_type stays Unknown — callee output type not
-                                // verifiable in v0 without a cross-contract type table.
+                                // resolved_type: either resolved to callee output type (Tier 1 success),
+                                // Unknown (Tier 2 dynamic or multi-output), or OOF-TY0 emitted.
                             }
                             _ => {}
                         }
@@ -2794,7 +2933,7 @@ impl TypeChecker {
                             // Validate dimensions types: OOF-O5
                             let mut deps = Vec::new();
                             for (dim_name, slice_expr) in fields {
-                                let slice_typed = self.infer_expr(slice_expr, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions);
+                                let slice_typed = self.infer_expr(slice_expr, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                 deps.append(&mut slice_typed.deps.clone());
                                 if let Some(expected_type) = expected_dims.get(dim_name) {
                                     let expected_name = self.type_name(expected_type);
@@ -2844,7 +2983,7 @@ impl TypeChecker {
                 let mut temp_errors = Vec::new();
                 let deps = match body.as_ref() {
                     ExprOrBlock::Expr(e) => {
-                        let body_typed = self.infer_expr(e, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                        let body_typed = self.infer_expr(e, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                         body_typed.deps
                     }
                     ExprOrBlock::Block(block) => {
@@ -2853,17 +2992,17 @@ impl TypeChecker {
                             match stmt {
                                 Stmt::Let { name, expr } => {
                                     local_symbol_types.insert(name.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                     block_deps.extend(stmt_typed.deps);
                                 }
                                 Stmt::ExprStmt { expr } => {
-                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                     block_deps.extend(stmt_typed.deps);
                                 }
                             }
                         }
                         if let Some(re) = &block.return_expr {
-                            let re_typed = self.infer_expr(re, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions);
+                            let re_typed = self.infer_expr(re, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                             block_deps.extend(re_typed.deps);
                         }
                         block_deps

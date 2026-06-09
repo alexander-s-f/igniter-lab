@@ -138,12 +138,16 @@ P7_RESULT       = compile_fixture(
 )
 
 # Inline fixtures for fail-closed tests
+# LAB-RACK-P11 NOTE: inline fixtures below use DYNAMIC callees (first arg is a variable,
+# not a string literal) so they compile through P11's Tier 2 path (Unknown) and still test
+# the VM-level fail-closed behavior.  Literal-callee versions are tested in P11's own proof.
 UNKNOWN_CALLEE_SRC = <<~IG
   module Test.UnknownCallee
 
   pure contract UnknownCallee {
     input n : Integer
-    compute result = call_contract("NoSuchContract", n)
+    compute callee = "NoSuchContract"
+    compute result = call_contract(callee, n)
     output result : Integer
   }
 IG
@@ -153,7 +157,8 @@ ARITY_MISMATCH_SRC = <<~IG
 
   pure contract ArityMismatch {
     input n : Integer
-    compute result = call_contract("Double", n, n)
+    compute callee = "Double"
+    compute result = call_contract(callee, n, n)
     output result : Integer
   }
 
@@ -185,7 +190,8 @@ EFFECT_CALLEE_SRC = <<~IG
 
   pure contract EffectCaller {
     input n : Integer
-    compute result = call_contract("EffectCallee", n)
+    compute callee = "EffectCallee"
+    compute result = call_contract(callee, n)
     output result : Integer
   }
 IG
@@ -235,7 +241,7 @@ end
 
 check('P9-COMPILE-02: all 7 contracts present in igapp') do
   contracts = CALLER_RESULT['contracts'] || []
-  %w[CallerDoubler CallerGate CallerSmall Double GateCheck IsSmall SelfRecurse].all? do |c|
+  %w[CallerDoubler CallerGate CallerSmall Double GateCheck IsSmall SelfRecurseDyn].all? do |c|
     contracts.include?(c)
   end
 end
@@ -411,8 +417,10 @@ check('P9-FC-04c: effect callee error names the callee and its modifier') do
   err.include?('EffectCallee') && err.include?('effect')
 end
 
-# FC-05: self-recursion blocked
-FC05 = run_vm(CALLER_IGAPP, { 'n' => 1 }, entry_name: 'SelfRecurse')
+# FC-05: self-recursion blocked (via dynamic Tier 2 callee; literal form caught in P11)
+# SelfRecurseDyn uses a variable callee name so it passes P11 compile-time checks,
+# but the VM __call_chain__ guard still detects the cycle at runtime.
+FC05 = run_vm(CALLER_IGAPP, { 'n' => 1 }, entry_name: 'SelfRecurseDyn')
 
 check('P9-FC-05a: self-recursion → status=error') do
   FC05['status'] == 'error'
@@ -422,9 +430,9 @@ check('P9-FC-05b: self-recursion error mentions "cycle detected"') do
   FC05['error'].to_s.include?('cycle detected')
 end
 
-check('P9-FC-05c: self-recursion error mentions SelfRecurse twice (self → self)') do
+check('P9-FC-05c: self-recursion error mentions SelfRecurseDyn twice (self -> self)') do
   err = FC05['error'].to_s
-  err.scan('SelfRecurse').size >= 2
+  err.scan('SelfRecurseDyn').size >= 2
 end
 
 # FC-06: A→B→A cycle blocked
