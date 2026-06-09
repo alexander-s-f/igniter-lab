@@ -1308,9 +1308,30 @@ impl Parser {
     fn parse_body_decl(&mut self) -> Option<BodyDecl> {
         let tok = self.current()?.clone();
         match tok.value.as_str() {
-            "input" => { self.advance(); self.parse_input_decl().ok() }
-            "capability" => { self.advance(); self.parse_capability_decl().ok() }
-            "effect" => { self.advance(); self.parse_effect_decl().ok() }
+            // ── P5/P6: recovery-enabled arms ─────────────────────────────────
+            // Every arm below uses parse_body_decl_with_recovery so that on
+            // parser Err: (a) at least one token is consumed, (b) OOF-P1 is
+            // emitted with the keyword's source location, (c) the parser skips
+            // to the next body-declaration boundary before re-entering this
+            // loop.  Arms with inner {} blocks (window, loop, for) are deferred
+            // to P7 — they need skip_to_matching_brace to correctly recover
+            // from mid-body failures without consuming the contract's closing }.
+
+            "input" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("input", tok.line, tok.col,
+                    |p| p.parse_input_decl())
+            }
+            "capability" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("capability", tok.line, tok.col,
+                    |p| p.parse_capability_decl())
+            }
+            "effect" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("effect", tok.line, tok.col,
+                    |p| p.parse_effect_decl())
+            }
             "output" => {
                 self.advance();
                 self.parse_body_decl_with_recovery("output", tok.line, tok.col,
@@ -1321,21 +1342,65 @@ impl Parser {
                 self.parse_body_decl_with_recovery("compute", tok.line, tok.col,
                     |p| p.parse_compute_decl())
             }
-            "read" => { self.advance(); self.parse_read_decl().ok() }
-            "snapshot" => { self.advance(); self.parse_snapshot_decl().ok() }
+            "read" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("read", tok.line, tok.col,
+                    |p| p.parse_read_decl())
+            }
+            "snapshot" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("snapshot", tok.line, tok.col,
+                    |p| p.parse_snapshot_decl())
+            }
+            "escape" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("escape", tok.line, tok.col,
+                    |p| p.parse_escape_decl())
+            }
+            "stream" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("stream", tok.line, tok.col,
+                    |p| p.parse_stream_decl())
+            }
+            "fold_stream" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("fold_stream", tok.line, tok.col,
+                    |p| p.parse_fold_stream_decl())
+            }
+            "invariant" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("invariant", tok.line, tok.col,
+                    |p| p.parse_invariant_decl())
+            }
+            // PROP-039 gate 8: lead binding inside loop body
+            "lead" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("lead", tok.line, tok.col,
+                    |p| p.parse_lead_decl())
+            }
+            // G2: structural meta-declarations for recursive/fuel_bounded contracts
+            "decreases" => {
+                // parse_decreases_body_decl always returns Ok (falls back to
+                // variant="unknown") — .ok() is always Some(_); no recovery needed.
+                self.advance();
+                self.parse_decreases_body_decl().ok()
+            }
+            "max_steps" => {
+                self.advance();
+                self.parse_body_decl_with_recovery("max_steps", tok.line, tok.col,
+                    |p| p.parse_max_steps_body_decl())
+            }
+
+            // ── P7-deferred: inner {} blocks need skip_to_matching_brace ─────
+            // These arms still use .ok() because parse_body_decl_with_recovery's
+            // skip_until_body_boundary stops at the FIRST } encountered, which
+            // would be the loop/window's closing } rather than the contract's.
+            // Consequence: silent drop on parse failure, but no hang (P5 fix).
+            // P7 will introduce skip_to_matching_brace and migrate these.
             "window" => { self.advance(); self.parse_window_decl().ok() }
-            "escape" => { self.advance(); self.parse_escape_decl().ok() }
-            "stream" => { self.advance(); self.parse_stream_decl().ok() }
-            "fold_stream" => { self.advance(); self.parse_fold_stream_decl().ok() }
             "loop" => { self.advance(); self.parse_loop_or_service_loop_decl().ok() }
             // G3b: FiniteLoop — `for Name item in source { body }` (no max_steps; collection_exhaustion)
             "for" => { self.advance(); self.parse_for_loop_decl().ok() }
-            "invariant" => { self.advance(); self.parse_invariant_decl().ok() }
-            // PROP-039 gate 8: lead binding inside loop body
-            "lead" => { self.advance(); self.parse_lead_decl().ok() }
-            // G2: structural meta-declarations for recursive/fuel_bounded contracts
-            "decreases" => { self.advance(); self.parse_decreases_body_decl().ok() }
-            "max_steps" => { self.advance(); self.parse_max_steps_body_decl().ok() }
             "uses" => {
                 self.advance();
                 if self.peek_kw("assumptions") {
