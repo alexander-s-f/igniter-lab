@@ -37,6 +37,7 @@ pub const OP_PUSH_ARRAY: u8  = 0x1E; // Argument: element_count (Integer)
 pub const OP_PUSH_RECORD: u8 = 0x1F; // Argument: key_count (Integer), followed by keys and values
 pub const OP_CALL: u8        = 0x20; // Arguments: [fn_name: String, arg_count: Integer]
 pub const OP_NEG: u8         = 0x21; // None
+pub const OP_GET_FIELD: u8   = 0x22; // Argument: field_name (String) — pops record, pushes field value
 pub const OP_UNSUPPORTED: u8 = 0x99; // None
 
 #[derive(Debug, Clone)]

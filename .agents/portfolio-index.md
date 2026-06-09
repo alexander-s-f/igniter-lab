@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (PROP-042-P5: T3 numeric measure expressions — production implementation 45/45 PASS; T1/T2/R3 regressions clean; LAB-T3-P1 Rust symmetry unblocked)
+**Last updated:** 2026-06-09 (LAB-RECORD-VM-P2: dispatched record field access — OP_GET_FIELD added; RackResponse + JobReceipt field access end-to-end; 42/42 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -142,9 +142,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P12 (typed response single-output dispatch — RackResponse type, handler RecordLiteral support, Tier 1 resolves dispatcher compute to RackResponse, Tier 2 stays Unknown) | igniter-lab | ✅ DONE | 45/45 |
 | LAB-RACK-P13 (nominal record typechecking — output_type_hints pre-scan, check_record_literal_shape, field missing/extra/wrong-type OOF-TY0, Unknown → named type upgrade on success) | igniter-lab | ✅ DONE | 47/47 |
 | LAB-RECORD-VM-P1 (VM record construction — zero new VM/compiler code; OP_PUSH_RECORD+BTreeMap proved; RackResponse + JobReceipt end-to-end; deterministic alphabetical serialization; covers Rack P14 + Sidekiq P5; see shared section below) | igniter-lab | ✅ DONE | 43/43 |
+| LAB-RECORD-VM-P2 (dispatched record field access — OP_GET_FIELD added; response.status/body + receipt.status/budget_remaining/job_class proved; field values usable in arithmetic; missing-field OOF-P1 compile-time; Tier 2 field access fail-closed) | igniter-lab | ✅ DONE | 42/42 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1 → lang | VM record construction proved with zero new code (OP_PUSH_RECORD+BTreeMap already present). Still open: nested record field access (P2 candidate), complex field expressions (Unknown-compat), headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
+**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1 + RECORD-VM-P2 → lang | VM record construction proved (P1, zero new code); field access from dispatched records proved (P2, OP_GET_FIELD + compiler fix). Still open: nested record field access (P3 candidate), complex field expressions (Unknown-compat), headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -158,9 +159,10 @@ Rack/middleware vocabulary is lab-only.
 | LAB-SIDEKIQ-P3 (BudgetedLocalLoop retry policy — `RetryPolicy` arithmetic, `RetrySimulator` PROP-039 loop fuel enforcement `max_steps:5`, `RetryWithDispatch` dispatch+budget composability) | igniter-lab | ✅ DONE | 43/43 |
 | LAB-SIDEKIQ-P4 (JobReceipt schema — `type JobReceipt` 5-field record, P13 nominal record typechecking, P11 Tier 1 literal callee → JobReceipt, Tier 2 dynamic → Unknown, all shape violations OOF-TY0) | igniter-lab | ✅ DONE | 46/46 |
 | LAB-RECORD-VM-P1 (VM record construction — JobReceipt end-to-end in VM; see shared section above) | igniter-lab | ✅ DONE (shared) | 43/43 |
+| LAB-RECORD-VM-P2 (dispatched record field access — receipt.status/budget_remaining/job_class proved; field values usable in compute; OP_GET_FIELD added; see shared section above) | igniter-lab | ✅ DONE (shared) | 42/42 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1 → lang | JobReceipt record typed at compile time and executed end-to-end in VM. Still open: nested record field access (P2 candidate), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1 + RECORD-VM-P2 → lang | JobReceipt record typed at compile time, executed end-to-end in VM (P1), and individual fields accessible from dispatched records (P2). Still open: nested record field access (P3 candidate), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 

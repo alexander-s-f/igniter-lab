@@ -381,18 +381,26 @@ impl Compiler {
             }
 
             "field_access" => {
+                // LAB-RECORD-VM-P2: field extraction from a record value.
+                // Strategy:
+                //   1. If `name.field` is a pre-computed register (pre-extracted sub-field), load it directly.
+                //   2. If `name` is a register holding a Record, load the record + OP_GET_FIELD to extract.
+                //   3. Otherwise, OP_LOAD_REF "name.field" (inputs/temporal_context lookup fallback).
                 let object = node.get("object").ok_or("Missing object in field_access")?;
                 let field = node.get("field").ok_or("Missing field in field_access")?.as_str().ok_or("field must be string")?;
-                
+
                 if let Some("ref") = object.get("kind").and_then(|k| k.as_str()) {
                     let name = object.get("name").ok_or("Missing name in ref")?.as_str().ok_or("name must be string")?;
                     let full_name = format!("{}.{}", name, field);
                     if let Some(&reg_idx) = self.compute_node_registers.get(&full_name) {
+                        // Pre-computed sub-field register — load directly
                         self.emit(OP_LOAD_REG, vec![Value::Integer(reg_idx)]);
                         return Ok(());
                     }
                     if let Some(&reg_idx) = self.compute_node_registers.get(name) {
+                        // Record in a register — load the record, then extract the named field
                         self.emit(OP_LOAD_REG, vec![Value::Integer(reg_idx)]);
+                        self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(field))]);
                         return Ok(());
                     }
                     self.emit(OP_LOAD_REF, vec![Value::String(Arc::from(full_name.as_str()))]);

@@ -1622,6 +1622,35 @@ impl VM {
                     ip += 1;
                 }
 
+                OP_GET_FIELD => {
+                    // LAB-RECORD-VM-P2: Extract a named field from a record value.
+                    // Args: [field_name: String]
+                    // Stack in:  ... record
+                    // Stack out: ... field_value
+                    let field_name = inst.args.get(0)
+                        .ok_or("OP_GET_FIELD: missing field name argument")?
+                        .as_str()?;
+                    let record_val = stack.pop().ok_or("Stack underflow during OP_GET_FIELD")?;
+                    match record_val {
+                        Value::Record(ref map) => {
+                            let val = map.get(field_name)
+                                .ok_or_else(|| format!(
+                                    "OP_GET_FIELD: field '{}' not found in record (available: [{}])",
+                                    field_name,
+                                    map.keys().cloned().collect::<Vec<_>>().join(", ")
+                                ))?;
+                            stack.push(val.clone());
+                        }
+                        other => {
+                            return Err(format!(
+                                "OP_GET_FIELD: expected Record, got {:?}",
+                                other
+                            ));
+                        }
+                    }
+                    ip += 1;
+                }
+
                 OP_JMP => {
                     let target = inst.args.get(0)
                         .ok_or("Missing jump target")?
