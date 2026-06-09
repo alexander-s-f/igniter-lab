@@ -140,6 +140,18 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
 
+### Job Processing / Sidekiq (Lab only)
+
+| Artifact | Repo | Status | Checks |
+|---|---|---|---|
+| LAB-SIDEKIQ-P1 (Sidekiq reimplementation feasibility and language pressure map — job-as-contract, dispatch table, BudgetedLocalLoop retry analogy, closed surfaces) | igniter-lab | ✅ RESEARCH COMPLETE | — |
+| LAB-SIDEKIQ-P2 (static job dispatch table — 3 pure job contracts + JobDispatcher, VM-backed via lab-only `call_contract`, all fail-closed cases, P9 regression green) | igniter-lab | ✅ DONE | 54/54 |
+| Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
+
+**Alignment gap:** LAB-SIDEKIQ-P1..P2 → lang | Static job dispatch table proved using LAB-RACK-P9 `call_contract` with zero VM/compiler changes. P3 candidates: JobReceipt schema (P3a) or BudgetedLocalLoop retry policy (P3b). Effect-callee dispatch deferred until P10/P11 clarify `call_contract` output typing. Still open: async execution, queue storage, retry policy, non-uniform arity dispatch.
+
+**Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
+
 ### Web Framework / View Engine (Lab only)
 
 | Artifact | Repo | Status | Checks |

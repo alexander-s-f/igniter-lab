@@ -80,6 +80,8 @@ FileUtils.mkdir_p(OUT_DIR)
 def compile_fixture(src_path, out_dir)
   FileUtils.mkdir_p(out_dir)
   out  = `#{COMPILER_BIN} compile #{src_path} --out #{out_dir} 2>&1`
+  # Force UTF-8: compiler output may contain Unicode (e.g. × in liveness calibration strings)
+  out  = out.force_encoding('UTF-8')
   json = JSON.parse(out) rescue { 'status' => 'parse_error', 'raw' => out }
   json['_out_dir'] = out_dir.to_s
   json
