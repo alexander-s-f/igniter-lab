@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (PROP-042-P2: T3 numeric measure proof-local experiment — 36/36 PASS)
+**Last updated:** 2026-06-09 (LAB-SIDEKIQ-P4: JobReceipt schema — 46/46 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -152,9 +152,10 @@ Rack/middleware vocabulary is lab-only.
 | LAB-SIDEKIQ-P1 (Sidekiq reimplementation feasibility and language pressure map — job-as-contract, dispatch table, BudgetedLocalLoop retry analogy, closed surfaces) | igniter-lab | ✅ RESEARCH COMPLETE | — |
 | LAB-SIDEKIQ-P2 (static job dispatch table — 3 pure job contracts + JobDispatcher, VM-backed via lab-only `call_contract`, all fail-closed cases, P9 regression green) | igniter-lab | ✅ DONE | 54/54 |
 | LAB-SIDEKIQ-P3 (BudgetedLocalLoop retry policy — `RetryPolicy` arithmetic, `RetrySimulator` PROP-039 loop fuel enforcement `max_steps:5`, `RetryWithDispatch` dispatch+budget composability) | igniter-lab | ✅ DONE | 43/43 |
+| LAB-SIDEKIQ-P4 (JobReceipt schema — `type JobReceipt` 5-field record, P13 nominal record typechecking, P11 Tier 1 literal callee → JobReceipt, Tier 2 dynamic → Unknown, all shape violations OOF-TY0; TypeChecker/SemanticIR proof only, VM record construction deferred) | igniter-lab | ✅ DONE | 46/46 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P3 → lang | Retry budget proved as pure Integer arithmetic (no clock, no queue). BudgetedLocalLoop bounded iteration proved via OP_LOOP_STEP fuel enforcement. Dispatch + budget arithmetic composability proved. Still open: async retry, queue storage, JobReceipt schema (P4, pending P11 output typing), effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P4 → lang | Structured JobReceipt output record typed at compile time via P13 `check_record_literal_shape` — zero new compiler code required. P11 Tier 1 propagates named record types. Still open: VM record construction (P5/P14), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 
