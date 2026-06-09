@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model PREPARE/PLAN/EXECUTE_WAVE/RECORD/FINALIZE_RECEIPT; 9 invariants SI-1..SI-9; substrate options + failure-mode matrices; readiness checklist; W1 necessary-not-sufficient for threading; real threads HOLD pending P5; all 10 gap questions answered; design only — no code) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix (OP_LOAD_REF+OP_GET_FIELD); Rack P14 HeadersAwareHandler 10/10 gap closed; Sidekiq P5 MetadataReader VM gap closed; 48/48 PASS) | (LAB-CONCURRENCY-P3: Scheduling receipt determinism and replay; DigestableMixin graph/policy/result/spec digests; ReceiptReplayerP3 10-gate sequence; graph/policy/effect/result/wave tamper all fail closed; consistent result tamper caught by Gate 10 re-execution; 60/60 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy of result envelopes across NET/Rack/Sidekiq — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -205,9 +205,11 @@ Rack/middleware vocabulary is lab-only.
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
 | LAB-RESULT-ENVELOPE-P1 (Contract result envelope taxonomy + promotion boundary — 5 reusable patterns confirmed; HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; two RetryEnvelope shapes incompatible; denial-as-data is strongest invariant (6 proofs); no canon promotion; next: LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2) | igniter-lab | ✅ DONE — analysis | governance |
+| LAB-RESULT-ENVELOPE-P2 (Third-domain kind-discriminant pressure — form validation domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] 3rd context; kind-discriminant confirmed cross-domain; ValidationMapper three-layer confirmed; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | igniter-lab | ✅ DONE — analysis | governance |
 
-**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — 6 proofs), kind-discriminant (de facto convention), attempt+max_attempts budget (PROP-039 aligned), Map[String,String] (production — PROP-043-P5), three-layer composition (HttpResult→ContractResult→consumer).  
-**Blockers for any canon proposal:** ~~VM map_get bytecode open~~ → ✅ closed (LAB-VM-MAP-P1, 48/48 PASS); only 2 application domains; no sum type grammar support.
+**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **7 proofs**, 3 domains), kind-discriminant (**confirmed cross-domain** — 3 domains), Map[String,String] (**3 contexts**: transport headers + job metadata + form metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
+**Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); no sum type grammar support (primary remaining blocker).  
+**PROP-044 status:** ~~deferred~~ → **PROPOSAL-AUTHORING ONLY authorized** (3-domain bar met; grammar gap is the sole remaining blocker).
 
 ### Web Framework / View Engine (Lab only)
 
@@ -540,11 +542,11 @@ Rack/middleware vocabulary is lab-only.
       JobReceipt:            SIDEKIQ-LOCAL — job_class/job_id Sidekiq-specific
       RetryEnvelope (P8/P5): INCOMPATIBLE SHAPES — P8 embeds HttpResult; P5 is re-enqueue instruction; don't unify
 
-    No canon proposals authorized. Primary blockers: ~~VM map_get bytecode~~ → ✅ closed (LAB-VM-MAP-P1); only 2 app domains; no sum types
+    No canon proposals authorized. Primary blockers: ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); no sum type grammar (primary remaining blocker)
     Next authorized routes:
-      ✅ immediate: LAB-VM-MAP-P1 CLOSED (48/48 PASS — map_get+map_has_key OP_CALL live; Rack P14 10/10; Sidekiq P5 VM closed)
-      next: LAB-RESULT-ENVELOPE-P2 (non-HTTP third-domain pressure — tests kind-discriminant generalization)
-      medium_term: PROP-044 tentative (kind-discriminant convention; requires LAB-RESULT-ENVELOPE-P2 first)
+      ✅ immediate: LAB-VM-MAP-P1 CLOSED (48/48 PASS)
+      ✅ next: LAB-RESULT-ENVELOPE-P2 CLOSED (50/50 PASS — 3rd domain; PROP-044 unblocked for authoring)
+      authorized: PROP-044 PROPOSAL-AUTHORING ONLY (grammar gap remains; no production implementation)
 
 38. ✅ LAB-VM-MAP-P1: VM runtime map_get/map_has_key/or_else over Map[String,String] (2026-06-09)
     Category: lang / vm / Track: lab-vm-map-ops-runtime-proof-v0
@@ -567,6 +569,27 @@ Rack/middleware vocabulary is lab-only.
     verify_lab_vm_map_p1.rb: 48/48 PASS
       VMAP-COMPILE 4/4 | VMAP-TYPES 5/5 | VMAP-GET 6/6 | VMAP-HAS 4/4 | VMAP-OR 6/6 |
       VMAP-BRIDGE 4/4 | VMAP-RACK 4/4 | VMAP-SIDEKIQ 4/4 | VMAP-CLOSED 5/5 | VMAP-GAP 6/6
+
+39. ✅ LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure proof (2026-06-09)
+    Category: governance / Track: lab-result-envelope-third-domain-kind-discriminant-pressure-v0
+    Route: EXPERIMENTAL / GOVERNANCE / LAB-ONLY
+    Domain: Form validation and submission processing (orthogonal to HTTP and Sidekiq)
+    Depends on: LAB-RESULT-ENVELOPE-P1, LAB-VM-MAP-P1, LAB-RACK-P14, LAB-SIDEKIQ-P5, PROP-043-P5
+    ValidationResult: 4-kind envelope (valid/invalid/unauthorized/system_error)
+      No HTTP status codes. No retry budget. No job identity fields.
+      metadata: Map[String,String] for field context (rule, expected, field_name, etc.)
+    P1 reclassifications:
+      kind-discriminant: STRENGTHENED (2→3 domains; confirmed cross-domain)
+      denial-as-data:    CONFIRMED CROSS-DOMAIN (6→7 proofs; unauthorized path in validation domain)
+      Map[String,String]: CONFIRMED CROSS-DOMAIN (2→3 contexts; vr.metadata C1 chain works)
+      three-layer composition: CONFIRMED (ValidationMapper = domain mapper in non-HTTP domain)
+      budget-loop: DOMAIN-LOCAL (not universal; validation has no retry cycle)
+      ContractResult name: CONFIRMED TOO GENERIC (HTTP-domain-bound; 6-kind space is HTTP-specific)
+    PROP-044 status: deferred → PROPOSAL-AUTHORING ONLY authorized (3-domain bar met; grammar gap remains)
+    VM executed: 6 contracts (ValidSubmission, MetadataInspector×2, ValidationMapper×2, UnauthorizedSubmission)
+    verify_lab_result_envelope_p2.rb: 50/50 PASS
+      VENV-COMPILE 4/4 | VENV-TYPES 5/5 | VENV-KINDS 6/6 | VENV-DENIED 4/4 | VENV-MAP 5/5 |
+      VENV-VM 6/6 | VENV-ROUTE 5/5 | VENV-COMPARE 5/5 | VENV-PROMOTE 5/5 | VENV-CLOSED 5/5
 
 34. ✅ PROP-043-P4: Map[K,V] production-edit planning (2026-06-09)
     Depends on: PROP-043-P3, PROP-043-P2, PROP-043-P1
