@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-SIDEKIQ-P4: JobReceipt schema — 46/46 PASS)
+**Last updated:** 2026-06-09 (LAB-DYNAMIC-DATA-P1: dynamic data structure taxonomy — Map/Record/JsonValue/Table boundary research)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -104,6 +104,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | LAB-TERM-T2-P2 OOF-R9 edge hardening | igniter-lab | ✅ closed 2026-06-08 — IfExpr fix; multi-recur/branch/nested-arith; verify_t2_oof_r9_edge_cases.rb 21/21 PASS |
 | PROP-042-P1 T3 numeric measure proposal | igniter-lang | ✅ proposal authored 2026-06-09 — grammar + builtins + OOF-R10/R11 + SemanticIR + call-site obligation + P2 fixture matrix |
 | PROP-042-P2 T3 proof-local experiment | igniter-lang | ✅ CLOSED 2026-06-09 — T3Pipeline + T3TypeChecker + T3Emitter; OOF-R10/R11 candidates proven; 36/36 PASS |
+| PROP-042-P3 T3 acceptance decision | igniter-lang | ✅ CLOSED 2026-06-09 — P2 accepted; OOF-R10/R11 → experiment-pass; P4 production-edit planning authorized |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -166,6 +167,21 @@ Rack/middleware vocabulary is lab-only.
 | LAB-WEB-FRAMEWORK-P4 (LayoutEngine, fill_slot, render, inheritance) | igniter-lab | ✅ DONE | ~45/45 |
 | Grammar analog | igniter-lang | ❌ lab-only for now | — |
 
+### Dynamic Data Structures (LAB-DYNAMIC-DATA)
+
+| Artifact | Repo | Status | Notes |
+|---|---|---|---|
+| LAB-DYNAMIC-DATA-P1: taxonomy + pressure map + boundary research | igniter-lab | ✅ CLOSED 2026-06-09 | Map/Record/JsonValue/Table/Unknown — research only |
+
+**Three-tier hierarchy (research finding):**
+1. Named `Record` — known-schema data (proven: P12/P13/Sidekiq-P4)
+2. `Map[K, V]` — dynamic-key homogeneous-value (grammar-only; NOT yet Stage 1 proven; immediate gap: headers)
+3. `JsonValue` tagged sum (stdlib) — outermost IO boundary only; deferred
+
+**Closed surfaces:** `Map[String, Any]` at contract boundaries; `Unknown` as user type; `Table/DataFrame` before Stage 2 OLAPPoint; `null` as a language value; runtime-only schema validation.
+
+**Next design work:** PROP-043 Map[K,V] design lock (most urgent — Rack headers blocked). Named Record production promotion (PROP-004 amendment). JSON boundary stdlib deferred (no lab use case yet). Table/DataFrame hold (Stage 2).
+
 ---
 
 ## Proposal Queue (igniter-lang Stage 3)
@@ -183,7 +199,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
-| PROP-042 | T3 numeric measure expressions | ✅ proof-local (P2 CLOSED) | OOF-R10/R11 candidates proven 36/36; production promotion → P3 (P4/P5 auth required) |
+| PROP-042 | T3 numeric measure expressions | ✅ experiment-pass (P3 CLOSED) | OOF-R10/R11 experiment-pass; production promotion → P4 planning (P5 auth required) |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -358,6 +374,17 @@ Rack/middleware vocabulary is lab-only.
     Card: igniter-lang/.agents/work/cards/lang/PROP-042-P1.md
     Deferred: Text length measures, user-defined measures, size/length aliases, count(x)-1 (T4)
     Next: PROP-042-P2 proof-local experiment gate (≥19 fixtures, T3a–T3i)
+30. ✅ LAB-DYNAMIC-DATA-P1: dynamic data structure taxonomy + boundary research (2026-06-09)
+    Scope: JSON / Map / Record / Collection / Table / Unknown — research only, no grammar/compiler changes
+    Finding 1: Named Record covers ~80% of near-term needs (JobReceipt, RackResponse, HttpRequest proven)
+    Finding 2: Map[String,String] is the most urgent unproven gap — Rack headers deferred since P12
+    Finding 3: JSON stays boundary format only; JsonValue deferred until concrete IO boundary use case proven
+    Finding 4: Table/DataFrame → Stage 2 OLAPPoint (PROP-024); no Stage 1 mechanism
+    Finding 5: Unknown is compiler-internal state; not a dynamic type; Map[String,Any] permanently closed
+    Taxonomy: Named Record > Map[K,V] > JsonValue (three tiers); all other combos closed
+    Next: PROP-043 Map[K,V] design lock (immediate); Named Record production promotion; JSON boundary deferred; Table hold
+    Docs: igniter-lab/lab-docs/lang/lab-dynamic-data-structures-json-map-table-research-boundary-v0.md
+    Card: igniter-lang/.agents/work/cards/lang/LAB-DYNAMIC-DATA-P1.md
 
 ---
 
