@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-QUERY-P2: QueryPlan pure builder proof — 6 contracts (BuildQuerySource/BuildSelectQuery/BuildFilteredQuery/QueryResultDenied/QueryMetadataReader/QueryMapper); 7 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied); denial-as-data QueryResult{kind:"denied"}; C1 chain in 4th domain; all CORE fragment; 42/42 PASS) | (PROP-044-P2: variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expression; type narrowing rules; OOF-KIND1..5 formal definitions; SemanticIR shapes (variant_decl/variant_construct/match_node); parser+typechecker extension points; 15 design decisions locked; P3 parser impl requires explicit auth) | (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-09 (PROP-045-P1: Source-level intent descriptor — keyword `intent`; bounded plain string; module+contract placement; preserved in contract_ir as intent_text; not in behavior digest; not capability/policy/runtime; OOF-INTENT1..4 reserved; CR-003 orthogonal; P2 parser impl requires explicit auth; 20 decisions locked) | (LAB-QUERY-P2: QueryPlan pure builder proof — 6 contracts (BuildQuerySource/BuildSelectQuery/BuildFilteredQuery/QueryResultDenied/QueryMetadataReader/QueryMapper); 7 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied); denial-as-data QueryResult{kind:"denied"}; C1 chain in 4th domain; all CORE fragment; 42/42 PASS) | (PROP-044-P2: variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expression; type narrowing rules; OOF-KIND1..5 formal definitions; SemanticIR shapes (variant_decl/variant_construct/match_node); parser+typechecker extension points; 15 design decisions locked; P3 parser impl requires explicit auth) | (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -271,6 +271,7 @@ Rack/middleware vocabulary is lab-only.
 | PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
 | PROP-043 | Map[K,V] Stage 1 — production live + Rust lab symmetry | ✅ P1+P2+P3+P4+P5 complete; LAB-MAP-RUST-P1 closed | OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else live; C1 fix; Record/Map bridge: map_get(response.headers,key)→Option[String]; 55/55 PASS; Rust symmetry 32/32 PASS; all regressions clean |
 | PROP-044 | Kind-discriminated outcome convention + sum type requirements | ✅ P1+P2 design complete | P1: KDR convention; denial-as-data; OOF-KIND1..4 reserved. P2: VariantDecl+MatchExpr EBNF; VariantConstruct; type narrowing; OOF-KIND1..5 formal defs; SemanticIR shapes; parser+typechecker extension points; 15 decisions locked. P3 parser impl requires explicit auth |
+| PROP-045 | Source-level `intent` descriptor and queryable contract purpose | ✅ P1 proposal-authoring complete | Keyword: `intent`; bounded plain string; module+contract placement; intent_text in contract_ir; not in behavior digest; not capability/policy/runtime; OOF-INTENT1..4 reserved; CR-003 orthogonal (different surface); P2 parser impl requires explicit auth; 20 decisions locked |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -639,7 +640,30 @@ Rack/middleware vocabulary is lab-only.
     Design doc: igniter-lang/.agents/work/proposals/PROP-044-variant-and-exhaustive-match-design-v0.md
     Card: igniter-lang/.agents/work/cards/lang/PROP-044-P2.md
 
-42. ✅ LAB-QUERY-P2: QueryPlan pure builder proof (2026-06-09)
+44. ✅ PROP-045-P1: Source-level intent descriptor and queryable contract purpose (2026-06-09)
+    Category: lang / Track: source-intent-descriptor-and-queryable-contract-purpose-v0
+    Route: PROPOSAL AUTHORING ONLY
+    Depends on: language-covenant.md (Axiom 1/2, Postulate 7), PROP-033, PROP-040, PROP-044-P1, LAB-RESULT-ENVELOPE-P2, LAB-QUERY-P1
+    Design (no implementation):
+      Keyword: `intent` — not `description` (conflicts with PROP-040 profile field); not `purpose`/`about`/`summary`
+      Shape: bounded plain string (500-char advisory limit); no structured fields in v0; no interpolation
+      Placement v0: module/file level (after ModuleDecl) + contract body (BodyDecl)
+      Placement v1 (deferred): type decls, output/input decls, trait/impl blocks
+      Required: optional in v0; mandatory deferred to later PROP
+      Behavior digest: NOT included — intent is metadata only
+      Source/docs digest: YES — intent_text in contract_ir and module metadata
+      Behavioral compatibility: NONE — intent changes are metadata-only; not a breaking change
+    CR-003 relationship: ORTHOGONAL — CR-003/PROP-040 covers profile_binding (which profile to bind);
+      PROP-045 covers purpose metadata (what the contract does). Different surfaces.
+    OOF-INTENT codes (candidates, not active): OOF-INTENT1 (too long), OOF-INTENT2 (secret pattern),
+      OOF-INTENT3 (duplicate — error), OOF-INTENT4 (unsupported site)
+    Authority: NEVER confers capability/policy/runtime authority
+    P2 recommendation: parser implementation (explicit auth required); complexity: low
+    20 design decisions locked
+    Proposal: igniter-lang/.agents/work/proposals/PROP-045-source-intent-descriptor-and-queryable-contract-purpose-v0.md
+    Card: igniter-lang/.agents/work/cards/lang/PROP-045-P1.md
+
+43. ✅ LAB-QUERY-P2: QueryPlan pure builder proof (2026-06-09)
     Category: lang / Track: lab-query-plan-record-fixture-and-pure-builder-proof-v0
     Route: EXPERIMENTAL / LAB-ONLY
     Depends on: LAB-QUERY-P1, PROP-043-P5, LAB-VM-MAP-P1, LAB-RESULT-ENVELOPE-P2
