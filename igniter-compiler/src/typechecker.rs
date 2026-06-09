@@ -549,6 +549,13 @@ impl TypeChecker {
             })
             .collect();
 
+        // LAB-MAP-RUST-P1: OOF-MAP1/2/3 annotation scan across all declarations
+        for decl in &classified.declarations {
+            if let Some(ann) = &decl.type_annotation {
+                self.check_map_annotation(ann, &decl.name, &decl.kind, &mut type_errors);
+            }
+        }
+
         for decl in &classified.declarations {
             match decl.kind.as_str() {
                 "input" | "read" | "stream" => {
@@ -2456,7 +2463,15 @@ impl TypeChecker {
                             "unwrap_or" | "or_else" => {
                                 is_resolved = true;
                                 if typed_args.len() >= 2 {
-                                    resolved_type = typed_args[1].resolved_type.clone();
+                                    // LAB-MAP-RUST-P1: proper or_else — extract V from Option[V] params[0]
+                                    // or_else(Option[V], default) → V; fallback to default's type for non-Option
+                                    let first_name = self.type_name(&typed_args[0].resolved_type);
+                                    resolved_type = if first_name == "Option" || first_name == "Result" {
+                                        self.get_param(&typed_args[0].resolved_type, 0)
+                                            .unwrap_or_else(|| typed_args[1].resolved_type.clone())
+                                    } else {
+                                        typed_args[1].resolved_type.clone()
+                                    };
                                 } else {
                                     resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                 }
@@ -3195,6 +3210,44 @@ impl TypeChecker {
                                 // resolved_type: either resolved to callee output type (Tier 1 success),
                                 // Unknown (Tier 2 dynamic or multi-output), or OOF-TY0 emitted.
                             }
+                            // LAB-MAP-RUST-P1: Map[String,V] stdlib type inference
+                            "map_get" | "stdlib.map.get" => {
+                                is_resolved = true;
+                                // map_get(Map[String,V], String) → Option[V]
+                                let val_type = if !typed_args.is_empty() {
+                                    self.get_param(&typed_args[0].resolved_type, 1)
+                                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                } else {
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                                };
+                                resolved_type = self.make_option_type_ir(val_type);
+                            }
+                            "map_has_key" | "stdlib.map.has_key" => {
+                                is_resolved = true;
+                                // map_has_key(Map[String,V], String) → Bool
+                                resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+                            }
+                            "map_from_pairs" | "stdlib.map.from_pairs" => {
+                                is_resolved = true;
+                                // map_from_pairs(Collection[Pair[String,V]]) → Map[String,V]
+                                let val_type = if !typed_args.is_empty() {
+                                    // Collection params[0] = Pair[String,V]; Pair params[1] = V
+                                    self.get_param(&typed_args[0].resolved_type, 0)
+                                        .and_then(|pair_ty| self.get_param(&pair_ty, 1))
+                                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                } else {
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                                };
+                                let key_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                resolved_type = self.make_map_type_ir(key_type, val_type);
+                            }
+                            "map_empty" | "stdlib.map.empty" => {
+                                is_resolved = true;
+                                // map_empty() → Map[String,Unknown]
+                                let key_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                let val_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                resolved_type = self.make_map_type_ir(key_type, val_type);
+                            }
                             _ => {}
                         }
                     }
@@ -3671,6 +3724,79 @@ impl TypeChecker {
     ///   - `field: 200`        → derive from Literal type_tag (Integer / String / Bool)
     ///
     /// More complex field expressions (arithmetic, function calls, etc.) return None.
+    // LAB-MAP-RUST-P1: Map[String,V] type IR builder helpers ----------------------
+
+    fn make_map_type_ir(&self, key_type: serde_json::Value, val_type: serde_json::Value) -> serde_json::Value {
+        let mut m = serde_json::Map::new();
+        m.insert("name".to_string(), serde_json::Value::String("Map".to_string()));
+        m.insert("params".to_string(), serde_json::Value::Array(vec![key_type, val_type]));
+        serde_json::Value::Object(m)
+    }
+
+    fn make_option_type_ir(&self, inner: serde_json::Value) -> serde_json::Value {
+        let mut m = serde_json::Map::new();
+        m.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+        m.insert("params".to_string(), serde_json::Value::Array(vec![inner]));
+        serde_json::Value::Object(m)
+    }
+
+    /// LAB-MAP-RUST-P1: OOF-MAP1/2/3 annotation check for a single declaration annotation.
+    /// OOF-MAP1: non-String key (exempts Unknown — compiler-resolved positions).
+    /// OOF-MAP2: Any value (permanently closed).
+    /// OOF-MAP3: Unknown value in output annotation.
+    fn check_map_annotation(
+        &self,
+        ann: &serde_json::Value,
+        node_name: &str,
+        decl_kind: &str,
+        errors: &mut Vec<ClassifierDiagnostic>,
+    ) {
+        let type_ir = self.type_ir(ann);
+        let name = self.type_name(&type_ir);
+        if name != "Map" {
+            return;
+        }
+        let key_type = self.get_param(&type_ir, 0)
+            .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+        let val_type = self.get_param(&type_ir, 1)
+            .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+        let key_name = self.type_name(&key_type);
+        let val_name = self.type_name(&val_type);
+
+        // OOF-MAP1: non-String key (exempts Unknown — compiler-inferred positions)
+        if key_name != "String" && key_name != "Unknown" {
+            errors.push(ClassifierDiagnostic {
+                rule: "OOF-MAP1".to_string(),
+                message: format!(
+                    "Map key type in v0 must be String; Map[K,V] where K = '{}' requires v1 authorization; use Map[String,V] or a named Record for known key schemas",
+                    key_name
+                ),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+
+        // OOF-MAP2: Any value (permanently closed)
+        if val_name == "Any" {
+            errors.push(ClassifierDiagnostic {
+                rule: "OOF-MAP2".to_string(),
+                message: "Map value type 'Any' is permanently closed at contract boundaries; use a homogeneous type V or a named Record".to_string(),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+
+        // OOF-MAP3: Unknown value in output annotation only
+        if val_name == "Unknown" && decl_kind == "output" {
+            errors.push(ClassifierDiagnostic {
+                rule: "OOF-MAP3".to_string(),
+                message: "Map value type 'Unknown' is a compiler uncertainty marker and must not appear in user-declared output type annotations".to_string(),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+    }
+
     fn infer_field_expr_type(
         &self,
         expr: &Expr,
