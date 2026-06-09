@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-08 (LAB-COMPILER-LIVENESS-P4: emitter/parser calibration + cycle preflight — 40/40 PASS)
+**Last updated:** 2026-06-08 (LAB-TERM-T2-P2: OOF-R9 branch/multi-recur edge hardening — 21/21 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -101,6 +101,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | OOF-R8 (missing size_relation) / OOF-R9 (call-site mismatch) | igniter-lang | ✅ experiment-pass — PROP-041-P3 proof-local gate 2026-06-08; prop041_structural_size_relation_proof 48/48 |
 | PROP-041 T2 production (structural_size_v1 SemanticIR) | igniter-lang | ✅ PROP-041-P7 production — verify_prop041_t2_production.rb 48/48; verify_oof_r3.rb 33/33 |
 | LAB-TERM-T2-P1 Rust symmetry | igniter-lab | ✅ closed 2026-06-08 — parser.rs + classifier.rs + typechecker.rs + emitter.rs; verify_t2_structural_size_relation.rb 52/52 PASS |
+| LAB-TERM-T2-P2 OOF-R9 edge hardening | igniter-lab | ✅ closed 2026-06-08 — IfExpr fix; multi-recur/branch/nested-arith; verify_t2_oof_r9_edge_cases.rb 21/21 PASS |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -313,6 +314,16 @@ Rack/middleware vocabulary is lab-only.
     New fixtures: liveness_emitter_form_lower.ig, liveness_emitter_pipeline_depth.ig, liveness_parser_import_steps.ig
     verify_liveness_p4.rb: 40/40 PASS; verify_liveness_p3.rb: 38/38 PASS; verify_liveness_p2.rb: 25/25 PASS
     Next: LAB-COMPILER-LIVENESS-P5 if: form-calls-form grammar change, production corpus data, or E-COMPILER-BUDGET PROP
+28. ✅ LAB-TERM-T2-P2: OOF-R9 branch and multi-recur edge hardening (2026-06-08)
+    Root cause: check_t2_callsite_in_expr IfExpr arm only walked cond, not then/else_block bodies
+    Fix: extended IfExpr arm to mirror check_recur_in_expr exactly (stmts + return_expr for both branches)
+    5 new fixtures: multi_recur_both_correct, multi_recur_one_wrong, if_both_branches_correct,
+      if_wrong_else_branch, nested_arith_wrong
+    Proven: mixed correct/wrong fails closed; correct site does NOT suppress wrong-site OOF-R9
+    OOF-R3/R8 precedence unchanged; T1 syntactic_v0 unaffected; no new OOF codes; no canon changes
+    verify_t2_oof_r9_edge_cases.rb: 21/21 PASS
+    Regression: verify_t2_structural_size_relation.rb 52/52; verify_oof_r3.rb 34/34; verify_g5_recur.rb 18/18
+    LAB-TERM-T2 track complete (P1+P2). Next: PROP-041 T3 (numeric measures) when authorized.
 
 ---
 

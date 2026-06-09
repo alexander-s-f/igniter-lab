@@ -1102,10 +1102,30 @@ impl TypeChecker {
                 self.check_t2_callsite_in_expr(object, type_errors, node_name, ctx, input_names);
                 self.check_t2_callsite_in_expr(index, type_errors, node_name, ctx, input_names);
             }
-            // IfExpr bodies are block-level; recur() at T2 call-site is in compute expressions.
-            // No recursive descent needed here for production fixtures.
-            Expr::IfExpr { cond, .. } => {
+            // IfExpr: walk cond + then/else_block bodies.
+            // Symmetric with check_recur_in_expr IfExpr handling — mirrors stmts + return_expr walk.
+            Expr::IfExpr { cond, then, else_block } => {
                 self.check_t2_callsite_in_expr(cond, type_errors, node_name, ctx, input_names);
+                // then block
+                for stmt in &then.stmts {
+                    if let Stmt::Let { expr, .. } = stmt {
+                        self.check_t2_callsite_in_expr(expr, type_errors, node_name, ctx, input_names);
+                    }
+                }
+                if let Some(re) = &then.return_expr {
+                    self.check_t2_callsite_in_expr(re, type_errors, node_name, ctx, input_names);
+                }
+                // else block
+                if let Some(eb) = else_block {
+                    for stmt in &eb.stmts {
+                        if let Stmt::Let { expr, .. } = stmt {
+                            self.check_t2_callsite_in_expr(expr, type_errors, node_name, ctx, input_names);
+                        }
+                    }
+                    if let Some(re) = &eb.return_expr {
+                        self.check_t2_callsite_in_expr(re, type_errors, node_name, ctx, input_names);
+                    }
+                }
             }
             _ => {}
         }
