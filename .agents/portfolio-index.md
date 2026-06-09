@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-STDLIB-NET-P9: ContractResult typed domain envelope; ItemRequestBuilder→MockTransport→HttpResult→DomainResponseMapper composition chain; Rack single-call + Sidekiq retry scenarios proved; upstream_unavailable on budget exhaustion; 55/55 PASS)
+**Last updated:** 2026-06-09 (LAB-RACK-P14: Rack-shaped ContractResult composition — 6-branch kind→FullRackResponse (found/created/not_found/capability_denied/upstream_error/upstream_unavailable); map_get→Option[String]+or_else→String TypeChecker-proved; 10 contracts compiled; VM-proved 9/10 (map_get gap acknowledged); 60/60 PASS)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -157,13 +157,14 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P11 (call_contract TypeChecker literal callee resolution — build_contract_registry, two-tier policy, Tier 1 resolves output type, OOF-TY0 for unknown/effect/arity/self-recursion literal callees) | igniter-lab | ✅ DONE | 47/47 |
 | LAB-RACK-P12 (typed response single-output dispatch — RackResponse type, handler RecordLiteral support, Tier 1 resolves dispatcher compute to RackResponse, Tier 2 stays Unknown) | igniter-lab | ✅ DONE | 45/45 |
 | LAB-RACK-P13 (nominal record typechecking — output_type_hints pre-scan, check_record_literal_shape, field missing/extra/wrong-type OOF-TY0, Unknown → named type upgrade on success) | igniter-lab | ✅ DONE | 47/47 |
+| LAB-RACK-P14 (Rack-shaped ContractResult composition — 6-branch kind→FullRackResponse mapping (found/created/not_found/capability_denied/upstream_error/upstream_unavailable); map_get→Option[String]+or_else→String; P13 record upgrade; VM-proved 9/10 contracts; map_get VM gap acknowledged) | igniter-lab | ✅ DONE | 60/60 |
 | LAB-RECORD-VM-P1 (VM record construction — zero new VM/compiler code; OP_PUSH_RECORD+BTreeMap proved; RackResponse + JobReceipt end-to-end; deterministic alphabetical serialization; covers Rack P14 + Sidekiq P5; see shared section below) | igniter-lab | ✅ DONE | 43/43 |
 | LAB-RECORD-VM-P2 (dispatched record field access — OP_GET_FIELD added; response.status/body + receipt.status/budget_remaining/job_class proved; field values usable in arithmetic; missing-field OOF-P1 compile-time; Tier 2 field access fail-closed) | igniter-lab | ✅ DONE | 42/42 |
 | LAB-RECORD-VM-P3 (nested record field values — one compiler.rs line; envelope.headers.content_type + envelope.meta.priority proved; typechecker + VM construction unchanged; direct local Unknown-typed chain fail-closed; non-record intermediate fail-closed) | igniter-lab | ✅ DONE | 49/49 |
 | LAB-RECORD-MAP-P1 (Record/Map bridge — FullRackResponse {headers: Map[String,String]} proved; SIR params preserved through field access; VM store/retrieve works; C1 confirmed active (fix in P5); map_get gap documented; OOF-MAP1/2/3 in MapPipeline) | igniter-lab | ✅ DONE | 51/51 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | VM record construction proved (P1); field access proved (P2); nested record field values proved (P3); Map[String,String] record field bridge proved (RECORD-MAP-P1, SIR params preserved). PROP-043-P5 closed: map_get(response.headers,key)→Option[String] + or_else→String end-to-end in production TypeChecker (55/55); C1 fix landed. Still open: three-level chained field access, Tier 2 type resolution, VM map_get bytecode, multi-output callee.
+**Alignment gap:** LAB-RACK-P2..P14 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | VM record construction proved (P1); field access proved (P2); nested record field values proved (P3); Map[String,String] record field bridge proved (RECORD-MAP-P1, SIR params preserved). PROP-043-P5 closed: map_get(response.headers,key)→Option[String] + or_else→String end-to-end in production TypeChecker (55/55); C1 fix landed. P14 closed: 6-kind ContractResult→FullRackResponse branch mapping proved at TypeChecker + VM (9/10 contracts). Still open: VM map_get bytecode, Tier 2 type resolution, three-level chained field access, multi-output callee.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -180,11 +181,20 @@ Rack/middleware vocabulary is lab-only.
 | LAB-RECORD-VM-P2 (dispatched record field access — receipt.status/budget_remaining/job_class proved; field values usable in compute; OP_GET_FIELD added; see shared section above) | igniter-lab | ✅ DONE (shared) | 42/42 |
 | LAB-RECORD-VM-P3 (nested record field values — JobEnvelope with JobMeta; envelope.meta.priority + envelope.meta.queue proved; see shared section above) | igniter-lab | ✅ DONE (shared) | 49/49 |
 | LAB-RECORD-MAP-P1 (Record/Map bridge — JobEnvelope {meta: Map[String,String]} proved; VM meta field store/retrieve; C1 confirmed; see shared section above) | igniter-lab | ✅ DONE (shared) | 51/51 |
+| LAB-SIDEKIQ-P5 (upstream HTTP result composition — JobInput/JobReceipt/RetryEnvelope with Map[String,String] metadata; 5 contracts: MetadataReader+SuccessPath+DeniedPath+RetryablePath+ExhaustedPath; map_get(job.metadata,key)→Option[String]+or_else→String via C1 fix; next_attempt=attempt+1→Integer; BudgetedLocalLoop simulation; 4 paths proved; two-layer: Ruby TypeChecker + proof-local sim) | igniter-lab | ✅ DONE | 48/48 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | JobReceipt record typed and VM-executed (P1/P2); nested record field values proved (P3); Map[String,String] meta field bridge proved (RECORD-MAP-P1). PROP-043-P5 closed: map_get/or_else production TypeChecker live (55/55); C1 fix landed. Still open: three-level chained field access, enum/status type system, VM map_get bytecode, async retry, queue storage, effect-callee dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P5 + RECORD-VM-P1..P3 + RECORD-MAP-P1 → lang | JobReceipt record typed and VM-executed (P1/P2); nested record field values proved (P3); Map[String,String] meta field bridge proved (RECORD-MAP-P1). PROP-043-P5 closed: map_get/or_else production TypeChecker live (55/55); C1 fix landed. LAB-SIDEKIQ-P5 closed: full upstream composition — all 4 job paths (success/denied/retry/exhausted) proved with Map[String,String] metadata; BudgetedLocalLoop simulation (48/48). Still open: three-level chained field access, enum/status type system, VM map_get bytecode, async retry, queue storage, effect-callee dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
+
+### Concurrency / Scheduling (Lab only)
+
+| Artifact | Repo | Status | Checks |
+|---|---|---|---|
+| LAB-CONCURRENCY-P1 (pure-DAG parallel scheduling boundary — wave-based concurrent eligibility; SequentialScheduler == ParallelSchedulerSimulation result identity proved; effectful nodes serialized in v0; SchedulingReceipt telemetry only; 5 inline graph fixtures: diamond, fanout, chain, mixed-effectful, impure-siblings; DagValidator cycle+dep checks; DagWaves read-isolation invariant; Category: lang, Track: lab-deterministic-pure-dag-parallel-scheduling-boundary-v0) | igniter-lab | ✅ DONE | 57/57 |
+
+**Boundary:** Lab-only. SchedulingReceipt is telemetry evidence only — it does not create language semantic authority or open runtime concurrency authority. No `Thread`/`Fiber`/async-runtime infrastructure used. Concurrent-effectful dispatch remains closed in v0; requires a scheduling capability or policy fixture in a future gate. Parity invariant proved: `result_values` identical for all 5 fixtures across all intra-wave orderings.
 
 ### Web Framework / View Engine (Lab only)
 
@@ -478,6 +488,23 @@ Rack/middleware vocabulary is lab-only.
     Regressions: verify_oof_r3.rb 33/33; verify_prop041_t2_production.rb 48/48;
         verify_prop042_t3_production.rb 45/45; verify_prop043_map.rb (proof-local) 42/42
     Next: Lab-Map-Rust-P1 (Rust lab Map[String,V] symmetry — unblocked by P5 graduation)
+36. ✅ LAB-SIDEKIQ-P5: Sidekiq upstream HTTP result composition with Map[String,String] metadata (2026-06-09)
+    Track: lab-sidekiq-upstream-http-result-retry-composition-proof-v0
+    Depends on: PROP-043-P5, LAB-SIDEKIQ-P4, LAB-STDLIB-NET-P8/P9, LAB-MAP-RUST-P1, LAB-RECORD-MAP-P1
+    Fixture: upstream_http_result_composition.ig — 5 types (HttpResult, ContractResult, JobInput, JobReceipt, RetryEnvelope)
+    Contracts: MetadataReader, SuccessPath, DeniedPath, RetryablePath, ExhaustedPath
+    Layer A (Ruby TypeChecker): map_get(job.metadata,"worker")→Option[String]; or_else→String (C1 fix end-to-end);
+        record literal { ..., metadata: job.metadata, ... } → JobReceipt / RetryEnvelope via @output_type_hints;
+        next_attempt = job.attempt + 1 → Integer (infer_binary field_access + literal); all 5 contracts accepted
+    Layer B (UpstreamCompositionP5 simulation): BudgetedLocalLoop analog; success/denied/retry/exhausted;
+        [error,error,found] → receipt.attempt=3; metadata passthrough (object identity); map_get+or_else behavioral
+    SJOB5-TYPES/MAP/SUCCESS/DENIED/RETRY/EXHAUSTED/SIM/REG/CLOSED/GAP: 48/48 PASS
+    Zero type_errors across all 5 fixture contracts
+    No production file changes; proof-local + igniter-lang production TypeChecker used read-only
+    Key finding: C1 fix chains through: @type_shapes["JobInput"]["metadata"]=Map[String,String] →
+        job.metadata field_access → Map[String,String] → map_get → Option[String] (not Unknown)
+    All 4 job paths with Map[String,String] metadata proved; BudgetedLocalLoop retry behavior proved
+
 34. ✅ PROP-043-P4: Map[K,V] production-edit planning (2026-06-09)
     Depends on: PROP-043-P3, PROP-043-P2, PROP-043-P1
     Scope: 2 files only — classifier.rb (1-line C1 fix at line 52: normalize_type → normalized_type_annotation)
