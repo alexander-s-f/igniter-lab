@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (PROP-043-P3: Map[K,V] acceptance decision — P2 accepted; OOF-MAP1/2/3 → experiment-pass; Map[String,V] v0 surface accepted; map_empty() conditional; 5 caveats evaluated; P4 production-edit planning authorized)
+**Last updated:** 2026-06-09 (LAB-RECORD-VM-P3: nested record field values — one compiler.rs line; envelope.headers.content_type + envelope.meta.priority proved; 49/49 PASS; typechecker + VM construction unchanged; OP_GET_FIELD reused from P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -144,9 +144,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P13 (nominal record typechecking — output_type_hints pre-scan, check_record_literal_shape, field missing/extra/wrong-type OOF-TY0, Unknown → named type upgrade on success) | igniter-lab | ✅ DONE | 47/47 |
 | LAB-RECORD-VM-P1 (VM record construction — zero new VM/compiler code; OP_PUSH_RECORD+BTreeMap proved; RackResponse + JobReceipt end-to-end; deterministic alphabetical serialization; covers Rack P14 + Sidekiq P5; see shared section below) | igniter-lab | ✅ DONE | 43/43 |
 | LAB-RECORD-VM-P2 (dispatched record field access — OP_GET_FIELD added; response.status/body + receipt.status/budget_remaining/job_class proved; field values usable in arithmetic; missing-field OOF-P1 compile-time; Tier 2 field access fail-closed) | igniter-lab | ✅ DONE | 42/42 |
+| LAB-RECORD-VM-P3 (nested record field values — one compiler.rs line; envelope.headers.content_type + envelope.meta.priority proved; typechecker + VM construction unchanged; direct local Unknown-typed chain fail-closed; non-record intermediate fail-closed) | igniter-lab | ✅ DONE | 49/49 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1 + RECORD-VM-P2 → lang | VM record construction proved (P1, zero new code); field access from dispatched records proved (P2, OP_GET_FIELD + compiler fix). Still open: nested record field access (P3 candidate), complex field expressions (Unknown-compat), headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
+**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1..P3 → lang | VM record construction proved (P1, zero new code); field access from dispatched records proved (P2, OP_GET_FIELD + compiler fix); nested record field values proved (P3, one compiler.rs line, reuses OP_GET_FIELD). Still open: three-level chained field access, Tier 2 type resolution for chained access, headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -161,9 +162,10 @@ Rack/middleware vocabulary is lab-only.
 | LAB-SIDEKIQ-P4 (JobReceipt schema — `type JobReceipt` 5-field record, P13 nominal record typechecking, P11 Tier 1 literal callee → JobReceipt, Tier 2 dynamic → Unknown, all shape violations OOF-TY0) | igniter-lab | ✅ DONE | 46/46 |
 | LAB-RECORD-VM-P1 (VM record construction — JobReceipt end-to-end in VM; see shared section above) | igniter-lab | ✅ DONE (shared) | 43/43 |
 | LAB-RECORD-VM-P2 (dispatched record field access — receipt.status/budget_remaining/job_class proved; field values usable in compute; OP_GET_FIELD added; see shared section above) | igniter-lab | ✅ DONE (shared) | 42/42 |
+| LAB-RECORD-VM-P3 (nested record field values — JobEnvelope with JobMeta; envelope.meta.priority + envelope.meta.queue proved; see shared section above) | igniter-lab | ✅ DONE (shared) | 49/49 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1 + RECORD-VM-P2 → lang | JobReceipt record typed at compile time, executed end-to-end in VM (P1), and individual fields accessible from dispatched records (P2). Still open: nested record field access (P3 candidate), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1..P3 → lang | JobReceipt record typed at compile time, executed end-to-end in VM (P1), and individual fields accessible from dispatched records (P2). Nested record field values proved (P3): JobEnvelope with JobMeta, chained field access. Still open: three-level chained field access, enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 

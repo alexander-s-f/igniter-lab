@@ -406,7 +406,13 @@ impl Compiler {
                     self.emit(OP_LOAD_REF, vec![Value::String(Arc::from(full_name.as_str()))]);
                     return Ok(());
                 }
-                return Err(format!("Unsupported object type in field_access: {:?}", object));
+                // LAB-RECORD-VM-P3: chained field access — object is itself an expression
+                // (e.g. another field_access). Recursively compile the object onto the stack,
+                // then extract the named field with OP_GET_FIELD.
+                // Handles: envelope.headers.content_type, receipt.meta.priority, etc.
+                self.compile_expr(object)?;
+                self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(field))]);
+                return Ok(());
             }
 
             "map_reduce_aggregate" => {
