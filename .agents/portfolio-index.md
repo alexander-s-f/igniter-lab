@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (LAB-DYNAMIC-DATA-P1: dynamic data structure taxonomy — Map/Record/JsonValue/Table boundary research)
+**Last updated:** 2026-06-09 (PROP-043-P1: Map[K,V] Stage 1 design lock — 15 decisions, stdlib.map.* surface, OOF-MAP1/2/3 candidates, P2 fixture matrix ≥18 checks)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -105,6 +105,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | PROP-042-P1 T3 numeric measure proposal | igniter-lang | ✅ proposal authored 2026-06-09 — grammar + builtins + OOF-R10/R11 + SemanticIR + call-site obligation + P2 fixture matrix |
 | PROP-042-P2 T3 proof-local experiment | igniter-lang | ✅ CLOSED 2026-06-09 — T3Pipeline + T3TypeChecker + T3Emitter; OOF-R10/R11 candidates proven; 36/36 PASS |
 | PROP-042-P3 T3 acceptance decision | igniter-lang | ✅ CLOSED 2026-06-09 — P2 accepted; OOF-R10/R11 → experiment-pass; P4 production-edit planning authorized |
+| PROP-042-P4 T3 production-edit planning | igniter-lang | ✅ CLOSED 2026-06-09 — exact +112-line plan; classifier no-change; OOF-R9 confirmed production-safe; P5 authorized |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
@@ -139,9 +140,10 @@ Runtime execution, `igc run`, `.igbin`, RuntimeSmoke, and public/stable/producti
 | LAB-RACK-P11 (call_contract TypeChecker literal callee resolution — build_contract_registry, two-tier policy, Tier 1 resolves output type, OOF-TY0 for unknown/effect/arity/self-recursion literal callees) | igniter-lab | ✅ DONE | 47/47 |
 | LAB-RACK-P12 (typed response single-output dispatch — RackResponse type, handler RecordLiteral support, Tier 1 resolves dispatcher compute to RackResponse, Tier 2 stays Unknown) | igniter-lab | ✅ DONE | 45/45 |
 | LAB-RACK-P13 (nominal record typechecking — output_type_hints pre-scan, check_record_literal_shape, field missing/extra/wrong-type OOF-TY0, Unknown → named type upgrade on success) | igniter-lab | ✅ DONE | 47/47 |
+| LAB-RECORD-VM-P1 (VM record construction — zero new VM/compiler code; OP_PUSH_RECORD+BTreeMap proved; RackResponse + JobReceipt end-to-end; deterministic alphabetical serialization; covers Rack P14 + Sidekiq P5; see shared section below) | igniter-lab | ✅ DONE | 43/43 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-RACK-P2..P13 → lang | Static pipeline + ContractRef gap map + 5-route dispatch + TypeChecker == and < + VM entrypoint selector + explicit `call_contract` dispatch + literal callee type resolution + typed structured response output + nominal record typechecking implemented. Still open: VM record construction (P14 candidate), complex field expressions (Unknown-compat), headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
+**Alignment gap:** LAB-RACK-P2..P13 + RECORD-VM-P1 → lang | VM record construction proved with zero new code (OP_PUSH_RECORD+BTreeMap already present). Still open: nested record field access (P2 candidate), complex field expressions (Unknown-compat), headers (Map type), multi-output callee (deferred), cross-contract cycle detection at compile time, ContractRef type semantics.
 
 **Boundary:** HTTP types may not enter canon grammar without a cross-repo PROP + governance review.
 Rack/middleware vocabulary is lab-only.
@@ -153,10 +155,11 @@ Rack/middleware vocabulary is lab-only.
 | LAB-SIDEKIQ-P1 (Sidekiq reimplementation feasibility and language pressure map — job-as-contract, dispatch table, BudgetedLocalLoop retry analogy, closed surfaces) | igniter-lab | ✅ RESEARCH COMPLETE | — |
 | LAB-SIDEKIQ-P2 (static job dispatch table — 3 pure job contracts + JobDispatcher, VM-backed via lab-only `call_contract`, all fail-closed cases, P9 regression green) | igniter-lab | ✅ DONE | 54/54 |
 | LAB-SIDEKIQ-P3 (BudgetedLocalLoop retry policy — `RetryPolicy` arithmetic, `RetrySimulator` PROP-039 loop fuel enforcement `max_steps:5`, `RetryWithDispatch` dispatch+budget composability) | igniter-lab | ✅ DONE | 43/43 |
-| LAB-SIDEKIQ-P4 (JobReceipt schema — `type JobReceipt` 5-field record, P13 nominal record typechecking, P11 Tier 1 literal callee → JobReceipt, Tier 2 dynamic → Unknown, all shape violations OOF-TY0; TypeChecker/SemanticIR proof only, VM record construction deferred) | igniter-lab | ✅ DONE | 46/46 |
+| LAB-SIDEKIQ-P4 (JobReceipt schema — `type JobReceipt` 5-field record, P13 nominal record typechecking, P11 Tier 1 literal callee → JobReceipt, Tier 2 dynamic → Unknown, all shape violations OOF-TY0) | igniter-lab | ✅ DONE | 46/46 |
+| LAB-RECORD-VM-P1 (VM record construction — JobReceipt end-to-end in VM; see shared section above) | igniter-lab | ✅ DONE (shared) | 43/43 |
 | Grammar analog | igniter-lang | ❌ lab pressure only (CR-001 applies) | — |
 
-**Alignment gap:** LAB-SIDEKIQ-P1..P4 → lang | Structured JobReceipt output record typed at compile time via P13 `check_record_literal_shape` — zero new compiler code required. P11 Tier 1 propagates named record types. Still open: VM record construction (P5/P14), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
+**Alignment gap:** LAB-SIDEKIQ-P1..P4 + RECORD-VM-P1 → lang | JobReceipt record typed at compile time and executed end-to-end in VM. Still open: nested record field access (P2 candidate), enum/status type system, async retry, queue storage, effect-callee dispatch, retry backoff schedule, non-uniform arity dispatch.
 
 **Boundary:** Job processing vocabulary is lab-only. No Sidekiq compatibility claim. No StorageCapability, ServiceLoop, or scheduler surfaces open. `call_contract` is lab-only with no stable API.
 
@@ -172,6 +175,7 @@ Rack/middleware vocabulary is lab-only.
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
 | LAB-DYNAMIC-DATA-P1: taxonomy + pressure map + boundary research | igniter-lab | ✅ CLOSED 2026-06-09 | Map/Record/JsonValue/Table/Unknown — research only |
+| PROP-043-P1: Map[K,V] Stage 1 design lock | igniter-lang | ✅ CLOSED 2026-06-09 | 15 decisions; stdlib.map.* v0 surface; OOF-MAP1/2/3 candidates; P2 fixture matrix ≥18 checks |
 
 **Three-tier hierarchy (research finding):**
 1. Named `Record` — known-schema data (proven: P12/P13/Sidekiq-P4)
@@ -180,7 +184,7 @@ Rack/middleware vocabulary is lab-only.
 
 **Closed surfaces:** `Map[String, Any]` at contract boundaries; `Unknown` as user type; `Table/DataFrame` before Stage 2 OLAPPoint; `null` as a language value; runtime-only schema validation.
 
-**Next design work:** PROP-043 Map[K,V] design lock (most urgent — Rack headers blocked). Named Record production promotion (PROP-004 amendment). JSON boundary stdlib deferred (no lab use case yet). Table/DataFrame hold (Stage 2).
+**Next design work:** ✅ PROP-043-P1 design lock complete (Map[K,V] Stage 1 — 15 decisions, stdlib.map.*, OOF-MAP1/2/3, P2 fixture matrix ≥18 checks). Next: PROP-043-P2 proof-local experiment. Named Record production promotion (PROP-004 amendment). JSON boundary stdlib deferred (no lab use case yet). Table/DataFrame hold (Stage 2).
 
 ---
 
@@ -199,7 +203,8 @@ Rack/middleware vocabulary is lab-only.
 | PROP-039 | Managed local recursion/loops | ✅ accepted; proposal-only | Vocabulary only; impl closed |
 | PROP-040 | Profile declarations | ✅ experiment-pass | OOF-M7/M8; closes CR-003 |
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
-| PROP-042 | T3 numeric measure expressions | ✅ experiment-pass (P3 CLOSED) | OOF-R10/R11 experiment-pass; production promotion → P4 planning (P5 auth required) |
+| PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
+| PROP-043 | Map[K,V] Stage 1 design lock | ✅ P1 design lock complete | 15 decisions; String-only keys v0; Option[V] lookup; from_pairs construction; OOF-MAP1/2/3; P2 proof-local next |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -385,6 +390,18 @@ Rack/middleware vocabulary is lab-only.
     Next: PROP-043 Map[K,V] design lock (immediate); Named Record production promotion; JSON boundary deferred; Table hold
     Docs: igniter-lab/lab-docs/lang/lab-dynamic-data-structures-json-map-table-research-boundary-v0.md
     Card: igniter-lang/.agents/work/cards/lang/LAB-DYNAMIC-DATA-P1.md
+31. ✅ PROP-043-P1: Map[K,V] Stage 1 design lock (2026-06-09)
+    Depends on: LAB-DYNAMIC-DATA-P1, LAB-RACK-P12/P13, LAB-SIDEKIQ-P4
+    15 decisions locked: String-only keys (v0); no literal syntax (deferred MapLit to v1); from_pairs construction;
+        Option[V] lookup always; Map≠Record design law; JSON stays closed; no new SemanticIR node kind (v0)
+    v0 stdlib: stdlib.map.get → Option[V]; stdlib.map.has_key → Bool; stdlib.map.from_pairs; stdlib.map.empty
+    v1 deferred: with_entry, keys, values, size, merge, to_pairs
+    Diagnostics (candidates): OOF-MAP1 (K≠String), OOF-MAP2 (Map[K,Any]), OOF-MAP3 (Unknown annotation)
+    P2 fixture matrix: MAP-A (annotations) + MAP-B (key restriction OOFs) + MAP-C (get/has_key) +
+        MAP-D (FullRackResponse+headers) + MAP-E (SemanticIR shapes) + MAP-F (regression) = ≥18 checks
+    Proposal: igniter-lang/.agents/work/proposals/PROP-043-map-kv-stage1-v0.md
+    Card: igniter-lang/.agents/work/cards/lang/PROP-043-P1.md
+    Next: PROP-043-P2 proof-local experiment in igniter-lang/experiments/prop043_map_kv_proof/
 
 ---
 
