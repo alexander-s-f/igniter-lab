@@ -403,7 +403,14 @@ impl Compiler {
                         self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(field))]);
                         return Ok(());
                     }
-                    self.emit(OP_LOAD_REF, vec![Value::String(Arc::from(full_name.as_str()))]);
+                    // LAB-VM-MAP-P1: input record field access fallback.
+                    // When `name` is an input (not a computed register), emit
+                    // OP_LOAD_REF(name) + OP_GET_FIELD(field) so the VM resolves
+                    // the base record from inputs and extracts the named field.
+                    // Previously emitted OP_LOAD_REF("name.field") which failed
+                    // at runtime because inputs use bare names as keys, not dotted paths.
+                    self.emit(OP_LOAD_REF, vec![Value::String(Arc::from(name))]);
+                    self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(field))]);
                     return Ok(());
                 }
                 // LAB-RECORD-VM-P3: chained field access — object is itself an expression

@@ -1602,6 +1602,39 @@ impl VM {
 
                             callee_result
                         }
+                        // ── LAB-VM-MAP-P1: Map runtime operations ────────────────────────────
+                        // Option representation: None = Value::Nil, Some(v) = raw v (no wrapper).
+                        // Map runtime representation: Value::Record(BTreeMap<String, Value>).
+                        // map_get(map, key)     → Option[V]: Nil if absent, raw value if present.
+                        // map_has_key(map, key) → Bool: true iff key exists.
+                        // or_else(option, fallback) is handled above (pre-existing).
+                        "map_get" | "stdlib.map.get" => {
+                            if args.len() != 2 {
+                                return Err(format!("map_get expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let key = args[1].as_str()?;
+                            match &args[0] {
+                                Value::Record(map) => map.get(key).cloned().unwrap_or(Value::Nil),
+                                Value::Nil => Value::Nil,
+                                _ => return Err(format!(
+                                    "map_get: first argument must be a Map (Record), got {:?}", args[0]
+                                )),
+                            }
+                        }
+                        "map_has_key" | "stdlib.map.has_key" => {
+                            if args.len() != 2 {
+                                return Err(format!("map_has_key expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let key = args[1].as_str()?;
+                            match &args[0] {
+                                Value::Record(map) => Value::Bool(map.contains_key(key)),
+                                Value::Nil => Value::Bool(false),
+                                _ => return Err(format!(
+                                    "map_has_key: first argument must be a Map (Record), got {:?}", args[0]
+                                )),
+                            }
+                        }
+                        // ── end LAB-VM-MAP-P1 ────────────────────────────────────────────────
                         _ => {
                             return Err(format!("OP_CALL: Unknown/unimplemented function '{}' with {} arguments", fn_name, arg_count));
                         }
