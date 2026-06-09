@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (PROP-043-P1: Map[K,V] Stage 1 design lock — 15 decisions, stdlib.map.* surface, OOF-MAP1/2/3 candidates, P2 fixture matrix ≥18 checks)
+**Last updated:** 2026-06-09 (PROP-042-P5: T3 numeric measure expressions — production implementation 45/45 PASS; T1/T2/R3 regressions clean; LAB-T3-P1 Rust symmetry unblocked)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -106,6 +106,7 @@ TextEngine, streaming text, method syntax forms, stable public stdlib.text API.
 | PROP-042-P2 T3 proof-local experiment | igniter-lang | ✅ CLOSED 2026-06-09 — T3Pipeline + T3TypeChecker + T3Emitter; OOF-R10/R11 candidates proven; 36/36 PASS |
 | PROP-042-P3 T3 acceptance decision | igniter-lang | ✅ CLOSED 2026-06-09 — P2 accepted; OOF-R10/R11 → experiment-pass; P4 production-edit planning authorized |
 | PROP-042-P4 T3 production-edit planning | igniter-lang | ✅ CLOSED 2026-06-09 — exact +112-line plan; classifier no-change; OOF-R9 confirmed production-safe; P5 authorized |
+| PROP-042-P5 T3 production implementation | igniter-lang | ✅ CLOSED 2026-06-09 — parser.rb + typechecker.rb + semanticir_emitter.rb; numeric_measure_v0 live; 45/45 PASS; T1/T2/R3 regressions clean; LAB-T3-P1 unblocked |
 | ServiceLoop | → PROP-037 exclusive | excluded from PROP-039 |
 | Parser / TypeChecker / SemanticIR | igniter-lang | ✅ experiment-pass compiler surface |
 | Runtime / recursive execution / termination proof / VM stack / TCO | igniter-lang | **closed** — separate authorization required |
