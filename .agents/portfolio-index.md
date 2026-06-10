@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** LAB-STORAGE-ADAPTER-P1 CLOSED (80/80 PASS - mocked Storage adapter boundary; Query v0 semantics reused; missing mock source => system_error; real DB/SQL/ORM HOLD) | LAB-IGV-TAILMIX-P3 CLOSED (70/70 PASS — Sidebar+FileTreeRow bundle dedup, slot values, nested compose, per-instance isolation)
+**Last updated:** LAB-FRONTIER-EXPEDITION-P1 CLOSED (frontier report, read-only — Accountability Loop half-built: Decide/Gap-J + Audit/Gap-N spec-only; agent accountability substrate ~70%; receipt=evidence design-law + deterministic-replay latent; white-space: constraints{}/StrategyDecision/SimulationReceipt/PostAuditReceipt zero lab pressure; 6 breakthrough candidates; FRONTIER-DECISION (Gap-J) recommended first; nothing authorized; lab-docs/governance/igniter-frontier-expedition-insights-and-breakthrough-concepts-v0.md) | LAB-STORAGE-ADAPTER-P1 CLOSED (80/80 PASS - mocked Storage adapter boundary; Query v0 semantics reused; missing mock source => system_error; real DB/SQL/ORM HOLD) | LAB-IGV-TAILMIX-P3 CLOSED (70/70 PASS — Sidebar+FileTreeRow bundle dedup, slot values, nested compose, per-instance isolation)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
