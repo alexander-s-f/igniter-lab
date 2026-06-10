@@ -1,0 +1,89 @@
+{
+  "bundle_id": "sha256:63157b4265357541c4a21621c2c0afe41c709cc7562f593d0ebe2e1e08c22943",
+  "component_map": {
+    "Sidebar": "sha256:c59650b539c5111a5d5b2e849c0b2212215640b4fbfb8f5fe6d40584a38b0570",
+    "FileTreeRow": "sha256:d9e2a8bb5abdb4850579ba071a7b18bc7e2840e51c3b65c6305211edeebb1cf5"
+  },
+  "definitions": {
+    "sha256:c59650b539c5111a5d5b2e849c0b2212215640b4fbfb8f5fe6d40584a38b0570": {
+      "def_id": "sha256:c59650b539c5111a5d5b2e849c0b2212215640b4fbfb8f5fe6d40584a38b0570",
+      "component": "Sidebar",
+      "states": {
+        "search_active": { "default": false }
+      },
+      "slots": {
+        "title": { "type": "String", "default": "" },
+        "items": { "type": "List", "default": [] }
+      },
+      "elements": {
+        "header": {
+          "rules": [
+            {
+              "when": "state.search_active",
+              "classes": ["search-mode"],
+              "aria": { "label": "Search mode" },
+              "else": {
+                "classes": ["browse-mode"],
+                "aria": { "label": "Browse mode" }
+              }
+            }
+          ],
+          "on": {
+            "click": [
+              { "op": "dispatch", "event": "sidebar_focused" }
+            ]
+          }
+        },
+        "search_toggle": {
+          "on": {
+            "click": [
+              { "op": "toggle", "target": "state.search_active" }
+            ]
+          }
+        }
+      },
+      "children": {
+        "item_list": {
+          "component": "FileTreeRow",
+          "slot": "items"
+        }
+      }
+    },
+    "sha256:d9e2a8bb5abdb4850579ba071a7b18bc7e2840e51c3b65c6305211edeebb1cf5": {
+      "def_id": "sha256:d9e2a8bb5abdb4850579ba071a7b18bc7e2840e51c3b65c6305211edeebb1cf5",
+      "component": "FileTreeRow",
+      "states": {
+        "expanded": { "default": false }
+      },
+      "elements": {
+        "row": {
+          "rules": [
+            {
+              "when": "state.expanded",
+              "classes": ["open"],
+              "aria": { "expanded": "true" },
+              "else": {
+                "classes": ["closed"],
+                "aria": { "expanded": "false" }
+              }
+            }
+          ]
+        },
+        "toggle_btn": {
+          "on": {
+            "click": [
+              { "op": "toggle", "target": "state.expanded" }
+            ]
+          }
+        },
+        "action_btn": {
+          "on": {
+            "click": [
+              { "op": "dispatch", "event": "file_selected" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+-- DESIGN SKETCH ONLY. Not canon. No grammar adoption. No compiler support.
+-- LAB-IGV-TAILMIX-P3 illustrative .igv candidate syntax.
+-- Key ordering: states → slots → elements → children.
+-- This file is referenced by the proof runner to confirm it exists and is
+-- marked non-canon; it is NOT compiled or executed by any toolchain.
+
+component Sidebar
+
+  -- Slot declarations (values arrive from contracts via dispatch seam)
+  slot title : String
+  slot items : List[FileTreeRow.Props]
+
+  -- Local state (owned by the :local tier; never sent to contracts)
+  state search_active : Bool = false
+
+  element header
+    style state.search_active
+      classes: [search-mode]
+      aria: { label: "Search mode" }
+    otherwise
+      classes: [browse-mode]
+      aria: { label: "Browse mode" }
+    on click
+      dispatch sidebar_focused
+
+  element search_toggle
+    on click
+      toggle state.search_active
+
+  -- Composition: each item in slot `items` renders a FileTreeRow child instance.
+  -- One FileTreeRow definition; N instances each with isolated local state.
+  children item_list
+    component FileTreeRow
+    from items
+
+-- ─────────────────────────────────────────────────────────────────────────────
+
+component FileTreeRow
+
+  state expanded : Bool = false
+
+  element row
+    style state.expanded
+      classes: [open]
+      aria: { expanded: "true" }
+    otherwise
+      classes: [closed]
+      aria: { expanded: "false" }
+
+  element toggle_btn
+    on click
+      toggle state.expanded
+
+  element action_btn
+    on click
+      dispatch file_selected
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- This `.igv` syntax is an ILLUSTRATIVE CANDIDATE only.
+-- It does NOT imply grammar adoption, compiler support, or any stable API.
+-- The canonical proof artifacts are the JSON definitions and the Ruby proof runner.
+-- LAB-ONLY. No canon claim. No public API.
