@@ -1,0 +1,36 @@
+{
+  "def_id": "sha256:d9e2a8bb5abdb4850579ba071a7b18bc7e2840e51c3b65c6305211edeebb1cf5",
+  "component": "FileTreeRow",
+  "states": {
+    "expanded": { "default": false }
+  },
+  "elements": {
+    "row": {
+      "rules": [
+        {
+          "when": "state.expanded",
+          "classes": ["open"],
+          "aria": { "expanded": "true" },
+          "else": {
+            "classes": ["closed"],
+            "aria": { "expanded": "false" }
+          }
+        }
+      ]
+    },
+    "toggle_btn": {
+      "on": {
+        "click": [
+          { "op": "toggle", "target": "state.expanded" }
+        ]
+      }
+    },
+    "action_btn": {
+      "on": {
+        "click": [
+          { "op": "dispatch", "event": "file_selected" }
+        ]
+      }
+    }
+  }
+}
