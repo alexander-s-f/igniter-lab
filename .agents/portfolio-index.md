@@ -1,7 +1,7 @@
 # igniter-lab: Portfolio Index
 
 **Maintained by:** Portfolio Architect Supervisor
-**Last updated:** 2026-06-09 (PROP-044-P4: variant+match TypeChecker design — @variant_shapes 3-level store; variant_shapes() builder; classifier bridge (variant_declarations() + classified_program key); infer_variant_construct pseudocode; infer_match_expr pseudocode; unify_match_arm_types; OOF-KIND1..5 formal trigger+message definitions; per-arm narrowed scopes; exhaustiveness algorithm; degraded mode; 16 design decisions locked; proof requirements 15 groups ~75-80 checks; P5 implementation requires explicit auth) | (PROP-044-P3: variant+match parser implementation — fat_arrow lexer; variant/match keywords; parse_variant_decl/parse_variant_arm/parse_variant_construct/parse_match_expr/parse_match_arm/parse_match_pattern; ParsedProgram variants field + grammar_version=variant-v0; 50/50 PASS; all prior proofs clean) | (LAB-STORAGE-CAPABILITY-P1: IO.StorageCapability boundary design — allowed_sources (fail-closed); allowed_ops (["read"] v0); row_limit clamp; allow_include_all gate; read_allowed/write_allowed split; 6-gate denial-as-data sequence; QueryExecutionReceipt shape; ExecuteQuery ESCAPE→STORAGE fragment; OOF-STORE1..5 candidates; 10 decisions locked; DB/SQL/ORM/migrations/transactions permanently closed) | (PROP-045-P1: Source-level intent descriptor — keyword `intent`; bounded plain string; module+contract placement; preserved in contract_ir as intent_text; not in behavior digest; not capability/policy/runtime; OOF-INTENT1..4 reserved; CR-003 orthogonal; P2 parser impl requires explicit auth; 20 decisions locked) | (LAB-QUERY-P2: QueryPlan pure builder proof — 6 contracts (BuildQuerySource/BuildSelectQuery/BuildFilteredQuery/QueryResultDenied/QueryMetadataReader/QueryMapper); 7 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied); denial-as-data QueryResult{kind:"denied"}; C1 chain in 4th domain; all CORE fragment; 42/42 PASS) | (PROP-044-P2: variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expression; type narrowing rules; OOF-KIND1..5 formal definitions; SemanticIR shapes (variant_decl/variant_construct/match_node); parser+typechecker extension points; 15 design decisions locked; P3 parser impl requires explicit auth) | (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
+**Last updated:** 2026-06-10 (LAB-QUERY-P3: QueryPlan v1 nested records + Collection[FilterPredicate] proof — 8 contracts; 7 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied); Layer A+B (Ruby TC + Rust VM); chained field access plan.source.table (two-hop OP_GET_FIELD); C1 chain (map_get+or_else) on richer QueryPlan; denial-as-data kind:"denied" 8th proof; Rust typechecker array_literal gap documented; 44/44 PASS) | (PROP-044-P5: variant+match TypeChecker implementation — classifier bridge (variant_declarations() method + variant_declarations key in classified_program); @variant_shapes 3-level store (variant→arm→field→type_ir); variant_shapes() builder; find_variant_for_arm(); infer_variant_construct; infer_match_expr (full + degraded mode); unify_match_arm_types; OOF-KIND1..5 ACTIVE; variant_env propagated to typed_program; 75/75 PASS; all regressions clean 55+33+100+50) | (PROP-045-P2: intent descriptor parser + metadata propagation proof — ParsedProgram#to_h intent_text fix; keyword added to KEYWORDS; module-level + contract-level parse; classifier OOF-INTENT3; typechecker pass-through; SemanticIR intent_text emission; orthogonal to profile_binding; 53/53 PASS; 15 decisions locked) | (PROP-044-P4: variant+match TypeChecker design — @variant_shapes 3-level store; variant_shapes() builder; classifier bridge (variant_declarations() + classified_program key); infer_variant_construct pseudocode; infer_match_expr pseudocode; unify_match_arm_types; OOF-KIND1..5 formal trigger+message definitions; per-arm narrowed scopes; exhaustiveness algorithm; degraded mode; 16 design decisions locked; proof requirements 15 groups ~75-80 checks; P5 implementation requires explicit auth) | (PROP-044-P3: variant+match parser implementation — fat_arrow lexer; variant/match keywords; parse_variant_decl/parse_variant_arm/parse_variant_construct/parse_match_expr/parse_match_arm/parse_match_pattern; ParsedProgram variants field + grammar_version=variant-v0; 50/50 PASS; all prior proofs clean) | (LAB-STORAGE-CAPABILITY-P1: IO.StorageCapability boundary design — allowed_sources (fail-closed); allowed_ops (["read"] v0); row_limit clamp; allow_include_all gate; read_allowed/write_allowed split; 6-gate denial-as-data sequence; QueryExecutionReceipt shape; ExecuteQuery ESCAPE→STORAGE fragment; OOF-STORE1..5 candidates; 10 decisions locked; DB/SQL/ORM/migrations/transactions permanently closed) | (PROP-045-P1: Source-level intent descriptor — keyword `intent`; bounded plain string; module+contract placement; preserved in contract_ir as intent_text; not in behavior digest; not capability/policy/runtime; OOF-INTENT1..4 reserved; CR-003 orthogonal; P2 parser impl requires explicit auth; 20 decisions locked) | (LAB-QUERY-P2: QueryPlan pure builder proof — 6 contracts (BuildQuerySource/BuildSelectQuery/BuildFilteredQuery/QueryResultDenied/QueryMetadataReader/QueryMapper); 7 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied); denial-as-data QueryResult{kind:"denied"}; C1 chain in 4th domain; all CORE fragment; 42/42 PASS) | (PROP-044-P2: variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expression; type narrowing rules; OOF-KIND1..5 formal definitions; SemanticIR shapes (variant_decl/variant_construct/match_node); parser+typechecker extension points; 15 design decisions locked; P3 parser impl requires explicit auth) | (LAB-QUERY-P1: Query/Arel-like data access pressure boundary — QueryPlan/QueryResult/FilterPredicate/OrderBy/QuerySource typed Records; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary defined; denial-as-data 5-kind QueryResult; CORE fragment class for plan-building; LAB-QUERY-P2 next) | (LAB-COMPILER-LIVENESS-P6: Body-decl recovery generalised — 11 .ok() arms → parse_body_decl_with_recovery; window/loop/for deferred to P7; decreases proved always-Ok; 54/54 PASS) | (PROP-044-P1: Kind-discriminated outcome convention and sum type requirements — convention doc authored; KDR pattern defined; denial-as-data invariant stated; grammar gap enumerated (variant+match+narrowing); OOF-KIND1..4 namespace reserved; production implementation blocked; grammar proposal P2 authorized) | (LAB-COMPILER-LIVENESS-P5: Parser hang class closed — peek_type EOF fix; parse_body_decl_with_recovery; parse_type_decl field recovery; BoundedCommand timeout kill; 46/46 PASS) | (LAB-RESULT-ENVELOPE-P2: Third-domain kind-discriminant pressure — validation/form-processing domain; ValidationResult 4-kind (valid/invalid/unauthorized/system_error); no HTTP status, no job fields; denial-as-data 7th proof; Map[String,String] metadata 3rd context; kind-discriminant generalised across 3 domains; PROP-044 unblocked for proposal-authoring; 50/50 PASS) | (LAB-CONCURRENCY-P4: Minimal scheduler substrate contract design-locked; five-phase model; 9 invariants SI-1..SI-9) | (LAB-VM-MAP-P1: VM runtime map_get/map_has_key OP_CALL handlers; or_else pre-existing; Value::Record = Map runtime; compiler input field access fix; Rack P14 10/10 gap closed; 48/48 PASS) | (LAB-RESULT-ENVELOPE-P1: Governance taxonomy — 5 reusable patterns confirmed; next route = LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2)
 **Scope:** Cross-repo state map for igniter-lab ↔ igniter-lang
 
 ---
@@ -210,10 +210,11 @@ Rack/middleware vocabulary is lab-only.
 | PROP-044-P2 (variant+match grammar design — VariantDecl EBNF; MatchExpr EBNF; VariantConstruct expr; type narrowing rules; OOF-KIND1..5 formal defs; SemanticIR shapes; parser+typechecker extension points; 15 decisions locked; P3 parser impl requires explicit auth) | igniter-lang | ✅ DONE — grammar design authored | governance |
 | PROP-044-P3 (variant+match parser implementation — fat_arrow lexer; variant/match keywords; 6 new parse methods; ParsedProgram variants field + grammar_version=variant-v0; conflict boundaries proved; TypeChecker no-crash confirmed; all prior proofs clean; 50/50 PASS) | igniter-lang | ✅ DONE — parser implemented | lang |
 | PROP-044-P4 (TypeChecker design — @variant_shapes 3-level store; classifier bridge (variant_declarations() + classified_program key); infer_variant_construct; infer_match_expr; unify_match_arm_types; OOF-KIND1..5 formal defs; per-arm narrowing; exhaustiveness algorithm; degraded mode; 16 design decisions; proof requirements 15 groups ~75-80 checks; P5 implementation requires explicit auth) | igniter-lang | ✅ DONE — typechecker design authored | governance |
+| PROP-044-P5 (TypeChecker implementation — classifier bridge live; @variant_shapes store; infer_variant_construct; infer_match_expr full+degraded; unify_match_arm_types; OOF-KIND1..5 ACTIVE; variant_env in typed_program; 75/75 PASS; regressions clean 55+33+100+50) | igniter-lang | ✅ DONE — TypeChecker implemented | lang |
 
-**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **7 proofs**, 3 domains), kind-discriminant (**confirmed cross-domain** — 3 domains + QueryResult = 4th), Map[String,String] (**4 contexts**: transport headers + job metadata + form metadata + query metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
-**Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; ~~grammar design~~ → ✅ PROP-044-P2 authored; ~~parser implementation~~ → ✅ PROP-044-P3 PASS 50/50; ~~typechecker design~~ → ✅ PROP-044-P4 authored; TypeChecker implementation (P5) requires explicit authorization.  
-**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → ~~P1 AUTHORED~~ → ~~P2 GRAMMAR DESIGN AUTHORED~~ → ~~P3 PARSER LIVE~~ → **P4 TYPECHECKER DESIGN AUTHORED** — @variant_shapes; classifier bridge; infer_variant_construct; infer_match_expr; OOF-KIND1..5 formal defs; 16 decisions; P5 TypeChecker implementation requires explicit authorization.  
+**Confirmed reusable patterns (no promotion yet):** denial-as-data (design law — **8 proofs**, 4 domains: network + HTTP + validation + query), kind-discriminant (**confirmed cross-domain** — 4 domains: HttpResult + ContractResult + ValidationResult + QueryResult), Map[String,String] (**4 contexts**: transport headers + job metadata + form metadata + query metadata), three-layer composition (**confirmed in validation domain**), attempt+max_attempts budget (domain-local — retry-capable domains only; NOT universal).  
+**Blockers for any canon proposal:** ~~VM map_get bytecode~~ → ✅ closed; ~~only 2 domains~~ → ✅ 3 domains (P2); ~~proposal-authoring~~ → ✅ PROP-044-P1 authored; ~~grammar design~~ → ✅ PROP-044-P2 authored; ~~parser implementation~~ → ✅ PROP-044-P3 PASS 50/50; ~~typechecker design~~ → ✅ PROP-044-P4 authored; ~~TypeChecker implementation~~ → ✅ PROP-044-P5 PASS 75/75; SemanticIR emitter (P6) requires explicit authorization.  
+**PROP-044 status:** ~~deferred~~ → ~~PROPOSAL-AUTHORING ONLY~~ → ~~P1 AUTHORED~~ → ~~P2 GRAMMAR DESIGN AUTHORED~~ → ~~P3 PARSER LIVE~~ → ~~P4 TYPECHECKER DESIGN AUTHORED~~ → **P5 TYPECHECKER LIVE** — OOF-KIND1..5 ACTIVE; @variant_shapes; infer_variant_construct; infer_match_expr; 75/75 PASS; P6 SemanticIR emitter requires explicit authorization.  
 **LAB-QUERY-P1:** Query/Arel-like data access boundary defined — QueryPlan v0 types (QuerySource/Projection/FilterPredicate/OrderBy/QueryPlan/QueryResult/StorageDenied) all expressible as named Records today; ORM permanently closed; joins/aggregates deferred to v1; StorageCapability boundary modelled on PROP-035; LAB-QUERY-P2 authorized (42 checks).
 
 ### Data Access / Query (LAB-QUERY)
@@ -223,8 +224,9 @@ Rack/middleware vocabulary is lab-only.
 | LAB-QUERY-P1 (Research: Arel-like query intent as typed records — QueryPlan/QueryResult/FilterPredicate/OrderBy types; ORM permanently closed; joins/aggregates deferred; StorageCapability boundary; denial-as-data 5-kind QueryResult; LAB-QUERY-P2 authorized) | igniter-lab | ✅ DONE — research + design boundary | lang / research |
 | LAB-QUERY-P2 (QueryPlan pure builder proof — 6 contracts; 7 types; BuildQuerySource+BuildSelectQuery+BuildFilteredQuery+QueryResultDenied+QueryMetadataReader+QueryMapper; denial-as-data QueryResult{kind:"denied"}; C1 chain in 4th domain (result.metadata→Map[String,String]→Option[String]); all CORE fragment; 42/42 PASS) | igniter-lab | ✅ DONE — 42/42 PASS | lang / proof |
 | LAB-STORAGE-CAPABILITY-P1 (IO.StorageCapability boundary design — allowed_sources/allowed_ops/row_limit/allow_include_all/read_allowed/write_allowed schema; 6-gate denial-as-data sequence; QueryExecutionReceipt shape; ExecuteQuery effect contract form (future); ESCAPE→STORAGE fragment; OOF-STORE1..5 candidates; 10 decisions locked) | igniter-lab | ✅ DONE — design-locked | lang / design |
+| LAB-QUERY-P3 (QueryPlan v1 nested records + Collection[FilterPredicate] — 8 contracts; 7 types; nested QuerySource/Projection/OrderBy/Collection[FilterPredicate]; chained field access plan.source.table (LAB-RECORD-VM-P3 two-hop OP_GET_FIELD); C1 chain on richer QueryPlan; QueryResultDenied denial-as-data 8th proof; Rust typechecker array_literal gap documented; Layer A: Ruby TC; Layer B: Rust VM; Layer C: QueryExecutorSim; 44/44 PASS) | igniter-lab | ✅ DONE — 44/44 PASS | lang / proof |
 
-**Boundary:** QueryPlan v0 = pure CORE contracts; no grammar changes; no SQL; no DB connections. ORM/ActiveRecord permanently incompatible. `IO.StorageCapability` schema designed (follows PROP-035 model; grammar impl requires PROP-035). QueryResult follows KDR convention (PROP-044-P1). ExecuteQuery = ESCAPE → STORAGE (Stage 2+). LAB-STORAGE-CAPABILITY-P1 design-locked.
+**Boundary:** QueryPlan v1 = nested typed records (QuerySource/Projection/FilterPredicate/OrderBy) + Collection[FilterPredicate] + Map[String,String] metadata; all pure CORE contracts; no grammar changes; no SQL; no DB connections. ORM/ActiveRecord permanently incompatible. `IO.StorageCapability` schema designed (follows PROP-035 model; grammar impl requires PROP-035). QueryResult follows KDR convention (PROP-044-P1). ExecuteQuery = ESCAPE → STORAGE (Stage 2+). LAB-STORAGE-CAPABILITY-P1 design-locked. Rust typechecker array_literal gap: accepted by Layer A (Ruby TC) but blocked by Rust typechecker catch-all; Collection[FilterPredicate] as input accepted by both layers. Candidate: LAB-TC-ARRAY-P1.
 
 ### Web Framework / View Engine (Lab only)
 
@@ -273,8 +275,8 @@ Rack/middleware vocabulary is lab-only.
 | PROP-041 | T2 structural-size relation | ✅ experiment-pass (proposal authored P5; P3 proof-local 48/48) | OOF-R8/R9 canonical; production edits → P6 |
 | PROP-042 | T3 numeric measure expressions | ✅ P4 planning complete | OOF-R10/R11 experiment-pass; production implementation → P5 (authorized) |
 | PROP-043 | Map[K,V] Stage 1 — production live + Rust lab symmetry | ✅ P1+P2+P3+P4+P5 complete; LAB-MAP-RUST-P1 closed | OOF-MAP1/2/3 active; map_get/has_key/from_pairs/empty + or_else live; C1 fix; Record/Map bridge: map_get(response.headers,key)→Option[String]; 55/55 PASS; Rust symmetry 32/32 PASS; all regressions clean |
-| PROP-044 | Kind-discriminated outcome convention + sum type requirements | ✅ P1+P2+P3+P4 complete | P1: KDR convention; denial-as-data; OOF-KIND1..4 reserved. P2: VariantDecl+MatchExpr EBNF; OOF-KIND1..5; SemanticIR shapes; 15 decisions. P3: parser live — fat_arrow; 6 parse methods; grammar_version=variant-v0; 50/50 PASS. P4: TypeChecker design — @variant_shapes; classifier bridge; infer_variant_construct/infer_match_expr pseudocode; OOF-KIND1..5 formal; 16 decisions; P5 implementation requires explicit auth |
-| PROP-045 | Source-level `intent` descriptor and queryable contract purpose | ✅ P1 proposal-authoring complete | Keyword: `intent`; bounded plain string; module+contract placement; intent_text in contract_ir; not in behavior digest; not capability/policy/runtime; OOF-INTENT1..4 reserved; CR-003 orthogonal (different surface); P2 parser impl requires explicit auth; 20 decisions locked |
+| PROP-044 | Kind-discriminated outcome convention + sum type requirements | ✅ P1+P2+P3+P4+P5 complete | P1: KDR convention; denial-as-data; OOF-KIND1..4 reserved. P2: VariantDecl+MatchExpr EBNF; OOF-KIND1..5; SemanticIR shapes; 15 decisions. P3: parser live; 50/50 PASS. P4: TypeChecker design; 16 decisions. P5: TypeChecker+OOF-KIND1..5 ACTIVE; classifier bridge; @variant_shapes; infer_variant_construct; infer_match_expr; 75/75 PASS; P6 SemanticIR requires auth |
+| PROP-045 | Source-level `intent` descriptor and queryable contract purpose | ✅ P1+P2 complete | P1: keyword `intent`; bounded plain string; module+contract placement; OOF-INTENT1..4 reserved; CR-003 orthogonal; 20 decisions locked. P2: production parser+classifier+typechecker+emitter; to_h fix; OOF-INTENT3 active; 53/53 PASS; 15 decisions locked |
 
 **Next queue:**
 1. ✅ PROP-039 gate 1: loop_class_semantics_proof — 66/66 PASS (2026-06-07)
@@ -589,7 +591,8 @@ Rack/middleware vocabulary is lab-only.
       ✅ next: PROP-044-P2 CLOSED (VariantDecl+MatchExpr EBNF; OOF-KIND1..5; SemanticIR shapes; 15 decisions)
       ✅ next: PROP-044-P3 CLOSED (50/50 PASS — fat_arrow; 6 parse methods; grammar_version=variant-v0)
       ✅ next: PROP-044-P4 CLOSED (TypeChecker design — @variant_shapes; classifier bridge; OOF-KIND1..5; 16 decisions)
-      next (explicit auth required): PROP-044-P5 TypeChecker implementation + OOF-KIND activation
+      ✅ next: PROP-044-P5 CLOSED (75/75 PASS — OOF-KIND1..5 ACTIVE; infer_variant_construct; infer_match_expr; regressions clean)
+      next (explicit auth required): PROP-044-P6 SemanticIR emitter for variant_decl/variant_construct/match_node
 
 38. ✅ LAB-VM-MAP-P1: VM runtime map_get/map_has_key/or_else over Map[String,String] (2026-06-09)
     Category: lang / vm / Track: lab-vm-map-ops-runtime-proof-v0
@@ -668,6 +671,26 @@ Rack/middleware vocabulary is lab-only.
     Proposal: igniter-lang/.agents/work/proposals/PROP-045-source-intent-descriptor-and-queryable-contract-purpose-v0.md
     Card: igniter-lang/.agents/work/cards/lang/PROP-045-P1.md
 
+44b. ✅ PROP-045-P2: Source-level intent descriptor — parser + metadata propagation proof (2026-06-10)
+    Category: lang / Track: source-intent-descriptor-parser-and-metadata-proof-v0
+    Route: PARSER / METADATA PROPAGATION PROOF
+    Depends on: PROP-045-P1, PROP-033/040 (profile_binding precedent)
+    Production changes:
+      parser.rb: `intent` keyword; module-level parse (after module, before imports);
+        `parse_intent_decl` method; `parse_body_decl` dispatch arm; `ParsedProgram#to_h` intent_text fix
+      classifier.rb: intent body node → no symbol; OOF-INTENT3 on duplicate; contract + module intent_text propagation
+      typechecker.rb: contract + module intent_text pass-through
+      semanticir_emitter.rb: intent_text in typed_contract_ir + typed_semantic_ir_program
+    Key fix: `ParsedProgram#to_h` was missing `intent_text` — AST had the value; to_h did not emit it
+    OOF-INTENT3: NOW ACTIVE — fires in classifier; first intent kept; fragment_class → oof
+    Proved: intent_text present in contract_ir when declared; absent when not; orthogonal to profile_binding;
+      no fragment_class change; no type_errors; no compute node injection; no capability authority
+    53/53 PASS (8+8+6+8+6+6+5+6 across 8 sections)
+    Proof runner: igniter-lang/experiments/intent_descriptor_proof/intent_descriptor_proof.rb
+    Card: igniter-lang/.agents/work/cards/lang/PROP-045-P2.md
+    Closed: OOF-INTENT1/2/4 (not active); behavior digest inclusion; mandatory enforcement;
+            type/output/field-level intent; stable query API; secret detection
+
 45. ✅ LAB-STORAGE-CAPABILITY-P1: IO.StorageCapability query execution boundary design (2026-06-09)
     Category: lang / Track: lab-storage-capability-query-execution-boundary-design-v0
     Route: DESIGN / LAB-ONLY (no proof runner; design-locked)
@@ -697,10 +720,80 @@ Rack/middleware vocabulary is lab-only.
     OOF-STORE candidates (not active): OOF-STORE1 (dynamic source name — high); OOF-STORE2 (write on read-only — high); OOF-STORE3 (source not in list — medium); OOF-STORE4 (include_all on restricted cap — medium); OOF-STORE5 (row_limit:0 misconfig — low)
     10 design decisions locked (D1..D10)
     Permanently closed: real DB/SQL/ORM/ActiveRecord/migrations/transactions/persistence runtime
-    Deferred: write ops (v1); Collection[FilterPredicate] (v1); JOINs/aggregates (v1); delegation algebra (v1); STORAGE fragment class (Stage 2+)
-    Next authorized: LAB-QUERY-P3 (Collection[FilterPredicate]); PROP-046 (StorageCapability grammar proposal); LAB-STORAGE-CAPABILITY-P2 (requires PROP-035 grammar impl)
+    Deferred: write ops (v1); JOINs/aggregates (v1); delegation algebra (v1); STORAGE fragment class (Stage 2+)
+    ✅ Next: LAB-QUERY-P3 CLOSED (44/44 PASS — nested QuerySource/Projection/FilterPredicate/OrderBy; Collection[FilterPredicate]; chained field access; C1 chain; denial-as-data)
+    Next authorized: PROP-046 (StorageCapability grammar proposal); LAB-STORAGE-CAPABILITY-P2 (requires PROP-035 grammar impl); LAB-TC-ARRAY-P1 (Rust typechecker array_literal)
     Design doc: igniter-lab/lab-docs/lang/lab-storage-capability-query-execution-boundary-design-v0.md
     Card: igniter-lab/.agents/work/cards/lang/LAB-STORAGE-CAPABILITY-P1.md
+
+46. ✅ LAB-QUERY-P3: QueryPlan v1 nested records + Collection[FilterPredicate] proof (2026-06-10)
+    Category: lang / Track: lab-query-plan-nested-records-and-filter-collection-proof-v0
+    Route: EXPERIMENTAL / LAB-ONLY
+    Depends on: LAB-QUERY-P1, LAB-QUERY-P2, LAB-STORAGE-CAPABILITY-P1, LAB-RECORD-VM-P3, PROP-043-P5, LAB-VM-MAP-P1
+    QueryPlan v1 shape (7 types):
+      QuerySource { table:String, schema:String }
+      Projection { fields:String, include_all:Bool }
+      FilterPredicate { field:String, op:String, value:String }
+      OrderBy { field:String, direction:String }
+      QueryPlan { kind:String, source:QuerySource, projection:Projection, filters:Collection[FilterPredicate], order:OrderBy, limit:Integer, metadata:Map[String,String] }
+      QueryResult { kind:String, count:Integer, message:String, metadata:Map[String,String] }
+      StorageDenied { table:String, op:String, reason:String, kind:String }
+    8 contracts: BuildFilterPredicate + BuildOrderBy + BuildProjection + BuildQuerySource + BuildRichSelectPlan + PlanNestedFieldReader + PlanMetadataReader + QueryResultDenied
+    Key findings:
+      B1 — Rust typechecker array_literal gap: [f1,f2] accepted Layer A (Ruby TC); blocked Layer B (Rust _ => catch-all); Collection[FilterPredicate] as input accepted both layers; candidate: LAB-TC-ARRAY-P1
+      B2 — Chained field access plan.source.table: two-hop OP_GET_FIELD via LAB-RECORD-VM-P3 recursive compile_expr fix; confirmed on richer QueryPlan shape
+      B3 — C1 chain portable: map_get(plan.metadata,key)+or_else on QueryPlan v1; chain is domain-shape-independent (4th domain)
+      B4 — Denial-as-data 8th proof: QueryResult{kind:"denied"} constructed cleanly; no exception/raise; 4th domain
+    Layer A: Ruby TypeChecker — 8/8 accepted; 0 type_errors; Collection[FilterPredicate] type env correct
+    Layer B: Rust compiler + VM — 8/8 contracts compiled; all VM runs succeed; nested records preserved
+    Layer C: QueryExecutorSim — 5-kind routing; denial-as-data; "empty" ≠ "denied" ≠ "query_error"
+    All contracts pure CORE; no SQL; no DB; no ORM; no StorageCapability execution; no stable API
+    Next authorized: LAB-TC-ARRAY-P1; LAB-EXECUTE-QUERY-P1; LAB-FILTER-EVAL-P1
+    verify_lab_query_p3.rb: 44/44 PASS
+      QPLAN3-COMPILE 4/4 | QPLAN3-TYPES 6/6 | QPLAN3-NESTED 5/5 | QPLAN3-BUILD 4/4 |
+      QPLAN3-ARRAY 4/4 | QPLAN3-VM 8/8 | QPLAN3-CHAIN 4/4 | QPLAN3-KDR 4/4 | QPLAN3-CLOSED 5/5
+    Doc: igniter-lab/lab-docs/lang/lab-query-plan-nested-records-and-filter-collection-proof-v0.md
+    Card: igniter-lab/.agents/work/cards/lang/LAB-QUERY-P3.md
+
+47. ✅ PROP-044-P5: variant + match TypeChecker implementation (2026-06-10)
+    Category: lang / Track: variant-match-typechecker-and-oof-kind-activation-v0
+    Route: TYPECHECKER IMPLEMENTATION / BOUNDED
+    Depends on: PROP-044-P4
+    classifier.rb changes (2 edits):
+      variant_declarations(parsed_program) — maps parsed_program.fetch("variants", [])
+        → normalized arm+field hashes; reuses normalized_type_annotation() (PROP-043 C1)
+      classify(): result["variant_declarations"] = variant_decls unless variant_decls.empty?
+    typechecker.rb changes (5 edits):
+      typecheck(): @variant_shapes = variant_shapes(classified_program) after @type_shapes
+      typecheck() result: result["variant_env"] = @variant_shapes unless @variant_shapes.empty?
+      variant_shapes(classified_program) — 3-level builder (variant→arm→field→type_ir)
+        mirrors type_shapes(); variant_type?(name); variant_arms(name); find_variant_for_arm(arm)
+      infer_expr: when "variant_construct" / when "match_expr" before else→OOF-TY0
+      infer_variant_construct: arm search; field validation; type_ir(variant_name) on success
+      infer_match_expr: subject inference; OOF-KIND4 gate; per-arm narrowing; exhaustiveness;
+        OOF-KIND1/2/3 checks; result type unification; degraded mode for non-variant/Unknown
+      unify_match_arm_types: all-same→concrete; all-Unknown→Unknown; mixed-concrete→OOF-KIND5
+    OOF-KIND codes now ACTIVE:
+      OOF-KIND1: non-exhaustive match (missing arms, no wildcard)
+      OOF-KIND2: undeclared arm/binding/field in construct or match pattern
+      OOF-KIND3: unreachable arm (duplicate coverage)
+      OOF-KIND4: match subject is not a variant type
+      OOF-KIND5: divergent arm result types (concrete–concrete only; Unknown mix excluded)
+    Key behaviors:
+      Degraded mode: OOF-KIND4 fires; arm bodies still walked; Unknown result propagated
+      Partial binding: absent fields in binding list do NOT fire OOF-KIND2 (intentional)
+      Arm isolation: arm_scope = symbol_types.merge(arm_bindings); outer scope not mutated
+      Output mismatch from degraded match: standard OOF-TY0 at output check (not suppressed)
+    Closed: SemanticIR emitter; VM runtime; public/stable sum-type API
+    Next authorized (explicit auth required): PROP-044-P6 SemanticIR emitter
+    verify_prop044_p5_typechecker.rb: 75/75 PASS
+      VTCK-SHAPES 5/5 | VTCK-CONSTRUCT-OK 5/5 | VTCK-CONSTRUCT-ERR 5/5 |
+      VTCK-MATCH-OK 5/5 | VTCK-KIND1 5/5 | VTCK-KIND2-ARM 5/5 |
+      VTCK-KIND2-BINDING 5/5 | VTCK-KIND3 5/5 | VTCK-KIND4 5/5 | VTCK-KIND5 5/5 |
+      VTCK-SCOPE 5/5 | VTCK-UNIFY 5/5 | VTCK-DEGRADED 5/5 |
+      VTCK-REGRESSION 5/5 | VTCK-BOUNDARY 5/5
+    Regressions clean: PROP-043-P5 55/55 | OOF-R3 33/33 | loop_body 100/100 | P3-parser 50/50
+    Card: igniter-lang/.agents/work/cards/lang/PROP-044-P5.md
 
 45. ✅ PROP-044-P4: variant + match TypeChecker design (2026-06-09)
     Category: lang / governance / Track: variant-match-typechecker-and-oof-kind-planning-v0
@@ -736,7 +829,7 @@ Rack/middleware vocabulary is lab-only.
       VTCK-SHAPES, VTCK-CONSTRUCT-OK/ERR, VTCK-MATCH-OK, VTCK-KIND1..5,
       VTCK-SCOPE, VTCK-UNIFY, VTCK-DEGRADED, VTCK-REGRESSION, VTCK-BOUNDARY
     Closed: TypeChecker implementation; SemanticIR emitter; VM runtime; stable API
-    Next authorized (explicit auth required): PROP-044-P5 TypeChecker implementation + OOF-KIND activation
+    ✅ Next: PROP-044-P5 CLOSED (75/75 PASS — OOF-KIND1..5 ACTIVE; infer_variant_construct; infer_match_expr)
     Design doc: igniter-lang/.agents/work/proposals/PROP-044-variant-match-typechecker-and-oof-kind-planning-v0.md
     Card: igniter-lang/.agents/work/cards/lang/PROP-044-P4.md
 
@@ -796,7 +889,8 @@ Rack/middleware vocabulary is lab-only.
     "empty" kind: domain-specific to query (zero rows != error; not in ValidationResult/ContractResult)
     Two failure fixes (40→42): split string self-references + CLOSED-05 CORE-fragment proof
     ✅ Next: LAB-STORAGE-CAPABILITY-P1 CLOSED (IO.StorageCapability design-locked)
-    Next authorized: LAB-QUERY-P3 (Collection[FilterPredicate]); PROP-046 (grammar proposal)
+    ✅ Next: LAB-QUERY-P3 CLOSED (44/44 PASS — nested records; Collection[FilterPredicate]; chained field access; denial-as-data 8th proof)
+    Next authorized: PROP-046 (grammar proposal); LAB-TC-ARRAY-P1 (Rust typechecker array_literal); LAB-EXECUTE-QUERY-P1 (ExecuteQuery effect contract + mocked StorageCapability)
     verify_lab_query_p2.rb: 42/42 PASS
       QPLAN-COMPILE 4/4 | QPLAN-TYPES 5/5 | QPLAN-BUILD 6/6 | QPLAN-DENIED 4/4 |
       QPLAN-MAP 4/4 | QPLAN-VM 5/5 | QPLAN-ROUTE 5/5 | QPLAN-COMPARE 4/4 | QPLAN-CLOSED 5/5
@@ -825,7 +919,8 @@ Rack/middleware vocabulary is lab-only.
     TBackend distinction: Store[T] = temporal substrate (PROP-008); QueryPlan = relational intent — orthogonal tracks
     ✅ Next: LAB-QUERY-P2 CLOSED (42/42 PASS — 6 contracts; 7 types; denial-as-data; C1 chain 4th domain)
     ✅ Next: LAB-STORAGE-CAPABILITY-P1 CLOSED (IO.StorageCapability design-locked)
-    Next authorized: LAB-QUERY-P3 (Collection[FilterPredicate]); PROP-046 (StorageCapability grammar proposal)
+    ✅ Next: LAB-QUERY-P3 CLOSED (44/44 PASS — nested records; Collection[FilterPredicate]; chained field access; denial-as-data)
+    Next authorized: PROP-046 (StorageCapability grammar proposal); LAB-TC-ARRAY-P1 (Rust typechecker array_literal); LAB-EXECUTE-QUERY-P1 (ExecuteQuery + mocked StorageCapability)
     Doc: igniter-lab/lab-docs/lang/lab-query-arel-like-data-access-pressure-boundary-v0.md
     Card: igniter-lab/.agents/work/cards/lang/LAB-QUERY-P1.md
 
