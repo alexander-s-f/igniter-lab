@@ -770,25 +770,35 @@ impl Compiler {
                         None
                     };
 
-                    // Extract payload bindings into scoped temp registers
-                    let mut binding_regs: Vec<(String, i64)> = Vec::new();
+                    // Extract payload bindings into scoped temp registers.
+                    // Save any outer register shadowed by a same-named binding so
+                    // it can be restored after the arm body compiles.  Without this,
+                    // a compute node whose name equals a binding (e.g.
+                    // `compute attempt = match … { Arm { attempt } => attempt }`)
+                    // would have its register entry deleted by the cleanup below,
+                    // causing an unwrap() panic at the OP_STORE_REG emission site.
+                    let mut saved_outer: Vec<(String, Option<i64>)> = Vec::new();
                     for binding in &bindings {
+                        let outer = self.compute_node_registers.get(binding).copied();
+                        saved_outer.push((binding.clone(), outer));
                         self.emit(OP_LOAD_REG, vec![Value::Integer(subject_reg)]);
                         self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(binding.as_str()))]);
                         let reg = self.next_register;
                         self.next_register += 1;
                         self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
-                        // Make binding available in arm body scope
                         self.compute_node_registers.insert(binding.clone(), reg);
-                        binding_regs.push((binding.clone(), reg));
                     }
 
                     // Compile arm body (result left on stack)
                     self.compile_expr(body)?;
 
-                    // Remove bindings from scope before moving on
-                    for (name, _) in &binding_regs {
-                        self.compute_node_registers.remove(name);
+                    // Restore scope: if an outer register was shadowed, put it back;
+                    // otherwise remove the binding entirely.
+                    for (name, maybe_outer) in &saved_outer {
+                        match maybe_outer {
+                            Some(outer_reg) => { self.compute_node_registers.insert(name.clone(), *outer_reg); }
+                            None => { self.compute_node_registers.remove(name); }
+                        }
                     }
 
                     // Jump to end (successful arm — skip remaining arms)
