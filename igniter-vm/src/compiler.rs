@@ -10,6 +10,10 @@ pub struct Compiler {
     instructions: Vec<Instruction>,
     compute_node_registers: HashMap<String, i64>,
     next_register: i64,
+    // LAB-SRCMAP-P2: parallel span-map; each slot mirrors the instruction at the same offset.
+    // Populated by emit(); consumers call take_node_id_map() after compile_entry().
+    node_id_map: Vec<Option<String>>,
+    current_node_id: Option<String>,
 }
 
 impl Compiler {
@@ -18,7 +22,16 @@ impl Compiler {
             instructions: Vec::new(),
             compute_node_registers: HashMap::new(),
             next_register: 1000,
+            node_id_map: Vec::new(),
+            current_node_id: None,
         }
+    }
+
+    // LAB-SRCMAP-P2: drain the node_id map after compile_entry().
+    // The returned Vec is parallel to the bytecode returned by compile_entry():
+    // index N maps to the instruction at offset N.
+    pub fn take_node_id_map(&mut self) -> Vec<Option<String>> {
+        std::mem::take(&mut self.node_id_map)
     }
 
     // Compile a high-level contract graph into linear bytecode instructions.
@@ -36,6 +49,8 @@ impl Compiler {
         self.instructions.clear();
         self.compute_node_registers.clear();
         self.next_register = 1000;
+        self.node_id_map.clear();
+        self.current_node_id = None;
 
         // Extract contract object: support semantic_ir_program format or direct contract JSON.
         // LAB-RACK-P7: with entry_name, search by contract_name; else contracts[0] (default).
@@ -109,16 +124,19 @@ impl Compiler {
             // 2. Compile each compute node's expression and store in register
             for node in nodes_arr {
                 let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+                // LAB-SRCMAP-P2: tag every instruction emitted for this node.
+                self.current_node_id = node.get("node_id").and_then(|n| n.as_str()).map(String::from);
                 if kind == "loop_node" || kind == "service_loop_node" {
                     self.compile_expr(node)?;
                 } else {
                     let expr = node.get("expression")
                         .or_else(|| node.get("expr"));
-                    
+
                     if let Some(e) = expr {
                         self.compile_expr(e)?;
                     } else {
                         // Skip nodes without expressions (declarations, metadata, temporal/stream inputs)
+                        self.current_node_id = None;
                         continue;
                     }
                 }
@@ -127,6 +145,8 @@ impl Compiler {
                     let reg = *self.compute_node_registers.get(name).unwrap();
                     self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
                 }
+                // Infrastructure instructions after this node (output load, RET) get null.
+                self.current_node_id = None;
             }
 
             // 3. Load the output result and return
@@ -210,6 +230,7 @@ impl Compiler {
     fn emit(&mut self, opcode: u8, args: Vec<Value>) -> usize {
         let inst = Instruction::new(opcode, args);
         self.instructions.push(inst);
+        self.node_id_map.push(self.current_node_id.clone());
         self.instructions.len() - 1
     }
 

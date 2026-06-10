@@ -34,6 +34,18 @@ async fn main() {
 
     let json_mode = args.iter().any(|arg| arg == "--json" || arg == "-j");
 
+    // LAB-SRCMAP-P2: bytecode-map subcommand — handled before the banner so stdout is clean JSON.
+    // Usage: igniter_vm bytecode-map <igapp_path>
+    // Reads an .igapp directory, compiles every contract, and writes bytecode_map.json.
+    if args.len() >= 2 && args[1] == "bytecode-map" {
+        if args.len() < 3 {
+            eprintln!("Usage: igniter_vm bytecode-map <igapp_path>");
+            std::process::exit(1);
+        }
+        handle_bytecode_map(&args[2]);
+        return;
+    }
+
     if !json_mode {
         println!("\n{}{}{}┌──────────────────────────────────────────────────────────────┐", BOLD, CYAN, RESET);
         println!("{}{}{}│             IGNITER VIRTUAL MACHINE (IVM) CLIENT             │", BOLD, CYAN, RESET);
@@ -696,6 +708,158 @@ fn print_help() {
     println!("  --target-store <store>    Store name where computed projections are committed");
     println!("  -p, --listener-port <port> Port for the webhook listener (default: 8089)");
     println!("  -h, --help                Show this help message\n");
+}
+
+// LAB-SRCMAP-P2: produce bytecode_map.json for all contracts in an .igapp directory.
+fn handle_bytecode_map(igapp_path: &str) {
+    let base = Path::new(igapp_path);
+
+    let sir_path = base.join("semantic_ir_program.json");
+    let sir_content = match fs::read_to_string(&sir_path) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let sir_json: JsonValue = match serde_json::from_str(&sir_content) {
+        Ok(j) => j,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+
+    // Load sourcemap.json for span cross-reference (optional; absent if P1 not run)
+    let sourcemap_path = base.join("sourcemap.json");
+    let sourcemap_json: Option<JsonValue> = if sourcemap_path.exists() {
+        fs::read_to_string(&sourcemap_path)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+    } else {
+        None
+    };
+
+    // Build node_id -> (sir_path, source_span) lookup from sourcemap nodes array
+    let mut span_lookup: HashMap<String, (String, JsonValue)> = HashMap::new();
+    if let Some(ref sm) = sourcemap_json {
+        if let Some(nodes) = sm.get("nodes").and_then(|n| n.as_array()) {
+            for node in nodes {
+                if let Some(nid) = node.get("node_id").and_then(|n| n.as_str()) {
+                    let sp = node.get("sir_path")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let ss = node.get("source_span").cloned().unwrap_or(JsonValue::Null);
+                    span_lookup.insert(nid.to_string(), (sp, ss));
+                }
+            }
+        }
+    }
+
+    let source_file = sourcemap_json.as_ref()
+        .and_then(|s| s.get("source_file").and_then(|f| f.as_str()))
+        .unwrap_or("")
+        .to_string();
+
+    let mut contracts_out: Vec<JsonValue> = Vec::new();
+    let mut summary_contracts: Vec<JsonValue> = Vec::new();
+    let mut total_instructions: usize = 0;
+
+    if let Some(contracts_arr) = sir_json.get("contracts").and_then(|c| c.as_array()) {
+        for contract_item in contracts_arr {
+            let c_name = contract_item
+                .get("contract_name")
+                .or_else(|| contract_item.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let mut compiler = Compiler::new();
+            let bytecode = match compiler.compile_entry(contract_item, None) {
+                Ok(bc) => bc,
+                Err(e) => {
+                    println!("{}", serde_json::json!({"status":"error","error":format!("compile error for '{}': {}", c_name, e)}));
+                    std::process::exit(1);
+                }
+            };
+            let node_id_map = compiler.take_node_id_map();
+
+            let instructions_out: Vec<JsonValue> = bytecode.iter().enumerate().map(|(offset, inst)| {
+                let node_id_opt: Option<&str> = node_id_map.get(offset).and_then(|n| n.as_deref());
+                let (sir_path_val, source_span_val) = if let Some(nid) = node_id_opt {
+                    span_lookup.get(nid).map_or(
+                        (JsonValue::Null, JsonValue::Null),
+                        |(sp, ss)| (
+                            if sp.is_empty() { JsonValue::Null } else { JsonValue::String(sp.clone()) },
+                            ss.clone(),
+                        ),
+                    )
+                } else {
+                    (JsonValue::Null, JsonValue::Null)
+                };
+
+                serde_json::json!({
+                    "offset": offset,
+                    "opcode": format!("0x{:02X}", inst.opcode),
+                    "mnemonic": opcode_mnemonic(inst.opcode),
+                    "node_id": node_id_opt,
+                    "sir_path": sir_path_val,
+                    "source_span": source_span_val
+                })
+            }).collect();
+
+            let inst_count = instructions_out.len();
+            total_instructions += inst_count;
+
+            contracts_out.push(serde_json::json!({
+                "contract_name": c_name,
+                "instructions": instructions_out
+            }));
+            summary_contracts.push(serde_json::json!({
+                "contract_name": c_name,
+                "instruction_count": inst_count
+            }));
+        }
+    }
+
+    let bytecode_map = serde_json::json!({
+        "schema_version": "bytecode-map-v0",
+        "source_file": source_file,
+        "contracts": contracts_out
+    });
+
+    let output_path = base.join("bytecode_map.json");
+    match fs::write(&output_path, serde_json::to_string_pretty(&bytecode_map).unwrap()) {
+        Ok(_) => {}
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot write bytecode_map.json: {}", e)}));
+            std::process::exit(1);
+        }
+    }
+
+    // Add bytecode_map_ref to manifest.json
+    let manifest_path = base.join("manifest.json");
+    if manifest_path.exists() {
+        if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
+            if let Ok(mut manifest) = serde_json::from_str::<JsonValue>(&manifest_content) {
+                if let Some(obj) = manifest.as_object_mut() {
+                    obj.insert("bytecode_map_ref".to_string(), JsonValue::String("bytecode_map.json".to_string()));
+                    if let Ok(updated) = serde_json::to_string_pretty(&manifest) {
+                        let _ = fs::write(&manifest_path, updated);
+                    }
+                }
+            }
+        }
+    }
+
+    println!("{}", serde_json::json!({
+        "status": "ok",
+        "igapp": igapp_path,
+        "bytecode_map_file": output_path.to_string_lossy(),
+        "instructions_total": total_instructions,
+        "contracts": summary_contracts
+    }));
 }
 
 fn verify_load_capabilities(contract_path: &str, contract_json: &JsonValue) -> Result<(), String> {

@@ -46,6 +46,48 @@ pub struct Instruction {
     pub args: Vec<Value>,
 }
 
+// LAB-SRCMAP-P2: human-readable mnemonic for an opcode byte.
+pub fn opcode_mnemonic(opcode: u8) -> &'static str {
+    match opcode {
+        OP_PUSH_LIT    => "PUSH_LIT",
+        OP_LOAD_REF    => "LOAD_REF",
+        OP_STORE_REG   => "STORE_REG",
+        OP_LOAD_REG    => "LOAD_REG",
+        OP_ADD         => "ADD",
+        OP_SUB         => "SUB",
+        OP_MUL         => "MUL",
+        OP_DIV         => "DIV",
+        OP_EQ          => "EQ",
+        OP_JMP         => "JMP",
+        OP_JMP_IF      => "JMP_IF",
+        OP_JMP_UNLESS  => "JMP_UNLESS",
+        OP_LOAD_AS_OF  => "LOAD_AS_OF",
+        OP_EMIT_OBS    => "EMIT_OBS",
+        OP_RET         => "RET",
+        OP_GT          => "GT",
+        OP_MAP_REDUCE  => "MAP_REDUCE",
+        OP_LOOP_START  => "LOOP_START",
+        OP_LOOP_STEP   => "LOOP_STEP",
+        OP_LOOP_BREAK  => "LOOP_BREAK",
+        OP_LOAD_TICK   => "LOAD_TICK",
+        OP_LT          => "LT",
+        OP_LE          => "LE",
+        OP_GE          => "GE",
+        OP_NE          => "NE",
+        OP_AND         => "AND",
+        OP_OR          => "OR",
+        OP_NOT         => "NOT",
+        OP_CONCAT      => "CONCAT",
+        OP_PUSH_ARRAY  => "PUSH_ARRAY",
+        OP_PUSH_RECORD => "PUSH_RECORD",
+        OP_CALL        => "CALL",
+        OP_NEG         => "NEG",
+        OP_GET_FIELD   => "GET_FIELD",
+        OP_UNSUPPORTED => "UNSUPPORTED",
+        _              => "UNKNOWN",
+    }
+}
+
 impl Instruction {
     pub fn new(opcode: u8, args: Vec<Value>) -> Self {
         Instruction { opcode, args }
