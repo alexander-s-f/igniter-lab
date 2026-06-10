@@ -1,0 +1,34 @@
+{
+  "_comment": "LAB-APP-STATE-P2 PROOF-LOCAL sidecar. This is the B-route descriptive state vocabulary — the app-architecture metadata the Igniter LANGUAGE does NOT carry today (no intent keyword in the lab toolchain; no instance/holder/assembly/visibility surface). It is inert metadata, not authority, not runtime. The proof cross-checks it against the compiled SIR to show exactly which facts are derivable from the language (lifecycle/modifier/type) and which require this sidecar (instance identity, explicit holder binding, public/internal visibility, event->op->fact assembly).",
+  "app": "Lab.Editor.AppState",
+  "schema_version": "appstate-registry-v0",
+
+  "facts": [
+    { "name": "document",    "type": "DocumentState",  "lifecycle": "session", "holder_class": "host",  "instance_key_source": "buffer_uri" },
+    { "name": "cursor",      "type": "CursorState",    "lifecycle": "local",   "holder_class": "host",  "instance_key_source": "view_id" },
+    { "name": "selection",   "type": "SelectionState", "lifecycle": "local",   "holder_class": "host",  "instance_key_source": "view_id" },
+    { "name": "clipboard",   "type": "ClipboardState", "lifecycle": "session", "holder_class": "host",  "instance_key_source": "session_id" },
+    { "name": "diagnostics", "type": "DiagnosticSet",  "lifecycle": "window",  "holder_class": "host",  "instance_key_source": "buffer_uri" },
+    { "name": "history",     "type": "EditHistory",    "lifecycle": "session", "holder_class": "host",  "instance_key_source": "buffer_uri" },
+    { "name": "buffer",      "type": "BufferRef",      "lifecycle": "session", "holder_class": "host",  "instance_key_source": "buffer_uri" },
+    { "name": "saved_doc",   "type": "DocumentState",  "lifecycle": "durable", "holder_class": "store", "instance_key_source": "workspace_path" }
+  ],
+
+  "operations": [
+    { "contract": "InsertText",           "visibility": "public",   "transitions": "document",    "on_event": "edit.insert" },
+    { "contract": "MoveCursor",           "visibility": "public",   "transitions": "cursor",      "on_event": "cursor.move" },
+    { "contract": "SelectRange",          "visibility": "public",   "transitions": "selection",   "on_event": "selection.set" },
+    { "contract": "CopySelection",        "visibility": "public",   "transitions": "clipboard",   "on_event": "edit.copy" },
+    { "contract": "ApplyEdit",            "visibility": "public",   "transitions": "snapshot",    "on_event": "edit.apply" },
+    { "contract": "RecomputeDiagnostics", "visibility": "public",   "transitions": "diagnostics", "on_event": "analysis.tick" },
+    { "contract": "PushHistory",          "visibility": "public",   "transitions": "history",     "on_event": "edit.committed" },
+    { "contract": "BuildTransitionReceipt","visibility": "internal","transitions": null,          "on_event": null },
+    { "contract": "BuildSaveRequest",     "visibility": "public",   "transitions": "saved_doc",   "on_event": "file.save",  "boundary": "durable" },
+    { "contract": "LoadDocument",         "visibility": "public",   "transitions": "document",    "on_event": "file.open",  "boundary": "durable" }
+  ],
+
+  "holders": {
+    "host":  "per-process editor host owns hot/session facts; the language holds nothing",
+    "store": "external durable store reached only via IO.StorageCapability; named by the read `from` string"
+  }
+}
