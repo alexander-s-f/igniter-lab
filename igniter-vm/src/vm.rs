@@ -47,6 +47,8 @@ pub struct VM {
     // LAB-RACK-P9: pre-built dispatch table for call_contract("Name", ...) support.
     // Key: contract_name. Built from igapp at load time in main.rs; empty by default.
     pub dispatch_table: HashMap<String, DispatchEntry>,
+    // LAB-VMTRACE-P1: opt-in record-only trace collector; None = trace disabled (normal run).
+    pub trace_collector: Option<std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
 }
 
 impl VM {
@@ -55,6 +57,15 @@ impl VM {
             backend,
             observation_sink: Arc::new(Mutex::new(Vec::new())),
             dispatch_table: HashMap::new(),
+            trace_collector: None,
+        }
+    }
+
+    // LAB-VMTRACE-P1: drain collected trace events (leaves collector empty for reuse).
+    pub fn take_trace_events(&self) -> Vec<serde_json::Value> {
+        match &self.trace_collector {
+            Some(c) => std::mem::take(&mut c.lock().unwrap()),
+            None => Vec::new(),
         }
     }
 
@@ -86,9 +97,15 @@ impl VM {
         let mut registers: HashMap<i64, Value> = HashMap::new();
         let mut ip = 0; // Instruction Pointer
         let total_instructions = instructions.len();
+        // LAB-VMTRACE-P1: monotonic sequence counter for trace events.
+        let mut trace_seq: usize = 0;
 
         while ip < total_instructions {
             let inst = &instructions[ip];
+            // LAB-VMTRACE-P1: capture pre-instruction state (zero-cost when trace_collector is None).
+            let trace_pre_ip = ip;
+            let trace_pre_depth = stack.len();
+            let trace_pre_opcode = inst.opcode;
             match inst.opcode {
                 OP_PUSH_LIT => {
                     let lit = inst.args.get(0).ok_or("Missing literal argument")?;
@@ -2000,6 +2017,17 @@ impl VM {
 
                 OP_RET => {
                     let val = stack.pop().ok_or("Stack empty on RET instruction")?;
+                    // LAB-VMTRACE-P1: record before returning (OP_RET is the only early-return instruction).
+                    if let Some(ref collector) = self.trace_collector {
+                        collector.lock().unwrap().push(serde_json::json!({
+                            "seq": trace_seq,
+                            "ip_before": trace_pre_ip,
+                            "opcode": format!("0x{:02X}", trace_pre_opcode),
+                            "mnemonic": "RET",
+                            "stack_depth_before": trace_pre_depth,
+                            "stack_depth_after": stack.len()
+                        }));
+                    }
                     return Ok(val);
                 }
 
@@ -2062,6 +2090,18 @@ impl VM {
                 }
 
                 _ => return Err(format!("Unknown instruction opcode: 0x{:02X}", inst.opcode)),
+            }
+            // LAB-VMTRACE-P1: post-instruction trace recording for all non-returning instructions.
+            if let Some(ref collector) = self.trace_collector {
+                collector.lock().unwrap().push(serde_json::json!({
+                    "seq": trace_seq,
+                    "ip_before": trace_pre_ip,
+                    "opcode": format!("0x{:02X}", trace_pre_opcode),
+                    "mnemonic": crate::instructions::opcode_mnemonic(trace_pre_opcode),
+                    "stack_depth_before": trace_pre_depth,
+                    "stack_depth_after": stack.len()
+                }));
+                trace_seq += 1;
             }
         }
 

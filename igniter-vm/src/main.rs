@@ -46,6 +46,38 @@ async fn main() {
         return;
     }
 
+    // LAB-VMTRACE-P1: trace subcommand — record-only execution trace, clean JSON stdout.
+    // Usage: igniter_vm trace <igapp_path> --entry <ContractName> --inputs <inputs.json>
+    if args.len() >= 2 && args[1] == "trace" {
+        if args.len() < 3 {
+            eprintln!("Usage: igniter_vm trace <igapp_path> --entry <ContractName> --inputs <inputs.json>");
+            std::process::exit(1);
+        }
+        let igapp_path = args[2].clone();
+        let mut entry_arg: Option<String> = None;
+        let mut inputs_path_arg: Option<String> = None;
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--entry" | "-e" => {
+                    if i + 1 < args.len() { entry_arg = Some(args[i+1].clone()); i += 2; }
+                    else { eprintln!("Missing value for --entry"); std::process::exit(1); }
+                }
+                "--inputs" | "-i" => {
+                    if i + 1 < args.len() { inputs_path_arg = Some(args[i+1].clone()); i += 2; }
+                    else { eprintln!("Missing value for --inputs"); std::process::exit(1); }
+                }
+                other => { eprintln!("Unknown trace argument '{}'", other); std::process::exit(1); }
+            }
+        }
+        let inputs_path = match inputs_path_arg {
+            Some(p) => p,
+            None => { eprintln!("--inputs is required for trace subcommand"); std::process::exit(1); }
+        };
+        handle_vm_trace(&igapp_path, entry_arg.as_deref(), &inputs_path).await;
+        return;
+    }
+
     if !json_mode {
         println!("\n{}{}{}┌──────────────────────────────────────────────────────────────┐", BOLD, CYAN, RESET);
         println!("{}{}{}│             IGNITER VIRTUAL MACHINE (IVM) CLIENT             │", BOLD, CYAN, RESET);
@@ -859,6 +891,209 @@ fn handle_bytecode_map(igapp_path: &str) {
         "bytecode_map_file": output_path.to_string_lossy(),
         "instructions_total": total_instructions,
         "contracts": summary_contracts
+    }));
+}
+
+// LAB-VMTRACE-P1: execute a contract with trace recording and write vm_trace.json.
+// Regenerates bytecode_map.json first (for cross-reference), then runs traced VM execution.
+async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path: &str) {
+    let base = Path::new(igapp_path);
+
+    // Ensure bytecode_map.json is fresh for cross-referencing.
+    handle_bytecode_map(igapp_path);
+
+    // Load bytecode_map.json for offset→(node_id, sir_path, source_span) lookup.
+    let bm_path = base.join("bytecode_map.json");
+    let bm_json: Option<JsonValue> = fs::read_to_string(&bm_path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok());
+
+    let mut offset_lookup: HashMap<usize, (Option<String>, Option<String>, JsonValue)> = HashMap::new();
+    if let Some(ref bm) = bm_json {
+        let target_name = entry_name.unwrap_or("");
+        let contract_bm = bm.get("contracts").and_then(|c| c.as_array()).and_then(|arr| {
+            if target_name.is_empty() { arr.first() }
+            else { arr.iter().find(|c| c.get("contract_name").and_then(|n| n.as_str()) == Some(target_name)) }
+        });
+        if let Some(bm_contract) = contract_bm {
+            if let Some(instrs) = bm_contract.get("instructions").and_then(|i| i.as_array()) {
+                for inst in instrs {
+                    let offset = inst.get("offset").and_then(|o| o.as_u64()).unwrap_or(0) as usize;
+                    let node_id = inst.get("node_id").and_then(|n| n.as_str()).map(String::from);
+                    let sir_path = inst.get("sir_path").and_then(|s| s.as_str()).map(String::from);
+                    let source_span = inst.get("source_span").cloned().unwrap_or(JsonValue::Null);
+                    offset_lookup.insert(offset, (node_id, sir_path, source_span));
+                }
+            }
+        }
+    }
+
+    // Load SIR and compile the entry contract.
+    let sir_path_buf = base.join("semantic_ir_program.json");
+    let sir_content = match fs::read_to_string(&sir_path_buf) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let sir_json: JsonValue = match serde_json::from_str(&sir_content) {
+        Ok(j) => j,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+
+    let contract_item = if let Some(contracts) = sir_json.get("contracts").and_then(|c| c.as_array()) {
+        let target = entry_name.unwrap_or("");
+        let found = if target.is_empty() {
+            contracts.first()
+        } else {
+            contracts.iter().find(|c| {
+                c.get("contract_name").and_then(|n| n.as_str()) == Some(target)
+                || c.get("name").and_then(|n| n.as_str()) == Some(target)
+            })
+        };
+        match found {
+            Some(c) => c.clone(),
+            None => {
+                println!("{}", serde_json::json!({"status":"error","error":format!("entry contract '{}' not found", target)}));
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{}", serde_json::json!({"status":"error","error":"semantic_ir_program.json has no contracts"}));
+        std::process::exit(1);
+    };
+
+    let contract_name = contract_item.get("contract_name")
+        .or_else(|| contract_item.get("name"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let mut compiler = Compiler::new();
+    let bytecode = match compiler.compile_entry(&contract_item, None) {
+        Ok(bc) => bc,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("compile error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+
+    // Load inputs.
+    let inputs_content = match fs::read_to_string(inputs_path) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read inputs '{}': {}", inputs_path, e)}));
+            std::process::exit(1);
+        }
+    };
+    let inputs_json: JsonValue = match serde_json::from_str(&inputs_content) {
+        Ok(j) => j,
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse inputs: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+
+    let mut inputs: HashMap<String, Value> = HashMap::new();
+    if let Some(obj) = inputs_json.as_object() {
+        for (k, v) in obj { inputs.insert(k.clone(), Value::from_json(v)); }
+    }
+
+    let inputs_digest = {
+        use sha2::{Sha256, Digest};
+        let canonical = serde_json::to_string(&inputs_json).unwrap_or_default();
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.as_bytes());
+        hex::encode(&hasher.finalize()[0..8])
+    };
+
+    let mut temporal_context: HashMap<String, Value> = HashMap::new();
+    let modifier = contract_item.get("modifier").and_then(|m| m.as_str()).unwrap_or("pure");
+    temporal_context.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier)));
+    temporal_context.insert("__call_chain__".to_string(), Value::String(Arc::from(contract_name.as_str())));
+
+    // Execute with trace enabled.
+    let trace_arc = std::sync::Arc::new(std::sync::Mutex::new(Vec::<JsonValue>::new()));
+    let backend: Option<Arc<dyn TBackend>> = Some(Arc::new(igniter_vm::tbackend::MemoryHistoryBackend::new()));
+    let mut vm = VM::new(backend);
+    vm.trace_collector = Some(trace_arc);
+
+    let resolved_grants: HashMap<String, igniter_vm::passport::CapabilityGrant> = HashMap::new();
+    let exec_result = vm.execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants).await;
+
+    // Drain trace events and cross-reference with bytecode_map.
+    let raw_events = vm.take_trace_events();
+    let enriched_events: Vec<JsonValue> = raw_events.iter().map(|event| {
+        let ip = event.get("ip_before").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let (node_id, sir_path_val, source_span) = offset_lookup.get(&ip)
+            .cloned()
+            .unwrap_or((None, None, JsonValue::Null));
+        let mut e = event.clone();
+        if let Some(obj) = e.as_object_mut() {
+            obj.insert("node_id".to_string(), node_id.map(JsonValue::String).unwrap_or(JsonValue::Null));
+            obj.insert("sir_path".to_string(), sir_path_val.map(JsonValue::String).unwrap_or(JsonValue::Null));
+            obj.insert("source_span".to_string(), source_span);
+        }
+        e
+    }).collect();
+
+    let (status, result_value) = match exec_result {
+        Ok(ref v) => ("ok", v.to_json()),
+        Err(_) => ("error", JsonValue::Null),
+    };
+
+    let result_digest = {
+        use sha2::{Sha256, Digest};
+        let canonical = serde_json::to_string(&result_value).unwrap_or_default();
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.as_bytes());
+        hex::encode(&hasher.finalize()[0..8])
+    };
+
+    let trace_output = serde_json::json!({
+        "schema_version": "vm-trace-v0",
+        "contract_name": contract_name,
+        "inputs_digest": inputs_digest,
+        "events": enriched_events,
+        "result_digest": result_digest,
+        "status": status
+    });
+
+    let trace_file = base.join("vm_trace.json");
+    match fs::write(&trace_file, serde_json::to_string_pretty(&trace_output).unwrap()) {
+        Ok(_) => {}
+        Err(e) => {
+            println!("{}", serde_json::json!({"status":"error","error":format!("cannot write vm_trace.json: {}", e)}));
+            std::process::exit(1);
+        }
+    }
+
+    // Update manifest.json with vm_trace_ref.
+    let manifest_path = base.join("manifest.json");
+    if manifest_path.exists() {
+        if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
+            if let Ok(mut manifest) = serde_json::from_str::<JsonValue>(&manifest_content) {
+                if let Some(obj) = manifest.as_object_mut() {
+                    obj.insert("vm_trace_ref".to_string(), JsonValue::String("vm_trace.json".to_string()));
+                    if let Ok(updated) = serde_json::to_string_pretty(&manifest) {
+                        let _ = fs::write(&manifest_path, updated);
+                    }
+                }
+            }
+        }
+    }
+
+    println!("{}", serde_json::json!({
+        "status": "ok",
+        "igapp": igapp_path,
+        "vm_trace_file": trace_file.to_string_lossy(),
+        "contract_name": contract_name,
+        "events_total": enriched_events.len(),
+        "result_status": status
     }));
 }
 
