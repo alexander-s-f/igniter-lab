@@ -1,0 +1,8 @@
+-- Invalid: instruction targets "state.nonexistent" — not declared in this component.
+-- Expected compile error: "instruction references undeclared state: nonexistent"
+
+component Widget
+  state visible : Bool = true
+  element toggle
+    on click
+      toggle state.nonexistent

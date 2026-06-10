@@ -1,0 +1,44 @@
+{
+  "def_id": "sha256:c59650b539c5111a5d5b2e849c0b2212215640b4fbfb8f5fe6d40584a38b0570",
+  "component": "Sidebar",
+  "states": {
+    "search_active": { "default": false }
+  },
+  "slots": {
+    "title": { "type": "String", "default": "" },
+    "items": { "type": "List", "default": [] }
+  },
+  "elements": {
+    "header": {
+      "rules": [
+        {
+          "when": "state.search_active",
+          "classes": ["search-mode"],
+          "aria": { "label": "Search mode" },
+          "else": {
+            "classes": ["browse-mode"],
+            "aria": { "label": "Browse mode" }
+          }
+        }
+      ],
+      "on": {
+        "click": [
+          { "op": "dispatch", "event": "sidebar_focused" }
+        ]
+      }
+    },
+    "search_toggle": {
+      "on": {
+        "click": [
+          { "op": "toggle", "target": "state.search_active" }
+        ]
+      }
+    }
+  },
+  "children": {
+    "item_list": {
+      "component": "FileTreeRow",
+      "slot": "items"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+-- Invalid: Bool state has a non-boolean default "42".
+-- Expected compile error: "invalid Bool default: 42"
+
+component Widget
+  state count : Bool = 42
+  element btn
+    on click
+      dispatch clicked

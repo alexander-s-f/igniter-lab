@@ -1,0 +1,11 @@
+-- Invalid: children block references component "Ghost" which is not declared in this file.
+-- Expected compile error: "child references unknown component: Ghost"
+
+component Shell
+  state active : Bool = false
+  element header
+    on click
+      dispatch focused
+  children panel
+    component Ghost
+    from items

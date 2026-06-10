@@ -1,0 +1,10 @@
+-- Invalid: children block has no "component" line — only a "from" line.
+-- Expected compile error: "children block 'panel' missing component declaration"
+
+component Shell
+  state active : Bool = false
+  element btn
+    on click
+      dispatch clicked
+  children panel
+    from items

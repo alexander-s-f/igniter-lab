@@ -1,0 +1,8 @@
+-- Invalid: uses exec_arbitrary — not in closed-op vocabulary.
+-- Expected compile error: "unknown op: exec_arbitrary"
+
+component Widget
+  state active : Bool = false
+  element btn
+    on click
+      exec_arbitrary something

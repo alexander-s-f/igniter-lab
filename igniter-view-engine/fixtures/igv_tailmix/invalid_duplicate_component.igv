@@ -1,0 +1,14 @@
+-- Invalid: two components with the same name.
+-- Expected compile error: "duplicate component: Sidebar"
+
+component Sidebar
+  state search_active : Bool = false
+  element search_toggle
+    on click
+      toggle state.search_active
+
+component Sidebar
+  state search_active : Bool = true
+  element search_toggle
+    on click
+      toggle state.search_active

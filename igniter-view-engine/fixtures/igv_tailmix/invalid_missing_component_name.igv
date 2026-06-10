@@ -1,0 +1,8 @@
+-- Invalid: "component" keyword with no name.
+-- Expected compile error: "missing component name"
+
+component
+  state x : Bool = false
+  element btn
+    on click
+      dispatch clicked
