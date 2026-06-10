@@ -557,7 +557,7 @@ impl TypeChecker {
         // recorded; non-Collection outputs are excluded. The behavior is
         // contextual: a free-standing array literal with no Collection output
         // hint stays Unknown (see the ArrayLiteral arm in infer_expr).
-        let collection_output_hints: HashMap<String, serde_json::Value> = classified.declarations.iter()
+        let mut collection_output_hints: HashMap<String, serde_json::Value> = classified.declarations.iter()
             .filter(|d| d.kind == "output")
             .filter_map(|d| {
                 let ann = d.type_annotation.as_ref()?;
@@ -569,6 +569,44 @@ impl TypeChecker {
                 Some((d.name.clone(), elem))
             })
             .collect();
+
+        // LAB-TC-ARRAY-P2: pre-scan record-field positions for Collection[T] element
+        // hints. When a compute node's expr is a RecordLiteral whose declared output
+        // type is a named record (output_type_hints), each field that is a bare Ref
+        // to another compute node contributes a hint: if the record type declares
+        // that field as `Collection[T]`, the referenced compute node gets element
+        // hint T. This lets an intermediate array-literal compute that feeds a
+        // typed record field (e.g. `QueryPlan.filters : Collection[FilterPredicate]`)
+        // receive contextual typing from the field position — closing the
+        // non-blocking gap left open by LAB-TC-ARRAY-P1.
+        //
+        // The scan is order-independent (it walks all declarations up front), and
+        // the referenced compute is processed before the enclosing record literal in
+        // dependency order, so the upgrade is in-place when the array literal node is
+        // typed — no retroactive symbol mutation is required. Output-context hints
+        // (P1) take precedence; field-context hints fill names not already covered.
+        for d in &classified.declarations {
+            if d.kind != "compute" && d.kind != "snapshot" {
+                continue;
+            }
+            let Some(record_type_name) = output_type_hints.get(&d.name) else { continue };
+            let Some(Expr::RecordLiteral { fields }) = d.expr.as_ref() else { continue };
+            let Some(shape) = local_type_shapes.get(record_type_name.as_str()) else { continue };
+            for (field_name, field_expr) in fields {
+                if let Expr::Ref { name: ref_name } = field_expr {
+                    if let Some(field_type_ir) = shape.get(field_name) {
+                        let field_ir = self.type_ir(field_type_ir);
+                        if self.type_name(&field_ir) == "Collection" {
+                            if let Some(elem) = self.get_param(&field_ir, 0) {
+                                collection_output_hints
+                                    .entry(ref_name.clone())
+                                    .or_insert(elem);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // LAB-MAP-RUST-P1: OOF-MAP1/2/3 annotation scan across all declarations
         for decl in &classified.declarations {
