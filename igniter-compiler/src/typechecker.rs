@@ -292,6 +292,42 @@ impl TypeChecker {
         // Built once before the loop so all contracts see the full module.
         let contract_registry = self.build_contract_registry(classified);
 
+        // PROP-044-P9: OOF-KIND6 — reserved __* field names in module-level declarations.
+        // type declarations
+        for t in &classified.type_declarations {
+            for f in &t.fields {
+                if f.name.starts_with("__") {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-KIND6".to_string(),
+                        message: format!(
+                            "Field '{}' in type '{}' uses reserved compiler prefix '__' (compiler-owned variant runtime field)",
+                            f.name, t.name
+                        ),
+                        node: t.name.clone(),
+                        line: None,
+                    });
+                }
+            }
+        }
+        // variant arm fields
+        for vd in &classified.variant_declarations {
+            for arm in &vd.arms {
+                for field in &arm.fields {
+                    if field.name.starts_with("__") {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-KIND6".to_string(),
+                            message: format!(
+                                "Field '{}' in variant '{}' arm '{}' uses reserved compiler prefix '__'",
+                                field.name, vd.name, arm.name
+                            ),
+                            node: vd.name.clone(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+        }
+
         for contract in &classified.contracts {
             let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions, &size_registry, &contract_registry);
             type_errors.append(&mut tc.type_errors.clone());
@@ -3530,6 +3566,22 @@ impl TypeChecker {
                 // output type annotation (e.g. `output response : RackResponse`) drives
                 // the module contract registry, so P11 callers can still resolve
                 // call_contract("Handler", ...) → RackResponse from the registry.
+
+                // PROP-044-P9: OOF-KIND6 — reserved __* field names in record literals.
+                for key in fields.keys() {
+                    if key.starts_with("__") {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-KIND6".to_string(),
+                            message: format!(
+                                "Record literal field '{}' uses reserved compiler prefix '__' (compiler-owned variant runtime field)",
+                                key
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+
                 let mut deps = Vec::new();
                 for expr in fields.values() {
                     let typed = self.infer_expr(
