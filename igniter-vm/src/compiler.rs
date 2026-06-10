@@ -646,6 +646,154 @@ impl Compiler {
                 self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(serialized))]);
             }
 
+            // LAB-VARIANT-VM-P1: Path B — variant_construct → OP_PUSH_RECORD with __arm discriminant.
+            // SIR shape: { kind, arm, variant, fields: {name: expr, ...}, resolved_type }
+            // Lowering: ordinary record containing:
+            //   __arm     → arm name (compiler-owned discriminant)
+            //   __variant → variant name (diagnostic use)
+            //   + payload fields verbatim
+            // No Value::Variant. No OP_PUSH_VARIANT.
+            "variant_construct" => {
+                let arm_name = node.get("arm")
+                    .and_then(|a| a.as_str())
+                    .ok_or("variant_construct: missing arm")?;
+                let variant_name = node.get("variant")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(arm_name);
+                let fields_obj = node.get("fields")
+                    .and_then(|f| f.as_object())
+                    .ok_or("variant_construct: missing fields object")?;
+
+                // Collect all keys: payload fields + __arm + __variant
+                let mut all_keys: Vec<String> = fields_obj.keys().cloned().collect();
+                all_keys.push("__arm".to_string());
+                all_keys.push("__variant".to_string());
+                all_keys.sort();
+
+                // Push values in sorted-key order (OP_PUSH_RECORD pops in reverse)
+                for key in &all_keys {
+                    if key == "__arm" {
+                        self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(arm_name))]);
+                    } else if key == "__variant" {
+                        self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(variant_name))]);
+                    } else {
+                        let field_expr = fields_obj.get(key.as_str())
+                            .ok_or_else(|| format!("variant_construct: missing field expr for '{}'", key))?;
+                        self.compile_expr(field_expr)?;
+                    }
+                }
+
+                let mut args = vec![Value::Integer(all_keys.len() as i64)];
+                for key in &all_keys {
+                    args.push(Value::String(Arc::from(key.as_str())));
+                }
+                self.emit(OP_PUSH_RECORD, args);
+            }
+
+            // LAB-VARIANT-VM-P1: Path B — match_node → OP_GET_FIELD(__arm) + OP_EQ + OP_JMP_UNLESS chain.
+            // SIR shape: { kind, subject, subject_type, arms: [{pattern, body, resolved_type}],
+            //              exhaustive, has_wildcard, resolved_type }
+            // "match_expr" is the raw-AST form used for nested match nodes in arm bodies
+            // (annotate_expr_with_type preserves the Expr::MatchExpr serde tag).
+            // Lowering:
+            //   1. Compile subject once, store in temp register R_subject.
+            //   2. For each non-wildcard arm: load R_subject, GET_FIELD "__arm", compare, JMP_UNLESS next.
+            //      Bind payload fields, compile body, JMP end.
+            //   3. Wildcard arm: compile body, JMP end.
+            //   4. No-match fallback (no wildcard): OP_UNSUPPORTED — fail closed, never silent Nil.
+            //   5. Patch all end-jumps to current IP.
+            // No OP_MATCH. No Value::Variant.
+            "match_node" | "match_expr" => {
+                let subject = node.get("subject").ok_or("match_node: missing subject")?;
+                let arms = node.get("arms")
+                    .and_then(|a| a.as_array())
+                    .ok_or("match_node: missing arms array")?;
+                let has_wildcard = node.get("has_wildcard")
+                    .and_then(|w| w.as_bool())
+                    .unwrap_or(false);
+
+                // Step 1: compile subject and store in a dedicated temp register
+                self.compile_expr(subject)?;
+                let subject_reg = self.next_register;
+                self.next_register += 1;
+                self.emit(OP_STORE_REG, vec![Value::Integer(subject_reg)]);
+
+                // Step 2 & 3: compile each arm
+                let mut jmp_end_idxs: Vec<usize> = Vec::new();
+
+                for arm in arms {
+                    let pattern = arm.get("pattern");
+                    let is_wildcard = pattern
+                        .and_then(|p| p.get("wildcard"))
+                        .and_then(|w| w.as_bool())
+                        .unwrap_or(false);
+                    let arm_name = pattern
+                        .and_then(|p| p.get("arm"))
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("_");
+                    let bindings: Vec<String> = pattern
+                        .and_then(|p| p.get("bindings"))
+                        .and_then(|b| b.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default();
+                    let body = arm.get("body").ok_or("match_node: missing arm body")?;
+
+                    // Discriminant compare (skipped for wildcard)
+                    let jmp_unless_idx = if !is_wildcard {
+                        self.emit(OP_LOAD_REG, vec![Value::Integer(subject_reg)]);
+                        self.emit(OP_GET_FIELD, vec![Value::String(Arc::from("__arm"))]);
+                        self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(arm_name))]);
+                        self.emit(OP_EQ, vec![]);
+                        Some(self.emit(OP_JMP_UNLESS, vec![Value::Integer(0)]))
+                    } else {
+                        None
+                    };
+
+                    // Extract payload bindings into scoped temp registers
+                    let mut binding_regs: Vec<(String, i64)> = Vec::new();
+                    for binding in &bindings {
+                        self.emit(OP_LOAD_REG, vec![Value::Integer(subject_reg)]);
+                        self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(binding.as_str()))]);
+                        let reg = self.next_register;
+                        self.next_register += 1;
+                        self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
+                        // Make binding available in arm body scope
+                        self.compute_node_registers.insert(binding.clone(), reg);
+                        binding_regs.push((binding.clone(), reg));
+                    }
+
+                    // Compile arm body (result left on stack)
+                    self.compile_expr(body)?;
+
+                    // Remove bindings from scope before moving on
+                    for (name, _) in &binding_regs {
+                        self.compute_node_registers.remove(name);
+                    }
+
+                    // Jump to end (successful arm — skip remaining arms)
+                    let jmp_end_idx = self.emit(OP_JMP, vec![Value::Integer(0)]);
+                    jmp_end_idxs.push(jmp_end_idx);
+
+                    // Patch discriminant JMP_UNLESS to point to start of next arm
+                    if let Some(idx) = jmp_unless_idx {
+                        let next_arm_ip = self.instructions.len() as i64;
+                        self.instructions[idx].args = vec![Value::Integer(next_arm_ip)];
+                    }
+                }
+
+                // Step 4: fail-closed fallback if no wildcard covers all cases
+                // Reached only when no arm matched — defensive, never silent Nil
+                if !has_wildcard {
+                    self.emit(OP_UNSUPPORTED, vec![]);
+                }
+
+                // Step 5: patch all arm end-jumps to current IP (first instruction after match)
+                let end_ip = self.instructions.len() as i64;
+                for idx in jmp_end_idxs {
+                    self.instructions[idx].args = vec![Value::Integer(end_ip)];
+                }
+            }
+
             "unsupported" => {
                 self.emit(OP_UNSUPPORTED, vec![]);
             }
