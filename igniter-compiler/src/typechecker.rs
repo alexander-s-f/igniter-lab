@@ -1063,6 +1063,7 @@ impl TypeChecker {
                                         expected_type_name,
                                         &decl.name,
                                         &symbol_types,
+                                        &local_type_shapes,
                                         &mut type_errors,
                                     );
                                     if type_errors.len() == errors_before {
@@ -4261,6 +4262,11 @@ impl TypeChecker {
     /// Field types are checked via `infer_field_expr_type` — only Ref and Literal
     /// expressions are resolved; complex expressions return None (Unknown-compat:
     /// field type check is skipped, which is intentionally permissive in v0).
+    /// LAB-TC-NESTED-RECORD-CONTEXT-P1: added `type_shapes` parameter to enable
+    /// recursive validation of inline nested record literals against their expected
+    /// field type. When a field value is a RecordLiteral and the expected field type
+    /// is a named record in type_shapes, we recurse one level. This is contextual
+    /// typing only — no global inference, no unification, no retroactive mutation.
     fn check_record_literal_shape(
         &self,
         fields: &HashMap<String, Expr>,
@@ -4268,6 +4274,7 @@ impl TypeChecker {
         expected_type_name: &str,
         node_name: &str,
         symbol_types: &HashMap<String, serde_json::Value>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
         type_errors: &mut Vec<ClassifierDiagnostic>,
     ) {
         // 1. Missing required fields
@@ -4300,22 +4307,47 @@ impl TypeChecker {
             }
         }
 
-        // 3. Field value type checks (Ref / Literal only; complex exprs → skipped)
+        // 3. Field value type checks
         for (field_name, field_expr) in fields {
             if let Some(expected_field_type_ir) = expected_shape.get(field_name) {
                 let expected_field_type = self.type_name(expected_field_type_ir);
-                if let Some(actual_field_type) = self.infer_field_expr_type(field_expr, symbol_types) {
-                    if actual_field_type != expected_field_type && actual_field_type != "Unknown" {
-                        type_errors.push(ClassifierDiagnostic {
-                            rule: "OOF-TY0".to_string(),
-                            message: format!(
-                                "Record type '{}': field '{}' expects {}, got {} at node '{}'",
-                                expected_type_name, field_name,
-                                expected_field_type, actual_field_type, node_name
-                            ),
-                            node: node_name.to_string(),
-                            line: None,
-                        });
+                match field_expr {
+                    // LAB-TC-NESTED-RECORD-CONTEXT-P1: inline nested record literal —
+                    // when the expected field type is a named record in type_shapes,
+                    // recurse to validate its shape. Bounded: one call per nesting
+                    // level, no global inference or retroactive symbol mutation.
+                    // If the expected type is not a named record (Map[...],
+                    // Collection[...], scalar) → skip (Unknown-compatible).
+                    Expr::RecordLiteral { fields: inner_fields } => {
+                        if let Some(inner_shape) = type_shapes.get(expected_field_type.as_str()) {
+                            self.check_record_literal_shape(
+                                inner_fields,
+                                inner_shape,
+                                &expected_field_type,
+                                node_name,
+                                symbol_types,
+                                type_shapes,
+                                type_errors,
+                            );
+                        }
+                        // Non-named-record expected type (Map, Collection, scalar):
+                        // skip — Unknown-compatible, no false positive.
+                    }
+                    _ => {
+                        if let Some(actual_field_type) = self.infer_field_expr_type(field_expr, symbol_types) {
+                            if actual_field_type != expected_field_type && actual_field_type != "Unknown" {
+                                type_errors.push(ClassifierDiagnostic {
+                                    rule: "OOF-TY0".to_string(),
+                                    message: format!(
+                                        "Record type '{}': field '{}' expects {}, got {} at node '{}'",
+                                        expected_type_name, field_name,
+                                        expected_field_type, actual_field_type, node_name
+                                    ),
+                                    node: node_name.to_string(),
+                                    line: None,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -4362,6 +4394,7 @@ impl TypeChecker {
                             &elem_type_name,
                             node_name,
                             symbol_types,
+                            type_shapes,
                             type_errors,
                         );
                     } else {
