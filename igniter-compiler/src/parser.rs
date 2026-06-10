@@ -1,6 +1,24 @@
 use crate::lexer::{Token, TokenType};
 use std::collections::HashMap;
 
+/// LAB-SRCMAP-P1: one entry in the parser span table.
+/// Carries the qualified node_id, kind discriminant, and best-effort source location.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpanEntry {
+    pub node_id: String,
+    pub kind: String,
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+}
+
+impl SpanEntry {
+    fn at(node_id: String, kind: &str, line: usize, col: usize) -> Self {
+        Self { node_id, kind: kind.to_string(), start_line: line, start_col: col, end_line: 0, end_col: 0 }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SourceFile {
     pub kind: String, // "parsed_program" or "source_file"
@@ -590,6 +608,12 @@ pub struct Parser {
     pos: usize,
     errors: Vec<ParseErrorDetail>,
     in_contract_body: bool,
+    /// LAB-SRCMAP-P1: populated during parse; maps node_id → source position.
+    pub span_table: Vec<SpanEntry>,
+    /// LAB-SRCMAP-P1: name of the contract currently being parsed (for qualified node ids).
+    current_contract: String,
+    /// LAB-SRCMAP-P1: name of the compute/decl currently being parsed (for expr node ids).
+    current_decl: String,
 }
 
 impl Parser {
@@ -599,6 +623,9 @@ impl Parser {
             pos: 0,
             errors: Vec::new(),
             in_contract_body: false,
+            span_table: Vec::new(),
+            current_contract: String::new(),
+            current_decl: String::new(),
         }
     }
 
@@ -696,6 +723,11 @@ impl Parser {
             line,
             col,
         });
+    }
+
+    /// LAB-SRCMAP-P1: record a source span entry for a named node.
+    fn record_span(&mut self, node_id: String, kind: &str, line: usize, col: usize) {
+        self.span_table.push(SpanEntry::at(node_id, kind, line, col));
     }
 
     pub fn parse(&mut self) -> SourceFile {
@@ -1248,7 +1280,12 @@ impl Parser {
 
     fn parse_contract_decl(&mut self, modifier: Option<String>) -> Result<ContractDecl, String> {
         self.in_contract_body = true;
+        let name_line = self.current().map(|t| t.line).unwrap_or(0);
+        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
+        // LAB-SRCMAP-P1
+        self.current_contract = name.clone();
+        self.record_span(format!("contract:{}", name), "contract", name_line, name_col);
         let type_params = if self.peek_type(TokenType::LBracket) {
             self.parse_contract_type_params()?
         } else {
@@ -1379,8 +1416,15 @@ impl Parser {
 
             "input" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("input", tok.line, tok.col,
-                    |p| p.parse_input_decl())
+                let kw_line = tok.line; let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("input", kw_line, kw_col,
+                    |p| p.parse_input_decl());
+                // LAB-SRCMAP-P1
+                if let Some(BodyDecl::Input { name, .. }) = &result {
+                    let id = format!("input:{}.{}", self.current_contract, name);
+                    self.record_span(id, "input", kw_line, kw_col);
+                }
+                result
             }
             "capability" => {
                 self.advance();
@@ -1394,13 +1438,27 @@ impl Parser {
             }
             "output" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("output", tok.line, tok.col,
-                    |p| p.parse_output_decl())
+                let kw_line = tok.line; let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("output", kw_line, kw_col,
+                    |p| p.parse_output_decl());
+                // LAB-SRCMAP-P1
+                if let Some(BodyDecl::Output { name, .. }) = &result {
+                    let id = format!("output:{}.{}", self.current_contract, name);
+                    self.record_span(id, "output", kw_line, kw_col);
+                }
+                result
             }
             "compute" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("compute", tok.line, tok.col,
-                    |p| p.parse_compute_decl())
+                let kw_line = tok.line; let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("compute", kw_line, kw_col,
+                    |p| p.parse_compute_decl());
+                // LAB-SRCMAP-P1
+                if let Some(BodyDecl::Compute { name, .. }) = &result {
+                    let id = format!("compute:{}.{}", self.current_contract, name);
+                    self.record_span(id, "compute", kw_line, kw_col);
+                }
+                result
             }
             "read" => {
                 self.advance();
@@ -1561,6 +1619,7 @@ impl Parser {
 
     fn parse_compute_decl(&mut self) -> Result<BodyDecl, String> {
         let name = self.name_token()?;
+        self.current_decl = name.clone(); // LAB-SRCMAP-P1: context for expr span recording
         let mut type_annotation = None;
         if self.peek_type(TokenType::Colon) {
             self.advance();
@@ -2018,7 +2077,11 @@ impl Parser {
     }
 
     fn parse_type_decl(&mut self) -> Result<TypeDecl, String> {
+        let name_line = self.current().map(|t| t.line).unwrap_or(0);
+        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
+        // LAB-SRCMAP-P1
+        self.record_span(format!("type:{}", name), "type", name_line, name_col);
         self.expect_type(TokenType::LBrace)?;
         let mut fields = Vec::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
@@ -2577,8 +2640,15 @@ impl Parser {
 
         loop {
             if self.peek_type(TokenType::Dot) {
+                let dot_line = self.current().map(|t| t.line).unwrap_or(0);
+                let dot_col  = self.current().map(|t| t.col).unwrap_or(0);
                 self.advance();
                 let field = self.name_token()?;
+                // LAB-SRCMAP-P1
+                if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+                    let id = format!("field_access:{}.{}@L{}", self.current_contract, self.current_decl, dot_line);
+                    self.record_span(id, "field_access", dot_line, dot_col);
+                }
                 expr = Expr::FieldAccess {
                     object: Box::new(expr),
                     field,
@@ -2598,6 +2668,8 @@ impl Parser {
             } else if self.peek_type(TokenType::LParen) {
                 if let Expr::Ref { name } = &expr {
                     let fn_name = name.clone();
+                    let paren_line = self.current().map(|t| t.line).unwrap_or(0);
+                    let paren_col  = self.current().map(|t| t.col).unwrap_or(0);
                     self.advance();
                     let mut args = Vec::new();
                     while !self.peek_type(TokenType::RParen) && !self.peek_type(TokenType::Eof) {
@@ -2607,6 +2679,11 @@ impl Parser {
                         }
                     }
                     self.expect_type(TokenType::RParen)?;
+                    // LAB-SRCMAP-P1
+                    if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+                        let id = format!("call:{}.{}@L{}", self.current_contract, self.current_decl, paren_line);
+                        self.record_span(id, "call", paren_line, paren_col);
+                    }
                     expr = Expr::Call {
                         fn_name,
                         args,
@@ -2737,8 +2814,16 @@ impl Parser {
                     }
                     // PROP-044 P3: match expression
                     "match" => {
+                        let match_line = tok.line;
+                        let match_col  = tok.col;
                         self.advance();
-                        self.parse_match_expr_inner()
+                        let result = self.parse_match_expr_inner();
+                        // LAB-SRCMAP-P1
+                        if result.is_ok() && !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+                            let id = format!("match:{}.{}@L{}", self.current_contract, self.current_decl, match_line);
+                            self.record_span(id, "match_expr", match_line, match_col);
+                        }
+                        result
                     }
                     "true" => {
                         self.advance();
@@ -2766,7 +2851,15 @@ impl Parser {
                 // PROP-044 P3: PascalCase ident immediately followed by { → variant construct
                 let first_char = tok.value.chars().next().unwrap_or('a');
                 if first_char.is_uppercase() && self.peek_type(TokenType::LBrace) {
-                    return self.parse_variant_construct_expr(tok.value);
+                    let vc_line = tok.line;
+                    let vc_col  = tok.col;
+                    let result = self.parse_variant_construct_expr(tok.value);
+                    // LAB-SRCMAP-P1
+                    if result.is_ok() && !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+                        let id = format!("variant_construct:{}.{}@L{}", self.current_contract, self.current_decl, vc_line);
+                        self.record_span(id, "variant_construct", vc_line, vc_col);
+                    }
+                    return result;
                 }
                 Ok(Expr::Ref { name: tok.value })
             }
@@ -2833,6 +2926,8 @@ impl Parser {
     }
 
     fn parse_array_literal(&mut self) -> Result<Expr, String> {
+        let brk_line = self.current().map(|t| t.line).unwrap_or(0);
+        let brk_col  = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBracket)?;
         let mut items = Vec::new();
         while !self.peek_type(TokenType::RBracket) && !self.peek_type(TokenType::Eof) {
@@ -2842,10 +2937,17 @@ impl Parser {
             }
         }
         self.expect_type(TokenType::RBracket)?;
+        // LAB-SRCMAP-P1
+        if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+            let id = format!("array_literal:{}.{}@L{}", self.current_contract, self.current_decl, brk_line);
+            self.record_span(id, "array_literal", brk_line, brk_col);
+        }
         Ok(Expr::ArrayLiteral { items })
     }
 
     fn parse_record_or_block(&mut self) -> Result<Expr, String> {
+        let brace_line = self.current().map(|t| t.line).unwrap_or(0);
+        let brace_col  = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBrace)?;
         let mut fields = HashMap::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
@@ -2858,13 +2960,22 @@ impl Parser {
             }
         }
         self.expect_type(TokenType::RBrace)?;
+        // LAB-SRCMAP-P1
+        if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+            let id = format!("record_literal:{}.{}@L{}", self.current_contract, self.current_decl, brace_line);
+            self.record_span(id, "record_literal", brace_line, brace_col);
+        }
         Ok(Expr::RecordLiteral { fields })
     }
 
     // ── PROP-044 P3: variant declarations ────────────────────────────────────
 
     fn parse_variant_decl_top(&mut self) -> Result<VariantDecl, String> {
+        let name_line = self.current().map(|t| t.line).unwrap_or(0);
+        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
+        // LAB-SRCMAP-P1
+        self.record_span(format!("variant:{}", name), "variant", name_line, name_col);
         self.expect_type(TokenType::LBrace)?;
         let mut arms = Vec::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {

@@ -29,6 +29,16 @@ pub enum TokenType {
     Eof,
 }
 
+/// LAB-SRCMAP-P1: source location span for a single AST/SIR node.
+/// v0: start positions exact (from lexer); end positions best-effort (0 = absent).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Span {
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,

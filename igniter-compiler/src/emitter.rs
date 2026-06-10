@@ -1,6 +1,6 @@
 use crate::typechecker::{TypedProgram, TypedContract, TypedDecl};
 use crate::classifier::ClassifierDiagnostic;
-use crate::parser::Expr;
+use crate::parser::{Expr, SpanEntry};
 use serde_json::{Value, Map, json};
 use sha2::{Sha256, Digest};
 use std::collections::{HashMap, HashSet};
@@ -10,6 +10,8 @@ pub struct EmitResult {
     pub compilation_report: Value,
     pub form_table: Option<Value>,
     pub resolved_program: Option<Value>,
+    /// LAB-SRCMAP-P1: source-map artifact built from parser span_table.
+    pub source_map: Option<Value>,
 }
 
 pub struct Emitter {
@@ -42,6 +44,7 @@ impl Emitter {
             compilation_report,
             form_table: None,
             resolved_program: None,
+            source_map: None,
         }
     }
 
@@ -104,8 +107,18 @@ impl Emitter {
         }
 
         // PROP-044 P6: emit variant_declarations when present
+        // LAB-SRCMAP-P1: enrich each variant_declaration with a node_id for sourcemap linkage
         if !typed.variant_declarations.is_empty() {
-            result.insert("variant_declarations".to_string(), Value::Array(typed.variant_declarations.clone()));
+            let enriched: Vec<Value> = typed.variant_declarations.iter().map(|v| {
+                let mut v2 = v.clone();
+                if let Some(obj) = v2.as_object_mut() {
+                    if let Some(name) = obj.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()) {
+                        obj.insert("node_id".to_string(), Value::String(format!("variant:{}", name)));
+                    }
+                }
+                v2
+            }).collect();
+            result.insert("variant_declarations".to_string(), Value::Array(enriched));
         }
 
         Value::Object(result)
@@ -172,6 +185,97 @@ impl Emitter {
         let path = typed.source_path.as_deref().unwrap_or("source/add.ig");
         path.trim_start_matches("igniter-lang/").to_string()
     }
+
+    // ── LAB-SRCMAP-P1: source map building ───────────────────────────────────
+
+    /// Build the `.sourcemap.json` artifact from the parser's span_table.
+    /// v0 stability: declaration spans exact; expression spans best-effort token-start.
+    pub fn build_sourcemap(&self, typed: &TypedProgram, span_table: &[SpanEntry]) -> Value {
+        let source_file = typed.source_path.as_deref().unwrap_or("unknown").to_string();
+        let module = typed.module.clone().unwrap_or_default();
+
+        let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut nodes = Vec::new();
+        for entry in span_table {
+            // De-duplicate: first occurrence wins (matches parse order)
+            if seen_ids.contains(&entry.node_id) {
+                continue;
+            }
+            seen_ids.insert(entry.node_id.clone());
+
+            let sir_path = self.span_entry_sir_path(entry);
+            let mut span = Map::new();
+            span.insert("start_line".to_string(), Value::Number(entry.start_line.into()));
+            span.insert("start_col".to_string(), Value::Number(entry.start_col.into()));
+            if entry.end_line > 0 {
+                span.insert("end_line".to_string(), Value::Number(entry.end_line.into()));
+                span.insert("end_col".to_string(), Value::Number(entry.end_col.into()));
+            }
+            let mut node = Map::new();
+            node.insert("node_id".to_string(), Value::String(entry.node_id.clone()));
+            node.insert("kind".to_string(), Value::String(entry.kind.clone()));
+            node.insert("sir_path".to_string(), Value::String(sir_path));
+            node.insert("source_span".to_string(), Value::Object(span));
+            nodes.push(Value::Object(node));
+        }
+
+        json!({
+            "schema_version": "srcmap-v0",
+            "source_file": source_file,
+            "module": module,
+            "nodes": nodes,
+            "provenance_note": "v0: declaration spans exact (token-start of name); expression spans best-effort (token-start of delimiter); end positions absent (not tracked in v0)"
+        })
+    }
+
+    fn span_entry_sir_path(&self, entry: &SpanEntry) -> String {
+        let id = &entry.node_id;
+
+        if let Some(name) = id.strip_prefix("contract:") {
+            return format!("$.contracts[?(@.contract_name=='{}')]", name);
+        }
+        if let Some(name) = id.strip_prefix("type:") {
+            return format!("$.type_env['{}']", name);
+        }
+        if let Some(name) = id.strip_prefix("variant:") {
+            return format!("$.variant_declarations[?(@.name=='{}')]", name);
+        }
+        if let Some(rest) = id.strip_prefix("input:") {
+            if let Some(dot) = rest.find('.') {
+                let (c, n) = (&rest[..dot], &rest[dot+1..]);
+                return format!("$.contracts[?(@.contract_name=='{}')].inputs[?(@.name=='{}')]", c, n);
+            }
+        }
+        if let Some(rest) = id.strip_prefix("output:") {
+            if let Some(dot) = rest.find('.') {
+                let (c, n) = (&rest[..dot], &rest[dot+1..]);
+                return format!("$.contracts[?(@.contract_name=='{}')].outputs[?(@.name=='{}')]", c, n);
+            }
+        }
+        if let Some(rest) = id.strip_prefix("compute:") {
+            // Strip @L suffix if present (expression nodes reuse compute prefix)
+            let rest = rest.split('@').next().unwrap_or(rest);
+            if let Some(dot) = rest.find('.') {
+                let (c, n) = (&rest[..dot], &rest[dot+1..]);
+                return format!("$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')]", c, n);
+            }
+        }
+        // Expression nodes: "record_literal:Contract.Decl@L12", "field_access:...", etc.
+        if let Some(at) = id.find('@') {
+            let base = &id[..at];
+            if let Some(colon) = base.find(':') {
+                let kind = &base[..colon];
+                let path = &base[colon+1..];
+                if let Some(dot) = path.find('.') {
+                    let (c, d) = (&path[..dot], &path[dot+1..]);
+                    return format!("$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')].expr.{}", c, d, kind);
+                }
+            }
+        }
+        "$.unknown".to_string()
+    }
+
+    // ── end LAB-SRCMAP-P1 ─────────────────────────────────────────────────────
 
     fn typed_contract_ir(&self, contract: &TypedContract) -> Value {
         *self.current_type_args.borrow_mut() = contract.type_args.clone();
@@ -329,6 +433,9 @@ impl Emitter {
         for decl in &contract.declarations {
             if decl.kind == kind {
                 let mut port = Map::new();
+                // LAB-SRCMAP-P1: stable node_id for sourcemap linkage
+                port.insert("node_id".to_string(), Value::String(
+                    format!("{}:{}.{}", kind, contract.name, decl.name)));
                 port.insert("name".to_string(), Value::String(decl.name.clone()));
                 port.insert("type".to_string(), decl.type_info.clone());
                 
@@ -357,14 +464,14 @@ impl Emitter {
     fn typed_nodes(&self, contract: &TypedContract) -> Value {
         let mut nodes = Vec::new();
         for decl in &contract.declarations {
-            if let Some(node) = self.typed_node(decl, &contract.declarations) {
+            if let Some(node) = self.typed_node(decl, &contract.declarations, &contract.name) {
                 nodes.push(node);
             }
         }
         Value::Array(nodes)
     }
 
-    fn typed_node(&self, decl: &TypedDecl, declarations: &[TypedDecl]) -> Option<Value> {
+    fn typed_node(&self, decl: &TypedDecl, declarations: &[TypedDecl], contract_name: &str) -> Option<Value> {
         if let Some(node) = &decl.semantic_node {
             return Some(node.clone());
         }
@@ -390,6 +497,9 @@ impl Emitter {
                 } else {
                     let mut node = Map::new();
                     node.insert("kind".to_string(), Value::String("compute".to_string()));
+                    // LAB-SRCMAP-P1: stable node_id for sourcemap linkage
+                    node.insert("node_id".to_string(), Value::String(
+                        format!("compute:{}.{}", contract_name, decl.name)));
                     node.insert("name".to_string(), Value::String(decl.name.clone()));
                     // PROP-044 P6: use annotated_expr (variant_construct/match_node) if present,
                     // otherwise fall back to the standard semantic_expr pipeline.
@@ -1448,10 +1558,10 @@ impl Emitter {
                         "expr": self.semantic_expr(&json!(inner.expr))
                     }));
                     // Also emit to body_nodes for VM backward compat
-                    if let Some(val) = self.typed_node(inner, declarations) {
+                    if let Some(val) = self.typed_node(inner, declarations, "") {
                         body_nodes_vm.push(val);
                     }
-                } else if let Some(val) = self.typed_node(inner, declarations) {
+                } else if let Some(val) = self.typed_node(inner, declarations, "") {
                     body_nodes_vm.push(val);
                 }
             }
@@ -1484,7 +1594,7 @@ impl Emitter {
         let mut body_nodes = Vec::new();
         if let Some(nodes) = &decl.body_nodes {
             for inner in nodes {
-                if let Some(val) = self.typed_node(inner, declarations) {
+                if let Some(val) = self.typed_node(inner, declarations, "") {
                     body_nodes.push(val);
                 }
             }

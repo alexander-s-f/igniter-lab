@@ -84,6 +84,8 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     let mut parsed = parser.parse();
     parsed.source_path = Some(source_path.to_string());
     parsed.source_hash = Some(source_hash.clone());
+    // LAB-SRCMAP-P1: extract span table before parser is dropped
+    let span_table = std::mem::take(&mut parser.span_table);
 
     // 1.5 Monomorphize
     igniter_compiler::monomorphizer::monomorphize_program(&mut parsed);
@@ -321,6 +323,9 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(false);
     }
+
+    // LAB-SRCMAP-P1: build source map from parser span table and attach to emit result
+    emit_res.source_map = Some(emitter.build_sourcemap(&typed, &span_table));
 
     // 5. Assemble
     let assembler = Assembler::new();

@@ -187,6 +187,12 @@ impl Assembler {
             manifest.insert("capability_tokens".to_string(), tokens.clone());
         }
 
+        // LAB-SRCMAP-P1: write sourcemap sidecar if available
+        if let Some(sm) = &emit_result.source_map {
+            self.write_json_pretty(&base_path.join("sourcemap.json"), sm)?;
+            manifest.insert("sourcemap_ref".to_string(), Value::String("sourcemap.json".to_string()));
+        }
+
         self.write_json_pretty(&base_path.join("manifest.json"), &Value::Object(manifest.clone()))?;
         self.write_json_pretty(&base_path.join("semantic_ir_program.json"), semantic_ir)?;
         self.write_json_pretty(&base_path.join("compilation_report.json"), report)?;
