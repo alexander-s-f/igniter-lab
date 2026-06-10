@@ -1,4 +1,4 @@
-use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl};
+use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl, VariantDecl};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -24,6 +24,9 @@ pub struct ClassifiedProgram {
     /// PROP-041 T2: module-level size_relation declarations passed through for TypeChecker registry
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub size_relations: Vec<SizeRelationDecl>,
+    /// PROP-044 P3: module-level variant declarations passed through for TypeChecker variant_shapes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_declarations: Vec<VariantDecl>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -191,6 +194,8 @@ impl Classifier {
             pass_result,
             // PROP-041 T2: pass-through size_relation declarations for TypeChecker registry
             size_relations: parsed.size_relations.clone(),
+            // PROP-044 P3: pass-through variant declarations for TypeChecker variant_shapes
+            variant_declarations: parsed.variants.clone(),
         }
     }
 
@@ -1382,6 +1387,8 @@ impl Classifier {
             Expr::RecordLiteral { .. } => "record_literal".to_string(),
             Expr::Symbol { .. } => "symbol".to_string(),
             Expr::Error { .. } => "error".to_string(),
+            Expr::VariantConstruct { .. } => "variant_construct".to_string(),
+            Expr::MatchExpr { .. } => "match_expr".to_string(),
         }
     }
 

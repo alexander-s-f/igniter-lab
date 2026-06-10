@@ -103,6 +103,11 @@ impl Emitter {
             result.insert("invariants".to_string(), Value::Array(invariants));
         }
 
+        // PROP-044 P6: emit variant_declarations when present
+        if !typed.variant_declarations.is_empty() {
+            result.insert("variant_declarations".to_string(), Value::Array(typed.variant_declarations.clone()));
+        }
+
         Value::Object(result)
     }
 
@@ -386,12 +391,18 @@ impl Emitter {
                     let mut node = Map::new();
                     node.insert("kind".to_string(), Value::String("compute".to_string()));
                     node.insert("name".to_string(), Value::String(decl.name.clone()));
-                    // PROP-039 gate 5: intercept recur() calls to emit recur_call sub-nodes
-                    let return_type_str = decl.type_info.get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let lowered_expr = self.semantic_expr_for_compute(&json!(decl.expr), &return_type_str);
+                    // PROP-044 P6: use annotated_expr (variant_construct/match_node) if present,
+                    // otherwise fall back to the standard semantic_expr pipeline.
+                    let lowered_expr = if let Some(ae) = &decl.annotated_expr {
+                        self.lower_annotated_expr(ae)
+                    } else {
+                        // PROP-039 gate 5: intercept recur() calls to emit recur_call sub-nodes
+                        let return_type_str = decl.type_info.get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        self.semantic_expr_for_compute(&json!(decl.expr), &return_type_str)
+                    };
                     node.insert("expr".to_string(), lowered_expr);
                     node.insert("type".to_string(), decl.type_info.clone());
                     node.insert("deps".to_string(), json!(decl.deps));
@@ -610,6 +621,27 @@ impl Emitter {
             }
             Value::Array(arr) => {
                 Value::Array(arr.iter().map(|item| self.semantic_expr(item)).collect())
+            }
+            _ => val.clone(),
+        }
+    }
+
+    // ── PROP-044 P6: variant_construct / match_node SIR lowering ─────────────────
+
+    /// Lower an annotated_expr (from TypeChecker PROP-044 P5) to final SIR form.
+    /// - `variant_construct` → pass through (fields already annotated)
+    /// - `match_expr` → rename to `match_node` (SemanticIR convention)
+    fn lower_annotated_expr(&self, val: &Value) -> Value {
+        match val.get("kind").and_then(|k| k.as_str()) {
+            Some("variant_construct") => {
+                // Fields are already annotated with resolved_type; pass through as-is.
+                val.clone()
+            }
+            Some("match_expr") => {
+                // Rename kind to "match_node" for SemanticIR (mirrors Ruby semantic_match_node).
+                let mut m = val.as_object().cloned().unwrap_or_default();
+                m.insert("kind".to_string(), Value::String("match_node".to_string()));
+                Value::Object(m)
             }
             _ => val.clone(),
         }

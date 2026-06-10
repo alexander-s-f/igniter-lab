@@ -236,7 +236,8 @@ impl FormResolver {
             }
             Expr::Ref { .. } | Expr::Literal { .. } | Expr::Symbol { .. }
             | Expr::ArrayLiteral { .. } | Expr::RecordLiteral { .. }
-            | Expr::SliceRecord { .. } | Expr::Error { .. } => {}
+            | Expr::SliceRecord { .. } | Expr::Error { .. }
+            | Expr::VariantConstruct { .. } | Expr::MatchExpr { .. } => {}
         }
     }
 

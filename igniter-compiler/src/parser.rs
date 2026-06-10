@@ -23,6 +23,9 @@ pub struct SourceFile {
     /// PROP-041 T2: module-level `size_relation TypeName accessor` declarations
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub size_relations: Vec<SizeRelationDecl>,
+    /// PROP-044 P3: module-level `variant Name { Arms }` declarations
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<VariantDecl>,
     pub parse_errors: Vec<ParseErrorDetail>,
 }
 
@@ -35,6 +38,44 @@ pub struct SizeRelationDecl {
     #[serde(rename = "type")]
     pub type_name: String,
     pub accessor: String,
+}
+
+// ── PROP-044 P3: variant declarations ────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VariantDecl {
+    pub kind: String, // "variant"
+    pub name: String,
+    pub arms: Vec<VariantArm>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VariantArm {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<VariantField>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VariantField {
+    pub name: String,
+    pub type_annotation: TypeRef,
+}
+
+// ── PROP-044 P3: match arm / pattern ─────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MatchArm {
+    pub pattern: MatchPattern,
+    pub body: Box<Expr>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MatchPattern {
+    pub wildcard: bool,
+    pub arm: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<String>,
 }
 
 // ── Form System ────────────────────────────────────────────────────────────────
@@ -510,6 +551,18 @@ pub enum Expr {
     Symbol {
         value: String,
     },
+    /// PROP-044 P3: variant construction expression — `ArmName { field: expr, ... }`
+    #[serde(rename = "variant_construct")]
+    VariantConstruct {
+        arm: String,
+        fields: HashMap<String, Expr>,
+    },
+    /// PROP-044 P3: match expression — `match subject { Arm { bindings } => body, ... }`
+    #[serde(rename = "match_expr")]
+    MatchExpr {
+        subject: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
     #[serde(rename = "error")]
     Error {
         token: String,
@@ -659,6 +712,8 @@ impl Parser {
         let mut assumptions = Vec::new();
         // PROP-041 T2: module-level size_relation declarations
         let mut size_relations = Vec::new();
+        // PROP-044 P3: module-level variant declarations
+        let mut variants = Vec::new();
 
         if self.peek_kw("module") {
             self.advance();
@@ -687,6 +742,8 @@ impl Parser {
                 Ok(Some(TopDecl::Assumptions(mut a))) => assumptions.append(&mut a),
                 // PROP-041 T2: size_relation module-level declarations
                 Ok(Some(TopDecl::SizeRelation(sr))) => size_relations.push(sr),
+                // PROP-044 P3: variant module-level declarations
+                Ok(Some(TopDecl::Variant(v))) => variants.push(v),
                 _ => {
                     self.advance();
                 }
@@ -712,6 +769,7 @@ impl Parser {
             olap_points,
             assumptions,
             size_relations,
+            variants,
             parse_errors: self.errors.clone(),
         }
     }
@@ -860,6 +918,8 @@ impl Parser {
             "assumptions" => { self.advance(); self.parse_assumptions_block().map(|a| Some(TopDecl::Assumptions(a))) }
             // PROP-041 T2: `size_relation TypeName accessor`
             "size_relation" => { self.advance(); self.parse_size_relation_decl().map(|sr| Some(TopDecl::SizeRelation(sr))) }
+            // PROP-044 P3: `variant Name { Arms }`
+            "variant" => { self.advance(); self.parse_variant_decl_top().map(|v| Some(TopDecl::Variant(v))) }
             _ => {
                 self.add_parse_error("OOF-G1", &format!("Unexpected top-level token: {}", tok.value), &tok.value, tok.line, tok.col);
                 self.advance();
@@ -2675,6 +2735,11 @@ impl Parser {
                         self.advance();
                         self.parse_if_expr()
                     }
+                    // PROP-044 P3: match expression
+                    "match" => {
+                        self.advance();
+                        self.parse_match_expr_inner()
+                    }
                     "true" => {
                         self.advance();
                         Ok(Expr::Literal { value: serde_json::Value::Bool(true), type_tag: "Bool".to_string() })
@@ -2697,6 +2762,11 @@ impl Parser {
                 self.advance();
                 if self.in_contract_body && tok.value == "now" {
                     self.add_parse_error("OOF-L2", "now() is forbidden in contract bodies — use explicit as_of binding or tick.time", "now", tok.line, tok.col);
+                }
+                // PROP-044 P3: PascalCase ident immediately followed by { → variant construct
+                let first_char = tok.value.chars().next().unwrap_or('a');
+                if first_char.is_uppercase() && self.peek_type(TokenType::LBrace) {
+                    return self.parse_variant_construct_expr(tok.value);
                 }
                 Ok(Expr::Ref { name: tok.value })
             }
@@ -2790,6 +2860,105 @@ impl Parser {
         self.expect_type(TokenType::RBrace)?;
         Ok(Expr::RecordLiteral { fields })
     }
+
+    // ── PROP-044 P3: variant declarations ────────────────────────────────────
+
+    fn parse_variant_decl_top(&mut self) -> Result<VariantDecl, String> {
+        let name = self.name_token()?;
+        self.expect_type(TokenType::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+            let arm_name = self.name_token()?;
+            let mut fields = Vec::new();
+            if self.peek_type(TokenType::LBrace) {
+                self.advance(); // consume {
+                while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+                    let fname = self.name_token()?;
+                    self.expect_type(TokenType::Colon)?;
+                    let ftype = self.parse_type_ref()?;
+                    fields.push(VariantField { name: fname, type_annotation: ftype });
+                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                }
+                self.expect_type(TokenType::RBrace)?;
+            }
+            if self.peek_type(TokenType::Comma) { self.advance(); }
+            arms.push(VariantArm { name: arm_name, fields });
+        }
+        self.expect_type(TokenType::RBrace)?;
+        Ok(VariantDecl { kind: "variant".to_string(), name, arms })
+    }
+
+    // ── PROP-044 P3: variant construct expression ─────────────────────────────
+
+    fn parse_variant_construct_expr(&mut self, arm_name: String) -> Result<Expr, String> {
+        self.expect_type(TokenType::LBrace)?;
+        let mut fields = HashMap::new();
+        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+            let key = self.name_token()?;
+            self.expect_type(TokenType::Colon)?;
+            let val = self.parse_expr()?;
+            fields.insert(key, val);
+            if self.peek_type(TokenType::Comma) { self.advance(); }
+        }
+        self.expect_type(TokenType::RBrace)?;
+        Ok(Expr::VariantConstruct { arm: arm_name, fields })
+    }
+
+    // ── PROP-044 P3: match expression ─────────────────────────────────────────
+
+    fn parse_match_expr_inner(&mut self) -> Result<Expr, String> {
+        let subject = self.parse_expr()?;
+        self.expect_type(TokenType::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+            if let Some(arm) = self.parse_match_arm_inner()? {
+                arms.push(arm);
+            }
+            if self.peek_type(TokenType::Comma) { self.advance(); }
+        }
+        self.expect_type(TokenType::RBrace)?;
+        Ok(Expr::MatchExpr { subject: Box::new(subject), arms })
+    }
+
+    fn parse_match_arm_inner(&mut self) -> Result<Option<MatchArm>, String> {
+        let pattern = match self.parse_match_pattern_inner() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        self.expect_type(TokenType::FatArrow)?;
+        let body = self.parse_expr()?;
+        Ok(Some(MatchArm { pattern, body: Box::new(body) }))
+    }
+
+    fn parse_match_pattern_inner(&mut self) -> Option<MatchPattern> {
+        let tok = self.current()?.clone();
+        // wildcard arm: _
+        if (tok.token_type == TokenType::Ident || tok.token_type == TokenType::Keyword)
+            && tok.value == "_"
+        {
+            self.advance();
+            return Some(MatchPattern { wildcard: true, arm: "_".to_string(), bindings: Vec::new() });
+        }
+        if tok.token_type == TokenType::Ident || tok.token_type == TokenType::Keyword {
+            let arm_name = tok.value.clone();
+            self.advance();
+            let mut bindings = Vec::new();
+            if self.peek_type(TokenType::LBrace) {
+                self.advance(); // consume {
+                while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+                    if let Ok(b) = self.name_token() {
+                        bindings.push(b);
+                    }
+                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                }
+                if self.peek_type(TokenType::RBrace) { self.advance(); }
+            }
+            return Some(MatchPattern { wildcard: false, arm: arm_name, bindings });
+        }
+        self.add_parse_error("OOF-P0", &format!("Expected match arm pattern, got {:?}", tok.token_type), &tok.value, tok.line, tok.col);
+        self.advance();
+        None
+    }
 }
 
 pub enum TopDecl {
@@ -2804,4 +2973,6 @@ pub enum TopDecl {
     Assumptions(Vec<AssumptionDecl>),
     /// PROP-041 T2: module-level `size_relation TypeName accessor`
     SizeRelation(SizeRelationDecl),
+    /// PROP-044 P3: module-level `variant Name { Arms }`
+    Variant(VariantDecl),
 }

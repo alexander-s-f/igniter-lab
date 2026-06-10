@@ -18,7 +18,8 @@ pub enum TokenType {
     DotDot,
     Comma,
     Colon,
-    Arrow, // ->
+    Arrow,    // ->
+    FatArrow, // =>
     Op,    // +, -, *, /, ==, !=, <, >, <=, >=, &&, ||, ++
     Assign, // =
     Pipe,   // |
@@ -51,6 +52,7 @@ const KEYWORDS: &[&str] = &[
     "olap_point", "invariant", "predicate", "severity", "label", "message", "overridable_with",
     "from", "lifecycle", "using", "implements", "capability", "effect",
     "pipeline", "step", "scoped_by", "cardinality", "schema_version", "tenant_free",
+    "variant", "match",
     "if", "else", "let", "true", "false", "nil", "and", "or", "not",
     "loop", "in", "max_steps", "decreases", "fuel", "clock", "every", "seconds", "minutes", "hours", "break",
     "form", "priority", "associativity", "no_form", "hiding", "overriding"
@@ -167,6 +169,9 @@ impl<'a> Lexer<'a> {
                 if self.peek(1) == Some('=') {
                     self.advance(); self.advance();
                     Some(Token { token_type: TokenType::Op, value: "==".to_string(), line: l, col: c })
+                } else if self.peek(1) == Some('>') {
+                    self.advance(); self.advance();
+                    Some(Token { token_type: TokenType::FatArrow, value: "=>".to_string(), line: l, col: c })
                 } else {
                     self.advance();
                     Some(Token { token_type: TokenType::Assign, value: "=".to_string(), line: l, col: c })

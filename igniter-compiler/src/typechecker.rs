@@ -2,6 +2,10 @@ use crate::parser::{Expr, TypeRef, WindowValue, Stmt, ExprOrBlock, OlapPointDecl
 use crate::classifier::{ClassifiedProgram, ClassifiedContract, ClassifiedDecl, ClassifiedSymbol, DependencyGraph, ClassifierDiagnostic};
 use std::collections::{HashMap, HashSet};
 
+// ── PROP-044 P5: variant shapes type alias ────────────────────────────────────
+// variant_name → arm_name → field_name → type_ir (serde_json::Value)
+type VariantShapes = HashMap<String, HashMap<String, HashMap<String, serde_json::Value>>>;
+
 // ── PROP-041 T2: structural-size relation ────────────────────────────────────
 
 /// Registry entry for a structural-size relation.
@@ -132,6 +136,10 @@ pub struct TypedProgram {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_warnings: Option<Vec<ClassifierDiagnostic>>,
     pub pass_result: String,
+    /// PROP-044 P5: SIR-ready variant declarations (emitted at program level).
+    /// Built from classified.variant_declarations after variant_shapes pass.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_declarations: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -232,6 +240,10 @@ pub struct TypedDecl {
     pub metrics_from: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_nodes: Option<Vec<TypedDecl>>,
+    /// PROP-044 P5: SIR-ready enriched expression (variant_construct / match_node).
+    /// When Some, the emitter uses this in place of json!(decl.expr) for the compute node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotated_expr: Option<serde_json::Value>,
 }
 
 pub struct TypeChecker {
@@ -240,6 +252,10 @@ pub struct TypeChecker {
     /// Set at start of each typecheck_contract call; cleared on exit.
     /// Used by infer_expr to suppress OOF-P1 for field accesses on the T3-measured input.
     t3_context: std::cell::RefCell<Option<T3Context>>,
+    /// PROP-044 P5: module-level variant shapes.
+    /// Built once in typecheck() from classified.variant_declarations; shared across all contracts.
+    /// variant_name → arm_name → field_name → type_ir
+    variant_shapes: std::cell::RefCell<VariantShapes>,
 }
 
 impl TypeChecker {
@@ -247,6 +263,7 @@ impl TypeChecker {
         Self {
             version: "typed-pass-executable-proof-v0".to_string(),
             t3_context: std::cell::RefCell::new(None),
+            variant_shapes: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -262,6 +279,14 @@ impl TypeChecker {
         // PROP-041 T2: build size-relation registry (stdlib + user-declared).
         // Built once before the contracts loop so all contracts share the same registry.
         let size_registry = self.build_size_registry(classified);
+
+        // PROP-044 P5: build variant_shapes from module-level variant declarations.
+        // Stored on TypeChecker via RefCell so infer_expr can access it without arg drilling.
+        let vshapes = self.build_variant_shapes(classified);
+        *self.variant_shapes.borrow_mut() = vshapes;
+
+        // Build SIR-ready variant_declarations for TypedProgram emission.
+        let variant_declarations = self.build_variant_declarations_sir(classified);
 
         // LAB-RACK-P11: build module contract registry for literal callee resolution.
         // Built once before the loop so all contracts see the full module.
@@ -357,6 +382,7 @@ impl TypeChecker {
             olap_points: if olap_env.is_empty() { None } else { Some(olap_env.values().map(|v| v.get("semantic_node").unwrap().clone()).collect()) },
             type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
             pass_result,
+            variant_declarations,
         }
     }
 
@@ -962,6 +988,7 @@ impl TypeChecker {
                         uncertain_from: None,
                         metrics_from: None,
                         body_nodes: None,
+                        annotated_expr: None,
                     });
                 }
                 "compute" | "snapshot" => {
@@ -1050,7 +1077,11 @@ impl TypeChecker {
                     // correct qualified fn name (stdlib.text.concat / stdlib.collection.concat).
                     let rewritten_expr = decl.expr.as_ref()
                         .map(|e| self.rewrite_concat_calls(e, &symbol_types));
-                    typed_decls.push(self.typed_decl(decl, typed_expr.resolved_type, rewritten_expr, decl.deps.clone()));
+                    // PROP-044 P5: carry annotated_expr (variant_construct / match_node SIR) through to emitter.
+                    let annotated = typed_expr.annotated_expr.take();
+                    let mut td = self.typed_decl(decl, typed_expr.resolved_type, rewritten_expr, decl.deps.clone());
+                    td.annotated_expr = annotated;
+                    typed_decls.push(td);
                     // PROP-039 gate 5: validate recur() calls in compute expressions
                     if let Some(expr) = &decl.expr {
                         self.check_recur_in_expr(
@@ -1140,6 +1171,7 @@ impl TypeChecker {
                         uncertain_from: if uncertain_from.is_empty() { None } else { Some(uncertain_from) },
                         metrics_from: if metrics_from.is_empty() { None } else { Some(metrics_from) },
                         body_nodes: None,
+                        annotated_expr: None,
                     });
                 }
                 _ => {}
@@ -1715,6 +1747,7 @@ impl TypeChecker {
             uncertain_from: None,
             metrics_from: None,
             body_nodes: None,
+            annotated_expr: None,
         }
     }
 
@@ -2128,14 +2161,18 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: ty,
                     deps: Vec::new(),
+                    annotated_expr: None,
                 }
+
             }
             Expr::Symbol { value } => {
                 let ty = self.type_ir(&serde_json::Value::String("Symbol".to_string()));
                 TypedExpression {
                     resolved_type: ty,
                     deps: Vec::new(),
+                    annotated_expr: None,
                 }
+
             }
             Expr::Ref { name } => {
                 let in_symbols = symbol_types.contains_key(name);
@@ -2159,7 +2196,9 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: ty,
                     deps: vec![name.clone()],
+                    annotated_expr: None,
                 }
+
             }
             Expr::FieldAccess { object, field } => {
                 let obj_typed = self.infer_expr(object, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
@@ -2171,6 +2210,7 @@ impl TypeChecker {
                     return TypedExpression {
                         resolved_type: obj_typed.resolved_type.clone(),
                         deps: obj_typed.deps,
+                        annotated_expr: None,
                     };
                 }
 
@@ -2188,6 +2228,7 @@ impl TypeChecker {
                                 return TypedExpression {
                                     resolved_type: obj_typed.resolved_type.clone(),
                                     deps: obj_typed.deps,
+                                    annotated_expr: None,
                                 };
                             }
                         }
@@ -2211,7 +2252,9 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: field_type,
                     deps: obj_typed.deps,
+                    annotated_expr: None,
                 }
+
             }
             Expr::BinaryOp { op, left, right } => {
                 let left_typed = self.infer_expr(left, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
@@ -2224,6 +2267,7 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: res_type,
                     deps,
+                    annotated_expr: None,
                 }
             }
             Expr::IfExpr { cond, then, else_block } => {
@@ -2249,6 +2293,7 @@ impl TypeChecker {
                     return TypedExpression {
                         resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                         deps: cond_typed.deps,
+                        annotated_expr: None,
                     };
                 }
 
@@ -2266,6 +2311,7 @@ impl TypeChecker {
                     return TypedExpression {
                         resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                         deps: cond_typed.deps,
+                        annotated_expr: None,
                     };
                 }
 
@@ -2299,6 +2345,7 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type,
                     deps,
+                    annotated_expr: None,
                 }
             }
             Expr::Call { fn_name, args } => {
@@ -2310,7 +2357,7 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new() };
+                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
                     }
                     let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                     let as_of_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
@@ -2343,6 +2390,7 @@ impl TypeChecker {
                     TypedExpression {
                         resolved_type: serde_json::Value::Object(opt),
                         deps,
+                        annotated_expr: None,
                     }
                 } else if fn_name == "bihistory_at" {
                     if args.len() < 2 {
@@ -2352,7 +2400,7 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new() };
+                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
                     }
                     if args.len() < 3 {
                         type_errors.push(ClassifierDiagnostic {
@@ -2361,7 +2409,7 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new() };
+                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
                     }
                     let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                     let vt_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
@@ -2398,6 +2446,7 @@ impl TypeChecker {
                     TypedExpression {
                         resolved_type: serde_json::Value::Object(opt),
                         deps,
+                        annotated_expr: None,
                     }
                 } else {
                     let mut is_resolved = false;
@@ -3347,6 +3396,7 @@ impl TypeChecker {
                         TypedExpression {
                             resolved_type,
                             deps,
+                            annotated_expr: None,
                         }
                     } else {
                         type_errors.push(ClassifierDiagnostic {
@@ -3358,7 +3408,9 @@ impl TypeChecker {
                         TypedExpression {
                             resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                             deps: Vec::new(),
+                            annotated_expr: None,
                         }
+
                     }
                 }
             }
@@ -3402,6 +3454,7 @@ impl TypeChecker {
                             return TypedExpression {
                                  resolved_type: measure_type,
                                  deps,
+                                annotated_expr: None,
                             };
                         } else {
                             type_errors.push(ClassifierDiagnostic {
@@ -3422,7 +3475,9 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                     deps: Vec::new(),
+                    annotated_expr: None,
                 }
+
             }
             Expr::Lambda { params, body } => {
                 let mut local_symbol_types = symbol_types.clone();
@@ -3460,6 +3515,7 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                     deps,
+                    annotated_expr: None,
                 }
             }
             Expr::RecordLiteral { fields } => {
@@ -3486,6 +3542,7 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                     deps,
+                    annotated_expr: None,
                 }
             }
             Expr::ArrayLiteral { items } => {
@@ -3513,7 +3570,16 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                     deps,
+                    annotated_expr: None,
                 }
+            }
+            // PROP-044 P5: variant construct — `ArmName { field: expr, ... }`
+            Expr::VariantConstruct { arm, fields } => {
+                self.infer_variant_construct(arm, fields, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name)
+            }
+            // PROP-044 P5: match expression — `match subject { Arm { bindings } => body, ... }`
+            Expr::MatchExpr { subject, arms } => {
+                self.infer_match_expr(subject, arms, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name)
             }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
@@ -3525,7 +3591,9 @@ impl TypeChecker {
                 TypedExpression {
                     resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
                     deps: Vec::new(),
+                    annotated_expr: None,
                 }
+
             }
         }
     }
@@ -3545,6 +3613,8 @@ impl TypeChecker {
             Expr::ArrayLiteral { .. } => "array_literal".to_string(),
             Expr::RecordLiteral { .. } => "record_literal".to_string(),
             Expr::Symbol { .. } => "symbol".to_string(),
+            Expr::VariantConstruct { .. } => "variant_construct".to_string(),
+            Expr::MatchExpr { .. } => "match_expr".to_string(),
             Expr::Error { .. } => "error".to_string(),
         }
     }
@@ -3742,6 +3812,373 @@ impl TypeChecker {
                 (format!("stdlib.unsupported.{}", op), self.type_ir(&serde_json::Value::String("Unknown".to_string())))
             }
         }
+    }
+
+    // ── PROP-044 P5: variant / match inference ───────────────────────────────────
+
+    /// Build variant_shapes (3-level map) from classifier's variant_declarations.
+    fn build_variant_shapes(&self, classified: &ClassifiedProgram) -> VariantShapes {
+        let mut shapes: VariantShapes = HashMap::new();
+        for vd in &classified.variant_declarations {
+            let mut arm_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+            for arm in &vd.arms {
+                let mut field_map: HashMap<String, serde_json::Value> = HashMap::new();
+                for field in &arm.fields {
+                    field_map.insert(field.name.clone(), self.type_ir(&serde_json::to_value(&field.type_annotation).unwrap()));
+                }
+                arm_map.insert(arm.name.clone(), field_map);
+            }
+            shapes.insert(vd.name.clone(), arm_map);
+        }
+        shapes
+    }
+
+    /// Build SIR-ready variant_declarations for TypedProgram.
+    fn build_variant_declarations_sir(&self, classified: &ClassifiedProgram) -> Vec<serde_json::Value> {
+        classified.variant_declarations.iter().map(|vd| {
+            let arms: Vec<serde_json::Value> = vd.arms.iter().map(|arm| {
+                let fields: Vec<serde_json::Value> = arm.fields.iter().map(|f| {
+                    serde_json::json!({
+                        "name": f.name,
+                        "type": self.type_ir(&serde_json::to_value(&f.type_annotation).unwrap())
+                    })
+                }).collect();
+                serde_json::json!({ "name": arm.name, "fields": fields })
+            }).collect();
+            serde_json::json!({ "kind": "variant_decl", "name": vd.name, "arms": arms })
+        }).collect()
+    }
+
+    fn variant_type_exists(&self, name: &str) -> bool {
+        self.variant_shapes.borrow().contains_key(name)
+    }
+
+    fn find_variant_for_arm(&self, arm_name: &str) -> Option<String> {
+        for (vname, arms) in self.variant_shapes.borrow().iter() {
+            if arms.contains_key(arm_name) {
+                return Some(vname.clone());
+            }
+        }
+        None
+    }
+
+    /// Serialize an Expr to JSON and attach resolved_type for SIR annotation.
+    fn annotate_expr_with_type(&self, expr: &Expr, resolved_type: &serde_json::Value) -> serde_json::Value {
+        let mut v = serde_json::to_value(expr).unwrap_or(serde_json::Value::Null);
+        if let serde_json::Value::Object(ref mut m) = v {
+            m.insert("resolved_type".to_string(), resolved_type.clone());
+        }
+        v
+    }
+
+    /// PROP-044 P5: Infer a variant_construct expression.
+    /// Returns type_ir(variant_name) on success; Unknown with OOF-KIND2 on failure.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_variant_construct(
+        &self,
+        arm: &str,
+        fields: &HashMap<String, Expr>,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> TypedExpression {
+        let variant_name = self.find_variant_for_arm(arm);
+        if variant_name.is_none() {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-KIND2".to_string(),
+                message: format!("variant_construct arm '{}' is not declared in any variant", arm),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return TypedExpression {
+                resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                deps: Vec::new(),
+                annotated_expr: None,
+            };
+        }
+        let variant_name = variant_name.unwrap();
+
+        let arm_field_shapes: HashMap<String, serde_json::Value> = {
+            let vs = self.variant_shapes.borrow();
+            vs[&variant_name][arm].clone()
+        };
+
+        let mut typed_fields: HashMap<String, serde_json::Value> = HashMap::new();
+        let mut all_deps: Vec<String> = Vec::new();
+        let errors_before = type_errors.len();
+
+        for (fname, fexpr) in fields {
+            let typed_f = self.infer_expr(fexpr, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+            let field_type = &typed_f.resolved_type;
+            if let Some(expected) = arm_field_shapes.get(fname) {
+                let actual_name = self.type_name(field_type);
+                let expected_name = self.type_name(expected);
+                if actual_name != expected_name && actual_name != "Unknown" {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-KIND2".to_string(),
+                        message: format!("{}::{} field '{}': expected {}, got {}", variant_name, arm, fname, expected_name, actual_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+            } else {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-KIND2".to_string(),
+                    message: format!("field '{}' is not declared in {}::{}", fname, variant_name, arm),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+            all_deps.extend(typed_f.deps);
+            typed_fields.insert(fname.clone(), self.annotate_expr_with_type(fexpr, &typed_f.resolved_type));
+        }
+
+        for required in arm_field_shapes.keys() {
+            if !fields.contains_key(required.as_str()) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-KIND2".to_string(),
+                    message: format!("{}::{} is missing required field '{}'", variant_name, arm, required),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+        }
+
+        let resolved_type = self.type_ir(&serde_json::Value::String(variant_name.clone()));
+        all_deps.sort();
+        all_deps.dedup();
+
+        // Build SIR-ready annotated_expr only when no errors from this construct
+        let annotated = if type_errors.len() == errors_before {
+            let fields_map: serde_json::Map<String, serde_json::Value> = typed_fields.into_iter().collect();
+            Some(serde_json::json!({
+                "kind": "variant_construct",
+                "arm": arm,
+                "variant": variant_name,
+                "fields": serde_json::Value::Object(fields_map),
+                "resolved_type": resolved_type
+            }))
+        } else {
+            None
+        };
+
+        TypedExpression {
+            resolved_type,
+            deps: all_deps,
+            annotated_expr: annotated,
+        }
+    }
+
+    /// PROP-044 P5: Infer a match_expr.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_match_expr(
+        &self,
+        subject: &Expr,
+        arms: &[crate::parser::MatchArm],
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> TypedExpression {
+        let subject_typed = self.infer_expr(subject, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+        let subject_type_name = self.type_name(&subject_typed.resolved_type);
+
+        // OOF-KIND4: non-variant subject (suppress if Unknown — prior error already explains it)
+        if subject_type_name != "Unknown" && !self.variant_type_exists(&subject_type_name) {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-KIND4".to_string(),
+                message: format!("match subject has type '{}' which is not a variant type", subject_type_name),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return TypedExpression {
+                resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                deps: subject_typed.deps,
+                annotated_expr: None,
+            };
+        }
+
+        // Degraded mode when subject is Unknown (prior error)
+        if !self.variant_type_exists(&subject_type_name) {
+            for arm in arms {
+                self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+            }
+            return TypedExpression {
+                resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                deps: subject_typed.deps,
+                annotated_expr: None,
+            };
+        }
+
+        let declared_arms: HashMap<String, HashMap<String, serde_json::Value>> = {
+            let vs = self.variant_shapes.borrow();
+            vs[&subject_type_name].clone()
+        };
+
+        let mut covered_arms: HashMap<String, usize> = HashMap::new();
+        let mut has_wildcard = false;
+        let mut arm_types: Vec<serde_json::Value> = Vec::new();
+        let mut typed_arms: Vec<serde_json::Value> = Vec::new();
+        let mut all_deps = subject_typed.deps.clone();
+        let errors_before = type_errors.len();
+
+        for (idx, arm) in arms.iter().enumerate() {
+            let pattern = &arm.pattern;
+
+            if pattern.wildcard {
+                has_wildcard = true;
+                let body_typed = self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let annotated_body = self.annotate_expr_with_type(&arm.body, &body_typed.resolved_type);
+                arm_types.push(body_typed.resolved_type.clone());
+                all_deps.extend(body_typed.deps);
+                typed_arms.push(serde_json::json!({
+                    "pattern": serde_json::json!({ "wildcard": true, "arm": "_", "bindings": [] }),
+                    "body": annotated_body,
+                    "resolved_type": body_typed.resolved_type
+                }));
+                continue;
+            }
+
+            let arm_name = &pattern.arm;
+
+            // OOF-KIND3: duplicate arm
+            if covered_arms.contains_key(arm_name.as_str()) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-KIND3".to_string(),
+                    message: format!("arm '{}' is unreachable — already covered at position {}", arm_name, covered_arms[arm_name.as_str()]),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+                continue;
+            }
+            covered_arms.insert(arm_name.clone(), idx);
+
+            // OOF-KIND2: arm not in variant
+            if !declared_arms.contains_key(arm_name.as_str()) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-KIND2".to_string(),
+                    message: format!("arm '{}' is not declared in variant '{}'", arm_name, subject_type_name),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+                let body_typed = self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                arm_types.push(body_typed.resolved_type.clone());
+                all_deps.extend(body_typed.deps);
+                continue;
+            }
+
+            let arm_field_shapes = &declared_arms[arm_name.as_str()];
+            let mut arm_scope = symbol_types.clone();
+            for binding in &pattern.bindings {
+                if let Some(field_type) = arm_field_shapes.get(binding.as_str()) {
+                    arm_scope.insert(binding.clone(), field_type.clone());
+                } else {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-KIND2".to_string(),
+                        message: format!("binding '{}' is not a field of {}::{}", binding, subject_type_name, arm_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                    arm_scope.insert(binding.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                }
+            }
+
+            let body_typed = self.infer_expr(&arm.body, &arm_scope, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+            let annotated_body = self.annotate_expr_with_type(&arm.body, &body_typed.resolved_type);
+            arm_types.push(body_typed.resolved_type.clone());
+            all_deps.extend(body_typed.deps);
+            let bindings_json: Vec<serde_json::Value> = pattern.bindings.iter().map(|b| serde_json::Value::String(b.clone())).collect();
+            typed_arms.push(serde_json::json!({
+                "pattern": serde_json::json!({ "wildcard": false, "arm": arm_name, "bindings": bindings_json }),
+                "body": annotated_body,
+                "resolved_type": body_typed.resolved_type
+            }));
+        }
+
+        // OOF-KIND1: non-exhaustive
+        let uncovered: Vec<&String> = declared_arms.keys().filter(|k| !covered_arms.contains_key(k.as_str())).collect();
+        if !uncovered.is_empty() && !has_wildcard {
+            let mut missing: Vec<String> = uncovered.iter().map(|s| s.to_string()).collect();
+            missing.sort();
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-KIND1".to_string(),
+                message: format!("match on '{}' is non-exhaustive — missing arms: {}", subject_type_name, missing.join(", ")),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+
+        let result_type = self.unify_match_arm_types(&arm_types, &subject_type_name, node_name, type_errors);
+        all_deps.sort();
+        all_deps.dedup();
+
+        let exhaustive = uncovered.is_empty() || has_wildcard;
+        let annotated_subject = self.annotate_expr_with_type(subject, &subject_typed.resolved_type);
+
+        let annotated = if type_errors.len() == errors_before {
+            Some(serde_json::json!({
+                "kind": "match_expr",
+                "subject": annotated_subject,
+                "subject_type": subject_type_name,
+                "arms": typed_arms,
+                "exhaustive": exhaustive,
+                "has_wildcard": has_wildcard,
+                "resolved_type": result_type
+            }))
+        } else {
+            None
+        };
+
+        TypedExpression {
+            resolved_type: result_type,
+            deps: all_deps,
+            annotated_expr: annotated,
+        }
+    }
+
+    /// Unify match arm result types. Returns Unknown if empty or divergent (OOF-KIND5).
+    fn unify_match_arm_types(
+        &self,
+        arm_types: &[serde_json::Value],
+        subject_type: &str,
+        node_name: &str,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+    ) -> serde_json::Value {
+        if arm_types.is_empty() {
+            return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        }
+        let concrete: Vec<String> = arm_types.iter()
+            .map(|t| self.type_name(t))
+            .filter(|t| t != "Unknown")
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        if concrete.is_empty() {
+            return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        }
+        if concrete.len() == 1 {
+            return self.type_ir(&serde_json::Value::String(concrete[0].clone()));
+        }
+        let mut sorted = concrete.clone();
+        sorted.sort();
+        type_errors.push(ClassifierDiagnostic {
+            rule: "OOF-KIND5".to_string(),
+            message: format!("match on '{}' has divergent arm result types: {}", subject_type, sorted.join(", ")),
+            node: node_name.to_string(),
+            line: None,
+        });
+        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
     }
 
     fn dedupe_errors(&self, errors: &[ClassifierDiagnostic]) -> Vec<ClassifierDiagnostic> {
@@ -4006,6 +4443,10 @@ impl TypeChecker {
 pub struct TypedExpression {
     pub resolved_type: serde_json::Value,
     pub deps: Vec<String>,
+    /// PROP-044 P5: SIR-ready enriched expression for variant_construct / match_expr.
+    /// Present only for these two kinds; None for all other expressions.
+    /// When Some, the TypedDecl annotated_expr carries it through to the emitter.
+    pub annotated_expr: Option<serde_json::Value>,
 }
 
 fn is_recursive(body: &crate::parser::BlockBody, fn_name: &str) -> bool {
