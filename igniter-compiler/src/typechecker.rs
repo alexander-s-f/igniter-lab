@@ -549,6 +549,27 @@ impl TypeChecker {
             })
             .collect();
 
+        // LAB-TC-ARRAY-P1: pre-scan output declarations for Collection[T] element
+        // type hints. Maps compute-node-name → element type IR (T). Used in the
+        // compute phase to contextually type an ArrayLiteral expression that flows
+        // into a declared `output x : Collection[T]` position (analogous to the
+        // RecordLiteral nominal upgrade above). Only Collection outputs are
+        // recorded; non-Collection outputs are excluded. The behavior is
+        // contextual: a free-standing array literal with no Collection output
+        // hint stays Unknown (see the ArrayLiteral arm in infer_expr).
+        let collection_output_hints: HashMap<String, serde_json::Value> = classified.declarations.iter()
+            .filter(|d| d.kind == "output")
+            .filter_map(|d| {
+                let ann = d.type_annotation.as_ref()?;
+                let ir = self.type_ir(ann);
+                if self.type_name(&ir) != "Collection" {
+                    return None;
+                }
+                let elem = self.get_param(&ir, 0)?;
+                Some((d.name.clone(), elem))
+            })
+            .collect();
+
         // LAB-MAP-RUST-P1: OOF-MAP1/2/3 annotation scan across all declarations
         for decl in &classified.declarations {
             if let Some(ann) = &decl.type_annotation {
@@ -949,6 +970,38 @@ impl TypeChecker {
                                             &serde_json::Value::String(expected_type_name.clone())
                                         );
                                     }
+                                }
+                            }
+                        }
+                    }
+                    // LAB-TC-ARRAY-P1: contextual ArrayLiteral typing in a typed
+                    // Collection[T] output position. Mirrors the RecordLiteral
+                    // nominal upgrade above. infer_expr leaves an ArrayLiteral as
+                    // Unknown; here, when there is a `Collection[T]` output hint for
+                    // this compute node, each element is checked against the element
+                    // type T. On success the compute node is upgraded to
+                    // Collection[T] (so it surfaces in the SIR type metadata); on any
+                    // element mismatch the OOF-TY0 errors fail the contract closed
+                    // and the node stays Unknown. Empty arrays are accepted only with
+                    // this contextual type (zero elements → zero checks → upgrade).
+                    if self.type_name(&typed_expr.resolved_type) == "Unknown" {
+                        if let Some(Expr::ArrayLiteral { items }) = decl.expr.as_ref() {
+                            if let Some(elem_type_ir) = collection_output_hints.get(&decl.name).cloned() {
+                                let errors_before = type_errors.len();
+                                self.check_array_literal_shape(
+                                    items,
+                                    &elem_type_ir,
+                                    &local_type_shapes,
+                                    &decl.name,
+                                    &symbol_types,
+                                    &mut type_errors,
+                                );
+                                if type_errors.len() == errors_before {
+                                    // All elements conform — upgrade to Collection[T].
+                                    let mut col = serde_json::Map::new();
+                                    col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                                    col.insert("params".to_string(), serde_json::Value::Array(vec![elem_type_ir]));
+                                    typed_expr.resolved_type = serde_json::Value::Object(col);
                                 }
                             }
                         }
@@ -3397,6 +3450,33 @@ impl TypeChecker {
                     deps,
                 }
             }
+            Expr::ArrayLiteral { items } => {
+                // LAB-TC-ARRAY-P1: ArrayLiteral element typing.
+                // Each element expression is typed for dependency collection and
+                // error propagation. The literal itself resolves to Unknown here;
+                // nominal Collection[T] typing requires the declared output type
+                // context (not available in infer_expr) and is performed in the
+                // compute phase via check_array_literal_shape (see
+                // collection_output_hints). This mirrors the RecordLiteral arm.
+                //
+                // The Unknown resolved type is compatible with any declared output
+                // type via the P9/P11 Unknown output compatibility rule, so a
+                // free-standing array literal (no Collection output hint) does not
+                // fabricate a type and does not emit OOF-TY0.
+                let mut deps = Vec::new();
+                for item in items {
+                    let typed = self.infer_expr(
+                        item, symbol_types, olap_env, type_shapes,
+                        type_errors, type_warnings, node_name, functions,
+                        contract_registry, current_contract_name,
+                    );
+                    deps.extend(typed.deps);
+                }
+                TypedExpression {
+                    resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    deps,
+                }
+            }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-TY0".to_string(),
@@ -3709,6 +3789,81 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    /// LAB-TC-ARRAY-P1: Validate an ArrayLiteral against a declared Collection[T]
+    /// element type. Each element must conform to the element type T:
+    ///   - RecordLiteral element → `check_record_literal_shape` against T's shape
+    ///     (missing/extra/wrong-typed fields fail closed via that method).
+    ///   - Ref / Literal element → element type name must equal T (fail closed on
+    ///     mismatch; Unknown is permissive and skipped, as in record fields).
+    ///   - record literal where T is not a known record shape (e.g. T = String) →
+    ///     fail closed (record literal cannot satisfy a scalar element type).
+    ///   - other element expressions → skipped (Unknown-compat, permissive v0).
+    ///
+    /// Mixed element shapes therefore fail closed: every element is checked against
+    /// the SAME element type T, so any element that does not conform emits OOF-TY0.
+    ///
+    /// Empty arrays emit no errors here — the caller upgrades an empty literal to
+    /// Collection[T] using the contextual type. There is no free-standing empty
+    /// array type: without a Collection output hint the literal stays Unknown.
+    ///
+    /// Called from the compute phase after `infer_expr` returns Unknown. The caller
+    /// upgrades the compute node type to Collection[T] IFF this method emits no
+    /// errors.
+    fn check_array_literal_shape(
+        &self,
+        items: &[Expr],
+        elem_type_ir: &serde_json::Value,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        node_name: &str,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+    ) {
+        let elem_type_name = self.type_name(elem_type_ir);
+        for (idx, item) in items.iter().enumerate() {
+            match item {
+                Expr::RecordLiteral { fields } => {
+                    if let Some(shape) = type_shapes.get(elem_type_name.as_str()) {
+                        self.check_record_literal_shape(
+                            fields,
+                            shape,
+                            &elem_type_name,
+                            node_name,
+                            symbol_types,
+                            type_errors,
+                        );
+                    } else {
+                        // Element type is not a known record shape (e.g. a scalar
+                        // like String) but the element is a record literal → fail closed.
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!(
+                                "Collection element {} at node '{}': record literal does not match element type '{}'",
+                                idx, node_name, elem_type_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+                _ => {
+                    if let Some(actual_type) = self.infer_field_expr_type(item, symbol_types) {
+                        if actual_type != elem_type_name && actual_type != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-TY0".to_string(),
+                                message: format!(
+                                    "Collection element {} at node '{}': expected {}, got {}",
+                                    idx, node_name, elem_type_name, actual_type
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
                     }
                 }
             }
