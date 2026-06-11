@@ -30,4 +30,4 @@ cd ../../../igniter-lang
 ruby -Ilib bin/igc compile ../igniter-lab/igniter-apps/bookkeeping/api.ig --out /tmp/bookkeeping.igapp
 ```
 
-For a detailed analysis of the `OOF` (Out-Of-Frame) compiler failures and what they reveal about the standard library, see [REPORT.md](./REPORT.md).
+For a detailed analysis of the `OOF` (Out-Of-Frame) compiler failures and what they reveal about the standard library, see [REPORT.md](./REPORT.md). For the compact routing table, see [PRESSURE_REGISTRY.md](./PRESSURE_REGISTRY.md).
