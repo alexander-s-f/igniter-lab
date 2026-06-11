@@ -18,4 +18,4 @@ cd ../../igniter-compiler
 cargo run -- compile ../igniter-apps/erp_logistics/types.ig ../igniter-apps/erp_logistics/warehouse.ig ../igniter-apps/erp_logistics/api.ig --out /tmp/erp_logistics.igapp
 ```
 
-See [REPORT.md](./REPORT.md) for the critical compiler boundary findings uncovered by this test.
+See [REPORT.md](./REPORT.md) for the critical compiler boundary findings uncovered by this test. For the compact routing table, see [PRESSURE_REGISTRY.md](./PRESSURE_REGISTRY.md).

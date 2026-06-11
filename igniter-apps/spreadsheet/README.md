@@ -22,4 +22,4 @@ cargo run -- compile ../igniter-apps/spreadsheet/types.ig --out /tmp/spreadsheet
 cargo run -- compile ../igniter-apps/spreadsheet/engine.ig --out /tmp/spreadsheet_engine.igapp
 ```
 
-See [REPORT.md](./REPORT.md) for the detailed findings regarding compiler boundaries and OOF diagnostics.
+See [REPORT.md](./REPORT.md) for the detailed findings regarding compiler boundaries and OOF diagnostics. For the compact routing table, see [PRESSURE_REGISTRY.md](./PRESSURE_REGISTRY.md).

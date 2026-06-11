@@ -42,17 +42,15 @@ collection stdlib execution, Result constructors, Ruby/Rust parity, and diagnost
 Commands run on 2026-06-11 against current local toolchains:
 
 ```bash
-/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-compiler/target/release/igniter_compiler \
-  compile /Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/bookkeeping/types.ig \
-  --out /tmp/bookkeeping-types.igapp
+cd ../../igniter-compiler
+cargo run -- compile ../igniter-apps/bookkeeping/types.ig --out /tmp/bookkeeping-types.igapp
 ```
 
 Result: `status: ok`, zero diagnostics.
 
 ```bash
-/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-compiler/target/release/igniter_compiler \
-  compile /Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/bookkeeping/ledger.ig \
-  --out /tmp/bookkeeping-ledger.igapp
+cd ../../igniter-compiler
+cargo run -- compile ../igniter-apps/bookkeeping/ledger.ig --out /tmp/bookkeeping-ledger.igapp
 ```
 
 Result: `status: oof`.
@@ -64,11 +62,8 @@ Key diagnostics:
 - `Type mismatch: expected Decimal, got Float`
 
 ```bash
-/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-compiler/target/release/igniter_compiler \
-  compile /Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/bookkeeping/types.ig \
-          /Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/bookkeeping/ledger.ig \
-          /Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/bookkeeping/api.ig \
-  --out /tmp/bookkeeping-full.igapp
+cd ../../igniter-compiler
+cargo run -- compile ../igniter-apps/bookkeeping/types.ig ../igniter-apps/bookkeeping/ledger.ig ../igniter-apps/bookkeeping/api.ig --out /tmp/bookkeeping-full.igapp
 ```
 
 Result: `status: oof`.
