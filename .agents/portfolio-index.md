@@ -14,6 +14,15 @@ aligned to Ruby SHA256 seed contract; emitted `semanticir/*` and
 import/multifile/package/visibility/VM/canon authority opened; cargo build/test
 PASS 14/14; next LAB-MULTIFILE-COMPILATION-P1).
 
+**Recent lab update:** LAB-MULTIFILE-COMPILATION-P1 CLOSED / ACCEPT (60/60
+PASS; proof-local N `.ig` files -> one compilation universe -> `.igapp`-style
+result; import resolves modules/selective names; imported records and literal
+`call_contract` work across files; unknown import OOF-M2, circular import OOF-M1,
+duplicate module OOF-M3 candidate, duplicate contract LAB-MF-DUP-CONTRACT;
+multi-file source_hash is sorted-by-module raw-source SHA256 material; import
+does not grant capability authority; no package/visibility/stdlib-as-import/canon
+authority opened; next PROP-IMPORT-RESOLUTION-P1, PROP-ENTRYPOINT-P1 parallel).
+
 ## Canon Boundary Rules (igniter-lang)
 
 | Rule | Statement | Adopted |
@@ -220,6 +229,7 @@ Rack/middleware vocabulary is lab-only.
 
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
+| LAB-MULTIFILE-COMPILATION-P1 (Multi-file compilation unit and import resolution proof — proof-local driver parses N `.ig` files, validates module/import graph, merges one compilation universe, and uses Rust lab compiler backend; 3 valid fixtures + 5 invalid fail-closed fixtures; imports resolve modules/selective names; imported `QueryResult`/`FilterPredicate` reused without consumer redefinition; literal `call_contract` works across files; deterministic multi-file `source_hash` sorted by module and raw source material; file input order invariant; comment-only changes identity; unknown import→OOF-M2, circular import→OOF-M1, duplicate module→OOF-M3 candidate, duplicate contract→LAB-MF-DUP-CONTRACT; import grants no capabilities and does not change fragment classification; no production CLI/package/visibility/stdlib-as-import/VM/canon authority opened; next PROP-IMPORT-RESOLUTION-P1, PROP-ENTRYPOINT-P1 parallel) | igniter-lab | ✅ CLOSED — ACCEPT / proof-local implementation | lang / proof |
 | LANG-MODULE-IDENTITY-P2 (Program ID algorithm parity and identity contract — C1 from P1 closed; Rust lab classifier/typechecker pass-local `program_id` unified to Ruby SHA256 seed contract; `classifier_pass` seed = source_path/grammar_version/source_hash/classifier_version; `typed_pass` seed = classified_program_id/source_hash/typechecker_version; emitted `semanticir/*` and `compilation_report/*` remain source_hash-prefix refs; `source_hash`, `contract_ref`, `artifact_hash`, `compiler_profile_id` remain separate stronger identities; 42/42 PASS; cargo build/test PASS 14/14; no multi-file/import/package/visibility/VM/canon authority opened; next LAB-MULTIFILE-COMPILATION-P1) | igniter-lab | ✅ CLOSED — ACCEPT / proof + bounded implementation | governance / lang |
 | LAB-IO-BOUNDARY-P1 (IO family taxonomy and substrate readiness — IO separated into Storage/Network/File-Text/Clock-Time/Random-Entropy/Process-Command/UI-Host IPC; Query v0 kept intent/receipt only; substrate readiness checklist locked; Storage ready for design/mock adapter hardening only; Network real transport HOLD; no real IO/public API/canon authority created) | igniter-lab | ✅ CLOSED — governance boundary | governance |
 | PROP-047-P2 (Failure Outcome Naming Convention partial_success amendment — `partial_success` promoted after LAB-FAILURE-TAXONOMY-P4; stable term count now 6: denied/unknown_external_state/timed_out/system_error/query_error/partial_success; no parser/compiler/VM/runtime/type-system/OOF/global-enum/Outcome[T,E]/public-API authority created) | igniter-lang | ✅ CLOSED — amendment | governance |
