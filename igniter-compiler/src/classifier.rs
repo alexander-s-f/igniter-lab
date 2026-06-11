@@ -1,4 +1,5 @@
 use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl, VariantDecl};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -175,12 +176,15 @@ impl Classifier {
             "ok".to_string()
         };
 
-        let program_id = format!("classifier_pass/{}", blake3::hash(format!("{}|{}", parsed.grammar_version, self.version).as_bytes()));
+        let source_path = parsed.source_path.as_deref().unwrap_or("");
+        let source_hash = parsed.source_hash.as_deref().unwrap_or("");
+        let seed = format!("{}|{}|{}|{}", source_path, parsed.grammar_version, source_hash, self.version);
+        let program_id = format!("classifier_pass/{:x}", Sha256::digest(seed.as_bytes()));
 
         ClassifiedProgram {
             kind: "classified_program".to_string(),
             classifier_version: self.version.clone(),
-            program_id: program_id[0..24].to_string(),
+            program_id: program_id[0..32].to_string(),
             source_path: parsed.source_path.clone(),
             source_hash: parsed.source_hash.clone(),
             grammar_version: parsed.grammar_version.clone(),
@@ -2042,6 +2046,5 @@ fn check_expr_io(
         _ => {}
     }
 }
-
 
 

@@ -1,5 +1,6 @@
 use crate::parser::{Expr, TypeRef, WindowValue, Stmt, ExprOrBlock, OlapPointDecl, FunctionDecl, Param};
 use crate::classifier::{ClassifiedProgram, ClassifiedContract, ClassifiedDecl, ClassifiedSymbol, DependencyGraph, ClassifierDiagnostic};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 // ── PROP-044 P5: variant shapes type alias ────────────────────────────────────
@@ -393,7 +394,9 @@ impl TypeChecker {
             }
         }
 
-        let program_id = format!("typed_pass/{}", blake3::hash(format!("{}|{}", classified.program_id, self.version).as_bytes()));
+        let source_hash = classified.source_hash.as_deref().unwrap_or("");
+        let seed = format!("{}|{}|{}", classified.program_id, source_hash, self.version);
+        let program_id = format!("typed_pass/{:x}", Sha256::digest(seed.as_bytes()));
 
         let pass_result = if type_errors.iter().any(|d| d.rule.starts_with("OOF-")) {
             "oof".to_string()
@@ -404,7 +407,7 @@ impl TypeChecker {
         TypedProgram {
             kind: "typed_program".to_string(),
             typechecker_version: self.version.clone(),
-            program_id: program_id[0..24].to_string(),
+            program_id: program_id[0..27].to_string(),
             classified_program_id: classified.program_id.clone(),
             source_path: classified.source_path.clone(),
             source_hash: classified.source_hash.clone(),

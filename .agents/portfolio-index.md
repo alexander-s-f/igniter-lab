@@ -6,6 +6,14 @@
 
 ---
 
+**Recent governance update:** LANG-MODULE-IDENTITY-P2 CLOSED / ACCEPT (42/42
+PASS; C1 closed; Rust lab classifier/typechecker pass-local `program_id`
+aligned to Ruby SHA256 seed contract; emitted `semanticir/*` and
+`compilation_report/*` remain source_hash-prefix refs; `source_hash`,
+`contract_ref`, `artifact_hash`, and `compiler_profile_id` remain separate; no
+import/multifile/package/visibility/VM/canon authority opened; cargo build/test
+PASS 14/14; next LAB-MULTIFILE-COMPILATION-P1).
+
 ## Canon Boundary Rules (igniter-lang)
 
 | Rule | Statement | Adopted |
@@ -212,6 +220,7 @@ Rack/middleware vocabulary is lab-only.
 
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
+| LANG-MODULE-IDENTITY-P2 (Program ID algorithm parity and identity contract — C1 from P1 closed; Rust lab classifier/typechecker pass-local `program_id` unified to Ruby SHA256 seed contract; `classifier_pass` seed = source_path/grammar_version/source_hash/classifier_version; `typed_pass` seed = classified_program_id/source_hash/typechecker_version; emitted `semanticir/*` and `compilation_report/*` remain source_hash-prefix refs; `source_hash`, `contract_ref`, `artifact_hash`, `compiler_profile_id` remain separate stronger identities; 42/42 PASS; cargo build/test PASS 14/14; no multi-file/import/package/visibility/VM/canon authority opened; next LAB-MULTIFILE-COMPILATION-P1) | igniter-lab | ✅ CLOSED — ACCEPT / proof + bounded implementation | governance / lang |
 | LAB-IO-BOUNDARY-P1 (IO family taxonomy and substrate readiness — IO separated into Storage/Network/File-Text/Clock-Time/Random-Entropy/Process-Command/UI-Host IPC; Query v0 kept intent/receipt only; substrate readiness checklist locked; Storage ready for design/mock adapter hardening only; Network real transport HOLD; no real IO/public API/canon authority created) | igniter-lab | ✅ CLOSED — governance boundary | governance |
 | PROP-047-P2 (Failure Outcome Naming Convention partial_success amendment — `partial_success` promoted after LAB-FAILURE-TAXONOMY-P4; stable term count now 6: denied/unknown_external_state/timed_out/system_error/query_error/partial_success; no parser/compiler/VM/runtime/type-system/OOF/global-enum/Outcome[T,E]/public-API authority created) | igniter-lang | ✅ CLOSED — amendment | governance |
 | LAB-RESULT-ENVELOPE-P1 (Contract result envelope taxonomy + promotion boundary — 5 reusable patterns confirmed; HttpResult/ContractResult/FullRackResponse/JobReceipt classified domain-local; two RetryEnvelope shapes incompatible; denial-as-data is strongest invariant (6 proofs); no canon promotion; next: LAB-VM-MAP-P1 + LAB-RESULT-ENVELOPE-P2) | igniter-lab | ✅ DONE — analysis | governance |
