@@ -6,6 +6,8 @@
 
 ---
 
+**Recent governance update:** LAB-PACKAGE-MODEL-P1-a1 CLOSED / DESIGN-LOCKED (completed research defining Igniter packages as sealed claim artifacts preventing ambient authority; established consumer-side binding rule; designed igpack manifest hypothesis).
+
 **Recent governance update:** LANG-MODULE-IDENTITY-P2 CLOSED / ACCEPT (42/42
 PASS; C1 closed; Rust lab classifier/typechecker pass-local `program_id`
 aligned to Ruby SHA256 seed contract; emitted `semanticir/*` and
