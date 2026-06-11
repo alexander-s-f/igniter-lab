@@ -23,6 +23,23 @@ multi-file source_hash is sorted-by-module raw-source SHA256 material; import
 does not grant capability authority; no package/visibility/stdlib-as-import/canon
 authority opened; next PROP-IMPORT-RESOLUTION-P1, PROP-ENTRYPOINT-P1 parallel).
 
+**Recent canon proposal update:** PROP-IMPORT-RESOLUTION-P1 CLOSED / PROPOSAL
+AUTHORED (import = compile-time name resolution only; N `.ig` files form one
+logical compilation universe and one `.igapp`; OOF-M1 circular import, OOF-M2
+unknown import, OOF-M3 duplicate module declaration; multi-file source_hash rule
+specified; import grants no capability/profile/package/runtime authority; no
+parser/compiler/VM/package/stdlib/visibility implementation opened; next
+PROP-IMPORT-RESOLUTION-P2 or supervised implementation planning).
+
+**Recent canon proposal update:** PROP-ENTRYPOINT-P1 CLOSED / PROPOSAL AUTHORED
+(explicit top-level `entrypoint ContractName`; zero-or-one default entrypoint per
+compilation unit; `.igapp` manifest binding records target as evidence, not
+runtime authority; separates declaration from CLI/debugger runner policy; narrows
+PROP-029 by excluding `section`, args/run profiles, output narrowing, app
+framework, visibility, package, scheduler, capability authority, parser/compiler
+/VM implementation, and public API claims; next PROP-ENTRYPOINT-P2 planning only
+if accepted, or defer behind PROP-IMPORT-RESOLUTION qualified-name settlement).
+
 ## Canon Boundary Rules (igniter-lang)
 
 | Rule | Statement | Adopted |
@@ -229,6 +246,8 @@ Rack/middleware vocabulary is lab-only.
 
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
+| PROP-IMPORT-RESOLUTION-P1 (Import resolution and multi-file compilation-unit semantics — proposal authored; `import` defined as compile-time name resolution only; N `.ig` files -> one logical compilation universe -> one `.igapp`; whole-module and selective imports specified; OOF-M1 circular import, OOF-M2 unknown import/missing selective name, OOF-M3 duplicate module declaration; duplicate contract/type fail-closed behavior required; deterministic multi-file `source_hash` sorted by module path/raw source; `contract_ref` remains per-contract and `artifact_hash` final; import grants no capability/profile/package/runtime authority; package/stdlib/visibility deferred; no parser/compiler/VM implementation opened; next PROP-IMPORT-RESOLUTION-P2 or supervised implementation planning) | igniter-lang | ✅ CLOSED — proposal authored | lang / governance |
+| PROP-ENTRYPOINT-P1 (Explicit entrypoint declaration proposal — top-level `entrypoint ContractName`; zero-or-one default entrypoint per compilation unit; zero allowed for library modules; module-qualified names acknowledged for multi-file; `.igapp` manifest binding is evidence not runtime authority; CLI/debugger policy separated; narrows PROP-029 and keeps `section`, args/run profiles, visibility, package, scheduler, app framework, capability authority, parser/compiler/VM implementation, and public API closed) | igniter-lang | ✅ CLOSED — proposal authored | lang / proposal |
 | LAB-MULTIFILE-COMPILATION-P1 (Multi-file compilation unit and import resolution proof — proof-local driver parses N `.ig` files, validates module/import graph, merges one compilation universe, and uses Rust lab compiler backend; 3 valid fixtures + 5 invalid fail-closed fixtures; imports resolve modules/selective names; imported `QueryResult`/`FilterPredicate` reused without consumer redefinition; literal `call_contract` works across files; deterministic multi-file `source_hash` sorted by module and raw source material; file input order invariant; comment-only changes identity; unknown import→OOF-M2, circular import→OOF-M1, duplicate module→OOF-M3 candidate, duplicate contract→LAB-MF-DUP-CONTRACT; import grants no capabilities and does not change fragment classification; no production CLI/package/visibility/stdlib-as-import/VM/canon authority opened; next PROP-IMPORT-RESOLUTION-P1, PROP-ENTRYPOINT-P1 parallel) | igniter-lab | ✅ CLOSED — ACCEPT / proof-local implementation | lang / proof |
 | LANG-MODULE-IDENTITY-P2 (Program ID algorithm parity and identity contract — C1 from P1 closed; Rust lab classifier/typechecker pass-local `program_id` unified to Ruby SHA256 seed contract; `classifier_pass` seed = source_path/grammar_version/source_hash/classifier_version; `typed_pass` seed = classified_program_id/source_hash/typechecker_version; emitted `semanticir/*` and `compilation_report/*` remain source_hash-prefix refs; `source_hash`, `contract_ref`, `artifact_hash`, `compiler_profile_id` remain separate stronger identities; 42/42 PASS; cargo build/test PASS 14/14; no multi-file/import/package/visibility/VM/canon authority opened; next LAB-MULTIFILE-COMPILATION-P1) | igniter-lab | ✅ CLOSED — ACCEPT / proof + bounded implementation | governance / lang |
 | LAB-IO-BOUNDARY-P1 (IO family taxonomy and substrate readiness — IO separated into Storage/Network/File-Text/Clock-Time/Random-Entropy/Process-Command/UI-Host IPC; Query v0 kept intent/receipt only; substrate readiness checklist locked; Storage ready for design/mock adapter hardening only; Network real transport HOLD; no real IO/public API/canon authority created) | igniter-lab | ✅ CLOSED — governance boundary | governance |
