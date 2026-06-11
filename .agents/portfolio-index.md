@@ -40,6 +40,24 @@ framework, visibility, package, scheduler, capability authority, parser/compiler
 /VM implementation, and public API claims; next PROP-ENTRYPOINT-P2 planning only
 if accepted, or defer behind PROP-IMPORT-RESOLUTION qualified-name settlement).
 
+**Recent implementation-planning update:** PROP-IMPORT-RESOLUTION-P2 CLOSED /
+CONDITIONAL (read real Rust/Ruby implementation; selected compiler-driver
+pre-pass + module table/import graph + merged logical universe; exact Rust-lab
+P3 diff surface mapped; proof matrix target >=65 checks; blocker found:
+OOF-M1/M2 namespace collision with existing modifier/effect diagnostics; no
+parser/compiler/VM/package/stdlib/visibility implementation opened; next
+PROP-IMPORT-RESOLUTION-P2A diagnostic namespace cleanup, then P3).
+
+**Recent canon planning update:** PROP-ENTRYPOINT-P2 CLOSED / READY FOR P3
+IMPLEMENTATION (implementation planning only; exact AST shape and manifest
+`entrypoint` field chosen; P3 scoped to Ruby `igniter-lang` single-file/current
+pipeline parser -> typechecker -> SemanticIR -> manifest; OOF-EP1 duplicate and
+OOF-EP2 unknown target planned as language diagnostics; OOF-EP3/EP6 tool-mode
+diagnostics deferred and OOF-EP4 multi-file ambiguity deferred until
+import-resolution; CLI/VM behavior unchanged; no app framework, scheduler,
+visibility, package, capability authority, `section`, `component`, args/run
+profiles, output narrowing, or public API opened; next PROP-ENTRYPOINT-P3).
+
 ## Canon Boundary Rules (igniter-lang)
 
 | Rule | Statement | Adopted |
@@ -246,7 +264,9 @@ Rack/middleware vocabulary is lab-only.
 
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
+| PROP-IMPORT-RESOLUTION-P2 (Implementation planning — real implementation inventory read; architecture decision = compiler-driver pre-pass builds SourceUnit inventory, module table, import graph, duplicate declaration checks, deterministic merged logical universe, then existing classifier/typechecker/emitter/assembler; Rust-lab P3 diff surface mapped: new `multifile.rs`, `lib.rs`, `main.rs`, optional `emitter.rs`/`assembler.rs` source_units, fixtures and proof runner; Ruby parity marked maybe/conditional; proof matrix target >=65 checks; decision CONDITIONAL because OOF-M1/M2 already collide with existing modifier/effect diagnostics; no implementation authority opened; next P2A diagnostic namespace cleanup before P3) | igniter-lang | ✅ CLOSED — CONDITIONAL planning | lang / governance |
 | PROP-IMPORT-RESOLUTION-P1 (Import resolution and multi-file compilation-unit semantics — proposal authored; `import` defined as compile-time name resolution only; N `.ig` files -> one logical compilation universe -> one `.igapp`; whole-module and selective imports specified; OOF-M1 circular import, OOF-M2 unknown import/missing selective name, OOF-M3 duplicate module declaration; duplicate contract/type fail-closed behavior required; deterministic multi-file `source_hash` sorted by module path/raw source; `contract_ref` remains per-contract and `artifact_hash` final; import grants no capability/profile/package/runtime authority; package/stdlib/visibility deferred; no parser/compiler/VM implementation opened; next PROP-IMPORT-RESOLUTION-P2 or supervised implementation planning) | igniter-lang | ✅ CLOSED — proposal authored | lang / governance |
+| PROP-ENTRYPOINT-P2 (Explicit entrypoint parser/manifest implementation planning — exact AST shape `entrypoint_decl`; manifest `entrypoint` metadata as evidence; Ruby `igniter-lang` single-file P3 ready; OOF-EP1 duplicate and OOF-EP2 unknown target planned; OOF-EP3/EP6 tool-mode and OOF-EP4 multi-file ambiguity deferred; proof target 35-50 checks; CLI/VM/app framework/visibility/package/capability/public API remain closed) | igniter-lang | ✅ CLOSED — implementation planning only / ready for P3 | lang / planning |
 | PROP-ENTRYPOINT-P1 (Explicit entrypoint declaration proposal — top-level `entrypoint ContractName`; zero-or-one default entrypoint per compilation unit; zero allowed for library modules; module-qualified names acknowledged for multi-file; `.igapp` manifest binding is evidence not runtime authority; CLI/debugger policy separated; narrows PROP-029 and keeps `section`, args/run profiles, visibility, package, scheduler, app framework, capability authority, parser/compiler/VM implementation, and public API closed) | igniter-lang | ✅ CLOSED — proposal authored | lang / proposal |
 | LAB-MULTIFILE-COMPILATION-P1 (Multi-file compilation unit and import resolution proof — proof-local driver parses N `.ig` files, validates module/import graph, merges one compilation universe, and uses Rust lab compiler backend; 3 valid fixtures + 5 invalid fail-closed fixtures; imports resolve modules/selective names; imported `QueryResult`/`FilterPredicate` reused without consumer redefinition; literal `call_contract` works across files; deterministic multi-file `source_hash` sorted by module and raw source material; file input order invariant; comment-only changes identity; unknown import→OOF-M2, circular import→OOF-M1, duplicate module→OOF-M3 candidate, duplicate contract→LAB-MF-DUP-CONTRACT; import grants no capabilities and does not change fragment classification; no production CLI/package/visibility/stdlib-as-import/VM/canon authority opened; next PROP-IMPORT-RESOLUTION-P1, PROP-ENTRYPOINT-P1 parallel) | igniter-lab | ✅ CLOSED — ACCEPT / proof-local implementation | lang / proof |
 | LANG-MODULE-IDENTITY-P2 (Program ID algorithm parity and identity contract — C1 from P1 closed; Rust lab classifier/typechecker pass-local `program_id` unified to Ruby SHA256 seed contract; `classifier_pass` seed = source_path/grammar_version/source_hash/classifier_version; `typed_pass` seed = classified_program_id/source_hash/typechecker_version; emitted `semanticir/*` and `compilation_report/*` remain source_hash-prefix refs; `source_hash`, `contract_ref`, `artifact_hash`, `compiler_profile_id` remain separate stronger identities; 42/42 PASS; cargo build/test PASS 14/14; no multi-file/import/package/visibility/VM/canon authority opened; next LAB-MULTIFILE-COMPILATION-P1) | igniter-lab | ✅ CLOSED — ACCEPT / proof + bounded implementation | governance / lang |
