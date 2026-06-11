@@ -6,6 +6,7 @@ use igniter_compiler::form_registry::FormRegistry;
 use igniter_compiler::form_resolver::FormResolver;
 use igniter_compiler::emitter::Emitter;
 use igniter_compiler::assembler::Assembler;
+use igniter_compiler::multifile;
 
 use serde_json::{json, Value, Map};
 use sha2::{Sha256, Digest};
@@ -16,7 +17,7 @@ use std::path::Path;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: igc compile SOURCE --out OUT.igapp");
+        eprintln!("Usage: igc compile SOURCE [SOURCE ...] --out OUT.igapp");
         std::process::exit(1);
     }
 
@@ -26,17 +27,21 @@ fn main() {
         std::process::exit(1);
     }
 
-    if args.len() < 5 || args[3] != "--out" {
-        eprintln!("Usage: igc compile SOURCE --out OUT.igapp");
+    let Some(out_index) = args.iter().position(|arg| arg == "--out") else {
+        eprintln!("Usage: igc compile SOURCE [SOURCE ...] --out OUT.igapp");
+        std::process::exit(1);
+    };
+    if out_index <= 2 || out_index + 1 >= args.len() {
+        eprintln!("Usage: igc compile SOURCE [SOURCE ...] --out OUT.igapp");
         std::process::exit(1);
     }
 
-    let source_path = &args[2];
-    let out_path = &args[4];
+    let source_paths: Vec<String> = args[2..out_index].to_vec();
+    let out_path = &args[out_index + 1];
 
     // Optional --compiler-profile-source
     let mut profile_source = None;
-    let mut i = 5;
+    let mut i = out_index + 2;
     while i < args.len() {
         if args[i] == "--compiler-profile-source" {
             if i + 1 < args.len() {
@@ -56,7 +61,13 @@ fn main() {
         }
     }
 
-    match run_compiler(source_path, out_path, profile_source) {
+    let run_result = if source_paths.len() == 1 {
+        run_compiler(&source_paths[0], out_path, profile_source)
+    } else {
+        run_multifile_compiler(&source_paths, out_path, profile_source)
+    };
+
+    match run_result {
         Ok(ok) => {
             if !ok {
                 std::process::exit(1);
@@ -74,6 +85,81 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     let mut hasher = Sha256::new();
     hasher.update(source_content.as_bytes());
     let source_hash = format!("sha256:{:x}", hasher.finalize());
+
+    run_compiler_source(source_path, &source_content, &source_hash, out_path, None)
+}
+
+fn run_multifile_compiler(source_paths: &[String], out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
+    match multifile::compile_units(source_paths)? {
+        Ok(merged) => run_compiler_source(
+            &merged.source_path,
+            &merged.source,
+            &merged.source_hash,
+            out_path,
+            Some(merged.source_units),
+        ),
+        Err(diagnostics) => {
+            let source_hash = multifile_error_source_hash(source_paths);
+            let source_path = "multifile:error";
+            let diagnostics_json: Vec<Value> = diagnostics.iter().map(|d| d.to_value()).collect();
+            let report_path = report_path_for(out_path);
+            fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
+            let report = json!({
+                "kind": "compilation_report",
+                "format_version": "0.1.0",
+                "program_id": Value::Null,
+                "grammar_version": "igniter-v0",
+                "source_hash": source_hash,
+                "source_path": source_path,
+                "pass_result": "oof",
+                "stages": {
+                    "parse": "ok",
+                    "multifile_resolve": "oof",
+                    "classify": "skipped",
+                    "typecheck": "skipped",
+                    "emit": "skipped"
+                },
+                "diagnostics": diagnostics_json,
+                "semantic_ir_ref": Value::Null
+            });
+            fs::write(&report_path, serde_json::to_string_pretty(&report)? + "\n")?;
+
+            let result = json!({
+                "kind": "compiler_result",
+                "format_version": "0.1.0",
+                "status": "oof",
+                "program_id": Value::Null,
+                "source_path": source_path,
+                "source_hash": source_hash,
+                "grammar_version": "igniter-v0",
+                "stages": {
+                    "parse": "ok",
+                    "multifile_resolve": "oof",
+                    "classify": "skipped",
+                    "typecheck": "skipped",
+                    "emit": "skipped",
+                    "assemble": "skipped"
+                },
+                "igapp_path": Value::Null,
+                "contracts": [],
+                "compilation_report_path": report_path,
+                "diagnostics": diagnostics_json,
+                "warnings": []
+            });
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(false)
+        }
+    }
+}
+
+fn run_compiler_source(
+    source_path: &str,
+    source_content: &str,
+    source_hash: &str,
+    out_path: &str,
+    source_units: Option<Vec<Value>>,
+) -> std::io::Result<bool> {
+    let source_hash = source_hash.to_string();
 
     // 0. Lex
     let mut lexer = Lexer::new(&source_content);
@@ -191,6 +277,7 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     emit_res.form_table = Some(form_table);
     emit_res.resolved_program = resolved_json;
     emitter.apply_form_lowering(&mut emit_res);
+    attach_source_units(&mut emit_res, &source_units);
 
     // LAB-COMPILER-LIVENESS-P2/P3: collect instrumentation stats after all passes complete
     let liveness_stats = igniter_compiler::liveness::collect_stats();
@@ -370,6 +457,33 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
 
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(true)
+}
+
+fn attach_source_units(emit_res: &mut igniter_compiler::emitter::EmitResult, source_units: &Option<Vec<Value>>) {
+    let Some(source_units) = source_units else {
+        return;
+    };
+    if let Some(semantic_ir_value) = emit_res.semantic_ir.as_mut() {
+        if let Some(semantic_ir) = semantic_ir_value.as_object_mut() {
+            semantic_ir.insert("source_units".to_string(), Value::Array(source_units.clone()));
+        }
+    }
+    if let Some(report) = emit_res.compilation_report.as_object_mut() {
+        report.insert("source_units".to_string(), Value::Array(source_units.clone()));
+    }
+}
+
+fn multifile_error_source_hash(source_paths: &[String]) -> String {
+    let mut hasher = Sha256::new();
+    let mut sorted = source_paths.to_vec();
+    sorted.sort();
+    for path in sorted {
+        hasher.update(path.as_bytes());
+        if let Ok(source) = fs::read_to_string(&path) {
+            hasher.update(source.as_bytes());
+        }
+    }
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 fn report_path_for(out_path: &str) -> String {

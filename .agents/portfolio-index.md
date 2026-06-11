@@ -58,6 +58,18 @@ modifier/effect/profile/evidence `OOF-M*` diagnostics remain untouched; no alias
 and no parser/compiler/typechecker/assembler/VM implementation opened; next
 PROP-IMPORT-RESOLUTION-P3 if separately authorized).
 
+**Recent Rust-lab implementation update:** PROP-IMPORT-RESOLUTION-P3 CLOSED /
+ACCEPT (83/83 PASS; Rust lab compiler now accepts N source files before `--out`,
+preserving single-source behavior; new compiler-driver pre-pass builds
+SourceUnit inventory, module table/import graph, duplicate declaration checks,
+composite multi-file `source_hash`, and deterministic merged universe; final P2A
+diagnostics proven: `OOF-IMP1..5`, `OOF-DECL-DUP-CONTRACT`,
+`OOF-DECL-DUP-TYPE`; manifest/report carry `source_units` evidence only; import
+does not grant capability/profile/package/runtime authority; no Ruby canon,
+package registry, visibility, stdlib-as-import, VM, or public API opened; P1
+regression remains 60/60 PASS; next PROP-IMPORT-RESOLUTION-P4 Ruby/canon
+planning or parity decision).
+
 **Recent canon planning update:** PROP-ENTRYPOINT-P2 CLOSED / READY FOR P3
 IMPLEMENTATION (implementation planning only; exact AST shape and manifest
 `entrypoint` field chosen; P3 scoped to Ruby `igniter-lang` single-file/current
@@ -284,6 +296,7 @@ Rack/middleware vocabulary is lab-only.
 
 | Artifact | Repo | Status | Notes |
 |---|---|---|---|
+| PROP-IMPORT-RESOLUTION-P3 (Rust-lab multi-file import implementation — 83/83 PASS; lab compiler `compile SOURCE [SOURCE ...] --out OUT.igapp` preserves single-source behavior and routes N>1 sources through `multifile.rs` SourceUnit inventory, module table/import graph, duplicate module/contract/type gates, composite sorted raw-source SHA256, and deterministic merged `Lab.Multifile.Universe`; manifest/report include `source_units` evidence; final diagnostics proven: `OOF-IMP1` circular, `OOF-IMP2` unknown module, `OOF-IMP3` missing selective name, `OOF-IMP4` duplicate module, `OOF-IMP5` missing module, `OOF-DECL-DUP-CONTRACT`, `OOF-DECL-DUP-TYPE`; no old import `OOF-M1/M2/M3`; P1 regression 60/60; no Ruby canon/package/visibility/stdlib-as-import/runtime loading/capability import/VM/public API opened; next P4 Ruby/canon planning or parity decision) | igniter-lab | ✅ CLOSED — ACCEPT / Rust-lab implementation | lang / proof |
 | PROP-IMPORT-RESOLUTION-P2A (Diagnostic namespace decision — ACCEPT; `OOF-M1/M2/M3` collision resolved by reserving `OOF-IMP*` for import/module diagnostics; final mapping: `OOF-IMP1` circular import, `OOF-IMP2` unknown module import, `OOF-IMP3` missing selective import name, `OOF-IMP4` duplicate module declaration, `OOF-IMP5` missing module declaration in multi-file unit; duplicate contract/type use `OOF-DECL-DUP-CONTRACT` / `OOF-DECL-DUP-TYPE`; existing modifier/effect/profile/evidence `OOF-M*` meanings stay untouched; overloaded codes and compiler-output aliases rejected; no implementation authority opened; next P3 may use final mapping if separately authorized) | igniter-lang | ✅ CLOSED — ACCEPT diagnostic decision | lang / governance |
 | PROP-IMPORT-RESOLUTION-P2 (Implementation planning — real implementation inventory read; architecture decision = compiler-driver pre-pass builds SourceUnit inventory, module table, import graph, duplicate declaration checks, deterministic merged logical universe, then existing classifier/typechecker/emitter/assembler; Rust-lab P3 diff surface mapped: new `multifile.rs`, `lib.rs`, `main.rs`, optional `emitter.rs`/`assembler.rs` source_units, fixtures and proof runner; Ruby parity marked maybe/conditional; proof matrix target >=65 checks; decision CONDITIONAL because OOF-M1/M2 already collide with existing modifier/effect diagnostics; no implementation authority opened; next P2A diagnostic namespace cleanup before P3) | igniter-lang | ✅ CLOSED — CONDITIONAL planning | lang / governance |
 | PROP-IMPORT-RESOLUTION-P1 (Import resolution and multi-file compilation-unit semantics — proposal authored; `import` defined as compile-time name resolution only; N `.ig` files -> one logical compilation universe -> one `.igapp`; whole-module and selective imports specified; OOF-M1 circular import, OOF-M2 unknown import/missing selective name, OOF-M3 duplicate module declaration; duplicate contract/type fail-closed behavior required; deterministic multi-file `source_hash` sorted by module path/raw source; `contract_ref` remains per-contract and `artifact_hash` final; import grants no capability/profile/package/runtime authority; package/stdlib/visibility deferred; no parser/compiler/VM implementation opened; next PROP-IMPORT-RESOLUTION-P2 or supervised implementation planning) | igniter-lang | ✅ CLOSED — proposal authored | lang / governance |

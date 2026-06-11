@@ -112,6 +112,9 @@ impl Assembler {
         manifest.insert("compilation_report_ref".to_string(), semantic_ir.get("compilation_report_ref").cloned().unwrap_or(Value::Null));
         manifest.insert("source_hash".to_string(), semantic_ir.get("source_hash").cloned().unwrap_or(Value::Null));
         manifest.insert("source_path".to_string(), semantic_ir.get("source_path").cloned().unwrap_or(Value::Null));
+        if let Some(source_units) = semantic_ir.get("source_units") {
+            manifest.insert("source_units".to_string(), source_units.clone());
+        }
         manifest.insert("contracts".to_string(), json!(contract_ids));
 
         let mut contract_refs = Map::new();
