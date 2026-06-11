@@ -1,4 +1,4 @@
-use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl, VariantDecl};
+use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeDecl, StepDecl, OlapPointDecl, AssumptionDecl, Expr, WindowValue, ExprOrBlock, TypeRef, SizeRelationDecl, VariantDecl, EntrypointDecl};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +21,8 @@ pub struct ClassifiedProgram {
     pub assumption_registry: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub olap_points: Option<Vec<OlapPointDecl>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<EntrypointDecl>,
     pub pass_result: String,
     /// PROP-041 T2: module-level size_relation declarations passed through for TypeChecker registry
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -195,6 +197,7 @@ impl Classifier {
             semantic_ir_ref: serde_json::Value::Null,
             assumption_registry: if registry.is_empty() { None } else { Some(registry.values().cloned().collect()) },
             olap_points: if parsed.olap_points.is_empty() { None } else { Some(parsed.olap_points.clone()) },
+            entrypoint: parsed.entrypoint.clone(),
             pass_result,
             // PROP-041 T2: pass-through size_relation declarations for TypeChecker registry
             size_relations: parsed.size_relations.clone(),
@@ -2046,5 +2049,4 @@ fn check_expr_io(
         _ => {}
     }
 }
-
 

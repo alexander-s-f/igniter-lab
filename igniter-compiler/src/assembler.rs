@@ -59,6 +59,7 @@ impl Assembler {
         let classified_ast = self.classified_ast_for(report, semantic_ir, &contract_ids, &fragment_class);
         let diagnostics = json!({ "diagnostics": report.get("diagnostics").cloned().unwrap_or(Value::Array(Vec::new())) });
         let compatibility_metadata = self.compatibility_metadata_for(report, semantic_ir);
+        let entrypoint = self.manifest_entrypoint_for(semantic_ir, &contracts);
 
         let mut artifact_material = Map::new();
         artifact_material.insert("semantic_ir_program".to_string(), semantic_ir.clone());
@@ -68,6 +69,9 @@ impl Assembler {
         artifact_material.insert("diagnostics".to_string(), diagnostics.clone());
         artifact_material.insert("classified_ast".to_string(), classified_ast.clone());
         artifact_material.insert("compatibility_metadata".to_string(), compatibility_metadata.clone());
+        if let Some(ep) = &entrypoint {
+            artifact_material.insert("entrypoint".to_string(), ep.clone());
+        }
 
         // Sort keys and generate SHA256 canonical hash
         let artifact_hash = self.canonical_hash(&Value::Object(artifact_material));
@@ -127,6 +131,9 @@ impl Assembler {
         manifest.insert("fragment_class".to_string(), Value::String(fragment_class));
         manifest.insert("fragment_summary".to_string(), fragment_summary);
         manifest.insert("contract_index".to_string(), contract_index);
+        if let Some(ep) = entrypoint {
+            manifest.insert("entrypoint".to_string(), ep);
+        }
         manifest.insert("schema_descriptor".to_string(), json!({ "trait_bounds": [], "migrations": [] }));
         manifest.insert("warnings".to_string(), Value::Array(Vec::new()));
         manifest.insert("diagnostics".to_string(), report.get("diagnostics").cloned().unwrap_or(Value::Array(Vec::new())));
@@ -356,6 +363,46 @@ impl Assembler {
         }
 
         Value::Object(result)
+    }
+
+    fn manifest_entrypoint_for(&self, semantic_ir: &Value, contracts: &[Value]) -> Option<Value> {
+        let entrypoint = semantic_ir.get("entrypoint")?;
+        let resolved = entrypoint.get("resolved_contract").and_then(|v| v.as_str()).unwrap_or_default();
+        let resolved_id = entrypoint.get("resolved_contract_id").and_then(|v| v.as_str()).unwrap_or_default();
+        let contract = contracts.iter().find(|c| {
+            c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved) ||
+                c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved_id)
+        });
+
+        let mut result = Map::new();
+        result.insert("kind".to_string(), Value::String("default_entrypoint".to_string()));
+        result.insert(
+            "declared_target".to_string(),
+            entrypoint.get("declared_target")
+                .or_else(|| entrypoint.get("target"))
+                .cloned()
+                .unwrap_or(Value::String(String::new())),
+        );
+        result.insert(
+            "resolved_contract".to_string(),
+            entrypoint.get("resolved_contract").cloned().unwrap_or(Value::String(String::new())),
+        );
+        result.insert("source_span".to_string(), json!({
+            "source_path": semantic_ir.get("source_path").cloned().unwrap_or(Value::Null),
+            "line": entrypoint.get("source_span").and_then(|s| s.get("line")).cloned().unwrap_or(Value::Null),
+            "col": entrypoint.get("source_span").and_then(|s| s.get("col")).cloned().unwrap_or(Value::Null)
+        }));
+
+        if let Some(c) = contract {
+            if let Some(cref) = c.get("source_contract_ref") {
+                result.insert("contract_ref".to_string(), cref.clone());
+            }
+            if let Some(cid) = c.get("contract_id").and_then(|v| v.as_str()) {
+                result.insert("contract_path".to_string(), Value::String(format!("contracts/{}.json", self.snake_case(cid))));
+            }
+        }
+
+        Some(Value::Object(result))
     }
 
     fn is_compute_node(&self, node: &Value) -> bool {

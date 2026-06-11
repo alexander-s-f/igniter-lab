@@ -135,12 +135,25 @@ pub struct TypedProgram {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub olap_points: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<TypedEntrypoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub type_warnings: Option<Vec<ClassifierDiagnostic>>,
     pub pass_result: String,
     /// PROP-044 P5: SIR-ready variant declarations (emitted at program level).
     /// Built from classified.variant_declarations after variant_shapes pass.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variant_declarations: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TypedEntrypoint {
+    pub kind: String,
+    pub target: String,
+    pub qualified: bool,
+    pub source_span: crate::parser::SourceSpan,
+    pub resolved_contract: String,
+    pub resolved_contract_id: String,
+    pub contract_fragment_class: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -338,6 +351,9 @@ impl TypeChecker {
             typed_contracts.push(tc);
         }
 
+        let (entrypoint_errors, entrypoint) = self.validate_entrypoint(classified);
+        type_errors.extend(entrypoint_errors);
+
         // Validate recursive functions specify decreases fuel: T1.5
         for f in functions {
             if is_recursive(&f.body, &f.name) {
@@ -419,6 +435,7 @@ impl TypeChecker {
             semantic_ir_ref: serde_json::Value::Null,
             assumption_registry: classified.assumption_registry.clone(),
             olap_points: if olap_env.is_empty() { None } else { Some(olap_env.values().map(|v| v.get("semantic_node").unwrap().clone()).collect()) },
+            entrypoint,
             type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
             pass_result,
             variant_declarations,
@@ -435,6 +452,42 @@ impl TypeChecker {
             map.insert(t.name.clone(), fields);
         }
         map
+    }
+
+    fn validate_entrypoint(&self, classified: &ClassifiedProgram) -> (Vec<ClassifierDiagnostic>, Option<TypedEntrypoint>) {
+        let entrypoint = match &classified.entrypoint {
+            Some(e) => e,
+            None => return (Vec::new(), None),
+        };
+
+        let target = entrypoint.target.clone();
+        if let Some(contract) = classified.contracts.iter().find(|c| target == c.name || target == c.contract_id) {
+            return (Vec::new(), Some(TypedEntrypoint {
+                kind: "entrypoint_decl".to_string(),
+                target,
+                qualified: entrypoint.qualified,
+                source_span: entrypoint.source_span.clone(),
+                resolved_contract: contract.name.clone(),
+                resolved_contract_id: contract.contract_id.clone(),
+                contract_fragment_class: contract.fragment_class.clone(),
+            }));
+        }
+
+        if classified.type_declarations.iter().any(|t| t.name == target) {
+            return (vec![ClassifierDiagnostic {
+                rule: "OOF-EP5".to_string(),
+                message: format!("entrypoint target '{}' is a type, not a contract", target),
+                node: target,
+                line: Some(entrypoint.source_span.line),
+            }], None);
+        }
+
+        (vec![ClassifierDiagnostic {
+            rule: "OOF-EP2".to_string(),
+            message: format!("entrypoint target '{}' does not resolve to a contract", target),
+            node: target,
+            line: Some(entrypoint.source_span.line),
+        }], None)
     }
 
     fn build_olap_env(&self, olaps: &[OlapPointDecl]) -> HashMap<String, HashMap<String, serde_json::Value>> {

@@ -73,6 +73,9 @@ impl Emitter {
         result.insert("module".to_string(), Value::String(typed.module.clone().unwrap_or_default()));
         result.insert("compilation_report_ref".to_string(), Value::String(report_id));
         result.insert("contracts".to_string(), Value::Array(contracts_ir));
+        if let Some(entrypoint) = self.semantic_entrypoint(typed, result.get("contracts").and_then(|c| c.as_array())) {
+            result.insert("entrypoint".to_string(), entrypoint);
+        }
 
         let mut shape_descriptors = Map::new();
         if let Some(contracts_arr) = result.get("contracts").and_then(|c| c.as_array()) {
@@ -122,6 +125,33 @@ impl Emitter {
         }
 
         Value::Object(result)
+    }
+
+    fn semantic_entrypoint(&self, typed: &TypedProgram, contracts: Option<&Vec<Value>>) -> Option<Value> {
+        let entrypoint = typed.entrypoint.as_ref()?;
+        let contract_ref = contracts
+            .and_then(|items| items.iter().find(|c| {
+                c.get("contract_name").and_then(|v| v.as_str()) == Some(entrypoint.resolved_contract.as_str())
+            }))
+            .and_then(|c| c.get("contract_ref"))
+            .cloned();
+
+        let mut result = Map::new();
+        result.insert("kind".to_string(), Value::String("entrypoint_decl".to_string()));
+        result.insert("target".to_string(), Value::String(entrypoint.target.clone()));
+        result.insert("declared_target".to_string(), Value::String(entrypoint.target.clone()));
+        result.insert("qualified".to_string(), Value::Bool(entrypoint.qualified));
+        result.insert("resolved_contract".to_string(), Value::String(entrypoint.resolved_contract.clone()));
+        result.insert("resolved_contract_id".to_string(), Value::String(entrypoint.resolved_contract_id.clone()));
+        result.insert("contract_fragment_class".to_string(), Value::String(entrypoint.contract_fragment_class.clone()));
+        result.insert("source_span".to_string(), json!({
+            "line": entrypoint.source_span.line,
+            "col": entrypoint.source_span.col
+        }));
+        if let Some(cref) = contract_ref {
+            result.insert("contract_ref".to_string(), cref);
+        }
+        Some(Value::Object(result))
     }
 
     fn typed_compilation_report(&self, typed: &TypedProgram, diagnostics: &[ClassifierDiagnostic], semantic_ir: &Option<Value>) -> Value {

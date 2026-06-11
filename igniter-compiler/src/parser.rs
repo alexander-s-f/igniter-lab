@@ -38,6 +38,9 @@ pub struct SourceFile {
     pub pipelines: Vec<PipelineDecl>,
     pub olap_points: Vec<OlapPointDecl>,
     pub assumptions: Vec<AssumptionDecl>,
+    /// PROP-ENTRYPOINT-P4: optional top-level `entrypoint ContractName` metadata selector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<EntrypointDecl>,
     /// PROP-041 T2: module-level `size_relation TypeName accessor` declarations
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub size_relations: Vec<SizeRelationDecl>,
@@ -45,6 +48,20 @@ pub struct SourceFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<VariantDecl>,
     pub parse_errors: Vec<ParseErrorDetail>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SourceSpan {
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EntrypointDecl {
+    pub kind: String,
+    pub target: String,
+    pub qualified: bool,
+    pub source_span: SourceSpan,
 }
 
 /// PROP-041 T2: module-level structural-size relation declaration.
@@ -742,6 +759,7 @@ impl Parser {
         let mut pipelines = Vec::new();
         let mut olap_points = Vec::new();
         let mut assumptions = Vec::new();
+        let mut entrypoint: Option<EntrypointDecl> = None;
         // PROP-041 T2: module-level size_relation declarations
         let mut size_relations = Vec::new();
         // PROP-044 P3: module-level variant declarations
@@ -772,6 +790,19 @@ impl Parser {
                 Ok(Some(TopDecl::Pipeline(p))) => pipelines.push(p),
                 Ok(Some(TopDecl::OlapPoint(o))) => olap_points.push(o),
                 Ok(Some(TopDecl::Assumptions(mut a))) => assumptions.append(&mut a),
+                Ok(Some(TopDecl::Entrypoint(ep))) => {
+                    if entrypoint.is_some() {
+                        self.add_parse_error(
+                            "OOF-EP1",
+                            &format!("Duplicate entrypoint declaration: {}", ep.target),
+                            &ep.target,
+                            ep.source_span.line,
+                            ep.source_span.col,
+                        );
+                    } else {
+                        entrypoint = Some(ep);
+                    }
+                }
                 // PROP-041 T2: size_relation module-level declarations
                 Ok(Some(TopDecl::SizeRelation(sr))) => size_relations.push(sr),
                 // PROP-044 P3: variant module-level declarations
@@ -800,6 +831,7 @@ impl Parser {
             pipelines,
             olap_points,
             assumptions,
+            entrypoint,
             size_relations,
             variants,
             parse_errors: self.errors.clone(),
@@ -948,6 +980,7 @@ impl Parser {
             "pipeline" => { self.advance(); self.parse_pipeline_decl().map(|p| Some(TopDecl::Pipeline(p))) }
             "olap_point" => { self.advance(); self.parse_olap_point_decl().map(|o| Some(TopDecl::OlapPoint(o))) }
             "assumptions" => { self.advance(); self.parse_assumptions_block().map(|a| Some(TopDecl::Assumptions(a))) }
+            "entrypoint" => { self.parse_entrypoint_decl().map(|e| Some(TopDecl::Entrypoint(e))) }
             // PROP-041 T2: `size_relation TypeName accessor`
             "size_relation" => { self.advance(); self.parse_size_relation_decl().map(|sr| Some(TopDecl::SizeRelation(sr))) }
             // PROP-044 P3: `variant Name { Arms }`
@@ -957,6 +990,72 @@ impl Parser {
                 self.advance();
                 Ok(None)
             }
+        }
+    }
+
+    /// PROP-ENTRYPOINT-P4: Parse top-level `entrypoint ContractName`.
+    /// This is metadata only; it does not enter the dependency graph.
+    fn parse_entrypoint_decl(&mut self) -> Result<EntrypointDecl, String> {
+        let tok = self.advance().ok_or_else(|| "Unexpected EOF".to_string())?.clone();
+        let target_tok = self.current().cloned();
+        if target_tok.as_ref().map_or(true, |t| {
+            t.token_type != TokenType::Ident && t.token_type != TokenType::Keyword
+        }) {
+            let token = target_tok.map(|t| t.value).unwrap_or_default();
+            self.add_parse_error(
+                "OOF-EP2",
+                "entrypoint declaration requires a contract target",
+                &token,
+                tok.line,
+                tok.col,
+            );
+            return Ok(EntrypointDecl {
+                kind: "entrypoint".to_string(),
+                target: "".to_string(),
+                qualified: false,
+                source_span: SourceSpan { line: tok.line, col: tok.col },
+            });
+        }
+
+        let target = self.parse_entrypoint_target()?;
+        if let Some(extra) = self.current().cloned() {
+            if extra.token_type != TokenType::Eof && extra.line == tok.line {
+                self.add_parse_error(
+                    "OOF-P0",
+                    &format!("Malformed entrypoint declaration after target '{}'", target),
+                    &extra.value,
+                    extra.line,
+                    extra.col,
+                );
+                self.skip_same_line(tok.line);
+            }
+        }
+
+        Ok(EntrypointDecl {
+            kind: "entrypoint".to_string(),
+            qualified: target.contains('.'),
+            target,
+            source_span: SourceSpan { line: tok.line, col: tok.col },
+        })
+    }
+
+    fn parse_entrypoint_target(&mut self) -> Result<String, String> {
+        let mut parts = vec![self.name_token()?];
+        while self.peek_type(TokenType::Dot) {
+            self.advance();
+            parts.push(self.name_token()?);
+        }
+        Ok(parts.join("."))
+    }
+
+    fn skip_same_line(&mut self, line: usize) {
+        while !self.peek_type(TokenType::Eof) {
+            if let Some(tok) = self.current() {
+                if tok.line != line {
+                    break;
+                }
+            }
+            self.advance();
         }
     }
 
@@ -3082,6 +3181,7 @@ pub enum TopDecl {
     Pipeline(PipelineDecl),
     OlapPoint(OlapPointDecl),
     Assumptions(Vec<AssumptionDecl>),
+    Entrypoint(EntrypointDecl),
     /// PROP-041 T2: module-level `size_relation TypeName accessor`
     SizeRelation(SizeRelationDecl),
     /// PROP-044 P3: module-level `variant Name { Arms }`
