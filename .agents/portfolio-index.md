@@ -81,6 +81,21 @@ Ruby `call_contract`, multi-source CLI/public API, package, visibility,
 stdlib-as-import, runtime loading, VM, and capability/profile import remain
 closed; next PROP-IMPORT-RESOLUTION-P5).
 
+**Recent canon implementation update:** PROP-IMPORT-RESOLUTION-P5 CLOSED /
+PROVED (99/99 PASS; Ruby canon `igniter-lang` now has bounded internal
+multi-file import resolution via `IgniterLang::MultifileResolver` and
+`CompilerOrchestrator#compile_sources`; N `.ig` files compile as one logical
+universe after SourceUnit inventory, module/import graph validation, duplicate
+module/contract/type gates, final `OOF-IMP1..5` +
+`OOF-DECL-DUP-CONTRACT/TYPE`, deterministic composite `source_hash`, and merged
+parsed program; `source_units` evidence is emitted in compilation report,
+SemanticIR, and `.igapp` manifest/artifact material; entrypoint coexistence
+proven and PROP-ENTRYPOINT-P3 regression remains 53/53 PASS; single-file compile
+path remains compatible; no CLI/public API/package/visibility/stdlib-as-import/
+runtime loading/VM/Ruby `call_contract`/capability-profile import authority
+opened; next optional PROP-IMPORT-RESOLUTION-P6 bounded CLI/driver policy or
+PROP-MODULE-VISIBILITY-P1).
+
 **Recent canon planning update:** PROP-ENTRYPOINT-P2 CLOSED / READY FOR P3
 IMPLEMENTATION (implementation planning only; exact AST shape and manifest
 `entrypoint` field chosen; P3 scoped to Ruby `igniter-lang` single-file/current
