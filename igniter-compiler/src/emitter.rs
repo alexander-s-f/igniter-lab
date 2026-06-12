@@ -681,6 +681,32 @@ impl Emitter {
                     node.insert("resolved_type".to_string(), Value::Object(resolved_type));
                     return Value::Object(node);
                 }
+                // LANG-STDLIB-NUMERIC-COMPARISON-P4: binary_op comparison → qualified call node
+                if map.get("kind").and_then(|k| k.as_str()) == Some("binary_op") {
+                    let op = map.get("op").and_then(|v| v.as_str()).unwrap_or("");
+                    let fn_name_opt = match op {
+                        ">" => Some("stdlib.integer.gt"),
+                        "<" => Some("stdlib.integer.lt"),
+                        "<=" => Some("stdlib.integer.lte"),
+                        ">=" => Some("stdlib.integer.gte"),
+                        _ => None,
+                    };
+                    if let Some(fn_name) = fn_name_opt {
+                        let left_val = map.get("left").cloned().unwrap_or(Value::Null);
+                        let right_val = map.get("right").cloned().unwrap_or(Value::Null);
+                        let lowered_left = self.semantic_expr(&left_val);
+                        let lowered_right = self.semantic_expr(&right_val);
+                        let mut resolved_type = Map::new();
+                        resolved_type.insert("name".to_string(), Value::String("Bool".to_string()));
+                        resolved_type.insert("params".to_string(), Value::Array(Vec::new()));
+                        let mut node = Map::new();
+                        node.insert("kind".to_string(), Value::String("call".to_string()));
+                        node.insert("fn".to_string(), Value::String(fn_name.to_string()));
+                        node.insert("args".to_string(), Value::Array(vec![lowered_left, lowered_right]));
+                        node.insert("resolved_type".to_string(), Value::Object(resolved_type));
+                        return Value::Object(node);
+                    }
+                }
                 // igniter-string-core-units-and-pure-stdlib-boundary-v0:
                 // (A) Rewrite unambiguous text stdlib bare names to stdlib.text.* + attach resolved_type.
                 // (B) For already-qualified stdlib.text.* names (from typechecker concat rewrite),
@@ -868,6 +894,13 @@ impl Emitter {
             // LANG-UNARY-OPERATORS-P4: delegate unary_op to semantic_expr for -> call conversion
             if map.get("kind").and_then(|k| k.as_str()) == Some("unary_op") {
                 return self.semantic_expr(val);
+            }
+            // LANG-STDLIB-NUMERIC-COMPARISON-P4: delegate comparison binary_op to semantic_expr
+            if map.get("kind").and_then(|k| k.as_str()) == Some("binary_op") {
+                let op = map.get("op").and_then(|v| v.as_str()).unwrap_or("");
+                if matches!(op, ">" | "<" | "<=" | ">=") {
+                    return self.semantic_expr(val);
+                }
             }
             // igniter-string-core: delegate text stdlib calls to semantic_expr for
             // stdlib.text.* rewrite + resolved_type annotation.

@@ -1228,17 +1228,17 @@ impl TypeChecker {
                     let expected = self.type_ir(decl.type_annotation.as_ref().unwrap());
                     let actual = symbol_types.get(&decl.name).cloned().unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
 
-                    // LAB-RACK-P9: Unknown actual type is treated as compatible with any
-                    // declared output type. call_contract returns Unknown (callee output type
-                    // is not verifiable at compile time in v0), and the VM enforces correctness
-                    // at runtime. Without this guard the TypeChecker would reject every contract
-                    // that forwards a call_contract result as an output.
-                    if self.type_name(&actual) != self.type_name(&expected)
-                        && self.type_name(&actual) != "Unknown"
+                    // LANG-OUTPUT-TYPE-ASSIGNABILITY-P4: structural check supersedes the
+                    // outer-name-only comparison and the LAB-RACK-P9 guard (D6).
+                    // structurally_assignable() implements D2 (actual Unknown → false) and
+                    // D3 (expected Unknown → true) at all depths. OOF-TY1 replaces OOF-TY0
+                    // at the output boundary.
+                    if !self.structurally_assignable(&actual, &expected)
                         && !self.blocking_rule_present(&type_errors) {
                         type_errors.push(ClassifierDiagnostic {
-                            rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected {}, got {}", self.type_name(&expected), self.type_name(&actual)),
+                            rule: "OOF-TY1".to_string(),
+                            message: format!("Output type mismatch: expected {}, got {}",
+                                             self.type_display(&expected), self.type_display(&actual)),
                             node: decl.name.clone(),
                             line: None,
                         });
@@ -2042,6 +2042,26 @@ impl TypeChecker {
 
     fn type_name(&self, type_info: &serde_json::Value) -> String {
         type_info.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
+    }
+
+    fn structurally_assignable(&self, actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
+        if self.type_name(expected) == "Unknown" { return true; }   // D3: expected Unknown accepts any
+        if self.type_name(actual) == "Unknown"   { return false; }  // D2: actual Unknown always rejected
+        if self.type_name(actual) != self.type_name(expected) { return false; }
+        let actual_params = actual.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        let expected_params = expected.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        if actual_params.len() != expected_params.len() { return false; }
+        actual_params.iter().zip(expected_params.iter()).all(|(a, e)| {
+            self.structurally_assignable(&self.type_ir(a), &self.type_ir(e))
+        })
+    }
+
+    fn type_display(&self, type_info: &serde_json::Value) -> String {
+        let name = self.type_name(type_info);
+        let params = type_info.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        if params.is_empty() { return name; }
+        let rendered: Vec<String> = params.iter().map(|p| self.type_display(&self.type_ir(p))).collect();
+        format!("{}[{}]", name, rendered.join(","))
     }
 
     // igniter-string-core-units-and-pure-stdlib-boundary-v0 helpers ----------

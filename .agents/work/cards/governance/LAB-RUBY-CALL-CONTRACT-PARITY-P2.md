@@ -2,7 +2,7 @@
 
 **Lane:** governance / implementation / Ruby parity  
 **Mode:** PLANNING ONLY — no implementation  
-**Status:** OPEN  
+**Status:** CLOSED — plan superseded by LAB-RUBY-CALL-CONTRACT-PARITY-P3 (56/56 PASS)  
 **Date:** 2026-06-12  
 **Depends on:** LAB-RUBY-CALL-CONTRACT-PARITY-P1 (CLOSED 56/56)  
 **Conditional on:** LANG-OUTPUT-TYPE-ASSIGNABILITY-P1 state (see Output Gate section)
