@@ -2670,6 +2670,51 @@ impl TypeChecker {
                                     }
                                 }
                             }
+                            // LANG-STDLIB-IS-EMPTY-PROP-P4: Rust parity for is_empty + non_empty.
+                            // is_empty(Collection[T]) -> Bool  — true iff zero elements
+                            // non_empty(Collection[T]) -> Bool — true iff one or more elements
+                            // OOF-COL1: arity != 1; OOF-COL2: non-Collection / non-Unknown first arg.
+                            // Bool returned on ALL paths including error paths (no Unknown propagation).
+                            "is_empty" | "non_empty" => {
+                                is_resolved = true;
+                                resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+                                if args.len() != 1 {
+                                    let qualified = if fn_name == "is_empty" {
+                                        "stdlib.collection.is_empty"
+                                    } else {
+                                        "stdlib.collection.non_empty"
+                                    };
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-COL1".to_string(),
+                                        message: format!(
+                                            "{}: expected 1 argument (collection), got {}",
+                                            qualified,
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else if !typed_args.is_empty() {
+                                    let col_arg_name = self.type_name(&typed_args[0].resolved_type);
+                                    if col_arg_name != "Collection" && col_arg_name != "Unknown" {
+                                        let qualified = if fn_name == "is_empty" {
+                                            "stdlib.collection.is_empty"
+                                        } else {
+                                            "stdlib.collection.non_empty"
+                                        };
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL2".to_string(),
+                                            message: format!(
+                                                "{}: first argument must be Collection[T], got {}",
+                                                qualified,
+                                                col_arg_name
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                    }
+                                }
+                            }
                             "first" | "last" => {
                                 is_resolved = true;
                                 let mut inner_ty = serde_json::Value::Null;
