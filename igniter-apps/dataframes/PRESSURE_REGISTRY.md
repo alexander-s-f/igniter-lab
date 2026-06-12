@@ -24,8 +24,8 @@ Fresh observed result: all stages complete, 8 contracts emit, and diagnostics ar
 | DF-P05 | Relational collection algebra | Matrix addition and dataframe row filtering need `join`, `group_by`, or `flat_map`; flat `map`/`filter` is not enough | Active, larger design | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
 | DF-P06 | Lambda record literal ambiguity | `map(cells, c -> { row: c.col, col: c.row, val: c.val })` parses `{` as a block, not a record literal | Active parser pressure | `LAB-LAMBDA-RECORD-LITERAL-P1` |
 | DF-P07 | Contract invocation workaround | Record construction inside lambdas is moved into helper contracts and invoked through `call_contract` | Active bridge pressure | Typed invocation / forms route; call_contract parity |
-| DF-P08 | ACTIVE | Ruby call_contract parity | UTF-8-stripped Ruby recheck: 6 `Unknown function: call_contract` + 2 `Unresolved symbol` cascades; Ruby TC has no call_contract dispatch arm | call_contract parity follow-up |
-| DF-P09 | ACTIVE | Ruby emitter UTF-8 encoding | `types.ig` contains box-drawing chars (U+2500 `──`) in comments; Ruby JSON serializer crashes with `JSON::GeneratorError`; masks TC diagnostics in unstripped runs | `LANG-EMITTER-ENCODING-P1` |
+| DF-P08 | ACTIVE | Ruby call_contract parity | Wave P2 unstripped recheck: 8 diagnostics (6× `Unknown function: call_contract`, 2× `Unresolved symbol` cascades); Ruby TC has no call_contract dispatch arm | call_contract parity follow-up |
+| DF-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 8 actual diagnostics surface; types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
 
 ## Route Notes
 
@@ -39,7 +39,9 @@ Recommended order:
 4. `LAB-STDLIB-COLLECTION-CONTAINS-P1` for Bool-producing membership helpers.
 5. `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` for `group_by` / `join` / `flat_map` readiness.
 
-Wave recheck summary (2026-06-12): Rust CLEAN; Ruby blocked by call_contract + UTF-8 encoding issue; DF-P04 (is_empty) READY.
+Wave recheck summary (2026-06-12 P1): Rust CLEAN; Ruby blocked by call_contract + UTF-8 encoding issue; DF-P04 (is_empty) READY.
+
+Wave P2 recheck (2026-06-12): Rust still CLEAN (0 diagnostics, status ok). Ruby: 8 diagnostics (6× call_contract, 2× Unresolved symbol) — DF-P09 RESOLVED (LANG-EMITTER-ENCODING-P2 fixed); unstripped run produces actual diagnostics without crash. Dominant Ruby blocker: call_contract parity (DF-P08).
 
 ## Non-Goals
 

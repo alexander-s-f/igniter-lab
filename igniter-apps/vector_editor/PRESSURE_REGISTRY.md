@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-12 (APP-RECHECK-WAVE-P1)
+Updated: 2026-06-12 (APP-RECHECK-WAVE-P2)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -30,9 +30,13 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 
 Probe: temporary copy in `/tmp/vector_editor_probe` with only `import stdlib.collection.{ append, map }` removed from `document.ig`.
 
+## Wave P2 Recheck Summary (2026-06-12)
+
+Rust: oof (1 diagnostic — `call_contract: unknown callee 'append'`). Ruby: oof (7 diagnostics — 4× `Unknown function: call_contract`, 3× `Unresolved symbol` cascade). No new resolutions in Wave P2 for this app; all prerequisite cards (append/equality/encoding) were already captured in P1. Dominant blocker is call_contract parity (VE-P02/P03) on both toolchains.
+
 ## Notes
 
-- Import surface (VE-P01) and equality (VE-P04) are resolved as of wave recheck.
+- Import surface (VE-P01) and equality (VE-P04) are resolved.
 - The dominant remaining blocker is call_contract parity (VE-P02/P03): both Rust and Ruby TC don't dispatch stdlib functions via `call_contract("name", ...)` form.
 - `call_contract` evidence here should feed typed refs/forms work, not a runtime-dispatch expansion.
 - The `GraphicObject` encoding is useful as pressure evidence precisely because it is awkward.

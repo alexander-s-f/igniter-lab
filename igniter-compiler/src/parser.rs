@@ -2731,6 +2731,18 @@ impl Parser {
                 operand: Box::new(operand),
             });
         }
+        // LANG-UNARY-OPERATORS-P4: unary minus
+        let is_unary_minus = self.current()
+            .map(|t| t.token_type == TokenType::Op && t.value == "-")
+            .unwrap_or(false);
+        if is_unary_minus {
+            let op = self.advance().unwrap().value.clone();
+            let operand = self.parse_postfix()?;
+            return Ok(Expr::UnaryOp {
+                op,
+                operand: Box::new(operand),
+            });
+        }
         self.parse_postfix()
     }
 

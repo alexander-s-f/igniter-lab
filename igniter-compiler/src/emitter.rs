@@ -661,6 +661,26 @@ impl Emitter {
                     new_map.insert("operands".to_string(), Value::Array(operands));
                     return Value::Object(new_map);
                 }
+                // LANG-UNARY-OPERATORS-P4: unary_op → stdlib call node
+                if map.get("kind").and_then(|k| k.as_str()) == Some("unary_op") {
+                    let op = map.get("op").and_then(|v| v.as_str()).unwrap_or("");
+                    let operand_val = map.get("operand").cloned().unwrap_or(Value::Null);
+                    let lowered_operand = self.semantic_expr(&operand_val);
+                    let (fn_name, type_name) = match op {
+                        "!" => ("stdlib.primitive.not", "Bool"),
+                        "-" => ("stdlib.integer.neg", "Integer"),
+                        _ => ("stdlib.unsupported", "Unknown"),
+                    };
+                    let mut resolved_type = Map::new();
+                    resolved_type.insert("name".to_string(), Value::String(type_name.to_string()));
+                    resolved_type.insert("params".to_string(), Value::Array(Vec::new()));
+                    let mut node = Map::new();
+                    node.insert("kind".to_string(), Value::String("call".to_string()));
+                    node.insert("fn".to_string(), Value::String(fn_name.to_string()));
+                    node.insert("args".to_string(), Value::Array(vec![lowered_operand]));
+                    node.insert("resolved_type".to_string(), Value::Object(resolved_type));
+                    return Value::Object(node);
+                }
                 // igniter-string-core-units-and-pure-stdlib-boundary-v0:
                 // (A) Rewrite unambiguous text stdlib bare names to stdlib.text.* + attach resolved_type.
                 // (B) For already-qualified stdlib.text.* names (from typechecker concat rewrite),
@@ -843,6 +863,10 @@ impl Emitter {
             // For non-recur expressions, recurse but still intercept nested recur() calls
             // We don't know their return_type in nested position, so use "Unknown"
             if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
+                return self.semantic_expr(val);
+            }
+            // LANG-UNARY-OPERATORS-P4: delegate unary_op to semantic_expr for -> call conversion
+            if map.get("kind").and_then(|k| k.as_str()) == Some("unary_op") {
                 return self.semantic_expr(val);
             }
             // igniter-string-core: delegate text stdlib calls to semantic_expr for

@@ -20,7 +20,7 @@ Fresh observed result: all stages complete, 5 contracts emit, and diagnostics ar
 | RE-P01 | Rule engine Rust baseline | Wave recheck: Rust still CLEAN (0 diagnostics, 5 contracts); unchanged since prior baseline | Positive, needs frozen proof | `LAB-RULE-ENGINE-BASELINE-P1` |
 | RE-P02 | Dynamic contract dispatch | `call_contract(r, tx)` where `r` is a variable compiles and produces `Unknown` flow | Active, safety-high | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 | RE-P03 | Unknown field access | Ruby wave recheck: `Unresolved field: Unknown.action` confirmed (1 diag); pipeline filters decisions using `d.action` on Unknown-typed result | Active, safety-high | `LAB-UNKNOWN-FIELD-ACCESS-P1` |
-| RE-P04 | HOLD/SAFETY-HIGH | Unknown output coercion | `Collection[Unknown]` flows into `output active_decisions : Collection[RuleDecision]` — gap documented and held; LAB-UNKNOWN-OUTPUT-COERCION-P1 CLOSED as HOLD; LAB-OUTPUT-TYPE-PARAMETER-CHECK-P1 CLOSED as READY FOR IMPLEMENTATION PLANNING | `LAB-UNKNOWN-OUTPUT-COERCION-P1` CLOSED/HOLD; `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` next |
+| RE-P04 | ACTIVE/CONFIRMED | Unknown output coercion | LANG-OUTPUT-TYPE-ASSIGNABILITY-P3 CLOSED — Ruby TC now produces precise "Output type mismatch: expected Collection[RuleDecision], got Unknown" × 3 (was generic "Type mismatch: expected Collection, got Unknown" in P1); error correctly diagnosed; coercion is properly rejected; next: LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2 to extend to all parametric containers | `LANG-OUTPUT-TYPE-ASSIGNABILITY-P3` CLOSED; `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` next |
 | RE-P05 | Rule interface convention | Rule contracts follow an informal `Transaction -> RuleDecision` shape | Positive, informal | Typed contract-ref / forms route |
 | RE-P06 | Plugin / middleware architecture | Dynamic rule-name lists suggest plugin-style pipelines | Promising, blocked on safety | After RE-P02..RE-P04 |
 
@@ -34,9 +34,13 @@ The app should not be described as having proven safe reflection or duck typing.
 
 That combination may be desirable if backed by validation receipts, dynamic dispatch receipts, or explicit quarantine semantics. Without one of those, it risks violating the no-upward-coercion honesty rule.
 
-## Wave Recheck Summary (2026-06-12)
+## Wave Recheck Summary (2026-06-12 P1)
 
-Ruby compile: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Type mismatch: expected Collection, got Unknown`). Rust: CLEAN (0 diagnostics). No changes to RE-P01 baseline. RE-P04 now documented as HOLD/SAFETY-HIGH pending output-type-parameter implementation planning.
+Ruby compile: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Type mismatch: expected Collection, got Unknown`). Rust: CLEAN (0 diagnostics). No changes to RE-P01 baseline. RE-P04 documented as HOLD/SAFETY-HIGH.
+
+## Wave P2 Recheck Summary (2026-06-12)
+
+Ruby: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Output type mismatch: expected Collection[RuleDecision], got Unknown`). Rust: CLEAN (0 diagnostics). RE-P04 ACTIVE/CONFIRMED — LANG-OUTPUT-TYPE-ASSIGNABILITY-P3 landed; Ruby TC now emits specific output boundary error with full type info; coercion correctly rejected. No change in diagnostic count (9); message quality improved.
 
 ## Recommended Route
 

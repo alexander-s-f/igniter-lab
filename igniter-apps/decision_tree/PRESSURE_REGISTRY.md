@@ -1,6 +1,6 @@
 # Decision Tree Pressure Registry
 
-Updated: 2026-06-12 (APP-RECHECK-WAVE-P1)
+Updated: 2026-06-12 (APP-RECHECK-WAVE-P2)
 
 This registry tracks app pressure from `igniter-apps/decision_tree`. It is evidence, not canon authority.
 
@@ -34,10 +34,14 @@ Probes:
 - Rust probe: temporary copy in `/tmp/decision_tree_probe` with `stdlib.collection` imports removed.
 - Ruby probe: temporary copy in `/tmp/decision_tree_ruby_probe` with `stdlib.collection` imports removed and `label` renamed to `class_label`.
 
+## Wave P2 Recheck Summary (2026-06-12)
+
+Rust: oof (4 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: error (1 diagnostic — `ParseError: Expected name, got keyword(label)`). No new resolutions in Wave P2; DT-P02 (`label` keyword) still blocks all Ruby TC output. Rust remains blocked on call_contract("append",...) form. Parser keyword fix (LANG-PARSER-LABEL-IDENTIFIER-P1 CLOSED readiness proof) is the prerequisite before Ruby recheck is meaningful.
+
 ## Notes
 
 - Import surface (DT-P01) and equality (DT-P05) are resolved.
-- DT-P02 (`label` keyword) blocks all Ruby TC output for this app — must be fixed before Ruby recheck is meaningful.
+- DT-P02 (`label` keyword) blocks all Ruby TC output — parser contextual-keyword fix is prerequisite (readiness proof CLOSED via LAB-PARSER-LABEL-IDENTIFIER-P1).
 - `call_contract("append", ...)` still fails in Rust (DT-P03) — 4 sites across builder.ig + example.ig.
 - `find_one` should not be smuggled in as scalar `filter`; it needs explicit fail-closed semantics.
 - The app is a strong fixture for finite graph/arena traversal, but not evidence for unbounded loops.

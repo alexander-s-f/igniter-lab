@@ -4002,6 +4002,59 @@ impl TypeChecker {
             Expr::MatchExpr { subject, arms } => {
                 self.infer_match_expr(subject, arms, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name)
             }
+            // LANG-UNARY-OPERATORS-P4: ! : Bool -> Bool, - : Integer -> Integer
+            Expr::UnaryOp { op, operand } => {
+                let operand_typed = self.infer_expr(
+                    operand, symbol_types, olap_env, type_shapes,
+                    type_errors, type_warnings, node_name, functions,
+                    contract_registry, current_contract_name,
+                );
+                let operand_type_name = self.type_name(&operand_typed.resolved_type);
+                let (_fn_name, result_type_name) = match op.as_str() {
+                    "!" => {
+                        if operand_type_name != "Bool" && operand_type_name != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-TY0".to_string(),
+                                message: format!(
+                                    "Unary `!` requires Bool operand, got {}",
+                                    operand_type_name
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                        ("stdlib.primitive.not", "Bool")
+                    }
+                    "-" => {
+                        if operand_type_name != "Integer" && operand_type_name != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-TY0".to_string(),
+                                message: format!(
+                                    "Unary `-` requires Integer operand, got {}",
+                                    operand_type_name
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                        ("stdlib.integer.neg", "Integer")
+                    }
+                    _ => {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!("Unknown unary operator: {}", op),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                        ("stdlib.unsupported", "Unknown")
+                    }
+                };
+                TypedExpression {
+                    resolved_type: self.type_ir(&serde_json::Value::String(result_type_name.to_string())),
+                    deps: operand_typed.deps,
+                    annotated_expr: None,
+                }
+            }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-TY0".to_string(),
@@ -4222,6 +4275,34 @@ impl TypeChecker {
                     });
                 }
                 ("stdlib.integer.lt".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+            }
+            "<=" => {
+                if (left_name != "Integer" || right_name != "Integer")
+                    && left_name != "Unknown"
+                    && right_name != "Unknown"
+                {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("Type mismatch for <=: expected Integer on both sides, got {} <= {}", left_name, right_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                ("stdlib.integer.lte".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+            }
+            ">=" => {
+                if (left_name != "Integer" || right_name != "Integer")
+                    && left_name != "Unknown"
+                    && right_name != "Unknown"
+                {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("Type mismatch for >=: expected Integer on both sides, got {} >= {}", left_name, right_name),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                ("stdlib.integer.gte".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
             }
             _ => {
                 type_errors.push(ClassifierDiagnostic {

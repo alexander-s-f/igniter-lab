@@ -1,6 +1,6 @@
 # Architectural Patterns Pressure Registry
 
-Updated: 2026-06-12 (APP-RECHECK-WAVE-P1)
+Updated: 2026-06-12 (APP-RECHECK-WAVE-P2)
 
 This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evidence, not canon authority.
 
@@ -14,8 +14,8 @@ This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evide
 | AP-P06 | WATCH | Dynamic middleware registration | Requires function-as-value or conservative form-assisted invocation | typed refs / form vocabulary track |
 | AP-P07 | RESOLVED | Text equality | UTF-8-stripped Ruby recheck: 0 `Unsupported operator: ==` in 41 diagnostics; `==` now in `operator_type` via LANG-STDLIB-TEXT-EQUALITY-P3 | `LANG-STDLIB-TEXT-EQUALITY-P3` CLOSED |
 | AP-P08 | WATCH | Variant/ADT surface | `DomainEvent.kind`, `AccountState.status`, `Command.kind` are string tags | variant/ADT follow-up |
-| AP-P09 | ACTIVE | `<` operator gap (Ruby TC) | UTF-8-stripped Ruby recheck: 2 `Unsupported operator: <` from pipeline.ig (lines 30, 108): `ctx.command.amount < 1` and `ctx.account.balance < ctx.command.amount`; Ruby TC has `>` but not `<` in `operator_type` | `LANG-STDLIB-NUMERIC-COMPARISON-P1` |
-| AP-P10 | ACTIVE | Ruby emitter UTF-8 encoding | `types.ig` contains box-drawing chars (U+2500 `──`) in comments; Ruby JSON serializer crashes with `JSON::GeneratorError`; masks TC diagnostics in unstripped runs; newly surfaced now that TC-level errors are resolved | `LANG-EMITTER-ENCODING-P1` |
+| AP-P09 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC `operator_type` + emitter `operator_for`; Wave P2 unstripped Ruby recheck: 0 `Unsupported operator: <` (39 total diags vs 41 in P1, 2 fewer = the two `<` errors) | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
+| AP-P10 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 39 actual diagnostics surface (was crashing before strip workaround); types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
 
 ## Live Commands Used
 
@@ -33,11 +33,13 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 
 Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection` imports removed.
 
+## Wave P2 Recheck Summary (2026-06-12)
+
+Rust: oof (7 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: oof (39 diagnostics — call_contract dominant, no `<` errors, no JSON crash). AP-P09 RESOLVED (`<` operator added via LANG-STDLIB-NUMERIC-COMPARISON-P3). AP-P10 RESOLVED (UTF-8 crash fixed via LANG-EMITTER-ENCODING-P2). Dominant remaining blocker: call_contract parity (AP-P02) — 7 Rust + many Ruby calls.
+
 ## Notes
 
-- Import surface (AP-P01) and equality (AP-P07) are resolved; is_empty available (AP-P04 READY).
-- The `<` operator gap (AP-P09) affects pipeline.ig balance and amount comparisons — route LANG-STDLIB-NUMERIC-COMPARISON-P1.
+- Import surface (AP-P01), equality (AP-P07), `<` operator (AP-P09), UTF-8 encoding (AP-P10) all resolved.
 - call_contract parity (AP-P02) is the dominant Rust blocker: 7 `call_contract("append",...)` calls.
-- UTF-8 encoding issue (AP-P10) masks TC diagnostics in unstripped Ruby runs.
+- is_empty available (AP-P04 READY); state_machine.ig stale comment about missing is_empty() can be updated.
 - Event sourcing and middleware remain strong positive fit signals.
-- State-machine `CheckTransition` can now branch on `is_empty` result — AP-P04 stale comment in state_machine.ig.
