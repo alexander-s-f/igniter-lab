@@ -355,15 +355,35 @@ impl TypeChecker {
         type_errors.extend(entrypoint_errors);
 
         // Validate recursive functions specify decreases fuel: T1.5
-        for f in functions {
-            if is_recursive(&f.body, &f.name) {
-                if f.decreases.as_deref() != Some("fuel") {
-                    type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-L4".to_string(),
-                        message: format!("Recursive function '{}' must specify 'decreases fuel'", f.name),
-                        node: f.name.clone(),
-                        line: None,
-                    });
+        // SCC-based gate: every member of a nontrivial SCC must declare `decreases fuel`.
+        {
+            let fn_names: HashSet<String> = functions.iter().map(|f| f.name.clone()).collect();
+            let mut fn_names_sorted: Vec<String> = fn_names.iter().cloned().collect();
+            fn_names_sorted.sort();
+            let fn_calls: HashMap<String, Vec<String>> = functions.iter()
+                .map(|f| (f.name.clone(), collect_fn_calls(&f.body, &fn_names)))
+                .collect();
+            let sccs = tarjan_sccs(&fn_names_sorted, &fn_calls);
+            let fn_map: HashMap<&str, &FunctionDecl> = functions.iter()
+                .map(|f| (f.name.as_str(), f))
+                .collect();
+            for scc in &sccs {
+                let is_nontrivial = scc.len() > 1
+                    || fn_calls.get(scc[0].as_str()).map_or(false, |c| c.contains(&scc[0]));
+                if !is_nontrivial {
+                    continue;
+                }
+                for fn_name in scc {
+                    if let Some(f) = fn_map.get(fn_name.as_str()) {
+                        if f.decreases.as_deref() != Some("fuel") {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-L4".to_string(),
+                                message: format!("Recursive function '{}' must specify 'decreases fuel'", fn_name),
+                                node: fn_name.clone(),
+                                line: None,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -4730,6 +4750,148 @@ fn syntactic_decrease(expr: &Expr, variant_name: &str) -> bool {
         }
         _ => false,
     }
+}
+
+// ── SCC-based OOF-L4 gate (LAB-FUNCTION-RECURSION-P4) ────────────────────────
+
+fn block_collect_calls(body: &crate::parser::BlockBody, fn_names: &HashSet<String>, out: &mut HashSet<String>) {
+    for stmt in &body.stmts {
+        let expr = match stmt {
+            Stmt::Let { expr, .. } | Stmt::ExprStmt { expr } => expr,
+        };
+        expr_collect_calls(expr, fn_names, out);
+    }
+    if let Some(re) = &body.return_expr {
+        expr_collect_calls(re, fn_names, out);
+    }
+}
+
+fn collect_fn_calls(body: &crate::parser::BlockBody, fn_names: &HashSet<String>) -> Vec<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    block_collect_calls(body, fn_names, &mut out);
+    let mut v: Vec<String> = out.into_iter().collect();
+    v.sort();
+    v
+}
+
+fn expr_collect_calls(expr: &Expr, fn_names: &HashSet<String>, out: &mut HashSet<String>) {
+    match expr {
+        Expr::Call { fn_name, args } => {
+            if fn_names.contains(fn_name) {
+                out.insert(fn_name.clone());
+            }
+            for arg in args {
+                expr_collect_calls(arg, fn_names, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_collect_calls(left, fn_names, out);
+            expr_collect_calls(right, fn_names, out);
+        }
+        Expr::UnaryOp { operand, .. } => expr_collect_calls(operand, fn_names, out),
+        Expr::FieldAccess { object, .. } => expr_collect_calls(object, fn_names, out),
+        Expr::IndexAccess { object, index } => {
+            expr_collect_calls(object, fn_names, out);
+            expr_collect_calls(index, fn_names, out);
+        }
+        Expr::SliceRecord { fields } => {
+            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+        }
+        Expr::IfExpr { cond, then, else_block } => {
+            expr_collect_calls(cond, fn_names, out);
+            block_collect_calls(then, fn_names, out);
+            if let Some(eb) = else_block { block_collect_calls(eb, fn_names, out); }
+        }
+        Expr::Lambda { body, .. } => match body.as_ref() {
+            ExprOrBlock::Expr(e) => expr_collect_calls(e, fn_names, out),
+            ExprOrBlock::Block(b) => block_collect_calls(b, fn_names, out),
+        },
+        Expr::ArrayLiteral { items } => {
+            for item in items { expr_collect_calls(item, fn_names, out); }
+        }
+        Expr::RecordLiteral { fields } => {
+            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+        }
+        Expr::VariantConstruct { fields, .. } => {
+            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+        }
+        Expr::MatchExpr { subject, arms } => {
+            expr_collect_calls(subject, fn_names, out);
+            for arm in arms { expr_collect_calls(&arm.body, fn_names, out); }
+        }
+        _ => {}
+    }
+}
+
+struct TarjanScc {
+    index_map: HashMap<String, usize>,
+    lowlink: HashMap<String, usize>,
+    on_stack: HashSet<String>,
+    stack: Vec<String>,
+    counter: usize,
+    sccs: Vec<Vec<String>>,
+}
+
+impl TarjanScc {
+    fn new() -> Self {
+        TarjanScc {
+            index_map: HashMap::new(),
+            lowlink: HashMap::new(),
+            on_stack: HashSet::new(),
+            stack: Vec::new(),
+            counter: 0,
+            sccs: Vec::new(),
+        }
+    }
+
+    fn visit(&mut self, v: &str, adj: &HashMap<String, Vec<String>>) {
+        self.index_map.insert(v.to_string(), self.counter);
+        self.lowlink.insert(v.to_string(), self.counter);
+        self.counter += 1;
+        self.stack.push(v.to_string());
+        self.on_stack.insert(v.to_string());
+
+        let neighbors: Vec<String> = adj.get(v).cloned().unwrap_or_default();
+        for w in &neighbors {
+            if !self.index_map.contains_key(w.as_str()) {
+                self.visit(w, adj);
+                let ll_w = *self.lowlink.get(w.as_str()).unwrap();
+                let ll_v = *self.lowlink.get(v).unwrap();
+                if ll_w < ll_v {
+                    self.lowlink.insert(v.to_string(), ll_w);
+                }
+            } else if self.on_stack.contains(w.as_str()) {
+                let idx_w = *self.index_map.get(w.as_str()).unwrap();
+                let ll_v = *self.lowlink.get(v).unwrap();
+                if idx_w < ll_v {
+                    self.lowlink.insert(v.to_string(), idx_w);
+                }
+            }
+        }
+
+        if *self.lowlink.get(v).unwrap() == *self.index_map.get(v).unwrap() {
+            let mut scc = Vec::new();
+            loop {
+                let w = self.stack.pop().unwrap();
+                self.on_stack.remove(&w);
+                let is_root = w == v;
+                scc.push(w);
+                if is_root { break; }
+            }
+            scc.sort();
+            self.sccs.push(scc);
+        }
+    }
+}
+
+fn tarjan_sccs(nodes: &[String], adj: &HashMap<String, Vec<String>>) -> Vec<Vec<String>> {
+    let mut state = TarjanScc::new();
+    for node in nodes {
+        if !state.index_map.contains_key(node.as_str()) {
+            state.visit(node, adj);
+        }
+    }
+    state.sccs
 }
 
 /// OOF-R3: produce a human-readable description of an expression for error messages.
