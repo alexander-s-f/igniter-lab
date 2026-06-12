@@ -3379,6 +3379,70 @@ impl TypeChecker {
                                     resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                 }
                             }
+                            "append" => {
+                                // LANG-STDLIB-COLLECTION-APPEND-PROP-P4: stdlib.collection.append
+                                // append(Collection[T], T) -> Collection[T]
+                                // OOF-COL1: arity != 2
+                                // OOF-COL2: non-Collection / non-Unknown first arg
+                                // OOF-COL6: item type concrete mismatch (Unknown permissive)
+                                is_resolved = true;
+                                if args.len() != 2 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-COL1".to_string(),
+                                        message: format!(
+                                            "stdlib.collection.append: expected 2 arguments, got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                    resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                } else {
+                                    let col_arg_name = if !typed_args.is_empty() {
+                                        self.type_name(&typed_args[0].resolved_type)
+                                    } else {
+                                        "Unknown".to_string()
+                                    };
+                                    if col_arg_name != "Collection" && col_arg_name != "Unknown" {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL2".to_string(),
+                                            message: format!(
+                                                "stdlib.collection.append: first argument must be Collection[T], got {}",
+                                                col_arg_name
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                        resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                    } else {
+                                        let elem_type = if col_arg_name == "Collection" && !typed_args.is_empty() {
+                                            self.get_param(&typed_args[0].resolved_type, 0)
+                                                .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                        } else {
+                                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                                        };
+                                        let elem_name = self.type_name(&elem_type);
+                                        if typed_args.len() >= 2 {
+                                            let item_name = self.type_name(&typed_args[1].resolved_type);
+                                            if elem_name != "Unknown" && item_name != "Unknown" && elem_name != item_name {
+                                                type_errors.push(ClassifierDiagnostic {
+                                                    rule: "OOF-COL6".to_string(),
+                                                    message: format!(
+                                                        "stdlib.collection.append: item type {} does not match collection element type {}",
+                                                        item_name, elem_name
+                                                    ),
+                                                    node: node_name.to_string(),
+                                                    line: None,
+                                                });
+                                            }
+                                        }
+                                        let mut col = serde_json::Map::new();
+                                        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                                        col.insert("params".to_string(), serde_json::Value::Array(vec![elem_type]));
+                                        resolved_type = serde_json::Value::Object(col);
+                                    }
+                                }
+                            }
                             "avg" | "min" | "max" => {
                                 is_resolved = true;
                                 let mut resolved = self.type_ir(&serde_json::Value::String("Decimal".to_string()));

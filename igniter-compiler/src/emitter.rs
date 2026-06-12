@@ -729,10 +729,12 @@ impl Emitter {
                             }
                             // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: qualify collection HOF bare
                             // names to canonical stdlib.collection.* — mirrors TEXT_STDLIB_OPS pattern.
+                            // LANG-STDLIB-COLLECTION-APPEND-PROP-P4: append added.
                             const COLLECTION_HOF_OPS: &[(&str, &str)] = &[
                                 ("map",    "stdlib.collection.map"),
                                 ("filter", "stdlib.collection.filter"),
                                 ("count",  "stdlib.collection.count"),
+                                ("append", "stdlib.collection.append"),
                             ];
                             if let Some((_, qualified)) = COLLECTION_HOF_OPS.iter().find(|(bare, _)| *bare == fn_val) {
                                 let mut new_map = serde_json::Map::new();
@@ -846,7 +848,7 @@ impl Emitter {
                             || fn_val == "stdlib.collection.concat"
                             // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: delegate collection HOF
                             // bare names to semantic_expr for stdlib.collection.* qualification.
-                            || matches!(fn_val, "map" | "filter" | "count")
+                            || matches!(fn_val, "map" | "filter" | "count" | "append")
                         {
                             return self.semantic_expr(val);
                         }
