@@ -103,6 +103,20 @@ pub fn compile_units(
         return Ok(Err(vec![diag]));
     }
 
+    if let Some(unit) = sorted.iter().find(|u| u.module_path.starts_with("stdlib.")) {
+        let mut diag = MultifileDiagnostic::new(
+            "OOF-IMP6",
+            format!(
+                "user source file declares stdlib namespace path '{}' -- stdlib.* is reserved",
+                unit.module_path
+            ),
+            format!("module:{}", unit.module_path),
+        );
+        diag.source_path = Some(unit.source_path.clone());
+        diag.module_path = Some(unit.module_path.clone());
+        return Ok(Err(vec![diag]));
+    }
+
     let by_module: HashMap<String, SourceUnit> = sorted
         .iter()
         .map(|unit| (unit.module_path.clone(), (*unit).clone()))
@@ -211,6 +225,53 @@ fn validate_imports(
         let mut imports = unit.imports.clone();
         imports.sort_by(|a, b| a.module_path.cmp(&b.module_path));
         for import in imports {
+            if import.module_path.starts_with("stdlib.") {
+                let table = stdlib_module_table();
+                if !table.contains_key(&import.module_path) {
+                    let mut diag = MultifileDiagnostic::new(
+                        "OOF-IMP2",
+                        format!(
+                            "unknown stdlib module path '{}' from module '{}'",
+                            import.module_path, unit.module_path
+                        ),
+                        format!("import:{}", import.module_path),
+                    );
+                    diag.source_path = Some(unit.source_path.clone());
+                    diag.module_path = Some(unit.module_path.clone());
+                    diag.import_path = Some(import.module_path.clone());
+                    diagnostics.push(diag);
+                    continue;
+                }
+                if let Some(names) = import.names.as_ref() {
+                    let known = table
+                        .get(&import.module_path)
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut missing: Vec<String> = names
+                        .iter()
+                        .filter(|n| !known.contains(*n))
+                        .cloned()
+                        .collect();
+                    missing.sort();
+                    for name in missing {
+                        let mut diag = MultifileDiagnostic::new(
+                            "OOF-IMP3",
+                            format!(
+                                "unknown name '{}' in stdlib module '{}'",
+                                name, import.module_path
+                            ),
+                            format!("import:{}.{{{}}}", import.module_path, name),
+                        );
+                        diag.source_path = Some(unit.source_path.clone());
+                        diag.module_path = Some(unit.module_path.clone());
+                        diag.import_path = Some(import.module_path.clone());
+                        diag.missing_name = Some(name);
+                        diagnostics.push(diag);
+                    }
+                }
+                continue;
+            }
+
             let Some(target) = by_module.get(&import.module_path) else {
                 let mut diag = MultifileDiagnostic::new(
                     "OOF-IMP2",
@@ -420,4 +481,36 @@ fn sha256(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     format!("sha256:{:x}", hasher.finalize())
+}
+
+fn stdlib_module_table() -> HashMap<String, Vec<String>> {
+    const JSON_STR: &str =
+        include_str!("../../../igniter-lang/docs/spec/stdlib-inventory.json");
+    let inventory: serde_json::Value =
+        serde_json::from_str(JSON_STR).unwrap_or_else(|_| json!({"entries": []}));
+    let mut table: HashMap<String, Vec<String>> = HashMap::new();
+    if let Some(entries) = inventory["entries"].as_array() {
+        for entry in entries {
+            if let Some(canon) = entry["canonical_name"].as_str() {
+                let parts: Vec<&str> = canon.split('.').collect();
+                if parts.len() >= 3 && parts[0] == "stdlib" {
+                    let module_path = parts[..parts.len() - 1].join(".");
+                    let names = table.entry(module_path).or_insert_with(Vec::new);
+                    if let Some(aliases) = entry["aliases"].as_array() {
+                        for alias in aliases {
+                            if alias["kind"].as_str() == Some("source_alias") {
+                                if let Some(name) = alias["name"].as_str() {
+                                    let owned = name.to_string();
+                                    if !names.contains(&owned) {
+                                        names.push(owned);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    table
 }
