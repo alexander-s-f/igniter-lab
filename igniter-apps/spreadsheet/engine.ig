@@ -1,7 +1,7 @@
 module SpreadsheetEngine
 import SpreadsheetTypes
 
-def eval_expr(expr: Expr, grid: Grid) -> CellValue {
+def eval_expr(expr: Expr, grid: Grid) -> CellValue decreases fuel {
   if expr.kind == "Number" {
     { kind: "Number", num_val: expr.num_val, str_val: none() }
   } else {
@@ -21,7 +21,7 @@ def eval_expr(expr: Expr, grid: Grid) -> CellValue {
   }
 }
 
-def eval_ref(ref_id: Text, grid: Grid) -> CellValue {
+def eval_ref(ref_id: Text, grid: Grid) -> CellValue decreases fuel {
   -- This creates a mutual recursion cycle with eval_expr, testing OOF-F1 thoroughly.
   let dummy_expr = { kind: "Number", num_val: 0.0, ref_id: none(), left: none(), right: none() }
   eval_expr(dummy_expr, grid)

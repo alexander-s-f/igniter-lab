@@ -1,6 +1,6 @@
 # Spreadsheet Engine Domain Pressure Report
 
-**Date:** 2026-06-11
+**Date:** 2026-06-12
 **Target:** Igniter TypeChecker, function recursion, recursive structural types, collection stdlib, and app composition
 **App:** Reactive Spreadsheet Engine (`igniter-lab/igniter-apps/spreadsheet`)
 **Status:** living pressure report / not a production app
@@ -19,10 +19,11 @@ evaluation. It stresses a different frontier than bookkeeping:
 - collection `map` over cells;
 - stringly contract composition at the API layer.
 
-The earlier report treated multi-file type visibility as a major blocker. That is now
-partly stale. Current Rust multi-file compilation resolves imported `Grid` and `Cell`
-shapes correctly. The primary Rust blocker is now managed recursion for `def` functions:
-`eval_expr` must provide `decreases fuel`.
+The earlier report treated multi-file type visibility as a major blocker — that is resolved.
+Managed recursion was the primary Rust blocker — that is now also resolved. Both `eval_expr`
+and `eval_ref` carry `decreases fuel` (SCC-complete, SS-P03). Rust compiles with `status: ok`
+and zero diagnostics. The primary remaining pressures are collection `map` parity (SS-P05)
+and Option/nullable arithmetic (SS-P04).
 
 ---
 
@@ -39,55 +40,39 @@ shapes correctly. The primary Rust blocker is now managed recursion for `def` fu
 
 ## Fresh Live Check
 
-Commands run on 2026-06-11 against current local toolchains.
-
-Rust type-only compile:
-
-```bash
-cd ../../igniter-compiler
-cargo run -- compile ../igniter-apps/spreadsheet/types.ig --out /tmp/spreadsheet-types.igapp
-```
-
-Result: `status: ok`, zero diagnostics.
-
-Rust engine single-file compile:
-
-```bash
-cd ../../igniter-compiler
-cargo run -- compile ../igniter-apps/spreadsheet/engine.ig --out /tmp/spreadsheet-engine.igapp
-```
-
-Result: `status: oof`.
-
-Key diagnostics:
-
-- `Unresolved field: Grid.cells`
-- `Recursive function 'eval_expr' must specify 'decreases fuel'`
+Commands run on 2026-06-12 after LAB-FUNCTION-RECURSION-P4 (Rust SCC OOF-L4) and
+LAB-RUBY-FUNCTION-RECURSION-P2 (Ruby SCC OOF-L4) closed. Both `eval_expr` and `eval_ref`
+now carry `decreases fuel` in `engine.ig` (SS-P03 SCC-complete fix applied).
 
 Rust full multi-file compile:
 
 ```bash
 cd ../../igniter-compiler
-cargo run -- compile ../igniter-apps/spreadsheet/types.ig ../igniter-apps/spreadsheet/engine.ig ../igniter-apps/spreadsheet/api.ig --out /tmp/spreadsheet-full.igapp
+cargo run -- compile ../igniter-apps/spreadsheet/types.ig ../igniter-apps/spreadsheet/engine.ig ../igniter-apps/spreadsheet/api.ig --out /tmp/spreadsheet-followup.igapp
+```
+
+Result: `status: ok`, **zero diagnostics**.
+
+Rust recursion pressures are fully resolved.
+
+Ruby full multi-file compile:
+
+```bash
+cd ../../../igniter-lang
+ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; c=IgniterLang::CompilerOrchestrator.new; p c.compile_sources(source_paths: ["../igniter-lab/igniter-apps/spreadsheet/types.ig", "../igniter-lab/igniter-apps/spreadsheet/engine.ig", "../igniter-lab/igniter-apps/spreadsheet/api.ig"], out_path: "/tmp/spreadsheet-ruby.igapp")'
 ```
 
 Result: `status: oof`.
 
-Key diagnostic:
+Ruby remaining diagnostics (all in `RecalculateWorkbook`, `api.ig`):
 
-- `Recursive function 'eval_expr' must specify 'decreases fuel'`
+- `OOF-TY0: Unknown function: call_contract` — SS-P06
+- `OOF-TY0: Type mismatch: expected Collection, got Unknown` — cascade from SS-P06
+- `OOF-TY0: Unknown function: map` — SS-P05
+- `OOF-TY0: Type mismatch: expected Collection, got Unknown` — cascade from SS-P05
 
-Important update: in Rust multi-file mode, the old `Grid.cells` import/type visibility
-failure disappears. Multi-file resolution is no longer the primary blocker for this fixture.
-
-Ruby canon full multi-file compile currently reports narrower surface coverage:
-
-- `Unknown function: call_contract`
-- `Unknown function: map`
-- `Type mismatch: expected Collection, got Unknown`
-
-Ruby does not currently surface the same `OOF-L4` function-recursion diagnostic in this fixture,
-which indicates a Rust/Ruby parity gap around function-level recursion checking.
+No recursion-related diagnostics in either toolchain. The Ruby SCC gate (LAB-RUBY-FUNCTION-RECURSION-P2)
+correctly accepts both `eval_expr` and `eval_ref` since both now carry `decreases fuel`.
 
 ---
 
@@ -116,50 +101,41 @@ Pressure registry entry: `SS-P01`.
 
 ---
 
-### 2. Function-Level Recursion Is Recognized But Requires Termination Evidence
+### 2. Function-Level Managed Recursion — RESOLVED
 
-`engine.ig` defines recursive functions:
+`engine.ig` now declares:
 
 ```igniter
-def eval_expr(expr: Expr, grid: Grid) -> CellValue { ... }
-def eval_ref(ref_id: Text, grid: Grid) -> CellValue { ... }
+def eval_expr(expr: Expr, grid: Grid) -> CellValue decreases fuel { ... }
+def eval_ref(ref_id: Text, grid: Grid) -> CellValue decreases fuel { ... }
 ```
 
-Rust full multi-file compilation reports:
+Both Rust and Ruby accept this without recursion diagnostics. The Rust SCC gate
+(LAB-FUNCTION-RECURSION-P4) and Ruby SCC gate (LAB-RUBY-FUNCTION-RECURSION-P2) both
+correctly identify `{eval_expr, eval_ref}` as a mutual SCC and require evidence from all members.
 
-```text
-Recursive function 'eval_expr' must specify 'decreases fuel'
-```
-
-This is high-signal: the compiler detects recursion, but the current source does not express the
-required termination metric. This is distinct from contract-level `recur()` work. Spreadsheet needs
-managed recursion for `def` functions and AST traversal.
-
-Status: active pressure.
+Status: **resolved**.
 
 Pressure registry entry: `SS-P02`.
 
 ---
 
-### 3. Mutual Recursion Needs A Policy
+### 3. Mutual Recursion SCC Policy — RESOLVED
 
-`eval_expr` can call `eval_ref`, and `eval_ref` calls `eval_expr`. The current diagnostic names
-`eval_expr`, but the conceptual graph is a mutually recursive evaluator pair.
+`eval_expr` and `eval_ref` form a mutual recursive SCC. The accepted rule (proved in
+LAB-FUNCTION-RECURSION-P3 and implemented in P4/Ruby-P2): every member of a nontrivial
+SCC must carry `decreases fuel`. Both functions carry it; both toolchains accept the module.
 
-The language needs to decide how function-level mutual recursion is represented:
+Previously: only `eval_expr` was identified (self-call gap). Now: both members are required by
+the SCC gate, and both are annotated (SS-P03 SCC-complete fix, not just SS-P02 minimal).
 
-- one shared fuel budget?
-- explicit recursive group?
-- only self-recursive functions in v0?
-- require all functions in the SCC to declare termination evidence?
-
-Status: active design pressure.
+Status: **resolved**.
 
 Pressure registry entry: `SS-P03`.
 
 ---
 
-### 4. Option / Nullable Arithmetic Is Blocked Behind Recursion
+### 4. Option / Nullable Arithmetic — Now Unblocked
 
 The evaluator attempts:
 
@@ -167,16 +143,20 @@ The evaluator attempts:
 left_val.num_val + right_val.num_val
 ```
 
-where `num_val` is `Float?`. The current compiler does not reach this as the primary error because
-managed recursion blocks first. Once recursion is satisfied, spreadsheet should pressure Option/nullable
-arithmetic semantics:
+where `num_val` is `Float?`. With recursion resolved, Rust now compiles the full module with
+`status: ok` and does not flag this expression. Rust may be lenient about `Float? + Float?`, or
+it may be treating the result as Unknown and propagating silently. Either way, this is now a live
+Rust leniency signal or a genuine unblocked pressure.
 
-- unwrap required?
-- propagate error?
-- `Option[Float] + Option[Float]` closed?
-- helper required?
+Ruby does not yet surface this because SS-P05 (`map`) and SS-P06 (`call_contract`) block the
+`CalculateGrid` contract before the Option path is exercised.
 
-Status: pending behind recursion.
+The open questions remain:
+- Does Rust accept `Option[Float] + Option[Float]` silently? If so, is that correct?
+- Will Ruby surface an error once `map` is available?
+- Unwrap required? Error propagation? Helper needed?
+
+Status: **active** (recursion no longer masks it in Rust).
 
 Pressure registry entry: `SS-P04`.
 
@@ -236,32 +216,31 @@ Pressure registry entry: `SS-P07`.
 
 ## Current Pressure Ranking
 
-| Rank | Pressure | Why |
-|---:|---|---|
-| 1 | Function-level managed recursion | Blocks AST evaluation in Rust multi-file. |
-| 2 | Mutual recursion policy | Spreadsheet evaluator naturally forms an SCC. |
-| 3 | Collection `map` parity | Needed for grid-level evaluation and Ruby parity. |
-| 4 | Option/nullable arithmetic | Expected next blocker after recursion. |
-| 5 | Stringly `call_contract` | App composition pressure; route through typed refs/forms. |
-| 6 | Inline record/block ambiguity | Historical; needs fresh minimized proof. |
+| Rank | Pressure | Status | Why |
+|---:|---|---|---|
+| ~~1~~ | ~~Function-level managed recursion~~ | **resolved** | `decreases fuel` on `eval_expr`; Rust and Ruby clean. |
+| ~~2~~ | ~~Mutual recursion SCC policy~~ | **resolved** | `decreases fuel` on `eval_ref`; SCC-complete. Both toolchains accept. |
+| 1 | Collection `map` parity | active | Ruby: `Unknown function: map`. Blocks `CalculateGrid` in Ruby. |
+| 2 | Option/nullable arithmetic | active | Rust accepts `Float? + Float?` silently (leniency or gap). Ruby does not reach it yet. |
+| 3 | Stringly `call_contract` | design pressure | `api.ig` uses `call_contract("CalculateGrid", grid)`. Route through typed refs/forms. |
+| 4 | Inline record/block ambiguity | historical | Needs fresh minimized proof before reopening. |
 
 ---
 
 ## Recommended Next Routes
 
-1. **LAB-FUNCTION-RECURSION-P1** or **LAB-MANAGED-RECURSION-FUNCTIONS-P1**
-   Function-level recursion, `decreases fuel`, mutual recursion policy, and AST traversal proof.
-
-2. **LAB-STDLIB-COLLECTION-P1**
+1. **LAB-STDLIB-COLLECTION-P1**
    `map`/collection helper parity, especially over recursive record shapes.
+   Unblocks `CalculateGrid` in Ruby and closes SS-P05.
 
-3. **LAB-STDLIB-OPTION-P1**
-   Nullable arithmetic / Option helpers once recursion no longer blocks evaluation.
+2. **LAB-STDLIB-OPTION-P1**
+   Nullable arithmetic / Option helpers. Recursion no longer blocks evaluation;
+   Rust may be silently accepting `Float? + Float?`. Ruby will surface this once `map` is available.
 
-4. **Typed-ref/forms migration route**
-   Later replacement for stringly `call_contract` in `api.ig`.
+3. **Typed-ref/forms migration route**
+   Later replacement for stringly `call_contract` in `api.ig`. Not urgent while SS-P05 remains open.
 
-5. **LAB-PARSER-RECORD-LAMBDA-P1**
+4. **LAB-PARSER-RECORD-LAMBDA-P1**
    Only if the inline record literal vs block ambiguity is reopened with a minimal current fixture.
 
 ---
