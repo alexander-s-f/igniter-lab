@@ -2644,6 +2644,31 @@ impl TypeChecker {
                             "count" => {
                                 is_resolved = true;
                                 resolved_type = self.type_ir(&serde_json::Value::String("Integer".to_string()));
+                                // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P5: OOF-COL1 arity; OOF-COL2 non-Collection.
+                                if args.len() != 1 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-COL1".to_string(),
+                                        message: format!(
+                                            "stdlib.collection.count: expected 1 argument, got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else if !typed_args.is_empty() {
+                                    let col_arg_name = self.type_name(&typed_args[0].resolved_type);
+                                    if col_arg_name != "Collection" && col_arg_name != "Unknown" {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL2".to_string(),
+                                            message: format!(
+                                                "stdlib.collection.count: first argument must be Collection[T], got {}",
+                                                col_arg_name
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                    }
+                                }
                             }
                             "first" | "last" => {
                                 is_resolved = true;
@@ -2748,7 +2773,34 @@ impl TypeChecker {
                                 }
                                 // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: bind lambda parameter to
                                 // Collection element type T; validate predicate returns Bool (OOF-COL3).
+                                // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P5: OOF-COL1/COL2 for filter only.
                                 let col_type_name = self.type_name(&resolved_type);
+                                if fn_name.as_str() == "filter" {
+                                    if args.len() != 2 {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL1".to_string(),
+                                            message: format!(
+                                                "stdlib.collection.filter: expected 2 arguments, got {}",
+                                                args.len()
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                    } else if !typed_args.is_empty() {
+                                        let filter_arg0_name = self.type_name(&typed_args[0].resolved_type);
+                                        if filter_arg0_name != "Collection" && filter_arg0_name != "Unknown" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-COL2".to_string(),
+                                                message: format!(
+                                                    "stdlib.collection.filter: first argument must be Collection[T], got {}",
+                                                    filter_arg0_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                }
                                 if args.len() >= 2 {
                                     if let Expr::Lambda { params, body } = &args[1] {
                                         let elem_ty = if col_type_name == "Collection" {
@@ -2805,6 +2857,31 @@ impl TypeChecker {
                             }
                             "map" => {
                                 is_resolved = true;
+                                // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P5: OOF-COL1 arity; OOF-COL2 non-Collection.
+                                if args.len() != 2 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-COL1".to_string(),
+                                        message: format!(
+                                            "stdlib.collection.map: expected 2 arguments, got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else if !typed_args.is_empty() {
+                                    let map_arg0_name = self.type_name(&typed_args[0].resolved_type);
+                                    if map_arg0_name != "Collection" && map_arg0_name != "Unknown" {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL2".to_string(),
+                                            message: format!(
+                                                "stdlib.collection.map: first argument must be Collection[T], got {}",
+                                                map_arg0_name
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                    }
+                                }
                                 let first_arg_type = if !typed_args.is_empty() {
                                     typed_args[0].resolved_type.clone()
                                 } else {
