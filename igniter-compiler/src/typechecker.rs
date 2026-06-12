@@ -2746,6 +2746,62 @@ impl TypeChecker {
                                 } else {
                                     resolved_type = self.type_ir(&serde_json::Value::String("Collection".to_string()));
                                 }
+                                // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: bind lambda parameter to
+                                // Collection element type T; validate predicate returns Bool (OOF-COL3).
+                                let col_type_name = self.type_name(&resolved_type);
+                                if args.len() >= 2 {
+                                    if let Expr::Lambda { params, body } = &args[1] {
+                                        let elem_ty = if col_type_name == "Collection" {
+                                            self.get_param(&resolved_type, 0)
+                                                .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                        } else {
+                                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                                        };
+                                        let mut local_symbols = symbol_types.clone();
+                                        for p in params {
+                                            local_symbols.insert(p.clone(), elem_ty.clone());
+                                        }
+                                        let mut temp_errors = Vec::new();
+                                        let body_type = match body.as_ref() {
+                                            ExprOrBlock::Expr(e) => {
+                                                self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type
+                                            }
+                                            ExprOrBlock::Block(block) => {
+                                                let mut last_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                                let mut local_syms = local_symbols.clone();
+                                                for stmt in &block.stmts {
+                                                    match stmt {
+                                                        Stmt::Let { name, expr } => {
+                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            local_syms.insert(name.clone(), t.resolved_type.clone());
+                                                            last_type = t.resolved_type;
+                                                        }
+                                                        Stmt::ExprStmt { expr } => {
+                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            last_type = t.resolved_type;
+                                                        }
+                                                    }
+                                                }
+                                                if let Some(re) = &block.return_expr {
+                                                    last_type = self.infer_expr(re, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type;
+                                                }
+                                                last_type
+                                            }
+                                        };
+                                        let pred_name = self.type_name(&body_type);
+                                        if pred_name != "Bool" && pred_name != "Unknown" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-COL3".to_string(),
+                                                message: format!(
+                                                    "stdlib.collection.filter: predicate must return Bool, got {}",
+                                                    pred_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                }
                             }
                             "map" => {
                                 is_resolved = true;
@@ -2755,13 +2811,21 @@ impl TypeChecker {
                                     self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                                 };
                                 let first_arg_name = self.type_name(&first_arg_type);
-                                
+
                                 let mut lambda_return_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                 if args.len() >= 2 {
                                     if let Expr::Lambda { params, body } = &args[1] {
                                         let mut local_symbols = symbol_types.clone();
+                                        // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: bind lambda param
+                                        // to Collection element type T, not a hardcoded Integer placeholder.
+                                        let elem_ty = if first_arg_name == "Collection" {
+                                            self.get_param(&first_arg_type, 0)
+                                                .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                        } else {
+                                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                                        };
                                         for p in params {
-                                            local_symbols.insert(p.clone(), self.type_ir(&serde_json::Value::String("Integer".to_string())));
+                                            local_symbols.insert(p.clone(), elem_ty.clone());
                                         }
                                         let mut temp_errors = Vec::new();
                                         lambda_return_type = match body.as_ref() {

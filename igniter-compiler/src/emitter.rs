@@ -727,6 +727,24 @@ impl Emitter {
                                     return serde_json::Value::Object(new_map);
                                 }
                             }
+                            // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: qualify collection HOF bare
+                            // names to canonical stdlib.collection.* — mirrors TEXT_STDLIB_OPS pattern.
+                            const COLLECTION_HOF_OPS: &[(&str, &str)] = &[
+                                ("map",    "stdlib.collection.map"),
+                                ("filter", "stdlib.collection.filter"),
+                                ("count",  "stdlib.collection.count"),
+                            ];
+                            if let Some((_, qualified)) = COLLECTION_HOF_OPS.iter().find(|(bare, _)| *bare == fn_val) {
+                                let mut new_map = serde_json::Map::new();
+                                for (k, v) in map {
+                                    if k == "fn" {
+                                        new_map.insert(k.clone(), serde_json::Value::String(qualified.to_string()));
+                                    } else if k != "deps" {
+                                        new_map.insert(k.clone(), self.semantic_expr(v));
+                                    }
+                                }
+                                return serde_json::Value::Object(new_map);
+                            }
                         }
                     }
                 }
@@ -826,6 +844,9 @@ impl Emitter {
                         if TEXT_STDLIB_OPS_C.contains(&fn_val)
                             || fn_val.starts_with("stdlib.text.")
                             || fn_val == "stdlib.collection.concat"
+                            // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: delegate collection HOF
+                            // bare names to semantic_expr for stdlib.collection.* qualification.
+                            || matches!(fn_val, "map" | "filter" | "count")
                         {
                             return self.semantic_expr(val);
                         }
