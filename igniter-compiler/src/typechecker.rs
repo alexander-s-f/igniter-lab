@@ -2170,7 +2170,7 @@ impl TypeChecker {
                     let first_type = args.first()
                         .map(|a| self.quick_arg_type(a, symbol_types))
                         .unwrap_or_else(|| "Unknown".to_string());
-                    if first_type == "Collection" {
+                    if first_type == "Collection" || first_type == "Unknown" {
                         "stdlib.collection.concat".to_string()
                     } else {
                         "stdlib.text.concat".to_string()
@@ -3140,34 +3140,76 @@ impl TypeChecker {
                             }
                             "concat" => {
                                 is_resolved = true;
-                                if typed_args.len() != 2 {
-                                    type_errors.push(ClassifierDiagnostic {
-                                        rule: "OOF-TY0".to_string(),
-                                        message: format!(
-                                            "stdlib.text.concat: expected 2 argument(s), got {}",
-                                            typed_args.len()
-                                        ),
-                                        node: node_name.to_string(),
-                                        line: None,
-                                    });
-                                    resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                // Route on first arg type: Collection/Unknown → collection path; else text path.
+                                let first_name = if !typed_args.is_empty() {
+                                    self.type_name(&typed_args[0].resolved_type)
                                 } else {
-                                    let first_name = self.type_name(&typed_args[0].resolved_type);
-                                    if first_name == "Collection" {
-                                        // Collection concat: preserve element type (lab-local behavior)
-                                        let inner_ty = self.get_param(&typed_args[0].resolved_type, 0)
-                                            .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                        let mut col = serde_json::Map::new();
-                                        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
-                                        col.insert("params".to_string(), serde_json::Value::Array(vec![inner_ty]));
-                                        resolved_type = serde_json::Value::Object(col);
+                                    "Unknown".to_string()
+                                };
+                                if first_name == "Collection" || first_name == "Unknown" {
+                                    // Collection concat — OOF-COL1/COL2/COL7 parity with Ruby P3
+                                    if typed_args.len() != 2 {
+                                        type_errors.push(ClassifierDiagnostic {
+                                            rule: "OOF-COL1".to_string(),
+                                            message: format!(
+                                                "stdlib.collection.concat: expected 2 argument(s), got {}",
+                                                typed_args.len()
+                                            ),
+                                            node: node_name.to_string(),
+                                            line: None,
+                                        });
+                                        resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                                     } else {
-                                        // stdlib.text.concat: accepts Text or String (v0 compat)
-                                        resolved_type = self.check_text_stdlib_call(
-                                            "concat", &typed_args, &["Text", "Text"],
-                                            type_errors, node_name,
-                                        );
+                                        let second_name = self.type_name(&typed_args[1].resolved_type);
+                                        if second_name != "Collection" && second_name != "Unknown" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-COL2".to_string(),
+                                                message: format!(
+                                                    "stdlib.collection.concat: second argument must be a Collection, got {}",
+                                                    second_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                            resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                        } else {
+                                            let elem1 = self.get_param(&typed_args[0].resolved_type, 0);
+                                            let elem2 = self.get_param(&typed_args[1].resolved_type, 0);
+                                            let elem1_name = elem1.as_ref()
+                                                .map(|t| self.type_name(t))
+                                                .unwrap_or_else(|| "Unknown".to_string());
+                                            let elem2_name = elem2.as_ref()
+                                                .map(|t| self.type_name(t))
+                                                .unwrap_or_else(|| "Unknown".to_string());
+                                            if elem1_name != "Unknown" && elem2_name != "Unknown" && elem1_name != elem2_name {
+                                                type_errors.push(ClassifierDiagnostic {
+                                                    rule: "OOF-COL7".to_string(),
+                                                    message: format!(
+                                                        "stdlib.collection.concat: element type mismatch ({} vs {})",
+                                                        elem1_name, elem2_name
+                                                    ),
+                                                    node: node_name.to_string(),
+                                                    line: None,
+                                                });
+                                            }
+                                            // Prefer first arg elem; fall back to second if Unknown
+                                            let result_elem = if elem1_name != "Unknown" {
+                                                elem1.unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                            } else {
+                                                elem2.unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                                            };
+                                            let mut col = serde_json::Map::new();
+                                            col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                                            col.insert("params".to_string(), serde_json::Value::Array(vec![result_elem]));
+                                            resolved_type = serde_json::Value::Object(col);
+                                        }
                                     }
+                                } else {
+                                    // Text path: accepts Text or String (v0 compat)
+                                    resolved_type = self.check_text_stdlib_call(
+                                        "concat", &typed_args, &["Text", "Text"],
+                                        type_errors, node_name,
+                                    );
                                 }
                             }
                             "split" => {

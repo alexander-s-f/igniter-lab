@@ -541,7 +541,19 @@ impl Emitter {
                             .and_then(|n| n.as_str())
                             .unwrap_or("Unknown")
                             .to_string();
-                        self.semantic_expr_for_compute(&json!(decl.expr), &return_type_str)
+                        // Inject decl.type_info as resolved_type for stdlib.collection.concat
+                        // so the emitter fallback preserves Collection[T] element type params.
+                        let decl_expr_json = {
+                            let mut j = json!(decl.expr);
+                            if j.get("fn").and_then(|f| f.as_str()) == Some("stdlib.collection.concat") {
+                                if let Some(m) = j.as_object_mut() {
+                                    m.entry("resolved_type".to_string())
+                                        .or_insert_with(|| decl.type_info.clone());
+                                }
+                            }
+                            j
+                        };
+                        self.semantic_expr_for_compute(&decl_expr_json, &return_type_str)
                     };
                     node.insert("expr".to_string(), lowered_expr);
                     node.insert("type".to_string(), decl.type_info.clone());
