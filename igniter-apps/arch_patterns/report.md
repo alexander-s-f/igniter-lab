@@ -1,96 +1,106 @@
-# Architectural Patterns: Pressure Report
+# Architectural Patterns Pressure Report
 
-This application is a breakthrough — the first to test **architectural composition**
-rather than data structure manipulation. It demonstrates that Igniter's contract
-model naturally supports several major software architecture patterns.
+Updated: 2026-06-12
 
-## 1. Event Sourcing — PERFECT FIT ✅
+This app demonstrates event sourcing, state machines, and middleware pipelines over a banking account domain. It is architecturally valuable because it stresses composition patterns rather than only data structures or numeric operations.
 
-Igniter's immutable contracts are a **natural home for Event Sourcing**.
-Each `ApplyEvent` call is a pure function: `(State, Event) → State`.
-The pattern requires zero workarounds.
+## Live Check
 
-**Critical Gap: `fold` / `reduce`**
+Source files checked:
 
-The elegance breaks down at replay. Without `fold(events, initial, ApplyEvent)`,
-we must manually unroll: `ReplayEvents3`, `ReplayEvents5`, etc. Each variant
-is a separate contract with hardcoded depth.
+- `types.ig`
+- `event_sourcing.ig`
+- `state_machine.ig`
+- `pipeline.ig`
+- `example.ig`
 
-A single `fold` combinator would make Event Sourcing a first-class pattern:
-```
-compute final = fold(event_log.events, genesis, ApplyEvent)
-```
+Real multi-file compile currently stops before typechecking in both toolchains:
 
-**Priority**: `stdlib.collection.fold` is arguably the single highest-impact
-addition for Igniter's architectural expressiveness.
+| Toolchain | Result | First blocking diagnostic |
+| --- | --- | --- |
+| Rust lab compiler | `status: oof` | `OOF-IMP2 unknown import path 'stdlib.collection'` in `ArchPatternsExample`, `ArchPatternsPipeline`, and `ArchPatternsStateMachine` |
+| Ruby canon compiler | `status: oof` | same `OOF-IMP2` diagnostics |
 
-## 2. State Machine — GOOD FIT ⚠️
+Probe method: a temporary copy removed only the `import stdlib.collection.{ ... }` lines to expose downstream pressure without editing the app.
 
-The transition table pattern works well: transitions are data (records),
-matching is done via `filter()`, and state updates use `ApplyEvent`.
+| Toolchain | Probe result | Downstream signal |
+| --- | --- | --- |
+| Rust lab compiler | `status: oof` | seven `OOF-TY0 call_contract: unknown callee 'append'` diagnostics |
 
-**Gap: Collection-to-Boolean conversion**
+The previous “full compilation achieved” claim is stale on the current toolchain. The app remains valuable, but its current role is architectural pressure rather than compile-success baseline.
 
-`CheckTransition` returns `Collection[Transition]` (the matching transitions).
-To truly validate a transition, we need to know if this collection is
-non-empty. Without `is_empty()`, the state machine must be **optimistic**
-— it always applies the event and trusts that the transition table was
-consulted upstream.
+## Findings
 
-This is the same `head()` / `is_empty()` gap identified in the Decision
-Tree and Bloom Filter reports.
+### AP-P01 - `stdlib.collection` import surface blocks both toolchains
 
-## 3. Middleware Pipeline — EXCELLENT FIT ✅
+`state_machine.ig`, `pipeline.ig`, and `example.ig` import `stdlib.collection`. Both Rust and Ruby reject this with `OOF-IMP2` before typechecking. This is the same first blocker observed in multiple app-pressure fixtures.
 
-The pipeline pattern maps beautifully to Igniter's contract chaining:
-```
-step_1 = MwValidateAmount(ctx)
-step_2 = MwCheckFrozen(step_1)
-step_3 = MwCheckBalance(step_2)
-```
+Route: `LANG-STDLIB-IMPORT-SURFACE-P2/P3`.
 
-The `PipelineContext` record carries both the command payload AND the
-pipeline metadata (rejected, reject_reason, audit_trail). Each middleware
-receives the full context and returns a modified version.
+### AP-P02 - `append` is central to architectural patterns
 
-**Short-circuit via `rejected` flag** works perfectly — each middleware
-checks `if ctx.rejected { ctx }` first.
+After removing stdlib imports in a probe, Rust reaches seven `append` call sites. Append is needed for transition table construction, event/pipeline setup, and audit-trail accumulation.
 
-**Gap: Dynamic middleware registration**
+Route: `LANG-STDLIB-COLLECTION-APPEND-P1`.
 
-Middlewares are statically chained in `RunPipeline`. There's no way to
-dynamically compose a pipeline from a `Collection[Middleware]` because:
-- Igniter has no function-as-value / first-class functions
-- `call_contract` requires a string literal, not a variable
-- There's no `fold` to iterate over a middleware list
+### AP-P03 - Event sourcing fits pure contracts, but replay wants fold
 
-## 4. Cross-Pattern Integration
+`ApplyEvent` is an excellent pure contract shape: `(AccountState, DomainEvent) -> AccountState`. The manual `ReplayEvents3` and `ReplayEvents5` contracts show the missing abstraction: replay should be a fold over an event log.
 
-The example (`RunFullScenario`) chains all three patterns in a single contract:
-1. Event Sourcing replays 5 events to derive state
-2. State Machine validates and applies a transition (unfreeze)
-3. Middleware Pipeline validates commands against the derived state
+Route: fold follow-up after implementation parity, plus typed invocation/form design for using a contract as the fold step.
 
-This works because all patterns operate on the same domain types
-(`AccountState`, `DomainEvent`, `Command`). The shared type system
-provides natural integration points.
+### AP-P04 - State machine guards need collection emptiness or find-one
 
-## 5. Architectural Patterns That Are BLOCKED in Igniter
+`CheckTransition` can filter transitions, but the app cannot check whether the candidate collection is empty or extract the single matching transition. The current design is optimistic: it applies the event after consulting candidates, but cannot enforce candidate existence directly.
 
-| Pattern | Blocker |
-|---|---|
-| **Observer / PUB-SUB** | No callbacks, no function-as-value |
-| **Strategy** | No polymorphism, no function-as-value |
-| **Decorator** | No higher-order contracts |
-| **Repository** | No IO / storage primitives |
-| **Actor Model** | No concurrency, no message queues |
+Route: `LAB-STDLIB-IS-EMPTY-P1` and/or `LAB-STDLIB-FIND-ONE-P1`.
 
-## Summary Table
+### AP-P05 - Middleware pipeline fits static contract chaining
 
-| Pattern | Fit | Key Gap |
-|---|---|---|
-| Event Sourcing | ✅ Perfect | `fold` / `reduce` |
-| State Machine | ⚠️ Good | `is_empty()` for guard validation |
-| Middleware Pipeline | ✅ Excellent | Dynamic middleware registration |
-| Observer/PUB-SUB | ❌ Blocked | No function-as-value |
-| Strategy | ❌ Blocked | No polymorphism |
+`RunPipeline` shows a strong fit for static middleware composition: each middleware transforms a `PipelineContext`, and rejection short-circuits through a `rejected` flag. This is pure and inspectable.
+
+Route: preserve as positive evidence for static pipeline composition.
+
+### AP-P06 - Dynamic middleware registration is intentionally blocked today
+
+Dynamic middleware lists would require function-as-value, contract-as-value, or form-assisted invocation over a collection. The app should not push Igniter toward ambient callbacks or untyped runtime dispatch.
+
+Route: typed contract refs / form vocabulary / conservative invocation forms, not arbitrary callbacks.
+
+### AP-P07 - Text equality pressure appears throughout patterns
+
+Event kinds, statuses, and command kinds are represented as strings and compared via `==`. This is ordinary deterministic classification logic and appears across event sourcing, state machines, and pipelines.
+
+Route: `LANG-STDLIB-TEXT-EQUALITY-P1` or a scoped deterministic equality/operator parity card.
+
+### AP-P08 - Pattern-level vocabulary wants variants eventually
+
+`DomainEvent.kind`, `AccountState.status`, and `Command.kind` are all string tags. This works as pressure evidence but lacks exhaustiveness and invalid-state prevention.
+
+Route: variant/ADT surface follow-up after stdlib collection and invocation basics stabilize.
+
+## Current Pressure Ranking
+
+1. `stdlib.collection` import surface - blocks both toolchains before typechecking.
+2. Collection `append` - required for table construction and audit-trail accumulation.
+3. Collection emptiness / find-one - required for state-machine guards.
+4. Fold plus typed invocation - required for scalable event replay.
+5. Text equality - required for event/status/command classification.
+6. Form-assisted static pipeline composition - future ergonomics, not runtime callbacks.
+7. Variant/ADT surface - eventual replacement for string tags.
+
+## Non-goals
+
+- Do not claim this app currently fully compiles on the live toolchain.
+- Do not introduce dynamic callbacks or function-as-value from this app alone.
+- Do not treat optimistic transition application as final state-machine semantics.
+- Do not solve `append` through stringly `call_contract` dispatch.
+- Do not promote event/status/command strings as canonical ADT substitutes.
+
+## Recommended Next Cards
+
+- `LANG-STDLIB-IMPORT-SURFACE-P2/P3` - clear the first blocker.
+- `LANG-STDLIB-COLLECTION-APPEND-P1` - support construction of transition tables and audit trails.
+- `LAB-STDLIB-IS-EMPTY-P1` - prove non-empty checks for state-machine validation.
+- `LAB-STDLIB-FIND-ONE-P1` - prove single matching transition extraction semantics.
+- Invocation forms / typed contract refs follow-up for contract-as-fold-step ergonomics.

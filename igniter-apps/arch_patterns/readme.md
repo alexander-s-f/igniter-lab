@@ -1,50 +1,74 @@
 # Architectural Patterns for Igniter
 
-A comprehensive demonstration of three architectural patterns implemented in Igniter, integrated into a single banking domain application. Achieves **full compilation** with **15 contracts**.
+A demonstration of three architectural patterns implemented in Igniter and integrated into a single banking-domain application: event sourcing, state machine transitions, and middleware pipelines.
 
 ## Patterns
 
 ### 1. Event Sourcing
-State is never stored — it is always derived by replaying events.
 
-```
+State is derived by replaying events.
+
+```text
 genesis(pending, bal=0)
-  → AccountOpened  → (active, bal=0)
-  → Deposited(5000) → (active, bal=5000)
-  → Withdrawn(1500) → (active, bal=3500)
-  → Deposited(2000) → (active, bal=5500)
-  → Frozen         → (frozen, bal=5500)
+  -> AccountOpened   -> (active, bal=0)
+  -> Deposited(5000) -> (active, bal=5000)
+  -> Withdrawn(1500) -> (active, bal=3500)
+  -> Deposited(2000) -> (active, bal=5500)
+  -> Frozen          -> (frozen, bal=5500)
 ```
 
-Contracts: `ApplyEvent`, `ReplayEvents3`, `ReplayEvents5`
+Contracts: `ApplyEvent`, `ReplayEvents3`, `ReplayEvents5`.
 
 ### 2. State Machine
+
 Explicit transition table with guard conditions.
 
-```
-pending  →[AccountOpened]→  active
-active   →[Deposited]→      active
-active   →[Withdrawn]→      active  (guard: balance ≥ 0)
-active   →[Frozen]→         frozen
-frozen   →[Unfrozen]→       active
-active   →[Closed]→         closed
+```text
+pending -> [AccountOpened] -> active
+active  -> [Deposited]     -> active
+active  -> [Withdrawn]     -> active
+active  -> [Frozen]        -> frozen
+frozen  -> [Unfrozen]      -> active
+active  -> [Closed]        -> closed
 ```
 
-Contracts: `CheckTransition`, `GuardCheck`, `TryTransition`
+Contracts: `CheckTransition`, `GuardCheck`, `TryTransition`.
 
 ### 3. Middleware Pipeline
-Sequential chain of validation/enrichment stages with short-circuit on rejection.
 
+Sequential validation/enrichment stages with short-circuit through a `rejected` flag.
+
+```text
+Command -> [MwValidateAmount] -> [MwCheckFrozen] -> [MwCheckBalance] -> Result
 ```
-Command → [MwValidateAmount] → [MwCheckFrozen] → [MwCheckBalance] → Result
+
+Contracts: `MwValidateAmount`, `MwCheckFrozen`, `MwCheckBalance`, `RunPipeline`.
+
+## Pressure Docs
+
+- [`report.md`](report.md) - live compiler findings and pressure analysis.
+- [`PRESSURE_REGISTRY.md`](PRESSURE_REGISTRY.md) - concise pressure IDs and suggested routes.
+
+## Current Compile Status
+
+Real multi-file compile currently stops in both toolchains on the same first blocker:
+
+```text
+OOF-IMP2 unknown import path 'stdlib.collection'
 ```
 
-Contracts: `MwValidateAmount`, `MwCheckFrozen`, `MwCheckBalance`, `RunPipeline`
+A temporary probe that removes only the stdlib collection imports exposes downstream `append` pressure in transition table construction and audit-trail accumulation.
 
-## Compilation
+## Testing
+
+Rust lab compiler:
 
 ```bash
-cargo run -- compile types.ig event_sourcing.ig state_machine.ig pipeline.ig example.ig --out arch_patterns.igapp
+cargo run -- compile ../igniter-apps/arch_patterns/types.ig ../igniter-apps/arch_patterns/event_sourcing.ig ../igniter-apps/arch_patterns/state_machine.ig ../igniter-apps/arch_patterns/pipeline.ig ../igniter-apps/arch_patterns/example.ig --out /tmp/arch-patterns-rust.igapp
 ```
 
-**Result**: Full compilation — 15 contracts emitted.
+Ruby canon compiler:
+
+```bash
+ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig event_sourcing.ig state_machine.ig pipeline.ig example.ig].map { |f| File.expand_path("../igniter-lab/igniter-apps/arch_patterns/#{f}", __dir__) }; result = IgniterLang::CompilerOrchestrator.new.compile_sources(source_paths: paths, out_path: "/tmp/arch-patterns-ruby.igapp"); puts JSON.pretty_generate(result)'
+```
