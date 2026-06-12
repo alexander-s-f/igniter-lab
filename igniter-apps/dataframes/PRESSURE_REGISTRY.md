@@ -17,13 +17,15 @@ Fresh observed result: all stages complete, 8 contracts emit, and diagnostics ar
 
 | ID | Name | Evidence | Status | Next route |
 |---|---|---|---|---|
-| DF-P01 | Dataframes Rust baseline | Four-source app compiles through Rust with 8 contracts | Positive, needs frozen proof | `LAB-DATAFRAMES-BASELINE-P1` |
+| DF-P01 | Dataframes Rust baseline | Wave recheck: Rust still CLEAN (0 diagnostics) | Positive, needs frozen proof | `LAB-DATAFRAMES-BASELINE-P1` |
 | DF-P02 | COO unary matrix operations | `MatrixTranspose` and `MatrixScale` are expressible as pure `map` transforms over `Cell` | Positive | Keep as collection-HOF fixture evidence |
 | DF-P03 | Relational membership | Filtering one long-format dataframe slice and applying the resulting row IDs to another slice needs Bool membership (`contains` / `any` / `exists`) | Active | `LAB-STDLIB-COLLECTION-CONTAINS-P1` |
-| DF-P04 | Empty / non-empty guards | Membership can be approximated by filter-then-empty-check only if `is_empty` / `non_empty` exists | Active, already on route | `LANG-STDLIB-IS-EMPTY-PROP-P2/P3` |
+| DF-P04 | READY | Empty / non-empty guards | `is_empty`/`non_empty` now available (LANG-STDLIB-IS-EMPTY-PROP-P3/P4 CLOSED); filter-then-empty-check pattern is now implementable; app doesn't yet use it | App can use `filter + is_empty` pattern |
 | DF-P05 | Relational collection algebra | Matrix addition and dataframe row filtering need `join`, `group_by`, or `flat_map`; flat `map`/`filter` is not enough | Active, larger design | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
 | DF-P06 | Lambda record literal ambiguity | `map(cells, c -> { row: c.col, col: c.row, val: c.val })` parses `{` as a block, not a record literal | Active parser pressure | `LAB-LAMBDA-RECORD-LITERAL-P1` |
-| DF-P07 | Contract invocation workaround | Record construction inside lambdas is moved into helper contracts and invoked through `call_contract` | Active bridge pressure | Typed invocation / forms route |
+| DF-P07 | Contract invocation workaround | Record construction inside lambdas is moved into helper contracts and invoked through `call_contract` | Active bridge pressure | Typed invocation / forms route; call_contract parity |
+| DF-P08 | ACTIVE | Ruby call_contract parity | UTF-8-stripped Ruby recheck: 6 `Unknown function: call_contract` + 2 `Unresolved symbol` cascades; Ruby TC has no call_contract dispatch arm | call_contract parity follow-up |
+| DF-P09 | ACTIVE | Ruby emitter UTF-8 encoding | `types.ig` contains box-drawing chars (U+2500 `──`) in comments; Ruby JSON serializer crashes with `JSON::GeneratorError`; masks TC diagnostics in unstripped runs | `LANG-EMITTER-ENCODING-P1` |
 
 ## Route Notes
 
@@ -31,10 +33,13 @@ First wave should stay focused on already-open collection primitives: append, eq
 
 Recommended order:
 
-1. `LAB-DATAFRAMES-BASELINE-P1` to freeze the Rust-positive app baseline.
-2. `LAB-LAMBDA-RECORD-LITERAL-P1` to isolate parser pressure from stdlib pressure.
-3. `LAB-STDLIB-COLLECTION-CONTAINS-P1` for Bool-producing membership helpers.
-4. `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` for `group_by` / `join` / `flat_map` readiness.
+1. `LAB-DATAFRAMES-BASELINE-P1` to freeze the Rust-positive app baseline (still CLEAN in wave recheck).
+2. Resolve call_contract parity (DF-P07/DF-P08) before attempting dataframe-specific stdlib.
+3. `LAB-LAMBDA-RECORD-LITERAL-P1` to isolate parser pressure from stdlib pressure.
+4. `LAB-STDLIB-COLLECTION-CONTAINS-P1` for Bool-producing membership helpers.
+5. `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` for `group_by` / `join` / `flat_map` readiness.
+
+Wave recheck summary (2026-06-12): Rust CLEAN; Ruby blocked by call_contract + UTF-8 encoding issue; DF-P04 (is_empty) READY.
 
 ## Non-Goals
 

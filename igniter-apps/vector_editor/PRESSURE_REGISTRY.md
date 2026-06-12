@@ -1,15 +1,15 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-12
+Updated: 2026-06-12 (APP-RECHECK-WAVE-P1)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
 | ID | Status | Pressure | Evidence | Suggested route |
 | --- | --- | --- | --- | --- |
-| VE-P01 | ACTIVE | `stdlib.collection` import surface | Both Rust and Ruby stop at `OOF-IMP2 unknown import path 'stdlib.collection'` in `VectorDocument` | `LANG-STDLIB-IMPORT-SURFACE-P1` |
-| VE-P02 | ACTIVE | `append` collection helper | Probe without stdlib import reaches Rust `OOF-TY0 call_contract: unknown callee 'append'` | `LANG-STDLIB-COLLECTION-APPEND-P1` |
-| VE-P03 | ACTIVE | Stringly contract invocation | `call_contract("AddObjectToDoc", ...)`, `call_contract("CreateAndAppendRect", ...)`, `call_contract("AppendObjectToLayer", ...)` | typed contract refs / invocation forms follow-up |
-| VE-P04 | ACTIVE | Text equality | Probe reaches Ruby `Unsupported operator: ==` for layer IDs and active tool dispatch | `LANG-STDLIB-TEXT-EQUALITY-P1` |
+| VE-P01 | RESOLVED | `stdlib.collection` import surface | Wave recheck: Ruby reports 0 OOF-IMP2 (7 call_contract diags instead); Rust reports 1 diag (call_contract callee); `stdlib.collection` recognized via inventory (append/map/filter/is_empty entries present) | `LANG-STDLIB-COLLECTION-APPEND-PROP-P3` inventory entry |
+| VE-P02 | ACTIVE | `append` via call_contract (Rust) | Rust wave recheck: 1 diag `call_contract: unknown callee 'append' — not found in this module`; document.ig uses `call_contract("append", layer.objects, obj)` not bare `append(...)`; Rust TC stdlib dispatch doesn't cover stringly-typed call_contract form | call_contract parity follow-up |
+| VE-P03 | ACTIVE | Stringly contract invocation | Ruby wave recheck: 7 diags — `Unknown function: call_contract` for `AddObjectToDoc`, `CreateAndAppendRect`, `AppendObjectToLayer`, `HandleCanvasClick`; 3 `Unresolved symbol` cascades | typed contract refs / call_contract parity |
+| VE-P04 | RESOLVED | Text equality | Wave recheck: no `Unsupported operator: ==` in Ruby or Rust output; `==` now in `operator_type` via LANG-STDLIB-TEXT-EQUALITY-P3 | `LANG-STDLIB-TEXT-EQUALITY-P3` CLOSED |
 | VE-P05 | ACTIVE | Variant/ADT surface | `GraphicObject` uses `kind : String` plus optional payload records | variant/ADT surface follow-up |
 | VE-P06 | WATCH | App-state / command reducer shape | `HandleCanvasClick(Document, ToolState, Point) -> Document` exposes pure UI command transition shape | app-state / app-assembly track |
 | VE-P07 | WATCH | Numeric geometry | Integer coordinate workaround avoids Float/Decimal gaps | numeric/fixed-point stdlib track |
@@ -32,6 +32,7 @@ Probe: temporary copy in `/tmp/vector_editor_probe` with only `import stdlib.col
 
 ## Notes
 
-- The app should remain pressure-only until stdlib import surface and append semantics are clearer.
+- Import surface (VE-P01) and equality (VE-P04) are resolved as of wave recheck.
+- The dominant remaining blocker is call_contract parity (VE-P02/P03): both Rust and Ruby TC don't dispatch stdlib functions via `call_contract("name", ...)` form.
 - `call_contract` evidence here should feed typed refs/forms work, not a runtime-dispatch expansion.
 - The `GraphicObject` encoding is useful as pressure evidence precisely because it is awkward.

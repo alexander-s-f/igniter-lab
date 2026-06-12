@@ -17,10 +17,10 @@ Fresh observed result: all stages complete, 5 contracts emit, and diagnostics ar
 
 | ID | Name | Evidence | Status | Next route |
 |---|---|---|---|---|
-| RE-P01 | Rule engine Rust baseline | Four-source app compiles through Rust with 5 contracts and no diagnostics | Positive, needs frozen proof | `LAB-RULE-ENGINE-BASELINE-P1` |
+| RE-P01 | Rule engine Rust baseline | Wave recheck: Rust still CLEAN (0 diagnostics, 5 contracts); unchanged since prior baseline | Positive, needs frozen proof | `LAB-RULE-ENGINE-BASELINE-P1` |
 | RE-P02 | Dynamic contract dispatch | `call_contract(r, tx)` where `r` is a variable compiles and produces `Unknown` flow | Active, safety-high | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
-| RE-P03 | Unknown field access | The pipeline filters unknown rule decisions using field access such as `d.action` | Active, safety-high | `LAB-UNKNOWN-FIELD-ACCESS-P1` |
-| RE-P04 | Unknown output coercion | `Collection[Unknown]` currently flows into `output active_decisions : Collection[RuleDecision]` | Active, safety-high | `LAB-UNKNOWN-OUTPUT-COERCION-P1` |
+| RE-P03 | Unknown field access | Ruby wave recheck: `Unresolved field: Unknown.action` confirmed (1 diag); pipeline filters decisions using `d.action` on Unknown-typed result | Active, safety-high | `LAB-UNKNOWN-FIELD-ACCESS-P1` |
+| RE-P04 | HOLD/SAFETY-HIGH | Unknown output coercion | `Collection[Unknown]` flows into `output active_decisions : Collection[RuleDecision]` — gap documented and held; LAB-UNKNOWN-OUTPUT-COERCION-P1 CLOSED as HOLD; LAB-OUTPUT-TYPE-PARAMETER-CHECK-P1 CLOSED as READY FOR IMPLEMENTATION PLANNING | `LAB-UNKNOWN-OUTPUT-COERCION-P1` CLOSED/HOLD; `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` next |
 | RE-P05 | Rule interface convention | Rule contracts follow an informal `Transaction -> RuleDecision` shape | Positive, informal | Typed contract-ref / forms route |
 | RE-P06 | Plugin / middleware architecture | Dynamic rule-name lists suggest plugin-style pipelines | Promising, blocked on safety | After RE-P02..RE-P04 |
 
@@ -34,10 +34,14 @@ The app should not be described as having proven safe reflection or duck typing.
 
 That combination may be desirable if backed by validation receipts, dynamic dispatch receipts, or explicit quarantine semantics. Without one of those, it risks violating the no-upward-coercion honesty rule.
 
+## Wave Recheck Summary (2026-06-12)
+
+Ruby compile: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Type mismatch: expected Collection, got Unknown`). Rust: CLEAN (0 diagnostics). No changes to RE-P01 baseline. RE-P04 now documented as HOLD/SAFETY-HIGH pending output-type-parameter implementation planning.
+
 ## Recommended Route
 
 1. `LAB-RULE-ENGINE-BASELINE-P1` to freeze the current app behavior.
-2. `LAB-UNKNOWN-OUTPUT-COERCION-P1` first as the highest-risk safety proof.
+2. `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` implementation planning for parametric container assignability (broader than Collection[Unknown] alone).
 3. `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` to define receipt and fail-closed semantics for variable callees.
 4. `LAB-UNKNOWN-FIELD-ACCESS-P1` to decide whether field projection over Unknown requires trace, quarantine, or OOF.
 5. Rule/plugin architecture only after the safety cards close.
