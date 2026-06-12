@@ -174,19 +174,21 @@ check "A-03", RESULTS[:case1][:status] == "oof",
 check "A-04", RESULTS[:case2][:status] == "ok" && RESULTS[:case2][:oof_codes].empty?,
       "case2 self-with-decreases: status=#{RESULTS[:case2][:status]}, codes=#{RESULTS[:case2][:oof_codes]}"
 
-# A-05: Case 3 — pure mutual NO decreases → status ok (CORRECTNESS BUG confirmed).
-check "A-05", RESULTS[:case3][:status] == "ok" && RESULTS[:case3][:oof_codes].empty?,
-      "case3 pure-mutual-no-decreases: status=#{RESULTS[:case3][:status]} [BUG: should require annotation]"
+# A-05: Case 3 — pure mutual NO decreases → status oof (BUG FIXED by P4).
+# PRE-P4 (buggy): status ok, zero diagnostics. POST-P4 (fixed): oof, two OOF-L4.
+check "A-05", RESULTS[:case3][:status] == "oof" && RESULTS[:case3][:oof_codes].length == 2,
+      "case3 pure-mutual-no-decreases: status=#{RESULTS[:case3][:status]} [P4 FIX: OOF-L4 now fires]"
 
-# A-06: Case 3 — zero diagnostics of any kind (not even a warning).
-check "A-06", RESULTS[:case3][:diagnostics].empty?,
-      "case3 diagnostics: #{RESULTS[:case3][:diagnostics].length} (expected 0 — silent gap)"
+# A-06: Case 3 — two OOF-L4 diagnostics, one per mutual-SCC member.
+check "A-06", RESULTS[:case3][:oof_codes] == ["OOF-L4", "OOF-L4"],
+      "case3 diagnostics: #{RESULTS[:case3][:oof_codes]} (P4: both ping and pong flagged)"
 
-# A-07: Case 4 — pure mutual PARTIAL decreases → status ok (bounded gap confirmed).
-check "A-07", RESULTS[:case4][:status] == "ok" && RESULTS[:case4][:oof_codes].empty?,
+# A-07: Case 4 — pure mutual PARTIAL decreases → OOF-L4 on pong (missing evidence).
+# PRE-P4 (bounded gap): status ok. POST-P4: oof on pong.
+check "A-07", RESULTS[:case4][:status] == "oof" && RESULTS[:case4][:oof_codes] == ["OOF-L4"],
       "case4 partial-decreases: status=#{RESULTS[:case4][:status]}, codes=#{RESULTS[:case4][:oof_codes]}"
 
-# A-08: Case 5 — pure mutual ALL decreases → status ok (annotations unvalidated).
+# A-08: Case 5 — pure mutual ALL decreases → status ok (correctly accepted by P4).
 check "A-08", RESULTS[:case5][:status] == "ok" && RESULTS[:case5][:oof_codes].empty?,
       "case5 all-decreases: status=#{RESULTS[:case5][:status]}, codes=#{RESULTS[:case5][:oof_codes]}"
 
@@ -203,37 +205,37 @@ check "A-10", MIXED_A_DEC[:status] == "ok" && MIXED_A_DEC[:oof_codes].empty?,
 # ─────────────────────────────────────────────────────────────────────────────
 puts "\n=== SECTION B — Behavioral Classification ==="
 
-# B-01: Current Rust behavior: only self-recursive functions are gated.
-# is_recursive(body, fn_name) is SELF-ONLY. Confirmed by cases 3-5 compiling silently.
+# B-01: P4 SCC-based gate: both self-recursive AND mutual-SCC members are now gated.
+# Case 1 (self-recursive): OOF-L4. Case 3 (pure mutual, no fuel): OOF-L4 on both.
+# PRE-P4: case3 was silent (the bug). POST-P4: case3 fires OOF-L4.
 check "B-01", RESULTS[:case1][:oof_codes].include?("OOF-L4") &&  # self-rec: gated
-              RESULTS[:case3][:oof_codes].empty?,                  # mutual:   not gated
-      "Self-recursive gated (case1); pure mutual not gated (case3)"
+              RESULTS[:case3][:oof_codes].include?("OOF-L4"),     # mutual:   NOW gated (P4 fix)
+      "Self-recursive gated (case1); pure mutual NOW also gated (case3) — P4 SCC fix"
 
-# B-02: Case 3 is a CORRECTNESS BUG: infinite mutual cycle with zero static warning.
-# The safety property "you must acknowledge potential non-termination" is bypassed.
-# A programmer calling ping() or pong() gets NO signal about the infinite loop.
-check "B-02", RESULTS[:case3][:status] == "ok" && RESULTS[:case3][:diagnostics].empty?,
-      "Case 3 confirmed correctness bug: mutual cycle compiles silently without any annotation"
+# B-02: Case 3 correctness bug is FIXED by P4.
+# PRE-P4: status ok, zero diagnostics (honesty violation).
+# POST-P4: status oof, OOF-L4 on both ping and pong.
+check "B-02", RESULTS[:case3][:status] == "oof" && RESULTS[:case3][:oof_codes].length == 2,
+      "Case 3 bug fixed by P4: mutual cycle now emits OOF-L4 (was silent)"
 
-# B-03: Case 4 is a BOUNDED GAP: annotation on ping is accepted but not validated.
-# The annotation creates false confidence — ping "looks annotated" but the cycle is undetected.
-check "B-03", RESULTS[:case4][:status] == "ok" && RESULTS[:case4][:oof_codes].empty?,
-      "Case 4 bounded gap: annotation silently accepted, cycle unvalidated"
+# B-03: Case 4 bounded gap is FIXED by P4.
+# PRE-P4: annotation on ping silently accepted, cycle unvalidated.
+# POST-P4: pong (missing annotation) receives OOF-L4.
+check "B-03", RESULTS[:case4][:status] == "oof" && RESULTS[:case4][:nodes].include?("pong"),
+      "Case 4 gap fixed by P4: pong (missing fuel) now gets OOF-L4"
 
-# B-04: Cases 3, 4, and 5 have IDENTICAL compiler behavior for pure mutual recursion.
-# Whether you annotate 0, 1, or 2 functions in a pure mutual pair — the result is the same.
+# B-04: POST-P4 differentiation: cases 3/4 now oof, case 5 still ok.
+# The SCC rule correctly distinguishes: missing annotation → oof; all annotated → ok.
 check "B-04",
-  RESULTS[:case3][:status] == RESULTS[:case4][:status] &&
-  RESULTS[:case4][:status] == RESULTS[:case5][:status] &&
-  RESULTS[:case3][:oof_codes].empty? &&
-  RESULTS[:case4][:oof_codes].empty? &&
-  RESULTS[:case5][:oof_codes].empty?,
-  "Cases 3/4/5 all identical: status=ok, zero diagnostics regardless of annotation"
+  RESULTS[:case3][:status] == "oof" &&
+  RESULTS[:case4][:status] == "oof" &&
+  RESULTS[:case5][:status] == "ok",
+  "P4 SCC rule: case3=oof, case4=oof, case5=ok (correct differentiation)"
 
-# B-05: The `decreases fuel` annotation on pure mutual functions is currently INERT.
-# It is parsed (no parse error), type-checked (no type error), but NOT validated.
-check "B-05", RESULTS[:case4][:status] == "ok" && RESULTS[:case5][:status] == "ok",
-      "Annotation parsed and accepted but provides no enforcement for mutual recursion"
+# B-05: The `decreases fuel` annotation on mutual SCC members is now ENFORCED.
+# Case 5 (all annotated) is ok. Case 4 (one missing) is oof.
+check "B-05", RESULTS[:case5][:status] == "ok" && RESULTS[:case4][:status] == "oof",
+      "P4: annotation enforced — all-annotated ok (case5), partial-annotated oof (case4)"
 
 # B-06: Correctness classification summary.
 # Case 1: CORRECT (self-recursive gated)
@@ -418,9 +420,10 @@ check "E-05", true, "Option B scope: replace is_recursive with SCC; all SCC memb
 # ─────────────────────────────────────────────────────────────────────────────
 puts "\n=== SECTION F — Route Recommendation ==="
 
-# F-01: SCC gap is confirmed empirically (Case 3 compiles silently — correctness bug).
-check "F-01", RESULTS[:case3][:status] == "ok" && RESULTS[:case3][:diagnostics].empty?,
-      "SCC gap empirically confirmed: pure mutual cycles compile without any diagnostic"
+# F-01: SCC gap is FIXED by P4 (Case 3 now emits OOF-L4 — correctness bug resolved).
+# PRE-P4: case3 compiled silently (the documented bug). POST-P4: OOF-L4 fires on both members.
+check "F-01", RESULTS[:case3][:status] == "oof" && RESULTS[:case3][:oof_codes].length == 2,
+      "SCC gap fixed by P4: pure mutual cycle now emits OOF-L4 on both members"
 
 # F-02: Per-SCC is the unambiguous recommendation (per options analysis).
 check "F-02", true, "Recommendation: per-SCC detection required; per-function current model has correctness bug"
