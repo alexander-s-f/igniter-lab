@@ -86,3 +86,7 @@ Fix (tools.ig only):
 Post-fix: Ruby ok / 0, Rust ok / 0. **vector_editor DUAL-CLEAN.**
 
 | VE-P09 | RESOLVED | Unannotated record literal `new_obj` (5/7 fields) → Unknown → OOF-P1 | Root cause: `?` suffix stripped by parser; P3 structural match requires exact field set. Fix: annotation + `default_text` compute + `path_pts: []` + `text_data: default_text` | `LAB-VE-NEW-OBJ-INFERENCE-P1` CLOSED |
+
+## Wave P9 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics (was oof/1 in Wave P8 — VE-P09 RESOLVED by LAB-VE-NEW-OBJ-INFERENCE-P1). DUAL-CLEAN. No new pressures. No regressions.

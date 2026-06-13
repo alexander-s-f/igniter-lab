@@ -1,6 +1,6 @@
 # Rule Engine Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — Rust diags changed form; count unchanged; RE-P04/P07 still ACTIVE)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P9 — diagnostics unchanged from Wave P8; RE-P04/RE-P07 still ACTIVE)
 
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
@@ -89,3 +89,7 @@ LAB-RULE-ENGINE-BASELINE-P1 CLOSED 52/52 PASS. Baseline frozen. Rust: oof / 2× 
 Rust: oof / 2 diagnostics — **diagnostic content changed vs baseline freeze**. Prior (P7/baseline): 2× OOF-TY1 (`expected Collection[RuleDecision], got Collection[Unknown]`; `expected RuleDecision, got Unknown`). Now: 1× OOF-P1 (`Unresolved field: Unknown.action`) + 1× OOF-TY1 (`expected RuleDecision, got Unknown`). The collection-level OOF-TY1 is no longer emitted by Rust; OOF-P1 for Unknown.action now appears in Rust (was Ruby-only). Ruby: oof / 2 diagnostics — unchanged (`Unresolved symbol: d`; `Unresolved field: Unknown.action`). RE-P01 baseline source hash unchanged. Diagnostic count unchanged (2+2). Root cause unchanged: Tier 2 dynamic dispatch. Route unchanged: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`. No new pressures. No app regressions.
 
 | RE-P04 | UPDATED-EVIDENCE | Unknown output coercion — Rust diagnostic changed | Wave P8: `Collection[RuleDecision]` vs `Collection[Unknown]` OOF-TY1 no longer emitted in Rust; `OOF-P1 Unresolved field: Unknown.action` now in Rust. Single-item `expected RuleDecision, got Unknown` OOF-TY1 remains. Safety signal still present; form changed. | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
+
+## Wave P9 Recheck Summary (2026-06-13)
+
+Rust: oof / 2 diagnostics — unchanged from Wave P8 form (OOF-P1: "Unresolved field: Unknown.action" (node: active_decisions); OOF-TY1: "Output type mismatch: expected RuleDecision, got Unknown" (node: decision)). Ruby: oof / 2 diagnostics — unchanged (OOF-P1: "Unresolved symbol: d" (node: active_decisions); OOF-P1: "Unresolved field: Unknown.action" (node: active_decisions)). RE-P01 baseline source hash unchanged. Diagnostic form unchanged since Wave P8 (HOF-P2 Rust propagation change). Root cause unchanged: Tier 2 dynamic dispatch. Route unchanged: LAB-DYNAMIC-CONTRACT-DISPATCH-P1. LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, LAB-VE-NEW-OBJ-INFERENCE-P1, LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1, LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2, and LAB-PARSER-RECORD-IN-HOF-P1 had no effect on rule_engine. No new pressures. No regressions.

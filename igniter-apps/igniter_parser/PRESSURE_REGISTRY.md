@@ -137,3 +137,7 @@ Gate: LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 CLOSED (IP-P01/P02/P05 reso
 **igniter_parser DUAL-CLEAN** — first fully clean compile result in both toolchains.
 
 Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_stdlib_stringly_call_contract_migration_p4.rb` — 51/51 PASS.
+
+## Wave P9 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics (was oof/5 in Wave P8). Ruby: ok / 0 diagnostics (was oof/7 in Wave P8). DUAL-CLEAN. IP-P06 RESOLVED by LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 (51/51 PASS) — all stringly stdlib constructor sites migrated to canonical forms. igniter_parser first wave with DUAL-CLEAN status. No new pressures. No regressions.

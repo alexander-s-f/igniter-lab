@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P9
 
-**Status:** OPEN — DISPATCH READY / GATED  
+**Status:** CLOSED — 11/12 DUAL-CLEAN — WAVE P9 COMPLETE  
 **Route:** governance / fleet recheck  
 **Date:** 2026-06-13  
 **Scope:** all 12 apps; evidence and registry updates only
@@ -73,6 +73,38 @@ Compile both Ruby and Rust for:
 - If VE P1 succeeds: `vector_editor` may become DUAL-CLEAN.
 - If VM P1 succeeds: `vector_math` may become DUAL-CLEAN.
 - `rule_engine` is expected to remain blocked; classify diagnostic form only.
+
+## Results
+
+| App | Wave P8 | Wave P9 | Delta |
+|---|---|---|---|
+| advanced_logistics | DUAL-CLEAN | DUAL-CLEAN | — |
+| arch_patterns | DUAL-CLEAN | DUAL-CLEAN | — |
+| bloom_filter | DUAL-CLEAN | DUAL-CLEAN | — |
+| dataframes | DUAL-CLEAN | DUAL-CLEAN | — |
+| decision_tree | DUAL-CLEAN | DUAL-CLEAN | — |
+| dsa | DUAL-CLEAN | DUAL-CLEAN | — |
+| neural_net | DUAL-CLEAN | DUAL-CLEAN | — |
+| sim_framework | DUAL-CLEAN | DUAL-CLEAN | — |
+| igniter_parser | BLOCKED oof/5+7 | **DUAL-CLEAN** | IP-P06 RESOLVED |
+| vector_editor | RUST-CLEAN oof/1 Ruby | **DUAL-CLEAN** | VE-P09 RESOLVED |
+| vector_math | RUST-CLEAN oof/36 Ruby | **DUAL-CLEAN** | VM-P10 RESOLVED |
+| rule_engine | BLOCKED oof/2+2 | BLOCKED oof/2+2 | Diagnostics unchanged |
+
+**Fleet: 11/12 DUAL-CLEAN** (+3 vs Wave P8).
+
+All 3 expected outcomes confirmed. rule_engine diagnostic form unchanged from Wave P8.
+
+## Proof Matrix
+
+| Deliverable | Status |
+|---|---|
+| Rollup doc written | Done — `app-pressure-recheck-wave-p9-2026-06-13-v0.md` |
+| All 12 PRESSURE_REGISTRY.md updated | Done |
+| Wave P9 Rust compile (all 12) | Fresh — all confirmed |
+| Wave P9 Ruby compile (all 12) | Fresh — all confirmed |
+| Card closed | Done |
+| Portfolio updated | Done |
 
 ## Closed Surfaces
 
