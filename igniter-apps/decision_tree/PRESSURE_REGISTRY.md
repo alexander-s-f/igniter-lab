@@ -14,7 +14,7 @@ This registry tracks app pressure from `igniter-apps/decision_tree`. It is evide
 | DT-P06 | WATCH | Managed traversal | `Evaluate` is fixed-depth unrolled because tree traversal cannot recurse/loop safely | managed recursion / bounded traversal follow-up |
 | DT-P07 | ACTIVE | Variant/ADT surface | `TreeNode` uses `kind` plus sentinel fields for leaf vs decision nodes | variant/ADT surface follow-up |
 | DT-P08 | WATCH | Contract invocation return shape | Single-output `call_contract` collapses to scalar, not wrapper record | typed refs / invocation forms docs |
-| DT-P09 | ACTIVE | Typed compute binding gap | Wave P3: 3 cascade `Unresolved symbol` diags from Ruby TC — `new_nodes`, `nodes_0`, `features_good`; output variables from failed append call_contract not bound into symbol_types | `LANG-TYPED-COMPUTE-BINDING-P1` |
+| DT-P09 | ACTIVE | Typed compute binding gap (stringly call_contract) | Wave P3: 3 cascade `Unresolved symbol` diags from Ruby TC — `new_nodes`, `nodes_0`, `features_good`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause confirmed: cascade from stringly `call_contract("append", ...)` failures; output variables not bound into symbol_types when callee is unresolved; clears when stringly stdlib migration resolves append | stringly stdlib migration (`LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`) |
 
 ## Live Commands Used
 
@@ -38,6 +38,10 @@ Probes:
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (4 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: error (1 diagnostic — `ParseError: Expected name, got keyword(label)`). No new resolutions in Wave P2; DT-P02 (`label` keyword) still blocks all Ruby TC output. Rust remains blocked on call_contract("append",...) form. Parser keyword fix (LANG-PARSER-LABEL-IDENTIFIER-P1 CLOSED readiness proof) is the prerequisite before Ruby recheck is meaningful.
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+Rust: oof / 4 diagnostics — unchanged from Wave P3. Ruby: oof / 7 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect: `new_nodes`, `nodes_0`, `features_good` are cascade from stringly `call_contract("append", ...)` failures, not annotated compute bindings. DT-P09 route confirmed: stringly stdlib migration is the prerequisite. No new pressures.
 
 ## Wave P3 Recheck Summary (2026-06-13)
 

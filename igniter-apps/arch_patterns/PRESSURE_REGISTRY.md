@@ -17,7 +17,7 @@ This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evide
 | AP-P09 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC `operator_type` + emitter `operator_for`; Wave P2 unstripped Ruby recheck: 0 `Unsupported operator: <` (39 total diags vs 41 in P1, 2 fewer = the two `<` errors) | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | AP-P10 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 39 actual diagnostics surface (was crashing before strip workaround); types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
 | AP-P11 | ACTIVE | Output type mismatch OOF-TY1 cascade | Wave P3: both Rust and Ruby emit `Output type mismatch: expected Collection[Transition], got Unknown`; append failure returns Unknown which propagates to output boundary annotated as Collection[Transition]; LANG-OUTPUT-TYPE-ASSIGNABILITY-P3/P4 correctly surfaces this; clears when stdlib append resolves | stringly stdlib migration resolves append → clears OOF-TY1 cascade |
-| AP-P12 | ACTIVE | Typed compute binding gap | Wave P3: Ruby 4 unresolved symbol diags — `genesis`, `new_trail` ×3; cascade from append call_contract failures; output variables not bound into symbol_types | `LANG-TYPED-COMPUTE-BINDING-P1` |
+| AP-P12 | ACTIVE | Typed compute binding gap (split) | Wave P3: Ruby 4 unresolved symbol diags — `genesis`, `new_trail` ×3. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `genesis` = unannotated record literal (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`); `new_trail` ×3 = cascade from stringly `call_contract("append", ...)` failures (route: stringly stdlib migration) | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` (genesis) + stringly stdlib migration (new_trail) |
 
 ## Live Commands Used
 
@@ -38,6 +38,10 @@ Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (7 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: oof (39 diagnostics — call_contract dominant, no `<` errors, no JSON crash). AP-P09 RESOLVED (`<` operator added via LANG-STDLIB-NUMERIC-COMPARISON-P3). AP-P10 RESOLVED (UTF-8 crash fixed via LANG-EMITTER-ENCODING-P2). Dominant remaining blocker: call_contract parity (AP-P02) — 7 Rust + many Ruby calls.
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+Rust: oof / 8 diagnostics — unchanged from Wave P3. Ruby: oof / 14 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect. Root cause split confirmed for AP-P12: `genesis` is an unannotated record literal; `new_trail` ×3 are cascade from stringly `call_contract("append", ...)`. No new pressures.
 
 ## Wave P3 Recheck Summary (2026-06-13)
 

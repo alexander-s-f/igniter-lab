@@ -13,7 +13,7 @@ This registry tracks app pressure from `igniter-apps/vector_editor`. It is evide
 | VE-P05 | ACTIVE | Variant/ADT surface | `GraphicObject` uses `kind : String` plus optional payload records | variant/ADT surface follow-up |
 | VE-P06 | WATCH | App-state / command reducer shape | `HandleCanvasClick(Document, ToolState, Point) -> Document` exposes pure UI command transition shape | app-state / app-assembly track |
 | VE-P07 | WATCH | Numeric geometry | Integer coordinate workaround avoids Float/Decimal gaps | numeric/fixed-point stdlib track |
-| VE-P08 | ACTIVE | Typed compute binding gap | Wave P3: 3 cascade `Unresolved symbol` diags — `new_objects`, `default_style`, `new_pos`; output variables from stdlib append failure not bound into symbol_types; cleared when stdlib-form call_contract resolves but binding gap is independent | stringly stdlib migration + `LANG-TYPED-COMPUTE-BINDING-P1` |
+| VE-P08 | ACTIVE | Typed compute binding gap (split) | Wave P3: 3 cascade `Unresolved symbol` diags — `new_objects`, `default_style`, `new_pos`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `new_objects` = stringly `call_contract("append", ...)` return (route: stringly stdlib migration); `default_style` and `new_pos` = unannotated record literals (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`) | stringly stdlib migration + `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
 
 ## Live Commands Used
 
@@ -34,6 +34,10 @@ Probe: temporary copy in `/tmp/vector_editor_probe` with only `import stdlib.col
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (1 diagnostic — `call_contract: unknown callee 'append'`). Ruby: oof (7 diagnostics — 4× `Unknown function: call_contract`, 3× `Unresolved symbol` cascade). No new resolutions in Wave P2 for this app; all prerequisite cards (append/equality/encoding) were already captured in P1. Dominant blocker is call_contract parity (VE-P02/P03) on both toolchains.
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+Rust: oof / 1 diagnostic — unchanged from Wave P3. Ruby: oof / 4 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect. Root cause split confirmed: `new_objects` is a stringly `call_contract("append", ...)` return; `default_style` and `new_pos` are unannotated record literals. VE-P08 route split accordingly. No new pressures.
 
 ## Wave P3 Recheck Summary (2026-06-13)
 

@@ -27,13 +27,17 @@ Fresh observed result: all stages complete, 6 contracts emit, and diagnostics ar
 | NN-P06 | Active | Activation/math helper surface | Sigmoid is approximated with hardcoded integer thresholds; richer activation functions need numeric stdlib | `LAB-STDLIB-NUMERIC-P1` |
 | NN-P07 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC; Wave P2 unstripped recheck: 0 `Unsupported operator: <` (12 total diags vs 13 in P1, 1 fewer = this error); SigmoidApprox `x < (0 - 2500)` now compiles in Ruby | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | NN-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 12 total (7× `Unknown function: call_contract`, 3× `Output type mismatch`, 2× `Unresolved symbol`). Wave P3: `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; all 7 call_contract errors gone; 3 output mismatch cascades also cleared (were cascade from Unknown-typed call_contract results; P3 returns proper types now); Ruby was 12 diags, now 2 | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
-| NN-P09 | ACTIVE | Typed compute binding gap | Wave P3: 2 `Unresolved symbol` diags remain — `w1`, `x1`; call_contract output variables not bound into symbol_types after dispatch | `LANG-TYPED-COMPUTE-BINDING-P1` |
+| NN-P09 | ACTIVE | Ruby record literal inference gap | Wave P3: 2 `Unresolved symbol` diags remain — `w1`, `x1`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute w1 = { ... }`, `compute x1 = { x1: 1000, x2: 0 }`); Ruby TC returns Unknown for unannotated record literal computes with no output_type_hint | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
 
 ## Interpretation
 
 The bounded claim is: static feed-forward computational graphs compile today. The app does not prove dynamic tensor algebra, generic layers, training, gradient descent, or runtime vectorization.
 
 This pressure should feed numeric and collection-reduction tracks rather than opening an ML package surface immediately.
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect: `w1` and `x1` computes are unannotated record literals, not annotated `compute name : Type = expr` bindings. Root cause re-classified: NN-P09 route updated to `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`. No new pressures.
 
 ## Wave Recheck Summary P1 (2026-06-12)
 

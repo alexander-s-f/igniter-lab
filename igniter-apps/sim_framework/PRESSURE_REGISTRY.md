@@ -26,12 +26,26 @@ Fresh observed result: all stages complete, 26 contracts emit, and diagnostics a
 | SIM-P07 | Snapshot / Trajectory concepts | `TakeSnapshot`, time travel, and trend analysis reveal app-local state-slice and time-indexed-history concepts | Candidate concepts | `LAB-SIMULATION-SNAPSHOT-TRAJECTORY-P1` later |
 | SIM-P08 | Proof wrapper pattern | `ProvenEntity`-style wrapping keeps proof/audit data inside a single returned value | Positive workaround | Keep as pattern pending multi-output call design |
 | SIM-P09 | Relational collection algebra | Select works; group-by/join/order-by remain blocked or inefficient | Active | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
+| SIM-P10 | ACTIVE | String/Text naming mismatch | Wave P4 (first Ruby check): `record literal field 'rule_name': expected String, got Text` in `corrective_event`; Ruby TC `concat(...)` returns type "Text" but `types.ig` declares `rule_name : String`; the two names are treated as distinct types | `LANG-STRING-TEXT-ALIAS-P1` |
+| SIM-P11 | ACTIVE | OOF-TY1 cascade from SIM-P10 | Wave P4: `Output type mismatch: expected SimEvent, got Unknown` on `corrective_event` output boundary; cascades from SIM-P10 String/Text mismatch making field resolution fail → Unknown contract return → OOF-TY1 at boundary | Clears when SIM-P10 resolves; route: `LANG-STRING-TEXT-ALIAS-P1` |
+| SIM-P12 | ACTIVE | Unannotated record literal inference gap (pop_constraint) | Wave P4: `Unresolved symbol: pop_constraint` in `violations` contract; `compute pop_constraint = { ... }` is an unannotated record literal; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| SIM-P13 | ACTIVE | Unannotated record literal inference gap (wolves) | Wave P4: `Unresolved symbol: wolves` in `initial_state` contract; `compute wolves = { ... }` is an unannotated record literal; same root cause as SIM-P12 | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
 
 ## Interpretation
 
 The bounded claim is: a static simulation framework with temporal windows, relations, constraints, decisions, lens-style updates, and snapshots compiles today. The app does not authorize built-in `Temporal[T]`, `Snapshot[T]`, `Trajectory[T]`, tensor semantics, or relational algebra.
 
 The strongest immediate compiler/typechecker signals are multi-output `call_contract` result shape and record literal typing inside conditional branches. The strongest stdlib signal is relational collection algebra beyond flat `map`/`filter`/`fold`.
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+**First Ruby TC check for this app.** Rust: CLEAN (ok / 0 diagnostics, unchanged). Ruby: oof / 4 diagnostics:
+1. `record literal field 'rule_name': expected String, got Text` — SIM-P10; String/Text naming mismatch; `concat(...)` returns "Text" but type declares "String"
+2. `Output type mismatch: expected SimEvent, got Unknown` — SIM-P11; cascade from SIM-P10 field mismatch → Unknown contract return → OOF-TY1
+3. `Unresolved symbol: pop_constraint` — SIM-P12; unannotated record literal binding; `infer_record_literal` returns Unknown
+4. `Unresolved symbol: wolves` — SIM-P13; unannotated record literal binding; same root cause
+
+LANG-TYPED-COMPUTE-BINDING-P2 had zero effect (no annotated `compute name : Type = expr` bindings). New pressure count: 4 (SIM-P10 through SIM-P13).
 
 ## Recommended Route
 

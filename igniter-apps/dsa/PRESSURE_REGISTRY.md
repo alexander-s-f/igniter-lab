@@ -15,7 +15,7 @@ This registry tracks app pressure from `igniter-apps/dsa`. It is evidence, not c
 | DSA-P07 | WATCH | Indexed access complexity | `IndexedElement` workaround turns O(1) index access into O(n) scans | indexed access backlog |
 | DSA-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 15 total diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). Wave P3: all 9 call_contract errors gone; `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; Ruby TC `when "call_contract"` arm now dispatches Tier 1 same-module callee lookup | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | DSA-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed (compiler_orchestrator.rb:56, multifile_resolver.rb:96, cli.rb:83, experimental_igc_run.rb:136/147, experimental_igc_run_vm_candidate.rb:260); Wave P2 unstripped Ruby compile succeeds without JSON crash; 15 real diagnostics now surface | `LANG-EMITTER-ENCODING-P2` CLOSED |
-| DSA-P10 | ACTIVE | Typed compute binding gap | Wave P3: 4 `Unresolved symbol` diags remain — `e0`, `s`, `edge1`, `c_h`; call_contract output variables not bound into symbol_types after dispatch; cascades from compute bindings that emit typed results but don't register the output name | `LANG-TYPED-COMPUTE-BINDING-P1` |
+| DSA-P10 | ACTIVE | Ruby record literal inference gap | Wave P3: 4 `Unresolved symbol` diags remain — `e0`, `s`, `edge1`, `c_h`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute e0 = { index: 0, value: 10 }`, `compute edge1 = { from_node: 0, ... }`); Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set; bind type Unknown → downstream OOF-P1 | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
 
 ## Live Commands Used
 
@@ -34,6 +34,10 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: CLEAN (status ok, 0 diagnostics, all 5 stages ok). Ruby: 15 diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). DSA-P09 RESOLVED — LANG-EMITTER-ENCODING-P2 fixed 6 encoding sites; unstripped Ruby compile no longer crashes; actual diagnostic surface now visible. Dominant remaining Ruby blocker: call_contract parity (DSA-P08). Rust concat/append/is_empty parity complete (P4 cards CLOSED).
+
+## Wave P4 Recheck Summary (2026-06-13)
+
+Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 4 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect: affected computes are unannotated record literals (`compute e0 = { ... }`), not `compute name : Type = expr` annotated bindings; P2 only applies to annotated computes. Root cause re-classified: DSA-P10 route updated to `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`. No new pressures.
 
 ## Wave P3 Recheck Summary (2026-06-13)
 

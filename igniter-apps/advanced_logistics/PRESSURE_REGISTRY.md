@@ -55,6 +55,10 @@ Probe results (Wave P1/P2 — pre-resolution):
 
 Rust: oof (OOF-IMP2 import surface). Ruby: oof (OOF-IMP2 + call_contract + comparison operator). AL-P01 (import surface) and AL-P04 (comparison) still blocking both toolchains.
 
+## Wave P4 Recheck Summary (2026-06-13)
+
+**BOTH TOOLCHAINS STILL CLEAN — 0 diagnostics in Rust and Ruby.** LANG-TYPED-COMPUTE-BINDING-P2 had no visible effect (no annotated computes in this app). No new pressures. advanced_logistics retains dual-toolchain CLEAN status.
+
 ## Wave P3 Recheck Summary (2026-06-13)
 
 **BOTH TOOLCHAINS CLEAN — 0 diagnostics in Rust and Ruby.**
