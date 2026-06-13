@@ -1,5 +1,7 @@
 # Rule Engine Pressure Registry
 
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
 ## Baseline
@@ -17,12 +19,13 @@ Fresh observed result: all stages complete, 5 contracts emit, and diagnostics ar
 
 | ID | Name | Evidence | Status | Next route |
 |---|---|---|---|---|
-| RE-P01 | Rule engine Rust baseline | Wave recheck: Rust still CLEAN (0 diagnostics, 5 contracts); unchanged since prior baseline | Positive, needs frozen proof | `LAB-RULE-ENGINE-BASELINE-P1` |
-| RE-P02 | Dynamic contract dispatch | `call_contract(r, tx)` where `r` is a variable compiles and produces `Unknown` flow | Active, safety-high | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
+| RE-P01 | Rule engine Rust baseline | Wave P2: Rust CLEAN (0 diagnostics). Wave P3: Rust oof / 2 diagnostics — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 now fires OOF-TY1 for Collection[Unknown]→Collection[RuleDecision]; this is safety-positive, not a regression; P2 CLEAN baseline is superseded | Safety-positive change; `LAB-RULE-ENGINE-BASELINE-P1` needs re-freeze |
+| RE-P02 | Dynamic contract dispatch | Wave P3: `call_contract(r, tx)` where `r` is a variable now handled by P3 Tier 2 — returns Unknown (no "Unknown function" error); cascade: `Unresolved symbol: d`, `Unresolved field: Unknown.action`, `Unresolved symbol: tx1`; Rust: unchanged (already Unknown from LAB-RACK-P11) | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 | RE-P03 | Unknown field access | Ruby wave recheck: `Unresolved field: Unknown.action` confirmed (1 diag); pipeline filters decisions using `d.action` on Unknown-typed result | Active, safety-high | `LAB-UNKNOWN-FIELD-ACCESS-P1` |
-| RE-P04 | ACTIVE/CONFIRMED | Unknown output coercion | LANG-OUTPUT-TYPE-ASSIGNABILITY-P3 CLOSED — Ruby TC now produces precise "Output type mismatch: expected Collection[RuleDecision], got Unknown" × 3 (was generic "Type mismatch: expected Collection, got Unknown" in P1); error correctly diagnosed; coercion is properly rejected; next: LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2 to extend to all parametric containers | `LANG-OUTPUT-TYPE-ASSIGNABILITY-P3` CLOSED; `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` next |
+| RE-P04 | ACTIVE/CONFIRMED | Unknown output coercion | ACTIVE/CONFIRMED in both toolchains. Wave P3: Rust emits 2× OOF-TY1 (`Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]` + `expected RuleDecision, got Unknown`) — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 landed; safety-positive. Ruby: OOF-TY1 masked by cascade errors from Tier 2 Unknown propagation. Route: LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2 + LAB-DYNAMIC-CONTRACT-DISPATCH-P1 | `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2`; `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 | RE-P05 | Rule interface convention | Rule contracts follow an informal `Transaction -> RuleDecision` shape | Positive, informal | Typed contract-ref / forms route |
 | RE-P06 | Plugin / middleware architecture | Dynamic rule-name lists suggest plugin-style pipelines | Promising, blocked on safety | After RE-P02..RE-P04 |
+| RE-P07 | ACTIVE | Typed compute binding gap (Tier 2 dynamic dispatch) | Wave P3: output variables `d` and `tx1` from `call_contract(variable_callee, ...)` not bound into symbol_types; `Unresolved field: Unknown.action` cascade from Unknown-typed dynamic dispatch result; 3 Ruby diags total | `LANG-TYPED-COMPUTE-BINDING-P1` + `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 
 ## Safety Interpretation
 
@@ -41,6 +44,10 @@ Ruby compile: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresol
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Ruby: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Output type mismatch: expected Collection[RuleDecision], got Unknown`). Rust: CLEAN (0 diagnostics). RE-P04 ACTIVE/CONFIRMED — LANG-OUTPUT-TYPE-ASSIGNABILITY-P3 landed; Ruby TC now emits specific output boundary error with full type info; coercion correctly rejected. No change in diagnostic count (9); message quality improved.
+
+## Wave P3 Recheck Summary (2026-06-13)
+
+Rust: oof / 2 diagnostics — `Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]`, `Output type mismatch: expected RuleDecision, got Unknown`. Ruby: oof / 3 diagnostics — `Unresolved symbol: d`, `Unresolved field: Unknown.action`, `Unresolved symbol: tx1`. Resolutions since Wave P2: LAB-RUBY-CALL-CONTRACT-PARITY-P3 resolved 4 call_contract errors in Ruby (Ruby was 9 diags, now 3); Tier 2 dynamic callee now returns Unknown instead of "Unknown function" error. New: Rust RE-P01 baseline superseded — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 now fires OOF-TY1 in Rust (safety-positive); RE-P04 CONFIRMED in both toolchains. Remaining blockers: Rust OOF-TY1 (RE-P04); Ruby typed compute binding gap for Tier 2 dynamic dispatch — `d`, `tx1` unbound, `Unknown.action` cascade (RE-P07).
 
 ## Recommended Route
 

@@ -1,6 +1,6 @@
 # DSA Pressure Registry
 
-Updated: 2026-06-12 (APP-RECHECK-WAVE-P2)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
 
 This registry tracks app pressure from `igniter-apps/dsa`. It is evidence, not canon authority.
 
@@ -13,8 +13,9 @@ This registry tracks app pressure from `igniter-apps/dsa`. It is evidence, not c
 | DSA-P05 | READY | Collection emptiness | `is_empty`/`non_empty` now available (LANG-STDLIB-IS-EMPTY-PROP-P3/P4 CLOSED); `SetInsert` workaround in sets.ig is now stale — proper set semantics (filter+is_empty branch) are implementable without language changes | App code can be updated; `LAB-STDLIB-FIND-ONE-P1` for scalar extraction |
 | DSA-P06 | ACTIVE | Single-element extraction | `ArrayGet`, `CharAt`, `HasEdge` return matching collections, not scalar values | `LAB-STDLIB-FIND-ONE-P1` |
 | DSA-P07 | WATCH | Indexed access complexity | `IndexedElement` workaround turns O(1) index access into O(n) scans | indexed access backlog |
-| DSA-P08 | ACTIVE | Ruby call_contract parity | Wave P2 unstripped recheck: 15 total diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`); Ruby TC has no call_contract dispatch arm; dominant Ruby blocker | call_contract parity follow-up |
+| DSA-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 15 total diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). Wave P3: all 9 call_contract errors gone; `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; Ruby TC `when "call_contract"` arm now dispatches Tier 1 same-module callee lookup | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | DSA-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed (compiler_orchestrator.rb:56, multifile_resolver.rb:96, cli.rb:83, experimental_igc_run.rb:136/147, experimental_igc_run_vm_candidate.rb:260); Wave P2 unstripped Ruby compile succeeds without JSON crash; 15 real diagnostics now surface | `LANG-EMITTER-ENCODING-P2` CLOSED |
+| DSA-P10 | ACTIVE | Typed compute binding gap | Wave P3: 4 `Unresolved symbol` diags remain — `e0`, `s`, `edge1`, `c_h`; call_contract output variables not bound into symbol_types after dispatch; cascades from compute bindings that emit typed results but don't register the output name | `LANG-TYPED-COMPUTE-BINDING-P1` |
 
 ## Live Commands Used
 
@@ -34,10 +35,15 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 
 Rust: CLEAN (status ok, 0 diagnostics, all 5 stages ok). Ruby: 15 diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). DSA-P09 RESOLVED — LANG-EMITTER-ENCODING-P2 fixed 6 encoding sites; unstripped Ruby compile no longer crashes; actual diagnostic surface now visible. Dominant remaining Ruby blocker: call_contract parity (DSA-P08). Rust concat/append/is_empty parity complete (P4 cards CLOSED).
 
+## Wave P3 Recheck Summary (2026-06-13)
+
+Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 4 diagnostics — `Unresolved symbol: e0`, `Unresolved symbol: s`, `Unresolved symbol: edge1`, `Unresolved symbol: c_h`. Resolutions since Wave P2: DSA-P08 RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; Ruby TC `when "call_contract"` arm handles Tier 1 same-module callee lookup; 9 call_contract errors eliminated; 3 output mismatch cascades also cleared. Remaining blockers: 4 unresolved symbols — typed compute binding gap (DSA-P10); call_contract output variables not registered in symbol_types.
+
 ## Notes
 
 - Treat this app as a positive Rust baseline and an algorithmic pressure map.
 - `concat`, `append`, `is_empty`/`non_empty` are all dual-toolchain; Rust Parity cards CLOSED.
 - `is_empty`/`non_empty` are now available; `SetInsert` comment in sets.ig is stale (DSA-P05 READY).
-- `call_contract` parity is the dominant remaining Ruby blocker (DSA-P08); 9 calls across arrays.ig + example.ig.
+- `call_contract` parity (DSA-P08) is RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED.
 - UTF-8 encoding (DSA-P09) is resolved; types.ig box-drawing chars no longer crash the Ruby compiler.
+- Remaining Ruby blocker: typed compute binding gap (DSA-P10); route: `LANG-TYPED-COMPUTE-BINDING-P1`.

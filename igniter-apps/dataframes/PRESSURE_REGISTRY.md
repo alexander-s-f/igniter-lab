@@ -24,8 +24,9 @@ Fresh observed result: all stages complete, 8 contracts emit, and diagnostics ar
 | DF-P05 | Relational collection algebra | Matrix addition and dataframe row filtering need `join`, `group_by`, or `flat_map`; flat `map`/`filter` is not enough | Active, larger design | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
 | DF-P06 | Lambda record literal ambiguity | `map(cells, c -> { row: c.col, col: c.row, val: c.val })` parses `{` as a block, not a record literal | Active parser pressure | `LAB-LAMBDA-RECORD-LITERAL-P1` |
 | DF-P07 | Contract invocation workaround | Record construction inside lambdas is moved into helper contracts and invoked through `call_contract` | Active bridge pressure | Typed invocation / forms route; call_contract parity |
-| DF-P08 | ACTIVE | Ruby call_contract parity | Wave P2 unstripped recheck: 8 diagnostics (6× `Unknown function: call_contract`, 2× `Unresolved symbol` cascades); Ruby TC has no call_contract dispatch arm | call_contract parity follow-up |
+| DF-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 8 diagnostics (6× `Unknown function: call_contract`, 2× `Unresolved symbol`). Wave P3: all 6 call_contract errors gone; `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; Ruby TC `when "call_contract"` arm handles dispatch | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | DF-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 8 actual diagnostics surface; types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
+| DF-P10 | ACTIVE | Typed compute binding gap | Wave P3: 2 `Unresolved symbol` diags remain — `c00`, `p1`; call_contract output variables not bound into symbol_types after dispatch | `LANG-TYPED-COMPUTE-BINDING-P1` |
 
 ## Route Notes
 
@@ -42,6 +43,12 @@ Recommended order:
 Wave recheck summary (2026-06-12 P1): Rust CLEAN; Ruby blocked by call_contract + UTF-8 encoding issue; DF-P04 (is_empty) READY.
 
 Wave P2 recheck (2026-06-12): Rust still CLEAN (0 diagnostics, status ok). Ruby: 8 diagnostics (6× call_contract, 2× Unresolved symbol) — DF-P09 RESOLVED (LANG-EMITTER-ENCODING-P2 fixed); unstripped run produces actual diagnostics without crash. Dominant Ruby blocker: call_contract parity (DF-P08).
+
+Wave P3 recheck (2026-06-13): Rust: CLEAN (0 diagnostics). Ruby: 2 diagnostics (`Unresolved symbol: c00`, `Unresolved symbol: p1`). DF-P08 RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 6 call_contract errors gone. Remaining: 2 unresolved symbols from typed compute binding gap (DF-P10).
+
+## Wave P3 Recheck Summary (2026-06-13)
+
+Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — `Unresolved symbol: c00`, `Unresolved symbol: p1`. Resolutions since Wave P2: DF-P08 RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 6 call_contract errors eliminated. Remaining blockers: 2 unresolved symbols — typed compute binding gap (DF-P10); call_contract output variables not registered in symbol_types; route: `LANG-TYPED-COMPUTE-BINDING-P1`.
 
 ## Non-Goals
 

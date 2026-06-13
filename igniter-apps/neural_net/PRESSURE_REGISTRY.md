@@ -1,5 +1,7 @@
 # Neural Net Pressure Registry
 
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+
 This registry tracks language and stdlib pressure from the `neural_net` app. The app implements a small feed-forward network using fixed-point integers and statically unrolled layer equations.
 
 ## Baseline
@@ -24,7 +26,8 @@ Fresh observed result: all stages complete, 6 contracts emit, and diagnostics ar
 | NN-P05 | Positive | Static computational graph | Explicit equations such as `(x1 * w11) + (x2 * w12) + b1` compile cleanly | `LAB-TENSOR-STATIC-GRAPH-P1` later |
 | NN-P06 | Active | Activation/math helper surface | Sigmoid is approximated with hardcoded integer thresholds; richer activation functions need numeric stdlib | `LAB-STDLIB-NUMERIC-P1` |
 | NN-P07 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC; Wave P2 unstripped recheck: 0 `Unsupported operator: <` (12 total diags vs 13 in P1, 1 fewer = this error); SigmoidApprox `x < (0 - 2500)` now compiles in Ruby | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
-| NN-P08 | ACTIVE | Ruby call_contract parity | Wave P2 recheck: 12 total (7× `Unknown function: call_contract`, 3× `Output type mismatch`, 2× `Unresolved symbol`); layers.ig / network.ig / example.ig all use `call_contract` form; dominant Ruby blocker | call_contract parity follow-up |
+| NN-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 12 total (7× `Unknown function: call_contract`, 3× `Output type mismatch`, 2× `Unresolved symbol`). Wave P3: `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; all 7 call_contract errors gone; 3 output mismatch cascades also cleared (were cascade from Unknown-typed call_contract results; P3 returns proper types now); Ruby was 12 diags, now 2 | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
+| NN-P09 | ACTIVE | Typed compute binding gap | Wave P3: 2 `Unresolved symbol` diags remain — `w1`, `x1`; call_contract output variables not bound into symbol_types after dispatch | `LANG-TYPED-COMPUTE-BINDING-P1` |
 
 ## Interpretation
 
@@ -40,9 +43,13 @@ Ruby compile: 13 diagnostics (1× `Unsupported operator: <`, 7× `Unknown functi
 
 Ruby: 12 diagnostics (7× `Unknown function: call_contract`, 3× `Output type mismatch`, 2× `Unresolved symbol`). Rust: CLEAN (0 diagnostics, source_hash unchanged). NN-P02 RESOLVED — LANG-UNARY-OPERATORS-P3/P4 closed; unary `-` dual-toolchain; app workaround stale. NN-P07 RESOLVED — LANG-STDLIB-NUMERIC-COMPARISON-P3 closed; `<` operator works in Ruby; `Unsupported operator: <` gone. Dominant remaining Ruby blocker: call_contract parity (NN-P08).
 
+## Wave P3 Recheck Summary (2026-06-13)
+
+Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — `Unresolved symbol: w1`, `Unresolved symbol: x1`. Resolutions since Wave P2: NN-P08 RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 7 call_contract errors gone; 3 output mismatch cascades also cleared (were cascades from Unknown-typed call_contract results; P3 now returns proper types eliminating downstream mismatches); Ruby was 12 diags, now 2. Remaining blockers: 2 unresolved symbols — typed compute binding gap (NN-P09); call_contract output variables not registered in symbol_types; route: `LANG-TYPED-COMPUTE-BINDING-P1`.
+
 ## Recommended Route
 
-1. call_contract parity (NN-P08) — cross-app dominant blocker.
+1. `LANG-TYPED-COMPUTE-BINDING-P1` — typed compute binding gap (NN-P09); 2 unresolved symbols remain.
 2. `fold` / `sum` tracks for dot-product and dense layer support (NN-P04).
 3. `LAB-TENSOR-STATIC-GRAPH-P1` only after numeric and reduction surfaces are clearer.
 

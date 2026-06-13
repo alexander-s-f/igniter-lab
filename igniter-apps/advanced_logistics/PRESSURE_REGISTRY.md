@@ -1,6 +1,6 @@
 # Advanced Logistics Pressure Registry
 
-**Date:** 2026-06-12
+**Date:** 2026-06-13 (APP-RECHECK-WAVE-P3)
 **App:** `igniter-lab/igniter-apps/advanced_logistics`
 **Purpose:** compact registry of language/compiler pressures surfaced by the advanced logistics fixture.
 
@@ -12,13 +12,13 @@ This registry is evidence routing, not implementation authority.
 
 | ID | Pressure | Current Evidence | Status | Suggested Route |
 |---|---|---|---|---|
-| AL-P01 | `stdlib.collection` import surface | Rust and Ruby both emit `OOF-IMP2 unknown import path 'stdlib.collection'`. | active | `LANG-STDLIB-IMPORT-SURFACE-P1` |
-| AL-P02 | Bare collection helper probe path | Temporary no-import probe compiles in Rust with `map` and `filter`. | positive / import barrier confirmed | Keep as regression evidence after import-surface decision. |
-| AL-P03 | Stringly composition | `api.ig` uses `call_contract("FindFeasibleOrders", t, order_queue)`; Ruby probe reports unknown function. | design pressure | typed-ref/forms migration route |
-| AL-P04 | Ruby comparison operator parity | Ruby probe reports `Unsupported operator: <`; Rust probe accepts capacity predicate. | active | `LAB-RUBY-OPERATOR-PARITY-P1` |
-| AL-P05 | Inline record literals in HOF contexts | App avoids `{ transport: t, orders: order_queue }` inside `map` lambda after parser ambiguity reports. | historical / needs minimal proof | `LAB-PARSER-RECORD-IN-HOF-P1` |
-| AL-P06 | Method-like qualified calls | `stdlib.collection.map(...)` is not a valid call target under current grammar. | design pressure | stdlib import/form vocabulary route, no direct syntax fix yet |
-| AL-P07 | Math `sqrt` / spatial helper | `spatial.ig` uses squared distance to avoid `sqrt`. | deferred | `LAB-STDLIB-MATH-P1` after numeric readiness |
+| AL-P01 | `stdlib.collection` import surface | Wave P1/P2: both Rust and Ruby emitted `OOF-IMP2 unknown import path 'stdlib.collection'`. Wave P3: RESOLVED — both toolchains CLEAN (0 diagnostics). LANG-STDLIB-COLLECTION-APPEND-PROP-P3/P4 + LANG-STDLIB-IS-EMPTY-PROP-P3/P4 landed; stdlib.collection recognized by inventory | RESOLVED — `LANG-STDLIB-COLLECTION-APPEND-PROP-P3/P4` CLOSED |
+| AL-P02 | Bare collection helper probe path | Temporary no-import probe compiles in Rust with `map` and `filter`. Wave P3: moot — real app source compiles CLEAN without probing | Positive / superseded by AL-P01 resolution |
+| AL-P03 | Stringly composition | `api.ig` uses `call_contract("FindFeasibleOrders", t, order_queue)`; Wave P3: Rust CLEAN (call_contract Tier 1 literal same-module callee lookup works in Rust via LAB-RACK-P11); Ruby CLEAN (LAB-RUBY-CALL-CONTRACT-PARITY-P3 now handles Tier 1 literal callee); both toolchains resolve this call cleanly | Design pressure remains for long-term; no active diagnostic |
+| AL-P04 | Ruby comparison operator parity | Wave P1/P2: Ruby probe reported `Unsupported operator: <`. Wave P3: RESOLVED — LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED; `<` works in Ruby TC; both toolchains CLEAN | RESOLVED — `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
+| AL-P05 | Inline record literals in HOF contexts | App avoids `{ transport: t, orders: order_queue }` inside `map` lambda after parser ambiguity reports | Historical / needs minimal proof — `LAB-PARSER-RECORD-IN-HOF-P1` |
+| AL-P06 | Method-like qualified calls | `stdlib.collection.map(...)` is not a valid call target under current grammar | Design pressure — stdlib import/form vocabulary route; no direct syntax fix yet |
+| AL-P07 | Math `sqrt` / spatial helper | `spatial.ig` uses squared distance to avoid `sqrt` | Deferred — `LAB-STDLIB-MATH-P1` after numeric readiness |
 
 ---
 
@@ -44,19 +44,30 @@ A temporary `/tmp` copy with only `import stdlib.collection.{ map }` and
 `import stdlib.collection.{ filter }` removed was used to expose downstream blockers.
 Do not treat that probe as an app source change.
 
-Probe results:
+Probe results (Wave P1/P2 — pre-resolution):
 
 - Rust: `status: ok`, zero diagnostics.
 - Ruby: `status: oof`, diagnostics: `Unknown function: call_contract`, `Unsupported operator: <`.
 
 ---
 
+## Wave P2 Recheck Summary (2026-06-12)
+
+Rust: oof (OOF-IMP2 import surface). Ruby: oof (OOF-IMP2 + call_contract + comparison operator). AL-P01 (import surface) and AL-P04 (comparison) still blocking both toolchains.
+
+## Wave P3 Recheck Summary (2026-06-13)
+
+**BOTH TOOLCHAINS CLEAN — 0 diagnostics in Rust and Ruby.**
+
+Resolutions since Wave P2: AL-P01 RESOLVED — stdlib.collection import surface now recognized (LANG-STDLIB-COLLECTION-APPEND-PROP-P3/P4 + LANG-STDLIB-IS-EMPTY-PROP-P3/P4 CLOSED); no OOF-IMP2. AL-P04 RESOLVED — LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED; `<` operator works in Ruby TC. AL-P03 stringly composition also CLEAN — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; `call_contract("FindFeasibleOrders", t, order_queue)` Tier 1 literal callee now dispatches in Ruby. Remaining pressures: AL-P05 (HOF record literals — historical), AL-P06 (method-like calls — design), AL-P07 (sqrt — deferred). No active blockers.
+
+---
+
 ## Routing Notes
 
-- AL-P01 is the primary blocker in the real app source.
-- AL-P02 confirms collection helper implementation is not the first Rust blocker here.
-- AL-P03 should route through typed-ref/forms composition, not canonize string dispatch.
-- AL-P04 is Integer comparison parity; keep separate from Float/Decimal numeric readiness unless a broader operator card is opened.
+- AL-P01 and AL-P04 are RESOLVED — no active import or operator blockers.
+- AL-P03 stringly composition is now clean in both toolchains; long-term typed-ref/forms route remains the recommended direction.
 - AL-P05 needs a minimal current parser fixture before it becomes an active blocker.
 - AL-P06 should be considered alongside stdlib import surface and form vocabulary; avoid a one-off method-call syntax patch.
 - AL-P07 is useful future math pressure, but not urgent because squared distance keeps the app deterministic and typeable.
+- **advanced_logistics is the first app to achieve dual-toolchain CLEAN status (Wave P3).**
