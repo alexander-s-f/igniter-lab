@@ -1,6 +1,6 @@
 # LAB-IGNITER-LANG-IO-RUNTIME-P3
 
-**Status:** OPEN — DISPATCH READY / GATED BY LANG-IO-CAPABILITY-EXECUTOR-P2  
+**Status:** CLOSED — PROOF COMPLETE (129/129)  
 **Route:** LAB RUNTIME / MOCKED STORAGE EXECUTOR IMPLEMENTATION  
 **Date:** 2026-06-13  
 **Authority:** proof-local implementation only; no real DB/SQL/ORM
@@ -46,3 +46,25 @@ This card follows:
 - Runtime refuses before executor for missing registry/passport/authority/idempotency/deadline where applicable.
 - Successful execution returns typed result + receipt evidence.
 - All proof artifacts say no real IO / no production runtime / no public API.
+
+## Closure
+
+**Closed:** 2026-06-13  
+**Score:** 129/129 PASS
+
+| Deliverable | Location | Result |
+|-------------|----------|--------|
+| Implementation | `igniter-lang/experiments/io_capability_executor/capability_executor_runtime.rb` | COMPLETE |
+| Proof runner | `igniter-lab/igniter-view-engine/proofs/verify_lab_igniter_lang_io_runtime_p3.rb` | 129/129 PASS |
+| Proof doc | `igniter-lab/lab-docs/lang/lab-igniter-lang-io-runtime-p3-storage-executor-proof-v0.md` | COMPLETE |
+| Card update | `.agents/work/cards/lang/LAB-IGNITER-LANG-IO-RUNTIME-P3.md` | CLOSED |
+| Portfolio | `igniter-lab/.agents/portfolio-index.md` | entry prepended |
+
+**Acceptance checklist:**
+- [x] StorageCapabilityExecutor handles allow, deny (G1/G2/G3), clamp (G4), query_error (G5), system_error (G6), empty, rows paths
+- [x] RuntimeRefusal proven as distinct from EffectResult.denied
+- [x] Receipts emitted on all outcome paths (succeeded, denied, failed)
+- [x] No real IO / no DB / no SQL / no ORM / no production runtime claim
+- [x] Covenant P15: timed_out = UnknownExternalOutcome (not ObservedFailure)
+
+**Recommended next card:** `LAB-IGNITER-LANG-IO-RUNTIME-P4` — wire executor dispatch into a minimal RuntimeMachine evaluate extension (ESCAPE → registry → passport → executor → EffectResult envelope)
