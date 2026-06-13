@@ -1,6 +1,8 @@
 # Simulation Framework Pressure Report
 
-The Simulation Framework is the largest and most complex Igniter application (26 contracts, 7 modules). By building a universal simulation engine with an Ecosystem (Predator-Prey) domain, we stress-tested all 8 proposed novel data structures and discovered **2 entirely new concepts**.
+The Simulation Framework is the largest and most complex Igniter application in the app-pressure suite so far (26 contracts, 7 source files). By building a universal simulation engine with an Ecosystem (Predator-Prey) domain, we stress-tested all 8 proposed novel data structures and discovered **2 entirely new concepts**.
+
+**Current baseline:** Rust compilation succeeds for all seven source files with 26 contracts emitted and zero diagnostics. Fresh source hash: `sha256:d4f40bdd10ac8aada58b224d590ba1400188aa507196883832c50acd0f7dfd4f`. This is app-pressure evidence, not a canon claim.
 
 ## Structures Validated
 
@@ -126,6 +128,22 @@ We successfully compiled `fold(populations, 0, (acc, val) -> acc + val)` — thi
 ```
 fold(collection, initial_value, (accumulator, element) -> expression)
 ```
+
+## Pressure Register
+
+| ID | Pressure | Status | Route |
+|---|---|---|---|
+| SIM-P01 | Rust simulation framework baseline | Positive | `LAB-SIM-FRAMEWORK-BASELINE-P1` |
+| SIM-P02 | Temporal sliding-window pattern | Positive app pattern | Keep as app evidence; no built-in type yet |
+| SIM-P03 | Fold in real app | Positive | Fold track regression evidence |
+| SIM-P04 | Multi-output `call_contract` shape | Active | `LAB-CALL-CONTRACT-MULTI-OUTPUT-P1` |
+| SIM-P05 | Inline records in if/else branches | Active | `LAB-IF-ELSE-RECORD-LITERAL-TYPING-P1` |
+| SIM-P06 | Lens update verbosity | Active design pressure | `LAB-RECORD-WITH-UPDATE-P1` later |
+| SIM-P07 | Snapshot / Trajectory concepts | App-local candidate concepts | `LAB-SIMULATION-SNAPSHOT-TRAJECTORY-P1` later |
+| SIM-P08 | Proof wrapper pattern | Positive workaround | Keep as app pattern pending multi-output call design |
+| SIM-P09 | Relational collection algebra | Active | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
+
+The safe route is to freeze the baseline first, then isolate compiler/typechecker gaps. Snapshot and Trajectory should remain app-local concepts until they have more pressure from independent domains.
 
 ## Summary Table
 
