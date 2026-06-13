@@ -1,6 +1,6 @@
 # Decision Tree Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/decision_tree`. It is evidence, not canon authority.
 
@@ -73,3 +73,7 @@ Rust: oof / 4 diagnostics — all `call_contract: unknown callee 'append' — no
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. DT-P03 and DT-P09 remain RESOLVED. No pressure ID changes this wave. No new pressures. (Waves P3–P7 all no-change since LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED.)
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2, and LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 had no effect on this app. No new pressures. No regressions.

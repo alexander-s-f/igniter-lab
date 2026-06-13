@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P8
 
-**Status:** OPEN — DISPATCH READY / GATED  
+**Status:** CLOSED  
 **Route:** GOVERNANCE / APP PRESSURE RECHECK  
 **Date:** 2026-06-13
 
@@ -52,3 +52,16 @@ Recheck all known app-pressure apps:
 - Newly exposed blockers get new IDs.
 - Clean-app count is updated.
 - No compiler or app source changes.
+
+## Completion Notes (2026-06-13)
+
+Fleet: 8/12 DUAL-CLEAN (+1: sim_framework). Rust and Ruby compile run for all 12 apps.
+
+**sim_framework** → DUAL-CLEAN: SIM-P10/P11 by LANG-STRING-TEXT-ALIAS-P2; SIM-P14 by LANG-RUBY-RECORD-LITERAL-INFERENCE-P5.
+**igniter_parser** → IP-P01/P02/P05 RESOLVED (LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1); IP-P06 NOW-ACTIVE (oof/5 Rust, oof/7 Ruby). Structural progress; dominant blocker is now stringly empty/append.
+**rule_engine** → Rust diagnostic form changed (Collection-level OOF-TY1 gone; OOF-P1 Unknown.action now in Rust); count unchanged at oof/2+oof/2.
+**7 unchanged apps** → all DUAL-CLEAN as before.
+**vector_editor, vector_math** → unchanged (VE-P09, VM-P10).
+
+Rollup: `.agents/docs/app-pressure-recheck-wave-p8-2026-06-13-v0.md`
+All 12 PRESSURE_REGISTRY.md files updated with Wave P8 sections.

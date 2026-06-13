@@ -1,6 +1,6 @@
 # Rule Engine Pressure Registry
 
-Updated: 2026-06-13 (LAB-RULE-ENGINE-BASELINE-P1 — baseline frozen 52/52 PASS)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — Rust diags changed form; count unchanged; RE-P04/P07 still ACTIVE)
 
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
@@ -83,3 +83,9 @@ LAB-RULE-ENGINE-BASELINE-P1 CLOSED 52/52 PASS. Baseline frozen. Rust: oof / 2× 
 - No duck-typing surface is accepted as canon.
 - No plugin/package/middleware model is authorized yet.
 - No runtime VM behavior guarantee is inferred from compile success.
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: oof / 2 diagnostics — **diagnostic content changed vs baseline freeze**. Prior (P7/baseline): 2× OOF-TY1 (`expected Collection[RuleDecision], got Collection[Unknown]`; `expected RuleDecision, got Unknown`). Now: 1× OOF-P1 (`Unresolved field: Unknown.action`) + 1× OOF-TY1 (`expected RuleDecision, got Unknown`). The collection-level OOF-TY1 is no longer emitted by Rust; OOF-P1 for Unknown.action now appears in Rust (was Ruby-only). Ruby: oof / 2 diagnostics — unchanged (`Unresolved symbol: d`; `Unresolved field: Unknown.action`). RE-P01 baseline source hash unchanged. Diagnostic count unchanged (2+2). Root cause unchanged: Tier 2 dynamic dispatch. Route unchanged: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`. No new pressures. No app regressions.
+
+| RE-P04 | UPDATED-EVIDENCE | Unknown output coercion — Rust diagnostic changed | Wave P8: `Collection[RuleDecision]` vs `Collection[Unknown]` OOF-TY1 no longer emitted in Rust; `OOF-P1 Unresolved field: Unknown.action` now in Rust. Single-item `expected RuleDecision, got Unknown` OOF-TY1 remains. Safety signal still present; form changed. | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |

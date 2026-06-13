@@ -1,6 +1,6 @@
 # Bloom Filter Pressure Registry
 
-Updated: 2026-06-13 (LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 — BF-P03 RESOLVED)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — DUAL-CLEAN (BF-P01/P02/P03 RESOLVED; LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 CLOSED))
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -113,3 +113,7 @@ Rust: ok / 0 — CLEAN. Ruby: ok / 0 — CLEAN. DUAL-TOOLCHAIN CLEAN maintained.
 BF-P03: ACTIVE-DESIGN-PRESSURE → RESOLVED.
 Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_bloom_filter_range_migration_p1.rb` 50/50 PASS.
 Lab doc: `lab-docs/governance/lab-bloom-filter-range-migration-p1-v0.md`.
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2, and LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 had no effect on this app. No new pressures. No regressions.

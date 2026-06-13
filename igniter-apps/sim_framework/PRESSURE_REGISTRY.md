@@ -1,6 +1,6 @@
 # Simulation Framework Pressure Registry
 
-Updated: 2026-06-13 (LANG-STRING-TEXT-ALIAS-P2 — SIM-P10/P11 RESOLVED; sim_framework now Ruby CLEAN)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — SIM-P10/P11/P14 all RESOLVED; sim_framework now DUAL-CLEAN)
 
 This registry tracks language and stdlib pressure from the `sim_framework` app. The app is a large simulation fixture with temporal state, relation-like collections, proof/audit records, constraints, decision trees, lens-style updates, and snapshot/trajectory concepts.
 
@@ -59,6 +59,10 @@ Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 4 diagnostics �
 4. `Unresolved symbol: wolves` — SIM-P13; unannotated record literal binding; same root cause
 
 LANG-TYPED-COMPUTE-BINDING-P2 had zero effect (no annotated `compute name : Type = expr` bindings). New pressure count: 4 (SIM-P10 through SIM-P13).
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: **ok / 0 diagnostics** — DUAL-CLEAN achieved. SIM-P10/P11 RESOLVED by LANG-STRING-TEXT-ALIAS-P2 (`concat(String,String)→String`). SIM-P14 RESOLVED by LANG-RUBY-RECORD-LITERAL-INFERENCE-P5 (`empty_collection_assignable?` + or-clause in structural matching). All 14 pressures SIM-P01 through SIM-P14 now resolved or documented. sim_framework is the **8th app to reach DUAL-CLEAN status**.
 
 ## Wave P7 Recheck Summary (2026-06-13)
 

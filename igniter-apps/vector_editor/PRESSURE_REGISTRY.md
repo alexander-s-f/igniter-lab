@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — Ruby VE-P09 active)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — Ruby VE-P09 active; Rust CLEAN)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -69,3 +69,7 @@ Rust: oof / 1 diagnostic — `call_contract: unknown callee 'append' — not fou
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 1 diagnostic (`Unresolved symbol: new_obj` — OOF-P1) — unchanged. VE-P09 ACTIVE. Route: `LAB-VE-NEW-OBJ-INFERENCE-P1` or app-level refactor of `new_obj` call sites. No new pressures. No regressions.
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 1 diagnostic (`Unresolved symbol: new_obj` — OOF-P1) — unchanged. VE-P09 ACTIVE. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2 all had no effect on vector_editor. No new pressures. No regressions.

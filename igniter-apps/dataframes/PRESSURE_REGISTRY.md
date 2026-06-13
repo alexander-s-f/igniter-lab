@@ -1,6 +1,6 @@
 # DataFrames Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — DUAL-CLEAN)
 
 This registry tracks language and stdlib pressure from the `dataframes` app. The app models matrices in COO form and dataframes in long form, then records where flat collection operations are sufficient and where relational operations are missing.
 
@@ -74,3 +74,7 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — `Unresolved symb
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN (DF-P10 RESOLVED in Wave P6). No pressure ID changes this wave. No new pressures.
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2, and LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 had no effect on this app. No new pressures. No regressions.

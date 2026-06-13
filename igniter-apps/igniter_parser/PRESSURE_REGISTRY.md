@@ -1,6 +1,6 @@
 # Igniter Parser Pressure Registry
 
-Updated: 2026-06-13 (LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 — IP-P01/P02/P05 RESOLVED; IP-P06 now dominant)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — IP-P01/P02/P05 RESOLVED; IP-P06 NOW-ACTIVE (oof/5 Rust; oof/7 Ruby))
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -107,3 +107,14 @@ Gate: LANG-STDLIB-STRING-SURFACE-P3 CLOSED (char_at dual-toolchain) + LANG-STDLI
 **IP-P06 NOW-ACTIVE** — 3×`call_contract("empty")` + 2×`call_contract("append")` expose stringly stdlib pattern. Dominant blocker. Route: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`.
 
 Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_igniter_parser_string_surface_migration_p1.rb` — 49/49 PASS.
+
+## Wave P8 Recheck Summary (2026-06-13)
+
+Rust: oof / 5 diagnostics — changed from Wave P7. Prior: oof / 1 (OOF-IMP2 stdlib.string). Now: 5× OOF-TY0 (`call_contract: unknown callee 'empty'` ×3; `call_contract: unknown callee 'append'` ×2). Ruby: oof / 7 diagnostics — changed from Wave P7. Prior: oof / 1 (OOF-IMP2 stdlib.string). Now: 3× OOF-TY0 (unknown callee 'empty') + 2× OOF-TY0 (unknown callee 'append') + OOF-P1 (`Unresolved symbol: initial_tokens`) + OOF-P1 (`Unresolved symbol: empty_children`).
+
+**IP-P01 RESOLVED** — `stdlib.string` import now recognized in both toolchains. No OOF-IMP2 diagnostics.
+**IP-P02 RESOLVED** — `char_at` compiles cleanly.
+**IP-P05 RESOLVED** — `substring` compiles cleanly.
+**IP-P06 NOW-ACTIVE** — 3 sites with `call_contract("empty")` + 2 sites with `call_contract("append")` block both toolchains (OOF-TY0). Ruby additionally shows 2 OOF-P1 cascades: `initial_tokens` and `empty_children` unresolved downstream of the empty callee. Dominant route: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`.
+
+Resolved by: LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 (gate-closed before Wave P8). Net: was oof/1+oof/1 → now oof/5+oof/7. Progress: first blocker cleared; deeper stringly pattern exposed.
