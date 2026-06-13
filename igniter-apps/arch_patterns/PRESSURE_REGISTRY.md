@@ -1,6 +1,6 @@
 # Architectural Patterns Pressure Registry
 
-Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3 — DUAL-CLEAN; c0-c4 migrated)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evidence, not canon authority.
 
@@ -79,3 +79,7 @@ Rust: oof / 8 diagnostics — 7× `call_contract: unknown callee 'append' — no
 - is_empty available (AP-P04 READY); state_machine.ig stale comment about missing is_empty() can be updated.
 - OOF-TY1 (AP-P11) is a safety-positive signal — assignability check correctly fires; not a regression.
 - Event sourcing and middleware remain strong positive fit signals.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. AP-P02 and AP-P11 remain RESOLVED. No pressure ID changes this wave. No new pressures.

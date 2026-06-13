@@ -1,6 +1,6 @@
 # Decision Tree Pressure Registry
 
-Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED — DUAL-CLEAN)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/decision_tree`. It is evidence, not canon authority.
 
@@ -69,3 +69,7 @@ Rust: oof / 4 diagnostics — all `call_contract: unknown callee 'append' — no
 - `call_contract("append", ...)` still fails in both Rust and Ruby (DT-P03) — 4 sites across builder.ig + example.ig.
 - `find_one` should not be smuggled in as scalar `filter`; it needs explicit fail-closed semantics.
 - The app is a strong fixture for finite graph/arena traversal, but not evidence for unbounded loops.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. DT-P03 and DT-P09 remain RESOLVED. No pressure ID changes this wave. No new pressures. (Waves P3–P7 all no-change since LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED.)

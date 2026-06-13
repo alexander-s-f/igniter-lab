@@ -1,6 +1,6 @@
 # Rule Engine Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — RE-P07 partially resolved)
 
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
@@ -25,7 +25,7 @@ Fresh observed result: all stages complete, 5 contracts emit, and diagnostics ar
 | RE-P04 | ACTIVE/CONFIRMED | Unknown output coercion | ACTIVE/CONFIRMED in both toolchains. Wave P3: Rust emits 2× OOF-TY1 (`Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]` + `expected RuleDecision, got Unknown`) — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 landed; safety-positive. Ruby: OOF-TY1 masked by cascade errors from Tier 2 Unknown propagation. Route: LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2 + LAB-DYNAMIC-CONTRACT-DISPATCH-P1 | `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2`; `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 | RE-P05 | Rule interface convention | Rule contracts follow an informal `Transaction -> RuleDecision` shape | Positive, informal | Typed contract-ref / forms route |
 | RE-P06 | Plugin / middleware architecture | Dynamic rule-name lists suggest plugin-style pipelines | Promising, blocked on safety | After RE-P02..RE-P04 |
-| RE-P07 | ACTIVE | Typed compute binding gap (split) | Wave P3: output variables from Tier 2 dynamic dispatch and unannotated record literal — `d`, `Unknown.action` cascade, `tx1`; 3 Ruby diags total. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `d` and `Unknown.action` cascade = Tier 2 dynamic `call_contract(variable_callee, ...)` result unbound (route: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`); `tx1` = unannotated record literal (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`) | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` (d) + `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` (tx1) |
+| RE-P07 | PARTIALLY-RESOLVED | Typed compute binding gap (split) | Wave P3: output variables from Tier 2 dynamic dispatch and unannotated record literal — `d`, `Unknown.action` cascade, `tx1`; 3 Ruby diags total. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `d` and `Unknown.action` cascade = Tier 2 dynamic `call_contract(variable_callee, ...)` result unbound (route: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`); `tx1` = unannotated record literal (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`). Wave P6: `tx1` sub-pressure RESOLVED by LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (structural match → `Transaction`); `d` and `Unknown.action` still ACTIVE | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` (d — ACTIVE) |
 
 ## Safety Interpretation
 
@@ -60,6 +60,10 @@ Rust: oof / 2 diagnostics — unchanged from Wave P3. Ruby: oof / 3 diagnostics 
 ## Wave P3 Recheck Summary (2026-06-13)
 
 Rust: oof / 2 diagnostics — `Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]`, `Output type mismatch: expected RuleDecision, got Unknown`. Ruby: oof / 3 diagnostics — `Unresolved symbol: d`, `Unresolved field: Unknown.action`, `Unresolved symbol: tx1`. Resolutions since Wave P2: LAB-RUBY-CALL-CONTRACT-PARITY-P3 resolved 4 call_contract errors in Ruby (Ruby was 9 diags, now 3); Tier 2 dynamic callee now returns Unknown instead of "Unknown function" error. New: Rust RE-P01 baseline superseded — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 now fires OOF-TY1 in Rust (safety-positive); RE-P04 CONFIRMED in both toolchains. Remaining blockers: Rust OOF-TY1 (RE-P04); Ruby typed compute binding gap for Tier 2 dynamic dispatch — `d`, `tx1` unbound, `Unknown.action` cascade (RE-P07).
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: oof / 2 diagnostics — unchanged (2× OOF-TY1: `Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]`; `Output type mismatch: expected RuleDecision, got Unknown`). Ruby: oof / 2 diagnostics — unchanged from Wave P6 (`Unresolved symbol: d`; `Unresolved field: Unknown.action`). RE-P04 ACTIVE/CONFIRMED (Rust OOF-TY1 safety-positive). RE-P07 PARTIALLY-RESOLVED: `tx1` sub-pressure RESOLVED by LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (Wave P6; `tx1` → `Transaction`); remaining `d` (Tier 2 dynamic dispatch result — route: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`) and cascade `Unknown.action`. No new pressures.
 
 ## Recommended Route
 

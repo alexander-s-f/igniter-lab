@@ -1,6 +1,6 @@
 # Igniter Parser Pressure Registry
 
-Status: APP-RECHECK-WAVE-P6 candidate
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — oof/1 OOF-IMP2 IP-P01 unchanged)
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -86,3 +86,7 @@ The flat arena AST pattern is accepted as app-local evidence only. It does not a
 - Do not special-case `call_contract("empty")` or `call_contract("append")`.
 - Do not treat the arena AST model as a canon data-structure decision.
 - Do not widen runtime authority; all pressure here is pure compile-time/stdin-source processing.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: oof / 1 diagnostic (`OOF-IMP2: unknown stdlib module path 'stdlib.string'`) — unchanged. Ruby: oof / 1 diagnostic (`OOF-IMP2: unknown stdlib module path 'stdlib.string'`) — unchanged. IP-P01 ACTIVE. Route: `LANG-STDLIB-STRING-SURFACE-P1`. No new pressures. No regressions.

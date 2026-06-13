@@ -1,6 +1,6 @@
 # Vector Math Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — VM-P09 RESOLVED; VM-P10 ACTIVE)
 
 This registry tracks app pressure from `igniter-apps/vector_math`. It is evidence, not canon authority.
 
@@ -14,7 +14,7 @@ This registry tracks app pressure from `igniter-apps/vector_math`. It is evidenc
 | VM-P06 | RESOLVED | Ruby contract invocation parity | Wave P2: 26 `Unknown function: call_contract` diagnostics. Wave P3: LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 26 call_contract errors gone; Ruby TC `when "call_contract"` arm dispatches Tier 1 same-module callee lookup | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | VM-P07 | RESOLVED | Ruby numeric comparison parity | Wave P2: 8 `Unsupported operator: <` diagnostics. Wave P3: 0 comparison errors — LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED; `<`, `<=`, `>=` all handled in Ruby TC | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | VM-P08 | WATCH | Ruby record-shape cascades | Wave P2: predicted as cascade after upstream Unknown propagation. Wave P3: record-shape cascades still present; 36 "missing required field: r0/r1/r2" + "unexpected field: x/y/z" diagnostics — new VM-P10 opened | re-check after VM-P10 resolution |
-| VM-P09 | ACTIVE | Typed compute binding gap (record literal) | Wave P3: Ruby shows 5 `Unresolved symbol` diags — `gravity`, `point`, `b`, `a_min`, `min_pt`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: unannotated record literal computes; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| VM-P09 | RESOLVED | Typed compute binding gap (record literal) | Wave P3: Ruby shows 5 `Unresolved symbol` diags — `gravity`, `point`, `b`, `a_min`, `min_pt`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: unannotated record literal computes; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved all 5 symbols via structural candidate matching | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 | VM-P10 | ACTIVE | Record literal field name mismatch | Wave P3: Ruby emits 36 `missing required field: r0`/`r1`/`r2` + `unexpected field: x`/`y`/`z` diagnostics; record literal shapes in vec2.ig/vec3.ig use field names `x/y/z` but type declaration uses `r0/r1/r2` (or vice versa); newly surfaced once call_contract P3 resolves and propagates proper types downstream | field name alignment in type declarations vs record literal call sites |
 
 ## Live Commands Used
@@ -60,3 +60,9 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 41 diagnostics — 5× `Unresolved
 - Remaining Ruby blockers: VM-P09 (typed compute binding; 5 unresolved symbols) + VM-P10 (record literal field name mismatch; 36 diags newly visible).
 - VM-P10 is a new diagnostic surface — field names in record literals do not match field names in type declarations; may require app-level hygiene fix (not a compiler feature gap) or investigation into type declaration field name conventions.
 - VM-P08 reclassified from WATCH to active monitoring: prior prediction (cascades after upstream Unknown) is partially borne out by VM-P10 being downstream visibility, but VM-P10 is a distinct shape issue.
+- VM-P09 RESOLVED (Wave P6): LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved gravity/point/b/a_min/min_pt via structural candidate matching.
+- VM-P10 ACTIVE: 36 field name mismatch diagnostics (x/y/z vs r0/r1/r2) remain the sole Ruby blocker.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 36 diagnostics — unchanged (all 36 are VM-P10 record literal field name mismatch: `x/y/z` provided vs `r0/r1/r2` expected in vec2.ig/vec3.ig). VM-P09 RESOLVED. VM-P10 ACTIVE. No new pressures.

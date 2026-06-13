@@ -1,6 +1,6 @@
 # Bloom Filter Pressure Registry
 
-Status: LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED — DUAL-CLEAN
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -91,3 +91,7 @@ The app also exposes deeper collection/numeric needs, but those should not be pr
 - Do not add mutable bit arrays or runtime indexing authority.
 - Do not treat manual modulo as canon numeric semantics.
 - Do not introduce string hashing before the basic `stdlib.string` surface exists.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. (Waves P3–P7 all no-change for this app since LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 achieved dual-clean.)

@@ -1,5 +1,7 @@
 # Simulation Framework Pressure Registry
 
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — SIM-P12/P13 RESOLVED; SIM-P10/P11/P14 ACTIVE)
+
 This registry tracks language and stdlib pressure from the `sim_framework` app. The app is a large simulation fixture with temporal state, relation-like collections, proof/audit records, constraints, decision trees, lens-style updates, and snapshot/trajectory concepts.
 
 ## Baseline
@@ -28,8 +30,8 @@ Fresh observed result: all stages complete, 26 contracts emit, and diagnostics a
 | SIM-P09 | Relational collection algebra | Select works; group-by/join/order-by remain blocked or inefficient | Active | `LAB-STDLIB-RELATIONAL-COLLECTIONS-P1` |
 | SIM-P10 | ACTIVE | String/Text naming mismatch | Wave P4 (first Ruby check): `record literal field 'rule_name': expected String, got Text` in `corrective_event`; Ruby TC `concat(...)` returns type "Text" but `types.ig` declares `rule_name : String`; the two names are treated as distinct types | `LANG-STRING-TEXT-ALIAS-P1` |
 | SIM-P11 | ACTIVE | OOF-TY1 cascade from SIM-P10 | Wave P4: `Output type mismatch: expected SimEvent, got Unknown` on `corrective_event` output boundary; cascades from SIM-P10 String/Text mismatch making field resolution fail → Unknown contract return → OOF-TY1 at boundary | Clears when SIM-P10 resolves; route: `LANG-STRING-TEXT-ALIAS-P1` |
-| SIM-P12 | ACTIVE | Unannotated record literal inference gap (pop_constraint) | Wave P4: `Unresolved symbol: pop_constraint` in `violations` contract; `compute pop_constraint = { ... }` is an unannotated record literal; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
-| SIM-P13 | ACTIVE | Unannotated record literal inference gap (wolves) | Wave P4: `Unresolved symbol: wolves` in `initial_state` contract; `compute wolves = { ... }` is an unannotated record literal; same root cause as SIM-P12 | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| SIM-P12 | RESOLVED | Unannotated record literal inference gap (pop_constraint) | Wave P4: `Unresolved symbol: pop_constraint` in `violations` contract; `compute pop_constraint = { ... }` is an unannotated record literal; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved via structural candidate matching → `ConstraintViolation` | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
+| SIM-P13 | RESOLVED | Unannotated record literal inference gap (wolves) | Wave P4: `Unresolved symbol: wolves` in `initial_state` contract; `compute wolves = { ... }` is an unannotated record literal; same root cause as SIM-P12. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved via structural candidate matching | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 
 ## Interpretation
 
@@ -54,6 +56,12 @@ Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 4 diagnostics �
 2. `Output type mismatch: expected SimEvent, got Unknown` — SIM-P11; cascade from SIM-P10 field mismatch → Unknown contract return → OOF-TY1
 3. `Unresolved symbol: pop_constraint` — SIM-P12; unannotated record literal binding; `infer_record_literal` returns Unknown
 4. `Unresolved symbol: wolves` — SIM-P13; unannotated record literal binding; same root cause
+
+LANG-TYPED-COMPUTE-BINDING-P2 had zero effect (no annotated `compute name : Type = expr` bindings). New pressure count: 4 (SIM-P10 through SIM-P13).
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 3 diagnostics — unchanged from Wave P6. SIM-P10 ACTIVE (`record literal field 'rule_name': expected String, got Text` — String/Text alias). SIM-P11 ACTIVE (OOF-TY1 cascade from SIM-P10). SIM-P14 ACTIVE (`Unresolved symbol: initial_state` — `Collection[Unknown]` param-depth rejection in `structurally_assignable?`; route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P4`). SIM-P12 and SIM-P13 RESOLVED (Wave P6). No new pressures. No regressions.
 
 LANG-TYPED-COMPUTE-BINDING-P2 had zero effect (no annotated `compute name : Type = expr` bindings). New pressure count: 4 (SIM-P10 through SIM-P13).
 

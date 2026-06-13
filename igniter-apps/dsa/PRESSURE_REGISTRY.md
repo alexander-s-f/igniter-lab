@@ -1,6 +1,6 @@
 # DSA Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/dsa`. It is evidence, not canon authority.
 
@@ -15,7 +15,7 @@ This registry tracks app pressure from `igniter-apps/dsa`. It is evidence, not c
 | DSA-P07 | WATCH | Indexed access complexity | `IndexedElement` workaround turns O(1) index access into O(n) scans | indexed access backlog |
 | DSA-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 15 total diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). Wave P3: all 9 call_contract errors gone; `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; Ruby TC `when "call_contract"` arm now dispatches Tier 1 same-module callee lookup | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | DSA-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed (compiler_orchestrator.rb:56, multifile_resolver.rb:96, cli.rb:83, experimental_igc_run.rb:136/147, experimental_igc_run_vm_candidate.rb:260); Wave P2 unstripped Ruby compile succeeds without JSON crash; 15 real diagnostics now surface | `LANG-EMITTER-ENCODING-P2` CLOSED |
-| DSA-P10 | ACTIVE | Ruby record literal inference gap | Wave P3: 4 `Unresolved symbol` diags remain — `e0`, `s`, `edge1`, `c_h`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute e0 = { index: 0, value: 10 }`, `compute edge1 = { from_node: 0, ... }`); Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set; bind type Unknown → downstream OOF-P1 | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| DSA-P10 | RESOLVED | Ruby record literal inference gap | Wave P3: 4 `Unresolved symbol` diags remain — `e0`, `s`, `edge1`, `c_h`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute e0 = { index: 0, value: 10 }`, `compute edge1 = { from_node: 0, ... }`); Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set; bind type Unknown → downstream OOF-P1. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved all 4 symbols: `e0` → `IndexedElement`, `s` → `IntSet`, `edge1` → `Edge`, `c_h` → `Cell` | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 
 ## Live Commands Used
 
@@ -58,4 +58,8 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 4 diagnostics — `Unresolved symb
 - `is_empty`/`non_empty` are now available; `SetInsert` comment in sets.ig is stale (DSA-P05 READY).
 - `call_contract` parity (DSA-P08) is RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED.
 - UTF-8 encoding (DSA-P09) is resolved; types.ig box-drawing chars no longer crash the Ruby compiler.
-- Remaining Ruby blocker: typed compute binding gap (DSA-P10); route: `LANG-TYPED-COMPUTE-BINDING-P1`.
+- DSA-P10 RESOLVED (Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 — e0/s/edge1/c_h all infer correct types). DSA is now DUAL-TOOLCHAIN CLEAN.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN (DSA-P10 RESOLVED in Wave P6). No pressure ID changes this wave. No new pressures.

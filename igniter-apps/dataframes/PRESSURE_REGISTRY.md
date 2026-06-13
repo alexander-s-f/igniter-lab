@@ -1,5 +1,7 @@
 # DataFrames Pressure Registry
 
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
+
 This registry tracks language and stdlib pressure from the `dataframes` app. The app models matrices in COO form and dataframes in long form, then records where flat collection operations are sufficient and where relational operations are missing.
 
 ## Baseline
@@ -26,7 +28,7 @@ Fresh observed result: all stages complete, 8 contracts emit, and diagnostics ar
 | DF-P07 | Contract invocation workaround | Record construction inside lambdas is moved into helper contracts and invoked through `call_contract` | Active bridge pressure | Typed invocation / forms route; call_contract parity |
 | DF-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 8 diagnostics (6× `Unknown function: call_contract`, 2× `Unresolved symbol`). Wave P3: all 6 call_contract errors gone; `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; Ruby TC `when "call_contract"` arm handles dispatch | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | DF-P09 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 8 actual diagnostics surface; types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
-| DF-P10 | ACTIVE | Ruby record literal inference gap | Wave P3: 2 `Unresolved symbol` diags remain — `c00`, `p1`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute c00 = { row: 0, col: 0, val: 1 }`, `compute p1 = { row_id: 1, ... }`); Ruby TC returns Unknown for unannotated record literal computes | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| DF-P10 | RESOLVED | Ruby record literal inference gap | Wave P3: 2 `Unresolved symbol` diags remain — `c00`, `p1`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute c00 = { row: 0, col: 0, val: 1 }`, `compute p1 = { row_id: 1, ... }`); Ruby TC returns Unknown for unannotated record literal computes. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved both: `c00` → `Cell`, `p1` → `DataPoint` | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 
 ## Route Notes
 
@@ -68,3 +70,7 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — `Unresolved symb
 - No runtime authority, IO, or external storage claim is implied.
 - No mutable HashMap or ambient indexing surface is implied.
 - No walk-through artifact is tracked; durable evidence lives in this app folder only.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN (DF-P10 RESOLVED in Wave P6). No pressure ID changes this wave. No new pressures.

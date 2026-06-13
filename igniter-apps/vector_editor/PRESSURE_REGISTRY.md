@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 — Rust CLEAN; Ruby VE-P09)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — Ruby VE-P09 active)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -65,3 +65,7 @@ Rust: oof / 1 diagnostic — `call_contract: unknown callee 'append' — not fou
 - The dominant remaining blocker is call_contract parity (VE-P02/P03): both Rust and Ruby TC don't dispatch stdlib functions via `call_contract("name", ...)` form.
 - `call_contract` evidence here should feed typed refs/forms work, not a runtime-dispatch expansion.
 - The `GraphicObject` encoding is useful as pressure evidence precisely because it is awkward.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 1 diagnostic (`Unresolved symbol: new_obj` — OOF-P1) — unchanged. VE-P09 ACTIVE. Route: `LAB-VE-NEW-OBJ-INFERENCE-P1` or app-level refactor of `new_obj` call sites. No new pressures. No regressions.

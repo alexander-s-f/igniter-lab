@@ -1,6 +1,6 @@
 # Advanced Logistics Pressure Registry
 
-**Date:** 2026-06-13 (APP-RECHECK-WAVE-P5)
+**Date:** 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 **App:** `igniter-lab/igniter-apps/advanced_logistics`
 **Purpose:** compact registry of language/compiler pressures surfaced by the advanced logistics fixture.
 
@@ -83,3 +83,7 @@ Resolutions since Wave P2: AL-P01 RESOLVED — stdlib.collection import surface 
 - AL-P06 should be considered alongside stdlib import surface and form vocabulary; avoid a one-off method-call syntax patch.
 - AL-P07 is useful future math pressure, but not urgent because squared distance keeps the app deterministic and typeable.
 - **advanced_logistics is the first app to achieve dual-toolchain CLEAN status (Wave P3).**
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. (LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 had no effect — all computes in this app were already annotated or resolved before Wave P6.)

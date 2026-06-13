@@ -1,6 +1,6 @@
 # Neural Net Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
 
 This registry tracks language and stdlib pressure from the `neural_net` app. The app implements a small feed-forward network using fixed-point integers and statically unrolled layer equations.
 
@@ -27,7 +27,7 @@ Fresh observed result: all stages complete, 6 contracts emit, and diagnostics ar
 | NN-P06 | Active | Activation/math helper surface | Sigmoid is approximated with hardcoded integer thresholds; richer activation functions need numeric stdlib | `LAB-STDLIB-NUMERIC-P1` |
 | NN-P07 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC; Wave P2 unstripped recheck: 0 `Unsupported operator: <` (12 total diags vs 13 in P1, 1 fewer = this error); SigmoidApprox `x < (0 - 2500)` now compiles in Ruby | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | NN-P08 | RESOLVED | Ruby call_contract parity | Wave P2: 12 total (7× `Unknown function: call_contract`, 3× `Output type mismatch`, 2× `Unresolved symbol`). Wave P3: `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED; all 7 call_contract errors gone; 3 output mismatch cascades also cleared (were cascade from Unknown-typed call_contract results; P3 returns proper types now); Ruby was 12 diags, now 2 | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
-| NN-P09 | ACTIVE | Ruby record literal inference gap | Wave P3: 2 `Unresolved symbol` diags remain — `w1`, `x1`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute w1 = { ... }`, `compute x1 = { x1: 1000, x2: 0 }`); Ruby TC returns Unknown for unannotated record literal computes with no output_type_hint | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| NN-P09 | RESOLVED | Ruby record literal inference gap | Wave P3: 2 `Unresolved symbol` diags remain — `w1`, `x1`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: computes use unannotated record literals (`compute w1 = { ... }`, `compute x1 = { x1: 1000, x2: 0 }`); Ruby TC returns Unknown for unannotated record literal computes with no output_type_hint. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved both: `w1` → `Weights2x2`, `x1` → `InputVector` | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 
 ## Interpretation
 
@@ -71,3 +71,7 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — `Unresolved symb
 - No dynamic layer algebra is proven.
 - No training, backpropagation, gradient, or optimizer surface is implied.
 - No Float/Decimal runtime semantics are inferred from fixed-point integer workarounds.
+
+## Wave P7 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN (NN-P09 RESOLVED in Wave P6). No pressure ID changes this wave. No new pressures.
