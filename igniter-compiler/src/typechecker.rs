@@ -3051,10 +3051,11 @@ impl TypeChecker {
                                         for p in params {
                                             local_symbols.insert(p.clone(), elem_ty.clone());
                                         }
-                                        let mut temp_errors = Vec::new();
+                                        // LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2: propagate filter lambda
+                                        // body errors to type_errors (parity with Ruby TC line 2547).
                                         let body_type = match body.as_ref() {
                                             ExprOrBlock::Expr(e) => {
-                                                self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type
+                                                self.infer_expr(e, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type
                                             }
                                             ExprOrBlock::Block(block) => {
                                                 let mut last_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
@@ -3062,18 +3063,18 @@ impl TypeChecker {
                                                 for stmt in &block.stmts {
                                                     match stmt {
                                                         Stmt::Let { name, expr } => {
-                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             local_syms.insert(name.clone(), t.resolved_type.clone());
                                                             last_type = t.resolved_type;
                                                         }
                                                         Stmt::ExprStmt { expr } => {
-                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = t.resolved_type;
                                                         }
                                                     }
                                                 }
                                                 if let Some(re) = &block.return_expr {
-                                                    last_type = self.infer_expr(re, &local_syms, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type;
+                                                    last_type = self.infer_expr(re, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type;
                                                 }
                                                 last_type
                                             }
@@ -3142,10 +3143,11 @@ impl TypeChecker {
                                         for p in params {
                                             local_symbols.insert(p.clone(), elem_ty.clone());
                                         }
-                                        let mut temp_errors = Vec::new();
+                                        // LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2: propagate map lambda
+                                        // body errors to type_errors (parity with Ruby TC line 2547).
                                         lambda_return_type = match body.as_ref() {
                                             ExprOrBlock::Expr(e) => {
-                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                let body_typed = self.infer_expr(e, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                 body_typed.resolved_type
                                             }
                                             ExprOrBlock::Block(block) => {
@@ -3154,17 +3156,17 @@ impl TypeChecker {
                                                     match stmt {
                                                         Stmt::Let { name, expr } => {
                                                             local_symbols.insert(name.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                         Stmt::ExprStmt { expr } => {
-                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                            let stmt_typed = self.infer_expr(expr, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                             last_type = stmt_typed.resolved_type;
                                                         }
                                                     }
                                                 }
                                                 if let Some(re) = &block.return_expr {
-                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                                    let re_typed = self.infer_expr(re, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
                                                     last_type = re_typed.resolved_type;
                                                 }
                                                 last_type

@@ -241,22 +241,24 @@ RUST_FILTER_INT_PRED_RESULT = compile_rust(filter_int_pred_fixture, label: "filt
 
 # ── Section A: HOF landscape — source census ──────────────────────────────────
 
-section("A  HOF landscape — source census of temp_errors positions")
+section("A  HOF landscape — source census (post-P2: filter/map use type_errors)")
 
-check("A-01: Rust filter lambda body uses temp_errors (typechecker.rs line 3054)") {
-  rust_line(3054).include?("temp_errors")
+check("A-01: Rust filter: P2 parity comment at line 3054 (temp_errors REMOVED)") {
+  rust_line(3054).include?("LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2") &&
+    rust_line(3054).include?("filter")
 }
 
-check("A-02: Rust map lambda body uses temp_errors (typechecker.rs line 3145)") {
-  rust_line(3145).include?("temp_errors")
+check("A-02: Rust map: P2 parity comment at line 3146 (temp_errors REMOVED)") {
+  rust_line(3146).include?("LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2") &&
+    rust_line(3146).include?("map")
 }
 
-check("A-03: Rust flat_map lambda body uses temp_errors (typechecker.rs line 3211)") {
-  rust_line(3211).include?("temp_errors")
+check("A-03: Rust flat_map lambda body still uses temp_errors (typechecker.rs line 3213)") {
+  rust_line(3213).include?("temp_errors")
 }
 
-check("A-04: Rust Expr::Lambda arm uses temp_errors (typechecker.rs line 4093)") {
-  rust_line(4093).include?("temp_errors")
+check("A-04: Rust Expr::Lambda arm still uses temp_errors (typechecker.rs line 4095)") {
+  rust_line(4095).include?("temp_errors")
 }
 
 check("A-05: Ruby HOF passes type_errors to infer_lambda_body (typechecker.rb line 2547)") {
@@ -311,34 +313,35 @@ check("B-06: Ruby map clean (no missing field) produces no OOF-P1") {
 
 # ── Section C: Rust silencing via binary ──────────────────────────────────────
 
-section("C  Rust silencing via binary — body errors discarded, OOF-TY1 fires")
+section("C  Rust binary — post-P2: filter/map body errors propagate (parity achieved)")
 
 rust_map_diags        = Array(RUST_MAP_ERROR_RESULT["diagnostics"] || [])
 rust_filter_diags     = Array(RUST_FILTER_ERROR_RESULT["diagnostics"] || [])
 rust_filter_int_diags = Array(RUST_FILTER_INT_PRED_RESULT["diagnostics"] || [])
 rust_re_diags         = Array(RUST_RE_RESULT["diagnostics"] || [])
 
-check("C-01: Rust map body OOF-P1 is SILENCED (0 OOF-P1 in output)") {
-  rust_map_diags.none? { |d| d["rule"] == "OOF-P1" }
+check("C-01: Rust map body OOF-P1 NOW FIRES (parity with Ruby — P2 resolved)") {
+  rust_map_diags.any? { |d| d["rule"] == "OOF-P1" }
 }
 
-check("C-02: Rust map OOF-TY1 fires at output boundary (compensates for silenced body error)") {
-  rust_map_diags.any? { |d| d["rule"] == "OOF-TY1" }
+check("C-02: Rust map: OOF-P1 fires at body site; OOF-TY1 suppressed (OOF-P1 is primary)") {
+  rust_map_diags.any? { |d| d["rule"] == "OOF-P1" } &&
+    rust_map_diags.none? { |d| d["rule"] == "OOF-TY1" }
 }
 
-check("C-03: Rust filter body OOF-P1 is SILENCED (0 OOF-P1 in output)") {
-  rust_filter_diags.none? { |d| d["rule"] == "OOF-P1" }
+check("C-03: Rust filter body OOF-P1 NOW FIRES (parity with Ruby — P2 resolved)") {
+  rust_filter_diags.any? { |d| d["rule"] == "OOF-P1" }
 }
 
-check("C-04: Rust filter OOF-COL3 DOES propagate when predicate is Integer (outside temp_errors scope)") {
+check("C-04: Rust filter OOF-COL3 DOES propagate when predicate is Integer (outside body scope)") {
   rust_filter_int_diags.any? { |d| d["rule"] == "OOF-COL3" }
 }
 
-check("C-05: Rule engine Rust binary: 0 OOF-P1 (HOF lambda body errors discarded)") {
-  rust_re_diags.none? { |d| d["rule"] == "OOF-P1" }
+check("C-05: Rule engine Rust binary: OOF-P1 NOW fires (HOF lambda body d.action propagates)") {
+  rust_re_diags.any? { |d| d["rule"] == "OOF-P1" }
 }
 
-check("C-06: Rule engine Rust binary: OOF-TY1 present (output boundary compensation)") {
+check("C-06: Rule engine Rust binary: OOF-TY1 still present (output boundary)") {
   rust_re_diags.any? { |d| d["rule"] == "OOF-TY1" }
 }
 
@@ -353,53 +356,47 @@ check("C-07: Rust filter params correctly bound to element type (line 3052 — e
 
 section("D  Expr::Lambda arm — intentional speculation mode")
 
-check("D-01: Rust Expr::Lambda arm declares temp_errors at line 4093") {
-  rust_line(4093).strip == "let mut temp_errors = Vec::new();"
+check("D-01: Rust Expr::Lambda arm declares temp_errors at line 4095 (post-P2 line shift)") {
+  rust_line(4095).strip == "let mut temp_errors = Vec::new();"
 }
 
-check("D-02: Rust Expr::Lambda params hardcoded to Integer (line 4091)") {
-  rust_line(4091).include?("Integer")
+check("D-02: Rust Expr::Lambda params hardcoded to Integer (line 4093 post-P2)") {
+  rust_line(4093).include?("Integer")
 }
 
-check("D-03: Rust Expr::Lambda body passed &mut temp_errors (not type_errors)") {
-  # Line 4096: infer_expr with &mut temp_errors
-  rust_line(4096).include?("temp_errors") && !rust_line(4096).include?("type_errors")
+check("D-03: Rust Expr::Lambda body passed &mut temp_errors (not type_errors) (line 4098)") {
+  rust_line(4098).include?("temp_errors") && !rust_line(4098).include?("type_errors")
 }
 
-check("D-04: Rust Expr::Lambda resolved_type is Unknown (always — line 4088 arm body)") {
-  # The arm always returns Unknown — check surrounding context
-  # Line 4088 opens the arm; the result is Unknown (from session evidence)
-  rust_line(4088).include?("Expr::Lambda")
+check("D-04: Rust Expr::Lambda arm starts at line 4090 (post-P2 line shift)") {
+  rust_line(4090).include?("Expr::Lambda")
 }
 
-check("D-05: Rust Expr::Lambda silencing classified as INTENTIONAL (hardcoded Integer param signals speculation placeholder)") {
-  # Intentional: both params and return type are placeholders
-  # Integer placeholder at 4091, always-Unknown return.
-  # This is a structural assertion — passes when both signals are present.
-  rust_line(4091).include?("Integer") && rust_line(4093).include?("temp_errors")
+check("D-05: Rust Expr::Lambda silencing classified as INTENTIONAL (hardcoded Integer + temp_errors preserved)") {
+  # Intentional: Integer placeholder at 4093, temp_errors at 4095.
+  rust_line(4093).include?("Integer") && rust_line(4095).include?("temp_errors")
 }
 
 # ── Section E: flat_map / and_then — arguable, defer ─────────────────────────
 
 section("E  flat_map / and_then — arguable temp_errors, defer")
 
-check("E-01: Rust flat_map temp_errors at line 3211") {
-  rust_line(3211).strip == "let mut temp_errors = Vec::new();"
+check("E-01: Rust flat_map temp_errors at line 3213 (post-P2 line shift)") {
+  rust_line(3213).strip == "let mut temp_errors = Vec::new();"
 }
 
-check("E-02: Rust flat_map params hardcoded to Integer (line 3209)") {
-  rust_line(3209).include?("Integer")
+check("E-02: Rust flat_map params hardcoded to Integer (line 3211 post-P2)") {
+  rust_line(3211).include?("Integer")
 }
 
 check("E-03: flat_map params NOT derived from Collection element type (unlike filter/map)") {
-  # flat_map at 3207-3210 inserts Integer, not elem_ty
-  !rust_line(3209).include?("elem_ty")
+  # flat_map inserts Integer, not elem_ty — confirmed at line 3211
+  !rust_line(3211).include?("elem_ty")
 }
 
-check("E-04: flat_map silencing is ARGUABLE (same Integer-placeholder class as Expr::Lambda)") {
-  # Structural assertion: Integer placeholder at 3209, temp_errors at 3211
-  # Matches the Expr::Lambda speculation pattern — defer not implement parity
-  rust_line(3209).include?("Integer") && rust_line(3211).include?("temp_errors")
+check("E-04: flat_map silencing is ARGUABLE (Integer placeholder at 3211, temp_errors at 3213)") {
+  # Structural assertion: Integer placeholder at 3211, temp_errors at 3213.
+  rust_line(3211).include?("Integer") && rust_line(3213).include?("temp_errors")
 }
 
 # ── Section F: Parity policy ──────────────────────────────────────────────────
@@ -410,18 +407,18 @@ check("F-01: filter params use elem_ty (correctly typed — gap is unjustified; 
   rust_line(3052).include?("elem_ty")
 }
 
-check("F-02: map params use elem_ty (correctly typed — gap is unjustified; line 3143)") {
-  rust_line(3143).include?("elem_ty")
+check("F-02: map params use elem_ty (correctly typed; line 3144 post-P2)") {
+  rust_line(3144).include?("elem_ty")
 }
 
-check("F-03: Ruby-Rust map divergence — Ruby has OOF-P1, Rust has 0 OOF-P1 for same body error") {
+check("F-03: Ruby-Rust map PARITY — both produce OOF-P1 for same body error (P2 resolved gap)") {
   has_oof?(RUBY_MAP_ERROR_RESULT, "OOF-P1") &&
-    rust_map_diags.none? { |d| d["rule"] == "OOF-P1" }
+    rust_map_diags.any? { |d| d["rule"] == "OOF-P1" }
 }
 
-check("F-04: Ruby-Rust filter divergence — Ruby has OOF-P1, Rust has 0 OOF-P1 for same body error") {
+check("F-04: Ruby-Rust filter PARITY — both produce OOF-P1 for same body error (P2 resolved gap)") {
   has_oof?(RUBY_FILTER_ERROR_RESULT, "OOF-P1") &&
-    rust_filter_diags.none? { |d| d["rule"] == "OOF-P1" }
+    rust_filter_diags.any? { |d| d["rule"] == "OOF-P1" }
 }
 
 check("F-05: OOF-COL3 propagates from Rust filter for Integer predicate (no regression from parity fix)") {
@@ -431,14 +428,16 @@ check("F-05: OOF-COL3 propagates from Rust filter for Integer predicate (no regr
 
 # ── Section G: Closed surfaces ────────────────────────────────────────────────
 
-section("G  Closed surfaces — no implementation changes")
+section("G  Closed surfaces — P2 implemented; filter/map temp_errors removed")
 
-check("G-01: Rust filter temp_errors still present (no typechecker.rs change in this card)") {
-  rust_line(3054).include?("temp_errors")
+check("G-01: Rust filter: temp_errors REMOVED by P2 (LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2 comment present)") {
+  # P2 replaced temp_errors with direct type_errors in the filter body — confirm the comment
+  rust_lines.any? { |l| l.include?("LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2") && l.include?("filter") }
 }
 
-check("G-02: Rust map temp_errors still present (no typechecker.rs change in this card)") {
-  rust_line(3145).include?("temp_errors")
+check("G-02: Rust map: temp_errors REMOVED by P2 (LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2 comment present)") {
+  # P2 replaced temp_errors with direct type_errors in the map body — confirm the comment
+  rust_lines.any? { |l| l.include?("LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2") && l.include?("map") }
 }
 
 check("G-03: No new OOF codes introduced (OOF-P1/OOF-COL3/OOF-TY1 are sufficient)") {
@@ -458,21 +457,22 @@ puts "Result: #{$pass}/#{total} #{$fail == 0 ? "PASS" : "FAIL (#{$fail} failures
 puts
 if $fail == 0
   puts "VERDICT: PASS — LAB-HOF-LAMBDA-ERROR-PROPAGATION-P1 PROVED"
+  puts "         (updated post-P2: filter/map parity implemented)"
   puts
-  puts "  Rust filter/map temp_errors (gap):   lines 3054, 3145"
-  puts "  Rust flat_map temp_errors (arguable): line  3211"
-  puts "  Rust Expr::Lambda temp_errors (intentional): line 4093"
+  puts "  Rust filter: P2 parity comment at line 3054 (temp_errors REMOVED)"
+  puts "  Rust map:    P2 parity comment at line 3146 (temp_errors REMOVED)"
+  puts "  Rust flat_map temp_errors (arguable): line 3213"
+  puts "  Rust Expr::Lambda temp_errors (intentional): line 4095"
   puts "  Ruby type_errors propagation:         lines 2547, 2711"
   puts
   puts "  Ruby map body OOF-P1:     PROPAGATES"
-  puts "  Rust map body OOF-P1:     SILENCED (OOF-TY1 compensates)"
+  puts "  Rust map body OOF-P1:     PROPAGATES (P2 parity achieved)"
   puts "  Ruby filter body OOF-P1:  PROPAGATES"
-  puts "  Rust filter body OOF-P1:  SILENCED (OOF-COL3 propagates separately)"
+  puts "  Rust filter body OOF-P1:  PROPAGATES (P2 parity achieved)"
   puts
-  puts "  Recommendation:"
-  puts "    filter + map:   IMPLEMENT PARITY (correctly typed params)"
-  puts "    flat_map:       DEFER (Integer placeholder params)"
-  puts "    Expr::Lambda:   PRESERVE AS INTENTIONAL (speculation placeholder)"
+  puts "  Resolved: filter + map (P2)"
+  puts "  Deferred: flat_map (Integer placeholder params)"
+  puts "  Preserved: Expr::Lambda (intentional speculation placeholder)"
 else
   puts "VERDICT: FAIL — review failures above"
 end
