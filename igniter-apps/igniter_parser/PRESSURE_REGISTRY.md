@@ -1,6 +1,6 @@
 # Igniter Parser Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — oof/1 OOF-IMP2 IP-P01 unchanged)
+Updated: 2026-06-13 (LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 — IP-P01/P02/P05 RESOLVED; IP-P06 now dominant)
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -47,13 +47,13 @@ The app is a self-hosted parser prototype. It uses a flat AST arena (`children_i
 
 | ID | Status | Pressure | Evidence | Route |
 |---|---|---|---|---|
-| IP-P01 | ACTIVE | Missing `stdlib.string` import surface | Both Rust and Ruby stop at `OOF-IMP2` for `import stdlib.string.{ char_at }` in `lexer.ig` | `LANG-STDLIB-STRING-SURFACE-P1` |
-| IP-P02 | PENDING-BEHIND-P01 | Character access primitive | `LexNextToken` calls `char_at(state.source, state.pos)`; parser work requires byte/character indexing | `LANG-STDLIB-STRING-CHAR-AT-P1` |
-| IP-P03 | PENDING-BEHIND-P01 | Parser loop/state-machine pressure | `LexNextToken` and `ParseModuleDecl` model one step at a time; report notes need for repeated state folding or managed recursion | `LAB-PARSER-STATE-MACHINE-P1` |
+| IP-P01 | **RESOLVED** | Missing `stdlib.string` import surface | OOF-IMP2 cleared by LANG-STDLIB-STRING-SURFACE-P3 (char_at dual-toolchain) — inventory entry enables import resolution | LANG-STDLIB-STRING-SURFACE-P3 CLOSED |
+| IP-P02 | **RESOLVED** | Character access primitive | `char_at(state.source, state.pos)` compiles cleanly in both toolchains — no OOF-TY0 | LANG-STDLIB-STRING-SURFACE-P3 CLOSED |
+| IP-P03 | PENDING-BEHIND-P06 | Parser loop/state-machine pressure | `LexNextToken` and `ParseModuleDecl` model one step at a time; report notes need for repeated state folding or managed recursion | `LAB-PARSER-STATE-MACHINE-P1` |
 | IP-P04 | ACTIVE-DESIGN-PRESSURE | Flat AST arena pattern | `AstNode.children_ids: Collection[String]` avoids recursive `AstNode` nesting | Keep as app pattern; revisit only if recursive data types are opened |
-| IP-P05 | PENDING-BEHIND-P01 | String slicing/token accumulation | Report names `substring` as future requirement; current code only reaches `char_at` import blocker | `LANG-STDLIB-STRING-SLICE-P1` after char_at |
-| IP-P06 | ACTIVE | Stringly stdlib constructor calls | `api.ig` and `parser.ig` use `call_contract("empty")` / `call_contract("append", ...)`; currently hidden behind P01 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
-| IP-P07 | PENDING-BEHIND-P01 | Self-hosting scope boundary | App proves architectural shape, not a complete parser; only 3 contracts and no full token stream loop yet | Keep out of canon until stdlib.string + state iteration are defined |
+| IP-P05 | **RESOLVED** | String slicing/token accumulation | `substring(state.source, state.pos, 6)` added to `lexer.ig`; compiles cleanly both toolchains; `token_text` used in `new_token.text` | LANG-STDLIB-STRING-SUBSTRING-P2 CLOSED |
+| IP-P06 | **NOW-ACTIVE** (was hidden behind P01) | Stringly stdlib constructor calls | `api.ig`: 2×`call_contract("empty")` + `call_contract("LexNextToken")` + `call_contract("ParseModuleDecl")`; `parser.ig`: `call_contract("empty")` + `call_contract("append")`; `lexer.ig`: `call_contract("append")` — 3×empty + 2×append blocking both TCs with OOF-TY0 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
+| IP-P07 | PENDING-BEHIND-P06 | Self-hosting scope boundary | App proves architectural shape, not a complete parser; only 3 contracts and no full token stream loop yet | Keep out of canon until stringly migration + state iteration are defined |
 
 ## Wave P6 Recheck Summary (2026-06-13)
 
@@ -90,3 +90,20 @@ The flat arena AST pattern is accepted as app-local evidence only. It does not a
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: oof / 1 diagnostic (`OOF-IMP2: unknown stdlib module path 'stdlib.string'`) — unchanged. Ruby: oof / 1 diagnostic (`OOF-IMP2: unknown stdlib module path 'stdlib.string'`) — unchanged. IP-P01 ACTIVE. Route: `LANG-STDLIB-STRING-SURFACE-P1`. No new pressures. No regressions.
+
+## LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 (2026-06-13)
+
+Gate: LANG-STDLIB-STRING-SURFACE-P3 CLOSED (char_at dual-toolchain) + LANG-STDLIB-STRING-SUBSTRING-P2 CLOSED (substring dual-toolchain).
+
+**Source change:** `lexer.ig` — import extended to `stdlib.string.{ char_at, substring }`; `compute token_text = substring(state.source, state.pos, 6)` added; `new_token.text` changed from hardcoded `"module"` to `token_text`.
+
+**Ruby result:** oof / 7 diagnostics — all OOF-TY0 for `call_contract("empty"/"append")` + OOF-P1 cascades. No OOF-IMP2. No char_at or substring errors.
+
+**Rust result:** oof / 5 diagnostics — all OOF-TY0 for `call_contract("empty"/"append")`. No OOF-IMP2. No char_at or substring errors.
+
+**IP-P01 RESOLVED** — OOF-IMP2 for `stdlib.string` is gone in both toolchains.
+**IP-P02 RESOLVED** — `char_at(state.source, state.pos)` compiles cleanly.
+**IP-P05 RESOLVED** — `substring(state.source, state.pos, 6)` compiles cleanly; token text extraction pattern demonstrated.
+**IP-P06 NOW-ACTIVE** — 3×`call_contract("empty")` + 2×`call_contract("append")` expose stringly stdlib pattern. Dominant blocker. Route: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`.
+
+Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_igniter_parser_string_surface_migration_p1.rb` — 49/49 PASS.
