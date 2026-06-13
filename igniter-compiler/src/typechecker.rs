@@ -2778,6 +2778,53 @@ impl TypeChecker {
                                     }
                                 }
                             }
+                            // LANG-STDLIB-STRING-SURFACE-P3: char_at(String, Integer) -> String
+                            // OOF-TY0 for arity != 2, arg1 not String/Unknown, arg2 not Integer/Unknown.
+                            // String returned on ALL paths including OOF error paths.
+                            "char_at" => {
+                                is_resolved = true;
+                                resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                if args.len() != 2 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-TY0".to_string(),
+                                        message: format!(
+                                            "stdlib.string.char_at: expected 2 argument(s), got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else {
+                                    if !typed_args.is_empty() {
+                                        let source_name = self.type_name(&typed_args[0].resolved_type);
+                                        if source_name != "Unknown" && source_name != "String" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "stdlib.string.char_at arg 1: expected String, got {}",
+                                                    source_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                    if typed_args.len() >= 2 {
+                                        let index_name = self.type_name(&typed_args[1].resolved_type);
+                                        if index_name != "Unknown" && index_name != "Integer" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "stdlib.string.char_at arg 2: expected Integer, got {}",
+                                                    index_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
                             "first" | "last" => {
                                 is_resolved = true;
                                 let mut inner_ty = serde_json::Value::Null;

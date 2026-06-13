@@ -808,6 +808,21 @@ impl Emitter {
                                 }
                                 return serde_json::Value::Object(new_map);
                             }
+                            // LANG-STDLIB-STRING-SURFACE-P3: qualify string stdlib bare name to stdlib.string.*
+                            const STRING_STDLIB_OPS: &[(&str, &str)] = &[
+                                ("char_at", "stdlib.string.char_at"),
+                            ];
+                            if let Some((_, qualified)) = STRING_STDLIB_OPS.iter().find(|(bare, _)| *bare == fn_val) {
+                                let mut new_map = serde_json::Map::new();
+                                for (k, v) in map {
+                                    if k == "fn" {
+                                        new_map.insert(k.clone(), serde_json::Value::String(qualified.to_string()));
+                                    } else if k != "deps" {
+                                        new_map.insert(k.clone(), self.semantic_expr(v));
+                                    }
+                                }
+                                return serde_json::Value::Object(new_map);
+                            }
                         }
                     }
                 }
@@ -922,6 +937,8 @@ impl Emitter {
                             // bare names to semantic_expr for stdlib.collection.* qualification.
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
                             || matches!(fn_val, "map" | "filter" | "count" | "append" | "is_empty" | "non_empty")
+                            // LANG-STDLIB-STRING-SURFACE-P3: delegate string stdlib to semantic_expr
+                            || fn_val == "char_at"
                         {
                             return self.semantic_expr(val);
                         }
