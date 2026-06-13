@@ -1,6 +1,6 @@
 # Bloom Filter Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — DUAL-CLEAN)
+Updated: 2026-06-13 (LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 — BF-P03 RESOLVED)
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -42,7 +42,7 @@ Files:
 - `types.ig` — `BloomFilterTypes`; types `BitSlot`, `BloomFilter`, `HashSeed`, `QueryResult`
 - `hash.ig` — `BloomFilterHash`; contracts `Mod`, `Hash1`, `Hash2`, `Hash3`
 - `ops.ig` — `BloomFilterOps`; contracts `SetBitAtIndex`, `MakeSlotTrue`, `CheckBitAtIndex`, `Insert`, `Query`; imports `stdlib.collection.{ map, filter }`
-- `example.ig` — `BloomFilterExample`; contracts `InitFilter16`, `RunBloomExample`; imports `stdlib.collection.{ append }`
+- `example.ig` — `BloomFilterExample`; contracts `InitFilter16`, `RunBloomExample`; imports `stdlib.collection.{ map, range }` (was `{ append }` — updated LAB-BLOOM-FILTER-RANGE-MIGRATION-P1)
 
 ## Pressures
 
@@ -50,7 +50,7 @@ Files:
 |---|---|---|---|---|
 | BF-P01 | RESOLVED | Stringly `call_contract("append")` initialization chain | `InitFilter16` had 15 chained stringly sites; all migrated in `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2`: BF-S01 → `compute b0 : Collection[BitSlot] = [s0, s1]`; BF-S02–S15 → `append(b{n-1}, s{n+1})` | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 | BF-P02 | RESOLVED | Collection bootstrap shape | First append was `call_contract("append", s0, s1)` (BOOTSTRAP); migrated to `compute b0 : Collection[BitSlot] = [s0, s1]` typed seed in P2; Rust ok because output is record literal `output bf : BloomFilter` (gap does not apply) | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
-| BF-P03 | ACTIVE-DESIGN-PRESSURE | Missing `range()` / collection generation | `example.ig` manually defines 16 slots and chains append; report says `range(0, 16)` would reduce this to a compact map | `LANG-STDLIB-COLLECTION-RANGE-P1` |
+| BF-P03 | RESOLVED | Missing `range()` / collection generation | `example.ig` manually defines 16 slots and chains append; report says `range(0, 16)` would reduce this to a compact map | `LAB-BLOOM-FILTER-RANGE-MIGRATION-P1` CLOSED |
 | BF-P04 | ACTIVE-DESIGN-PRESSURE | No indexed collection access | Bit array modeled as `Collection[BitSlot]`; `SetBitAtIndex` maps over all slots by `pos` | `LAB-STDLIB-COLLECTION-INDEX-ACCESS-P1` |
 | BF-P05 | PARTIALLY-RESOLVED | Filter-to-boolean collapse | Prior report says `is_empty`/`length` needed; `stdlib.collection.is_empty/non_empty` now exists, app source has not been migrated | Include in stringly/source migration after P01 |
 | BF-P06 | ACTIVE-DESIGN-PRESSURE | Missing modulo operator | `hash.ig` implements modulo manually as `a - (a / b) * b` | `LANG-STDLIB-NUMERIC-MOD-P1` |
@@ -95,3 +95,21 @@ The app also exposes deeper collection/numeric needs, but those should not be pr
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. (Waves P3–P7 all no-change for this app since LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 achieved dual-clean.)
+
+## LAB-BLOOM-FILTER-RANGE-MIGRATION-P1 Migration Summary (2026-06-13)
+
+Gate: LANG-STDLIB-COLLECTION-RANGE-P3 CLOSED (range dual-toolchain).
+
+Changes:
+- `ops.ig`: added `MakeSlot` contract (`input pos : Integer` → `output slot : BitSlot` with `set: false`); placed before `MakeSlotTrue`
+- `example.ig`: import changed `stdlib.collection.{ append }` → `stdlib.collection.{ map, range }`; `InitFilter16` rewritten — 31 manual nodes (16 slot computes + 14 append chain + 1 bootstrap) replaced with 2 computes:
+  - `compute slots : Collection[BitSlot] = map(range(0, 16), i -> call_contract("MakeSlot", i))`
+  - `compute bf = { size: 16, num_hashes: 3, bits: slots }`
+
+Note: inline record literal in lambda body (`i -> { pos: i, set: false }`) fails to parse (parser treats `{` as block body in expression position). Workaround: named `MakeSlot` helper contract + type annotation on `slots` compute declaration.
+
+Rust: ok / 0 — CLEAN. Ruby: ok / 0 — CLEAN. DUAL-TOOLCHAIN CLEAN maintained.
+
+BF-P03: ACTIVE-DESIGN-PRESSURE → RESOLVED.
+Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_bloom_filter_range_migration_p1.rb` 50/50 PASS.
+Lab doc: `lab-docs/governance/lab-bloom-filter-range-migration-p1-v0.md`.

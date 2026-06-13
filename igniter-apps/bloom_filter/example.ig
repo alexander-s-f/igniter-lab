@@ -1,7 +1,7 @@
 module BloomFilterExample
 import BloomFilterTypes
 import BloomFilterOps
-import stdlib.collection.{ append }
+import stdlib.collection.{ map, range }
 
 -- ============================================================
 -- Example: URL Visited Cache
@@ -13,45 +13,14 @@ import stdlib.collection.{ append }
 
 contract InitFilter16 {
   -- Create a 16-slot bloom filter (k=3 hash functions)
-  -- Build slots manually since there's no range() function
-  compute s0 = { pos: 0, set: false }
-  compute s1 = { pos: 1, set: false }
-  compute s2 = { pos: 2, set: false }
-  compute s3 = { pos: 3, set: false }
-  compute s4 = { pos: 4, set: false }
-  compute s5 = { pos: 5, set: false }
-  compute s6 = { pos: 6, set: false }
-  compute s7 = { pos: 7, set: false }
-  compute s8 = { pos: 8, set: false }
-  compute s9 = { pos: 9, set: false }
-  compute s10 = { pos: 10, set: false }
-  compute s11 = { pos: 11, set: false }
-  compute s12 = { pos: 12, set: false }
-  compute s13 = { pos: 13, set: false }
-  compute s14 = { pos: 14, set: false }
-  compute s15 = { pos: 15, set: false }
-
-  -- Build the collection by chaining appends
-  compute b0 : Collection[BitSlot] = [s0, s1]
-  compute b1 = append(b0, s2)
-  compute b2 = append(b1, s3)
-  compute b3 = append(b2, s4)
-  compute b4 = append(b3, s5)
-  compute b5 = append(b4, s6)
-  compute b6 = append(b5, s7)
-  compute b7 = append(b6, s8)
-  compute b8 = append(b7, s9)
-  compute b9 = append(b8, s10)
-  compute b10 = append(b9, s11)
-  compute b11 = append(b10, s12)
-  compute b12 = append(b11, s13)
-  compute b13 = append(b12, s14)
-  compute b14 = append(b13, s15)
+  -- LAB-BLOOM-FILTER-RANGE-MIGRATION-P1: range(0, 16) replaces
+  -- 16 manual slot computes + 14 chained append calls.
+  compute slots : Collection[BitSlot] = map(range(0, 16), i -> call_contract("MakeSlot", i))
 
   compute bf = {
     size: 16,
     num_hashes: 3,
-    bits: b14
+    bits: slots
   }
 
   output bf : BloomFilter

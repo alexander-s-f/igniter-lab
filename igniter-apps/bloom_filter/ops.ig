@@ -23,6 +23,17 @@ contract SetBitAtIndex {
   output updated : Collection[BitSlot]
 }
 
+contract MakeSlot {
+  input pos : Integer
+
+  compute slot = {
+    pos: pos,
+    set: false
+  }
+
+  output slot : BitSlot
+}
+
 contract MakeSlotTrue {
   input pos : Integer
 
