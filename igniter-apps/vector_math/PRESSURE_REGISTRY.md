@@ -1,6 +1,6 @@
 # Vector Math Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — VM-P10 ACTIVE (unchanged; Rust CLEAN))
+Updated: 2026-06-13 (LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1 — VM-P10 RESOLVED; Ruby 36→0; Rust CLEAN)
 
 This registry tracks app pressure from `igniter-apps/vector_math`. It is evidence, not canon authority.
 
@@ -13,9 +13,9 @@ This registry tracks app pressure from `igniter-apps/vector_math`. It is evidenc
 | VM-P05 | RESOLVED | Comparison operator ergonomics | App rewrites `>=`/`<=` using nested `<`/`>` checks. LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC; Wave P3 recheck: 0 comparison operator errors in Rust; Ruby now also clean on comparison ops | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | VM-P06 | RESOLVED | Ruby contract invocation parity | Wave P2: 26 `Unknown function: call_contract` diagnostics. Wave P3: LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 26 call_contract errors gone; Ruby TC `when "call_contract"` arm dispatches Tier 1 same-module callee lookup | `LAB-RUBY-CALL-CONTRACT-PARITY-P3` CLOSED |
 | VM-P07 | RESOLVED | Ruby numeric comparison parity | Wave P2: 8 `Unsupported operator: <` diagnostics. Wave P3: 0 comparison errors — LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED; `<`, `<=`, `>=` all handled in Ruby TC | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
-| VM-P08 | WATCH | Ruby record-shape cascades | Wave P2: predicted as cascade after upstream Unknown propagation. Wave P3: record-shape cascades still present; 36 "missing required field: r0/r1/r2" + "unexpected field: x/y/z" diagnostics — new VM-P10 opened | re-check after VM-P10 resolution |
+| VM-P08 | RESOLVED | Ruby record-shape cascades | Wave P2: predicted as cascade after upstream Unknown propagation. Wave P3: record-shape cascades still present — new VM-P10 opened. LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1: VM-P10 RESOLVED; Ruby now ok/0; cascade watch CLOSED | `LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1` CLOSED |
 | VM-P09 | RESOLVED | Typed compute binding gap (record literal) | Wave P3: Ruby shows 5 `Unresolved symbol` diags — `gravity`, `point`, `b`, `a_min`, `min_pt`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause re-classified: unannotated record literal computes; Ruby TC `infer_record_literal` returns Unknown when no output_type_hint is set. Wave P6: LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved all 5 symbols via structural candidate matching | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
-| VM-P10 | ACTIVE | Record literal field name mismatch | Wave P3: Ruby emits 36 `missing required field: r0`/`r1`/`r2` + `unexpected field: x`/`y`/`z` diagnostics; record literal shapes in vec2.ig/vec3.ig use field names `x/y/z` but type declaration uses `r0/r1/r2` (or vice versa); newly surfaced once call_contract P3 resolves and propagates proper types downstream | field name alignment in type declarations vs record literal call sites |
+| VM-P10 | RESOLVED | Record literal field name mismatch | Wave P3: Ruby emits 36 `missing required field: r0`/`r1`/`r2` + `unexpected field: x`/`y`/`z` diagnostics. Root cause: `infer_record_literal` propagates the outer node_name ("result") into inner field-value literal inference; `@output_type_hints["result"] = Mat3` incorrectly validates inner Vec3 row literals. Source: 6 mat3.ig contracts (Mat3Identity, Mat3Transpose, Mat3Add, Mat3Scale, MakeRotation2D, MakeScale3D). Fix: extracted inner Vec3 rows as annotated computes (`compute r0 : Vec3 = {...}`). Ruby: 36→0. Rust: preserved ok/0. LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1 CLOSED 49/49. | `LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1` CLOSED |
 
 ## Live Commands Used
 
@@ -66,6 +66,10 @@ Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 41 diagnostics — 5× `Unresolved
 ## Wave P7 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 36 diagnostics — unchanged (all 36 are VM-P10 record literal field name mismatch: `x/y/z` provided vs `r0/r1/r2` expected in vec2.ig/vec3.ig). VM-P09 RESOLVED. VM-P10 ACTIVE. No new pressures.
+
+## Wave P9 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics (was oof/36). LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1 CLOSED: VM-P10 RESOLVED. Root cause: `infer_record_literal` propagated outer node_name ("result") into inner field-value literal inference — inner Vec3 row literals validated against Mat3 (wrong). Fix: 6 mat3.ig contracts (Mat3Identity, Mat3Transpose, Mat3Add, Mat3Scale, MakeRotation2D, MakeScale3D) extract inner Vec3 rows as `compute r0/r1/r2 : Vec3 = {...}` annotated computes. Ruby: 36→0. Rust: ok/0 preserved. VM-P08 cascade watch RESOLVED. No remaining blockers.
 
 ## Wave P8 Recheck Summary (2026-06-13)
 

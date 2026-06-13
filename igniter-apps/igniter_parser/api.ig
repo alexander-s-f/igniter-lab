@@ -6,19 +6,19 @@ import ParserCore
 contract ParseSource {
   input source : String
   
-  compute initial_tokens = call_contract("empty")
-  
+  compute initial_tokens : Collection[Token] = []
+
   compute initial_lexer = {
     source: source,
     pos: 0,
     line: 1,
     tokens: initial_tokens
   }
-  
+
   -- Step 1: Lex a single token
   compute lex_state_1 = call_contract("LexNextToken", initial_lexer)
-  
-  compute initial_nodes = call_contract("empty")
+
+  compute initial_nodes : Collection[AstNode] = []
   
   compute initial_parser = {
     tokens: lex_state_1.tokens,

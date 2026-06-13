@@ -1,5 +1,6 @@
 module ParserLexer
 import ParserTypes
+import stdlib.collection.{ append }
 import stdlib.string.{ char_at, substring }
 
 contract LexNextToken {
@@ -27,7 +28,7 @@ contract LexNextToken {
   
   -- Avoid inline record parsing bug by using helper contract or direct assignment
   compute next_tokens = if is_keyword_module {
-    call_contract("append", state.tokens, new_token)
+    append(state.tokens, new_token)
   } else {
     state.tokens
   }

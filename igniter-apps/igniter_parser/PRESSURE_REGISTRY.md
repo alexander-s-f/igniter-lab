@@ -1,6 +1,6 @@
 # Igniter Parser Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — IP-P01/P02/P05 RESOLVED; IP-P06 NOW-ACTIVE (oof/5 Rust; oof/7 Ruby))
+Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 — IP-P06 RESOLVED; igniter_parser DUAL-CLEAN ok/0 both toolchains)
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -13,24 +13,19 @@ cd igniter-compiler
 cargo run -- compile ../igniter-apps/igniter_parser/types.ig ../igniter-apps/igniter_parser/lexer.ig ../igniter-apps/igniter_parser/parser.ig ../igniter-apps/igniter_parser/api.ig --out /tmp/igniter_parser_p6_probe.igapp
 ```
 
-Result:
+Result (as of LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, 2026-06-13):
 
-- `status`: `oof`
-- `parse`: `ok`
-- `multifile_resolve`: `oof`
-- diagnostics: 1
-- first diagnostic: `OOF-IMP2 unknown stdlib module path 'stdlib.string' from module 'ParserLexer'`
-- Rust `source_hash`: `sha256:96413f3b77ac1364dbb32f7f0e6ab87b723dbf1612074f663be61d41eeb35074`
+- `status`: `ok`
+- `diagnostics`: 0
+- contracts: `LexNextToken`, `ParseModuleDecl`, `ParseSource`
+- stages: parse ok / classify ok / typecheck ok / emit ok / assemble ok
 
 Ruby/canon compile:
 
-- `status`: `oof`
-- `pass_result`: `oof`
-- diagnostics: 1
-- first diagnostic: `OOF-IMP2 unknown stdlib module path 'stdlib.string' from module 'ParserLexer'`
-- Ruby `source_hash`: `sha256:dc95f772d8cb36b5b0dfb76723f46517cf8197971165cbdc08271ca9e333d27d`
+- `status`: `ok`
+- `diagnostics`: 0
 
-The two toolchains agree on the current first blocker.
+**DUAL-CLEAN** — both toolchains agree: ok/0, 3 contracts.
 
 ## Source Inventory
 
@@ -52,7 +47,7 @@ The app is a self-hosted parser prototype. It uses a flat AST arena (`children_i
 | IP-P03 | PENDING-BEHIND-P06 | Parser loop/state-machine pressure | `LexNextToken` and `ParseModuleDecl` model one step at a time; report notes need for repeated state folding or managed recursion | `LAB-PARSER-STATE-MACHINE-P1` |
 | IP-P04 | ACTIVE-DESIGN-PRESSURE | Flat AST arena pattern | `AstNode.children_ids: Collection[String]` avoids recursive `AstNode` nesting | Keep as app pattern; revisit only if recursive data types are opened |
 | IP-P05 | **RESOLVED** | String slicing/token accumulation | `substring(state.source, state.pos, 6)` added to `lexer.ig`; compiles cleanly both toolchains; `token_text` used in `new_token.text` | LANG-STDLIB-STRING-SUBSTRING-P2 CLOSED |
-| IP-P06 | **NOW-ACTIVE** (was hidden behind P01) | Stringly stdlib constructor calls | `api.ig`: 2×`call_contract("empty")` + `call_contract("LexNextToken")` + `call_contract("ParseModuleDecl")`; `parser.ig`: `call_contract("empty")` + `call_contract("append")`; `lexer.ig`: `call_contract("append")` — 3×empty + 2×append blocking both TCs with OOF-TY0 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
+| IP-P06 | **RESOLVED** | Stringly stdlib constructor calls | All 5 sites migrated: `api.ig` 2×empty → typed `[]`; `parser.ig` 1×empty + 1×append → typed `[]` + `append()`; `lexer.ig` 1×append → `append()`. Both TCs ok/0. | LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 CLOSED |
 | IP-P07 | PENDING-BEHIND-P06 | Self-hosting scope boundary | App proves architectural shape, not a complete parser; only 3 contracts and no full token stream loop yet | Keep out of canon until stringly migration + state iteration are defined |
 
 ## Wave P6 Recheck Summary (2026-06-13)
@@ -118,3 +113,27 @@ Rust: oof / 5 diagnostics — changed from Wave P7. Prior: oof / 1 (OOF-IMP2 std
 **IP-P06 NOW-ACTIVE** — 3 sites with `call_contract("empty")` + 2 sites with `call_contract("append")` block both toolchains (OOF-TY0). Ruby additionally shows 2 OOF-P1 cascades: `initial_tokens` and `empty_children` unresolved downstream of the empty callee. Dominant route: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`.
 
 Resolved by: LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 (gate-closed before Wave P8). Net: was oof/1+oof/1 → now oof/5+oof/7. Progress: first blocker cleared; deeper stringly pattern exposed.
+
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 (2026-06-13)
+
+Gate: LAB-IGNITER-PARSER-STRING-SURFACE-MIGRATION-P1 CLOSED (IP-P01/P02/P05 resolved).
+
+**Sites migrated (5 total):**
+
+| File | Site | Before | After |
+|---|---|---|---|
+| `api.ig` | initial_tokens | `call_contract("empty")` | `compute initial_tokens : Collection[Token] = []` |
+| `api.ig` | initial_nodes | `call_contract("empty")` | `compute initial_nodes : Collection[AstNode] = []` |
+| `parser.ig` | empty_children | `call_contract("empty")` | `compute empty_children : Collection[String] = []` |
+| `parser.ig` | new_nodes | `call_contract("append", state.nodes, module_node)` | `append(state.nodes, module_node)` |
+| `lexer.ig` | next_tokens | `call_contract("append", state.tokens, new_token)` | `append(state.tokens, new_token)` |
+
+**Tier-1 callees preserved (user contracts, not stdlib):** `call_contract("LexNextToken")`, `call_contract("ParseModuleDecl")`.
+
+**Ruby result:** ok / 0 diagnostics — DUAL-CLEAN.
+**Rust result:** ok / 0 diagnostics — DUAL-CLEAN. Contracts: `LexNextToken`, `ParseModuleDecl`, `ParseSource`.
+
+**IP-P06 RESOLVED** — all stringly stdlib constructor sites migrated.
+**igniter_parser DUAL-CLEAN** — first fully clean compile result in both toolchains.
+
+Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_stdlib_stringly_call_contract_migration_p4.rb` — 51/51 PASS.

@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — Ruby VE-P09 active; Rust CLEAN)
+Updated: 2026-06-13 (LAB-VE-NEW-OBJ-INFERENCE-P1 — VE-P09 RESOLVED; vector_editor DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -73,3 +73,16 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 1 diagnostic (`Unresolved sy
 ## Wave P8 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 1 diagnostic (`Unresolved symbol: new_obj` — OOF-P1) — unchanged. VE-P09 ACTIVE. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2 all had no effect on vector_editor. No new pressures. No regressions.
+
+## LAB-VE-NEW-OBJ-INFERENCE-P1 Resolution (2026-06-13)
+
+VE-P09 RESOLVED. Root cause: Classification 1 (app-source shape issue). `GraphicObject` has 7 fields in `@type_shapes` — the parser strips `?` from optional annotations, making all fields appear required. The original `new_obj` provided only 5 fields; P3 structural matching requires exact field set equality, so no candidates → Unknown → OOF-P1.
+
+Fix (tools.ig only):
+- Added `compute default_text = { content: "", font_size: 0 }` (provides TextData-shaped literal)
+- Annotated `compute new_obj : GraphicObject = { ... }` (activates hint path)
+- Extended fields: added `path_pts: []` and `text_data: default_text`
+
+Post-fix: Ruby ok / 0, Rust ok / 0. **vector_editor DUAL-CLEAN.**
+
+| VE-P09 | RESOLVED | Unannotated record literal `new_obj` (5/7 fields) → Unknown → OOF-P1 | Root cause: `?` suffix stripped by parser; P3 structural match requires exact field set. Fix: annotation + `default_text` compute + `path_pts: []` + `text_data: default_text` | `LAB-VE-NEW-OBJ-INFERENCE-P1` CLOSED |
