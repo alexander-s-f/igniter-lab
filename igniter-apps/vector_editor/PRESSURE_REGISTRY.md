@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -34,6 +34,10 @@ Probe: temporary copy in `/tmp/vector_editor_probe` with only `import stdlib.col
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (1 diagnostic — `call_contract: unknown callee 'append'`). Ruby: oof (7 diagnostics — 4× `Unknown function: call_contract`, 3× `Unresolved symbol` cascade). No new resolutions in Wave P2 for this app; all prerequisite cards (append/equality/encoding) were already captured in P1. Dominant blocker is call_contract parity (VE-P02/P03) on both toolchains.
+
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: oof / 1 diagnostic — unchanged from Wave P4. Ruby: oof / 4 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: VE-P08 root causes are stringly `call_contract("append", ...)` return (NOT_RECORD_LITERAL: `new_objects`) and unannotated record literals (ACTIVE_TRUE_INTERMEDIATE: `default_style`, `new_pos`) — none are annotated `compute name : Type = { ... }` forms. No new pressures.
 
 ## Wave P4 Recheck Summary (2026-06-13)
 

@@ -1,6 +1,6 @@
 # Advanced Logistics Pressure Registry
 
-**Date:** 2026-06-13 (APP-RECHECK-WAVE-P3)
+**Date:** 2026-06-13 (APP-RECHECK-WAVE-P5)
 **App:** `igniter-lab/igniter-apps/advanced_logistics`
 **Purpose:** compact registry of language/compiler pressures surfaced by the advanced logistics fixture.
 
@@ -54,6 +54,10 @@ Probe results (Wave P1/P2 — pre-resolution):
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (OOF-IMP2 import surface). Ruby: oof (OOF-IMP2 + call_contract + comparison operator). AL-P01 (import surface) and AL-P04 (comparison) still blocking both toolchains.
+
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — STILL CLEAN. Ruby: ok / 0 diagnostics — STILL CLEAN. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: no annotated compute record literals in this app. advanced_logistics retains dual-toolchain CLEAN status. No new pressures.
 
 ## Wave P4 Recheck Summary (2026-06-13)
 

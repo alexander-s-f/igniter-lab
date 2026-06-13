@@ -1,6 +1,6 @@
 # Vector Math Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
 
 This registry tracks app pressure from `igniter-apps/vector_math`. It is evidence, not canon authority.
 
@@ -34,6 +34,10 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: CLEAN (0 diagnostics). Ruby: oof (34 diagnostics — 26× `Unknown function: call_contract`, 8× `Unsupported operator: <`). No resolutions in Wave P2 for this app.
+
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 41 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: VM-P09 computes (`gravity`, `point`, `b`, `a_min`, `min_pt`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. VM-P09 (ACTIVE_TRUE_INTERMEDIATE): 5 unannotated record literal computes still Unknown. VM-P10 (ACTIVE_FIELD_NAME_MISMATCH): 36 field name mismatch errors unchanged. No new pressures.
 
 ## Wave P4 Recheck Summary (2026-06-13)
 

@@ -35,6 +35,10 @@ The bounded claim is: static feed-forward computational graphs compile today. Th
 
 This pressure should feed numeric and collection-reduction tracks rather than opening an ML package surface immediately.
 
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 2 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: NN-P09 computes (`w1`, `x1`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. NN-P09 (ACTIVE_TRUE_INTERMEDIATE): 2 unannotated record literal computes still Unknown. No new pressures.
+
 ## Wave P4 Recheck Summary (2026-06-13)
 
 Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect: `w1` and `x1` computes are unannotated record literals, not annotated `compute name : Type = expr` bindings. Root cause re-classified: NN-P09 route updated to `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`. No new pressures.

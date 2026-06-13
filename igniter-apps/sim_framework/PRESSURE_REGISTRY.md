@@ -37,6 +37,10 @@ The bounded claim is: a static simulation framework with temporal windows, relat
 
 The strongest immediate compiler/typechecker signals are multi-output `call_contract` result shape and record literal typing inside conditional branches. The strongest stdlib signal is relational collection algebra beyond flat `map`/`filter`/`fold`.
 
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 4 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: SIM-P10/P11 are String/Text alias (NOT_RECORD_LITERAL); SIM-P12/P13 (`pop_constraint`, `wolves`) are unannotated record literals (ACTIVE_TRUE_INTERMEDIATE) — none are annotated `compute name : Type = { ... }` forms. No new pressures.
+
 ## Wave P4 Recheck Summary (2026-06-13)
 
 **First Ruby TC check for this app.** Rust: CLEAN (ok / 0 diagnostics, unchanged). Ruby: oof / 4 diagnostics:

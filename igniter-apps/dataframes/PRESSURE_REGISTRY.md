@@ -46,6 +46,10 @@ Wave P2 recheck (2026-06-12): Rust still CLEAN (0 diagnostics, status ok). Ruby:
 
 Wave P3 recheck (2026-06-13): Rust: CLEAN (0 diagnostics). Ruby: 2 diagnostics (`Unresolved symbol: c00`, `Unresolved symbol: p1`). DF-P08 RESOLVED — LAB-RUBY-CALL-CONTRACT-PARITY-P3 CLOSED; all 6 call_contract errors gone. Remaining: 2 unresolved symbols from typed compute binding gap (DF-P10).
 
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 2 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: DF-P10 computes (`c00`, `p1`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. DF-P10 (ACTIVE_TRUE_INTERMEDIATE): 2 unannotated record literal computes still Unknown. No new pressures.
+
 ## Wave P4 Recheck Summary (2026-06-13)
 
 Rust: CLEAN (ok / 0 diagnostics). Ruby: oof / 2 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect: `c00` and `p1` computes are unannotated record literals (`compute c00 = { row: 0, col: 0, val: 1 }`, `compute p1 = { row_id: 1, ... }`), not `compute name : Type = expr` annotated bindings. Root cause re-classified to `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`. No new pressures.

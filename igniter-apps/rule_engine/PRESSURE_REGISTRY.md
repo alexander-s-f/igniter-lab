@@ -45,6 +45,10 @@ Ruby compile: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresol
 
 Ruby: 9 diagnostics (4× `Unknown function: call_contract`, 1× `Unresolved symbol: d`, 1× `Unresolved field: Unknown.action`, 3× `Output type mismatch: expected Collection[RuleDecision], got Unknown`). Rust: CLEAN (0 diagnostics). RE-P04 ACTIVE/CONFIRMED — LANG-OUTPUT-TYPE-ASSIGNABILITY-P3 landed; Ruby TC now emits specific output boundary error with full type info; coercion correctly rejected. No change in diagnostic count (9); message quality improved.
 
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: oof / 2 diagnostics — unchanged from Wave P4. Ruby: oof / 3 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: RE-P07 root cause split confirmed — `tx1` is ACTIVE_TRUE_INTERMEDIATE (unannotated record literal); `d`/`Unknown.action` is NOT_RECORD_LITERAL (Tier 2 dynamic `call_contract(variable_callee, ...)` result). No new pressures.
+
 ## Wave P4 Recheck Summary (2026-06-13)
 
 Rust: oof / 2 diagnostics — unchanged from Wave P3. Ruby: oof / 3 diagnostics — unchanged from Wave P3. LANG-TYPED-COMPUTE-BINDING-P2 had zero effect. Root cause split confirmed for RE-P07: `d`/`Unknown.action` are from Tier 2 dynamic dispatch; `tx1` is an unannotated record literal. No new pressures.

@@ -1,6 +1,6 @@
 # Decision Tree Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
 
 This registry tracks app pressure from `igniter-apps/decision_tree`. It is evidence, not canon authority.
 
@@ -38,6 +38,10 @@ Probes:
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (4 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: error (1 diagnostic — `ParseError: Expected name, got keyword(label)`). No new resolutions in Wave P2; DT-P02 (`label` keyword) still blocks all Ruby TC output. Rust remains blocked on call_contract("append",...) form. Parser keyword fix (LANG-PARSER-LABEL-IDENTIFIER-P1 CLOSED readiness proof) is the prerequisite before Ruby recheck is meaningful.
+
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: oof / 4 diagnostics — unchanged from Wave P4. Ruby: oof / 7 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: DT-P09 computes (`new_nodes`, `nodes_0`, `features_good`) are cascade from stringly `call_contract("append", ...)` failures (NOT_RECORD_LITERAL) — not annotated compute bindings. No new pressures.
 
 ## Wave P4 Recheck Summary (2026-06-13)
 

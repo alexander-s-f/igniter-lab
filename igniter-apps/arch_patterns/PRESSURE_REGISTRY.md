@@ -1,6 +1,6 @@
 # Architectural Patterns Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P3)
+Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
 
 This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evidence, not canon authority.
 
@@ -38,6 +38,10 @@ Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (7 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: oof (39 diagnostics — call_contract dominant, no `<` errors, no JSON crash). AP-P09 RESOLVED (`<` operator added via LANG-STDLIB-NUMERIC-COMPARISON-P3). AP-P10 RESOLVED (UTF-8 crash fixed via LANG-EMITTER-ENCODING-P2). Dominant remaining blocker: call_contract parity (AP-P02) — 7 Rust + many Ruby calls.
+
+## Wave P5 Recheck Summary (2026-06-13)
+
+Rust: oof / 8 diagnostics — unchanged from Wave P4. Ruby: oof / 14 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: AP-P12 root cause split confirmed — `genesis` is ACTIVE_TRUE_INTERMEDIATE (unannotated record literal); `new_trail` ×3 is NOT_RECORD_LITERAL (cascade from stringly `call_contract("append", ...)` failures). No new pressures.
 
 ## Wave P4 Recheck Summary (2026-06-13)
 
