@@ -39,6 +39,12 @@ Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection
 
 Rust: oof (7 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: oof (39 diagnostics — call_contract dominant, no `<` errors, no JSON crash). AP-P09 RESOLVED (`<` operator added via LANG-STDLIB-NUMERIC-COMPARISON-P3). AP-P10 RESOLVED (UTF-8 crash fixed via LANG-EMITTER-ENCODING-P2). Dominant remaining blocker: call_contract parity (AP-P02) — 7 Rust + many Ruby calls.
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: oof / 8 diagnostics — unchanged (7× `call_contract: unknown callee 'append'`, 1× OOF-TY1). Ruby: oof / 14 diagnostics — unchanged in count but composition changed. LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved AP-P12 partial: `genesis` (example.ig:34) now infers its record type via structural matching — AP-P12 genesis sub-pressure RESOLVED. However, `empty_trail` newly appeared: AP-P13 NEW — `compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")` (example.ig:65) is a stringly call_contract("append",...) that was previously hidden behind `genesis` being Unknown; now that `genesis` resolves, the downstream execution path in example.ig exposes `empty_trail` as an Unresolved symbol (because call_contract("append",...) returns Unknown). Total Ruby diag count remains 14: 9×append + OOF-TY1 + empty_trail + 3×new_trail. Route for AP-P13: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`. No regressions.
+
+| AP-P13 | ACTIVE | Newly exposed stringly call_contract cascade (`empty_trail` in example.ig:65) | Wave P6: `Unresolved symbol: empty_trail` — `compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")` exposed after AP-P12 genesis resolution; stringly bootstrap BOOTSTRAP pattern (two bare Text values as append args); same root cause as AP-P02/VE-P02/DT-P03 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: oof / 8 diagnostics — unchanged from Wave P4. Ruby: oof / 14 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: AP-P12 root cause split confirmed — `genesis` is ACTIVE_TRUE_INTERMEDIATE (unannotated record literal); `new_trail` ×3 is NOT_RECORD_LITERAL (cascade from stringly `call_contract("append", ...)` failures). No new pressures.

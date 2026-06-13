@@ -35,6 +35,10 @@ The bounded claim is: static feed-forward computational graphs compile today. Th
 
 This pressure should feed numeric and collection-reduction tracks rather than opening an ML package surface immediately.
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: **ok / 0 diagnostics — DUAL-TOOLCHAIN CLEAN** (was 2). LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved both ACTIVE_TRUE_INTERMEDIATE symbols: `w1` → `Weights2x2` (or appropriate weight type), `x1` → `InputVector`. NN-P09 RESOLVED. No new pressures. No regressions. **neural_net is now dual-toolchain CLEAN.**
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 2 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: NN-P09 computes (`w1`, `x1`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. NN-P09 (ACTIVE_TRUE_INTERMEDIATE): 2 unannotated record literal computes still Unknown. No new pressures.

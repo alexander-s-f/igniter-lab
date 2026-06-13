@@ -39,6 +39,10 @@ Probes:
 
 Rust: oof (4 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: error (1 diagnostic — `ParseError: Expected name, got keyword(label)`). No new resolutions in Wave P2; DT-P02 (`label` keyword) still blocks all Ruby TC output. Rust remains blocked on call_contract("append",...) form. Parser keyword fix (LANG-PARSER-LABEL-IDENTIFIER-P1 CLOSED readiness proof) is the prerequisite before Ruby recheck is meaningful.
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: oof / 4 diagnostics — unchanged (4× `call_contract: unknown callee 'append'`). Ruby: oof / 7 diagnostics — unchanged (4× `call_contract: unknown callee 'append'`, 3× `Unresolved symbol` cascade from DT-P09). LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 had zero effect: all remaining pressures are stringly call_contract("append",...) failures — NOT_RECORD_LITERAL classification confirmed. No new pressures. No regressions. Dominant route unchanged: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`.
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: oof / 4 diagnostics — unchanged from Wave P4. Ruby: oof / 7 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: DT-P09 computes (`new_nodes`, `nodes_0`, `features_good`) are cascade from stringly `call_contract("append", ...)` failures (NOT_RECORD_LITERAL) — not annotated compute bindings. No new pressures.

@@ -55,6 +55,10 @@ The app is a self-hosted parser prototype. It uses a flat AST arena (`children_i
 | IP-P06 | ACTIVE | Stringly stdlib constructor calls | `api.ig` and `parser.ig` use `call_contract("empty")` / `call_contract("append", ...)`; currently hidden behind P01 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
 | IP-P07 | PENDING-BEHIND-P01 | Self-hosting scope boundary | App proves architectural shape, not a complete parser; only 3 contracts and no full token stream loop yet | Keep out of canon until stdlib.string + state iteration are defined |
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: oof / 1 diagnostic — `OOF-IMP2 unknown stdlib module path 'stdlib.string' from module 'ParserLexer'`. Ruby: oof / 1 diagnostic — same `OOF-IMP2`. Both toolchains agree on the first blocker. LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 has no effect: the app is stopped at import resolution before TC runs. IP-P01 ACTIVE — `LANG-STDLIB-STRING-SURFACE-P1` is the dominant route. IP-P06 stringly stdlib constructor calls confirmed active but hidden behind P01. No new pressures. No regressions. First full fleet inclusion in Wave P6.
+
 ## P6 Inclusion
 
 Include `igniter_parser` in `APP-RECHECK-WAVE-P6`.

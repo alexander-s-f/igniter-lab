@@ -35,6 +35,10 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 
 Rust: CLEAN (status ok, 0 diagnostics, all 5 stages ok). Ruby: 15 diagnostics (9× `Unknown function: call_contract`, 3× `Unresolved symbol`, 3× `Output type mismatch`). DSA-P09 RESOLVED — LANG-EMITTER-ENCODING-P2 fixed 6 encoding sites; unstripped Ruby compile no longer crashes; actual diagnostic surface now visible. Dominant remaining Ruby blocker: call_contract parity (DSA-P08). Rust concat/append/is_empty parity complete (P4 cards CLOSED).
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: **ok / 0 diagnostics — DUAL-TOOLCHAIN CLEAN** (was 4). LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved all 4 ACTIVE_TRUE_INTERMEDIATE symbols: `e0` → `IndexedElement`, `s` → `IntSet` (disambiguated by `Collection[Integer]` vs `Collection[IndexedElement]` via `structurally_assignable?`), `edge1` → `Edge`, `c_h` → `Cell`. DSA-P10 RESOLVED. No new pressures. No regressions. **DSA is now dual-toolchain CLEAN (first since Wave P3 when AL achieved it).**
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 4 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: DSA-P10 computes (`e0`, `s`, `edge1`, `c_h`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. DSA-P10 (ACTIVE_TRUE_INTERMEDIATE): 4 unannotated record literal computes still Unknown. No new pressures.

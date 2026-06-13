@@ -55,6 +55,10 @@ Probe results (Wave P1/P2 — pre-resolution):
 
 Rust: oof (OOF-IMP2 import surface). Ruby: oof (OOF-IMP2 + call_contract + comparison operator). AL-P01 (import surface) and AL-P04 (comparison) still blocking both toolchains.
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — STILL CLEAN. Ruby: ok / 0 diagnostics — STILL CLEAN. LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 had zero effect: no unannotated intermediate record literal computes in this app. advanced_logistics retains dual-toolchain CLEAN status. No new pressures. No regressions.
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — STILL CLEAN. Ruby: ok / 0 diagnostics — STILL CLEAN. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: no annotated compute record literals in this app. advanced_logistics retains dual-toolchain CLEAN status. No new pressures.

@@ -35,6 +35,10 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 
 Rust: CLEAN (0 diagnostics). Ruby: oof (34 diagnostics — 26× `Unknown function: call_contract`, 8× `Unsupported operator: <`). No resolutions in Wave P2 for this app.
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 36 diagnostics (was 41, −5). LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved all 5 ACTIVE_TRUE_INTERMEDIATE symbols from VM-P09: `gravity` → inferred record type, `point` → inferred record type, `b` → inferred record type, `a_min` → inferred record type, `min_pt` → inferred record type. VM-P09 RESOLVED. Remaining 36 diagnostics are all VM-P10 (record literal field name mismatch: `r0/r1/r2` expected vs `x/y/z` provided in vec2.ig/vec3.ig call sites) — unchanged, not a P3 target (field name mismatch, not a missing candidate). No new pressures. No regressions.
+
 ## Wave P5 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged from Wave P4. Ruby: oof / 41 diagnostics — unchanged from Wave P4. LANG-RUBY-RECORD-LITERAL-INFERENCE-P2 had zero effect: VM-P09 computes (`gravity`, `point`, `b`, `a_min`, `min_pt`) are unannotated record literals — P2 only activates for `compute name : Type = { ... }` annotated forms. VM-P09 (ACTIVE_TRUE_INTERMEDIATE): 5 unannotated record literal computes still Unknown. VM-P10 (ACTIVE_FIELD_NAME_MISMATCH): 36 field name mismatch errors unchanged. No new pressures.

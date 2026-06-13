@@ -58,6 +58,10 @@ Files:
 | BF-P08 | OBSERVED | Map/filter collection ops are usable | `ops.ig` imports and uses `map`/`filter`; current first failure is append initialization, not map/filter import | Keep as regression evidence for collection stdlib |
 | BF-P09 | OBSERVED | Liveness budget is safe | Rust liveness `tc=6`, `fr=6`, no breaches despite chained initialization | Keep as baseline evidence for app-pressure wave |
 
+## Wave P6 Recheck Summary (2026-06-13)
+
+Rust: oof / 15 diagnostics — 15× `OOF-TY0 call_contract: unknown callee 'append' — not found in this module` (all from `InitFilter16`). Ruby: oof / 16 diagnostics — 15× same + `OOF-P1 Unresolved symbol: b14` (cascade). Rust source_hash confirmed `sha256:3502c095892a35f6f31b872d52d9ae1012b6e6789f901275d5fba292b2dfa880`. Ruby source_hash confirmed `sha256:1b1833de88b9d5805b030f6f768d8bc3ca93bb3314966e95d268d6607b5847fd`. LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 had no effect: BF-P01 is stringly call_contract("append",...) — NOT_RECORD_LITERAL classification confirmed. BF-P01 ACTIVE — `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` dominant route. BF-P03 (range/generation) and BF-P04 (indexed access) remain pending-behind-P01. No new pressures. No regressions. First full fleet inclusion in Wave P6.
+
 ## P6 Inclusion
 
 Include `bloom_filter` in `APP-RECHECK-WAVE-P6`.
