@@ -1,6 +1,6 @@
 # Rule Engine Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P7 — RE-P07 partially resolved)
+Updated: 2026-06-13 (LAB-RULE-ENGINE-BASELINE-P1 — baseline frozen 52/52 PASS)
 
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
@@ -19,7 +19,7 @@ Fresh observed result: all stages complete, 5 contracts emit, and diagnostics ar
 
 | ID | Name | Evidence | Status | Next route |
 |---|---|---|---|---|
-| RE-P01 | Rule engine Rust baseline | Wave P2: Rust CLEAN (0 diagnostics). Wave P3: Rust oof / 2 diagnostics — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 now fires OOF-TY1 for Collection[Unknown]→Collection[RuleDecision]; this is safety-positive, not a regression; P2 CLEAN baseline is superseded | Safety-positive change; `LAB-RULE-ENGINE-BASELINE-P1` needs re-freeze |
+| RE-P01 | Rule engine Rust baseline | Wave P2: Rust CLEAN (0 diagnostics). Wave P3: Rust oof / 2 diagnostics — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 now fires OOF-TY1 for Collection[Unknown]→Collection[RuleDecision]; this is safety-positive, not a regression; P2 CLEAN baseline is superseded. Wave P8: baseline re-frozen by LAB-RULE-ENGINE-BASELINE-P1 (52/52 PASS) — Rust 2× OOF-TY1 + Ruby 2× OOF-P1 pinned; source hash frozen | FROZEN — LAB-RULE-ENGINE-BASELINE-P1 CLOSED |
 | RE-P02 | Dynamic contract dispatch | Wave P3: `call_contract(r, tx)` where `r` is a variable now handled by P3 Tier 2 — returns Unknown (no "Unknown function" error); cascade: `Unresolved symbol: d`, `Unresolved field: Unknown.action`, `Unresolved symbol: tx1`; Rust: unchanged (already Unknown from LAB-RACK-P11) | `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
 | RE-P03 | Unknown field access | Ruby wave recheck: `Unresolved field: Unknown.action` confirmed (1 diag); pipeline filters decisions using `d.action` on Unknown-typed result | Active, safety-high | `LAB-UNKNOWN-FIELD-ACCESS-P1` |
 | RE-P04 | ACTIVE/CONFIRMED | Unknown output coercion | ACTIVE/CONFIRMED in both toolchains. Wave P3: Rust emits 2× OOF-TY1 (`Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]` + `expected RuleDecision, got Unknown`) — LANG-OUTPUT-TYPE-ASSIGNABILITY-P4 landed; safety-positive. Ruby: OOF-TY1 masked by cascade errors from Tier 2 Unknown propagation. Route: LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2 + LAB-DYNAMIC-CONTRACT-DISPATCH-P1 | `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2`; `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` |
@@ -65,12 +65,16 @@ Rust: oof / 2 diagnostics — `Output type mismatch: expected Collection[RuleDec
 
 Rust: oof / 2 diagnostics — unchanged (2× OOF-TY1: `Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]`; `Output type mismatch: expected RuleDecision, got Unknown`). Ruby: oof / 2 diagnostics — unchanged from Wave P6 (`Unresolved symbol: d`; `Unresolved field: Unknown.action`). RE-P04 ACTIVE/CONFIRMED (Rust OOF-TY1 safety-positive). RE-P07 PARTIALLY-RESOLVED: `tx1` sub-pressure RESOLVED by LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (Wave P6; `tx1` → `Transaction`); remaining `d` (Tier 2 dynamic dispatch result — route: `LAB-DYNAMIC-CONTRACT-DISPATCH-P1`) and cascade `Unknown.action`. No new pressures.
 
+## Wave P8 Baseline Freeze (2026-06-13)
+
+LAB-RULE-ENGINE-BASELINE-P1 CLOSED 52/52 PASS. Baseline frozen. Rust: oof / 2× OOF-TY1 — `Output type mismatch: expected Collection[RuleDecision], got Collection[Unknown]` (node: active_decisions); `Output type mismatch: expected RuleDecision, got Unknown` (node: decision). Ruby: oof / 2× OOF-P1 — `Unresolved symbol: d`; `Unresolved field: Unknown.action`. Source hash: `sha256:0cf7f61465246aedb46242c9c6c36add39f9d71956950461a7831e9bdc22486b`. Liveness: tc_infer=6 / fr_walk=6 / no breaches. RE-P01 re-frozen. No source changes. No implementation. Predecessors confirmed CLOSED: LAB-DYNAMIC-CONTRACT-DISPATCH-P1 / LAB-UNKNOWN-FIELD-ACCESS-P1 / LANG-OUTPUT-TYPE-ASSIGNABILITY-P4.
+
 ## Recommended Route
 
-1. `LAB-RULE-ENGINE-BASELINE-P1` to freeze the current app behavior.
+1. ~~`LAB-RULE-ENGINE-BASELINE-P1` to freeze the current app behavior.~~ **DONE**
 2. `LAB-OUTPUT-TYPE-PARAMETER-CHECK-P2` implementation planning for parametric container assignability (broader than Collection[Unknown] alone).
-3. `LAB-DYNAMIC-CONTRACT-DISPATCH-P1` to define receipt and fail-closed semantics for variable callees.
-4. `LAB-UNKNOWN-FIELD-ACCESS-P1` to decide whether field projection over Unknown requires trace, quarantine, or OOF.
+3. `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` to define receipt and fail-closed semantics for variable callees.
+4. `LAB-HOF-LAMBDA-ERROR-PROPAGATION-P1` to address Rust HOF temp_errors vs Ruby propagation divergence.
 5. Rule/plugin architecture only after the safety cards close.
 
 ## Non-Goals
