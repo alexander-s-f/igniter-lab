@@ -7,6 +7,11 @@
 # Research + proof that Rust TC does not propagate compute type
 # annotations into symbol_types when the inferred RHS is Unknown-bearing.
 #
+# NOTE (2026-06-13): Updated for LANG-RUST-TYPED-COMPUTE-BINDING-P2.
+# Sections B, C, D-04, G-02/G-03, I-05, J-02 now reflect FIXED behavior
+# after P2 implementation. Run with P2 release binary for 46/46 PASS.
+# Historical gap expectations preserved in comments.
+#
 # Answers all 13 research questions. Sections:
 #
 #   A  Source survey: annotation handling in Rust TC      (6)
@@ -283,63 +288,61 @@ check("A-06: output arm reads decl.type_annotation to get expected type for stru
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-section "B", "Current gap reproduction: typed [] → Unknown bind in Rust"
+section "B", "Gap FIXED (P2): typed [] now binds annotation type in Rust"
 # Q4: Does Rust upgrade at compute binding or only at output boundary?
-# Q5: What type does c0 get in symbol_types today?
+# Q5: What type does c0 get in symbol_types after P2 fix?
+# (Before P2: Unknown. After P2: annotation type.)
 
-check("B-01: GAP CHAIN — Rust oof (downstream append from annotated [] intermediate fails)") {
-  rust_oof?(GAP_CHAIN_FIXTURE)
+check("B-01: GAP CHAIN — Rust FIXED: ok/0 after P2 annotation override (was: oof OOF-TY1)") {
+  rust_ok?(GAP_CHAIN_FIXTURE)
 }
 
-check("B-02: GAP CHAIN — Rust diagnostic is OOF-TY1 (output type mismatch, not OOF-COL)") {
+check("B-02: GAP CHAIN — Rust FIXED: 0 diagnostics (was: OOF-TY1 output type mismatch)") {
   r = rust_compile(GAP_CHAIN_FIXTURE)
-  r[:codes].include?("OOF-TY1")
+  r[:status] == "ok" && r[:count] == 0
 }
 
-check("B-03: GAP CHAIN NONEMPTY — Rust oof even with non-empty typed array literal seed") {
-  # [seed_a, seed_b] where items are Unknown record literals → still infers Unknown
-  rust_oof?(GAP_CHAIN_NONEMPTY)
+check("B-03: GAP CHAIN NONEMPTY — Rust FIXED: ok/0 with non-empty typed array literal seed") {
+  # P2 fix: array literal infers Unknown → annotation authoritative → Collection[Item] bound
+  rust_ok?(GAP_CHAIN_NONEMPTY)
 }
 
-check("B-04: MULTI-HOP — Rust oof (two-hop chain: c0→c1→c2 all Unknown-bearing)") {
-  rust_oof?(MULTI_HOP_FIXTURE)
+check("B-04: MULTI-HOP — Rust FIXED: ok/0 (two-hop chain resolves via annotation propagation)") {
+  rust_ok?(MULTI_HOP_FIXTURE)
 }
 
-check("B-05: STRING CHAIN — Rust oof (even String-typed seed, because items are String literals but array infers Unknown)") {
-  # "hello" is a String literal — infer_expr returns String. But [String] → Collection?
-  # Actually, ArrayLiteral in infer_expr always returns Unknown (comment at line 3990).
-  # So Collection[String] annotation is not used for binding → c0 = Unknown → c1 = Collection[Unknown]
-  rust_oof?(STRING_CHAIN_FIXTURE)
+check("B-05: STRING CHAIN — Rust FIXED: ok/0 (String annotation propagates via P2 override)") {
+  # P2 fix: array infers Unknown → annotation Collection[String] authoritative →
+  # append(Collection[String], String) → Collection[String] → output ok
+  rust_ok?(STRING_CHAIN_FIXTURE)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-section "C", "Downstream append sees wrong type today"
-# Q5 (continued): What exact type does c0 get?
-# Q6: Is the gap limited to Collection[Unknown], or any Unknown-bearing type?
+section "C", "Downstream append now sees correct type (gap resolved)"
+# Q5 (continued): What exact type does c0 get after P2?
+# Q6: Is the fix complete for all Unknown-bearing shapes?
+# (Before P2: append saw Unknown → Collection[Unknown] → OOF-TY1. After P2: sees Collection[T].)
 
-check("C-01: GAP CHAIN OOF-TY1 message mentions Collection[Unknown] or Unknown (append returns Unknown-bearing)") {
+check("C-01: GAP CHAIN FIXED — Rust ok/0: no OOF-TY1 (annotation override resolved Unknown at bind time)") {
   r = rust_compile(GAP_CHAIN_FIXTURE)
-  r[:diags].any? { |d|
-    msg = d["message"] || ""
-    msg.include?("Unknown") && (d["rule"] == "OOF-TY1")
-  }
+  r[:status] == "ok" && !r[:codes].include?("OOF-TY1")
 }
 
-check("C-02: MULTI-HOP also OOF-TY1 (gap propagates through multiple append hops)") {
+check("C-02: MULTI-HOP FIXED — Rust ok/0: no OOF-TY1 (annotation propagates through multi-hop chain)") {
   r = rust_compile(MULTI_HOP_FIXTURE)
-  r[:codes].include?("OOF-TY1")
+  r[:status] == "ok" && !r[:codes].include?("OOF-TY1")
 }
 
-check("C-03: GAP confirms append(Unknown, T) → Collection[Unknown] in Rust (not OOF-COL2 / OOF-COL6)") {
-  # append's first arg is Unknown (not non-Collection) → col_arg_name="Unknown" → elem_type=Unknown
-  # → resolved_type = Collection[Unknown] → no OOF-COL2/COL6 but eventual OOF-TY1 at output
+check("C-03: GAP FIXED — append(Collection[T], Unknown) → Collection[T] in Rust (no OOF codes at all)") {
+  # After P2: c0 binds Collection[Item] → append(Collection[Item], Unknown) → Collection[Item]
+  # OOF-COL6 skipped (item Unknown → guard skipped) → c1 = Collection[Item] → output ok
   r = rust_compile(GAP_CHAIN_FIXTURE)
-  !r[:codes].include?("OOF-COL2") && !r[:codes].include?("OOF-COL6") && r[:codes].include?("OOF-TY1")
+  !r[:codes].include?("OOF-COL2") && !r[:codes].include?("OOF-COL6") && !r[:codes].include?("OOF-TY1")
 }
 
-check("C-04: gap is NOT limited to empty array — non-empty annotated intermediate also fails") {
-  rust_oof?(GAP_CHAIN_NONEMPTY)
+check("C-04: FIX covers non-empty arrays too — annotated intermediate with items resolves correctly") {
+  rust_ok?(GAP_CHAIN_NONEMPTY)
 }
 
 check("C-05: structurally_assignable rejects Unknown actual at any param depth (D2 rule — line ~2049)") {
@@ -369,10 +372,10 @@ check("D-03: collection_output_hints is the mechanism — keyed on output.name �
     TC_RUST_SRC.include?("LAB-TC-ARRAY-P1: pre-scan output declarations")
 }
 
-check("D-04: DIRECT OUTPUT diverges from GAP CHAIN — same annotation, different position") {
-  # The ONLY difference: in DIRECT_OUTPUT, compute xs IS the output name → hint fires
-  # In GAP_CHAIN, compute c0 is NOT the output name (c1 is) → no hint for c0
-  rust_ok?(DIRECT_OUTPUT_FIXTURE) && rust_oof?(GAP_CHAIN_FIXTURE)
+check("D-04: DIRECT OUTPUT and GAP CHAIN now CONVERGE — both Rust ok after P2 (was: diverged)") {
+  # Before P2: DIRECT_OUTPUT ok (collection_output_hints fires), GAP_CHAIN oof (hint not for intermediates)
+  # After P2: both ok — annotation override handles intermediate computes too
+  rust_ok?(DIRECT_OUTPUT_FIXTURE) && rust_ok?(GAP_CHAIN_FIXTURE)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -436,17 +439,15 @@ check("G-01: CONCRETE MISMATCH — Ruby oof (OOF-TY0: Binding type mismatch)") {
   r[:status] == "oof" && r[:codes].include?("OOF-TY0")
 }
 
-check("G-02: CONCRETE MISMATCH — Rust status (no OOF-TY0 for annotation mismatch today)") {
-  # Rust does NOT check annotation vs inferred type in the compute arm —
-  # it only checks at the output boundary. So the output check sees Integer
-  # vs String → OOF-TY1 (not OOF-TY0). Rust never emits OOF-TY0 for this.
+check("G-02: CONCRETE MISMATCH — Rust FIXED: now emits OOF-TY0 at binding time (not OOF-TY1 at output)") {
+  # After P2: branch (c) fires — concrete mismatch → OOF-TY0 + annotation used → no cascade OOF-TY1
   r = rust_compile(CONCRETE_MISMATCH_FIXTURE)
-  r[:codes].include?("OOF-TY1") && !r[:codes].include?("OOF-TY0")
+  r[:codes].include?("OOF-TY0") && !r[:codes].include?("OOF-TY1")
 }
 
-check("G-03: Rust concrete mismatch produces OOF-TY1 at output boundary (not binding-time OOF-TY0)") {
+check("G-03: Rust concrete mismatch FIXED: produces OOF-TY0 at binding (was: OOF-TY1 at output boundary)") {
   r = rust_compile(CONCRETE_MISMATCH_FIXTURE)
-  r[:codes] == ["OOF-TY1"]
+  r[:codes] == ["OOF-TY0"]
 }
 
 check("G-04: Ruby concrete mismatch produces OOF-TY0 at binding time (annotation authoritative, output ok)") {
@@ -510,11 +511,10 @@ check("I-04: c0-c4 migration plan: BOOTSTRAP c0 as Collection[Transition] + ACCU
   TC_RUST_SRC.include?("elem_name != \"Unknown\" && item_name != \"Unknown\" && elem_name != item_name")
 }
 
-check("I-05: LANG-RUST-TYPED-COMPUTE-BINDING-P2 unblocks all 5 arch_patterns deferred sites") {
-  # After migration (not done in P1) + P2 fix:
-  # c0-c4 all Collection[Transition] → output c4 : Collection[Transition] ok → 0 diags
-  # Evidence: gap fixture (same shape) OOF-TY1 in Rust, ok in Ruby
-  rust_oof?(GAP_CHAIN_FIXTURE) && ruby_ok?(GAP_CHAIN_FIXTURE)
+check("I-05: LANG-RUST-TYPED-COMPUTE-BINDING-P2 APPLIED: both TCs ok for GAP CHAIN (Rust fix in place)") {
+  # After P2: Rust GAP_CHAIN ok/0 (was oof/1 OOF-TY1); Ruby always ok/0
+  # Both converge → c0-c4 migration now unblocked for arch_patterns
+  rust_ok?(GAP_CHAIN_FIXTURE) && ruby_ok?(GAP_CHAIN_FIXTURE)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -529,9 +529,8 @@ check("J-01: insertion point is immediately before symbol_types.insert in the co
   idx && idx > 0
 }
 
-check("J-02: helper unknown_or_unknown_bearing does NOT exist in Rust TC yet (needs to be added in P2)") {
-  !TC_RUST_SRC.include?("unknown_or_unknown_bearing") &&
-    !TC_RUST_SRC.include?("unknown_bearing")
+check("J-02: helper unknown_or_unknown_bearing NOW EXISTS in Rust TC (LANG-RUST-TYPED-COMPUTE-BINDING-P2 applied)") {
+  TC_RUST_SRC.include?("fn unknown_or_unknown_bearing")
 }
 
 check("J-03: structurally_assignable already exists in Rust TC (can be reused for concrete-match branch)") {

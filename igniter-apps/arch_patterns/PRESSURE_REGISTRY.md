@@ -1,13 +1,13 @@
 # Architectural Patterns Pressure Registry
 
-Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 — partial; c0-c4 deferred)
+Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3 — DUAL-CLEAN; c0-c4 migrated)
 
 This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evidence, not canon authority.
 
 | ID | Status | Pressure | Evidence | Suggested route |
 | --- | --- | --- | --- | --- |
 | AP-P01 | RESOLVED | `stdlib.collection` import surface | Wave recheck: no OOF-IMP2 in Ruby or Rust; app reaches emitter (Ruby) / TC (Rust); `stdlib.collection` recognized in inventory | `LANG-STDLIB-COLLECTION-APPEND-PROP-P3` inventory |
-| AP-P02 | PARTIALLY-RESOLVED | `append` via call_contract | Wave P3: Rust 8 diags; Ruby 14 diags. P2 migration: 3 pipeline.ig ACCUMULATING sites migrated (AP-S01–S03) + 1 example.ig empty_trail BOOTSTRAP migrated (AP-S04). 5 example.ig c0-c4 sites DEFERRED — BOOTSTRAP → direct `output c4 : Collection[Transition]` chain causes OOF-TY1 in Rust (typed-[] propagation gap; `LANG-TYPED-COMPUTE-BINDING-P2` Ruby-only). Remaining: 5×OOF-TY0 (c0-c4) in both TCs | `LANG-RUST-TYPED-COMPUTE-BINDING-P1` (Rust parity needed to complete) |
+| AP-P02 | RESOLVED | `append` via call_contract | Wave P3: Rust 8 diags; Ruby 14 diags. P2 migration: 3 pipeline.ig ACCUMULATING sites migrated (AP-S01–S03) + 1 example.ig empty_trail BOOTSTRAP migrated (AP-S04). 5 example.ig c0-c4 sites DEFERRED (Rust typed-[] propagation gap). P3 migration: c0 → `compute c0 : Collection[Transition] = [t0, t1]` (BOOTSTRAP + annotation); c1-c4 → `append(cx, ty)` ACCUMULATING. After LANG-RUST-TYPED-COMPUTE-BINDING-P2 fix + P3 migration: 0 diags both TCs | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3` CLOSED |
 | AP-P03 | ACTIVE | Event replay wants fold | `ReplayEvents3` / `ReplayEvents5` are manual unrolls of `ApplyEvent` | fold parity + typed invocation/form follow-up |
 | AP-P04 | READY | Collection emptiness / find-one | `is_empty`/`non_empty` now available; `CheckTransition` can now be updated to enforce non-empty candidate check; state_machine.ig comment `-- candidates is non-empty, but we lack is_empty()` is stale | App can use `filter + is_empty`; `LAB-STDLIB-FIND-ONE-P1` for scalar |
 | AP-P05 | POSITIVE | Static middleware pipeline | `RunPipeline` chains pure `PipelineContext -> PipelineContext` contracts | preserve as static composition evidence |
@@ -16,7 +16,7 @@ This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evide
 | AP-P08 | WATCH | Variant/ADT surface | `DomainEvent.kind`, `AccountState.status`, `Command.kind` are string tags | variant/ADT follow-up |
 | AP-P09 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC `operator_type` + emitter `operator_for`; Wave P2 unstripped Ruby recheck: 0 `Unsupported operator: <` (39 total diags vs 41 in P1, 2 fewer = the two `<` errors) | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | AP-P10 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 39 actual diagnostics surface (was crashing before strip workaround); types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
-| AP-P11 | ACTIVE | Output type mismatch OOF-TY1 cascade | Wave P3: both Rust and Ruby emit `Output type mismatch: expected Collection[Transition], got Unknown`. P2 migration: does NOT clear — c0-c4 chain deferred; c4 still returns Unknown; OOF-TY1 at output boundary remains. Clears when LANG-RUST-TYPED-COMPUTE-BINDING-P1 enables full c0-c4 migration | `LANG-RUST-TYPED-COMPUTE-BINDING-P1` |
+| AP-P11 | RESOLVED | Output type mismatch OOF-TY1 cascade | Wave P3: both Rust and Ruby emit `Output type mismatch: expected Collection[Transition], got Unknown`. P2 migration: did NOT clear (c0-c4 deferred; c4=Unknown). P3 migration: c0 typed annotation → c0..c4 all `Collection[Transition]` → output check passes → OOF-TY1 cleared. Resolved by `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3` + `LANG-RUST-TYPED-COMPUTE-BINDING-P2` | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3` CLOSED |
 | AP-P12 | RESOLVED | Typed compute binding gap (split) | Wave P3: Ruby 4 unresolved symbol diags — `genesis` + `new_trail` ×3. `genesis` resolved by LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (Wave P6). `new_trail` ×3 (from pipeline.ig ACCUMULATING sites) resolved by P2 migration (AP-S01–S03). All 4 unresolved symbol diags cleared | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED + `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 
 ## Live Commands Used
@@ -34,6 +34,14 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; paths = %w[types.ig
 ```
 
 Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection` imports removed.
+
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P3 Recheck (2026-06-13)
+
+Ruby: ok/0 — DUAL-CLEAN. Down from oof/6 (5×OOF-TY0 + 1×OOF-TY1).  
+Rust: ok/0 — DUAL-CLEAN. Down from oof/6 (5×OOF-TY0 + 1×OOF-TY1).  
+Migration: 5 sites in example.ig BuildTransitionTable — c0 BOOTSTRAP `[t0, t1]` with `Collection[Transition]` annotation; c1-c4 ACCUMULATING `append(cx, ty)`.  
+Dependency: LANG-RUST-TYPED-COMPUTE-BINDING-P2 fix active — annotation override propagates `Collection[Transition]` into symbol_types for c0.  
+AP-P02 RESOLVED. AP-P11 RESOLVED. arch_patterns now DUAL-TOOLCHAIN CLEAN (7th app in fleet).
 
 ## Wave P2 Recheck Summary (2026-06-12)
 

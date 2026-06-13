@@ -20,11 +20,11 @@ contract BuildTransitionTable {
   compute t4 = { from_status: "frozen", to_status: "active", event_kind: "Unfrozen", guard_min_balance: 0 }
   compute t5 = { from_status: "active", to_status: "closed", event_kind: "Closed", guard_min_balance: 0 }
 
-  compute c0 = call_contract("append", t0, t1)
-  compute c1 = call_contract("append", c0, t2)
-  compute c2 = call_contract("append", c1, t3)
-  compute c3 = call_contract("append", c2, t4)
-  compute c4 = call_contract("append", c3, t5)
+  compute c0 : Collection[Transition] = [t0, t1]
+  compute c1 = append(c0, t2)
+  compute c2 = append(c1, t3)
+  compute c3 = append(c2, t4)
+  compute c4 = append(c3, t5)
 
   output c4 : Collection[Transition]
 }

@@ -1184,6 +1184,36 @@ impl TypeChecker {
                             }
                         }
                     }
+                    // LANG-RUST-TYPED-COMPUTE-BINDING-P2: if the compute has a declared
+                    // type annotation, apply annotation-based bind-type resolution.
+                    // Mirrors Ruby LANG-TYPED-COMPUTE-BINDING-P2 three-way branch:
+                    // (a) Unknown-bearing inferred → annotation authoritative, no error.
+                    // (b) Concrete match (structurally_assignable) → keep inferred type.
+                    // (c) Concrete mismatch → emit OOF-TY0, use annotation to avoid cascade.
+                    // Runs after LAB-RACK-P13 and LAB-TC-ARRAY-P1 upgrades so those take
+                    // precedence when they fire; annotation override only applies when the
+                    // earlier upgrades left the type Unknown-bearing.
+                    if let Some(ann) = &decl.type_annotation {
+                        let ann_type = self.type_ir(ann);
+                        if self.unknown_or_unknown_bearing(&typed_expr.resolved_type) {
+                            // (a) inferred is Unknown or Unknown-bearing — annotation authoritative
+                            typed_expr.resolved_type = ann_type;
+                        } else if !self.structurally_assignable(&typed_expr.resolved_type, &ann_type) {
+                            // (c) concrete mismatch — emit OOF-TY0, bind annotation to avoid cascade
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-TY0".to_string(),
+                                message: format!(
+                                    "Binding type mismatch: declared {}, got {}",
+                                    self.type_display(&ann_type),
+                                    self.type_display(&typed_expr.resolved_type)
+                                ),
+                                node: decl.name.clone(),
+                                line: None,
+                            });
+                            typed_expr.resolved_type = ann_type;
+                        }
+                        // (b) concrete match — structurally_assignable → keep inferred type (no change)
+                    }
                     symbol_types.insert(decl.name.clone(), typed_expr.resolved_type.clone());
                     // igniter-string-core: rewrite concat calls before storing expr in TypedDecl.
                     // This resolves the Collection/Text ambiguity so the emitter emits the
@@ -2054,6 +2084,19 @@ impl TypeChecker {
         actual_params.iter().zip(expected_params.iter()).all(|(a, e)| {
             self.structurally_assignable(&self.type_ir(a), &self.type_ir(e))
         })
+    }
+
+    /// LANG-RUST-TYPED-COMPUTE-BINDING-P2: true when a type IR is Unknown or
+    /// recursively contains any Unknown at any param depth.
+    /// Mirrors Ruby `unknown_or_unknown_bearing?` in typechecker.rb.
+    fn unknown_or_unknown_bearing(&self, t: &serde_json::Value) -> bool {
+        if self.type_name(t) == "Unknown" {
+            return true;
+        }
+        t.get("params")
+            .and_then(|p| p.as_array())
+            .map(|params| params.iter().any(|p| self.unknown_or_unknown_bearing(&self.type_ir(p))))
+            .unwrap_or(false)
     }
 
     fn type_display(&self, type_info: &serde_json::Value) -> String {
