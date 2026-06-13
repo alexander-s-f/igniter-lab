@@ -6,7 +6,7 @@ contract AppendObjectToLayer {
   input layer : Layer
   input obj : GraphicObject
   
-  compute new_objects = call_contract("append", layer.objects, obj)
+  compute new_objects = append(layer.objects, obj)
   
   compute updated_layer = {
     id: layer.id,

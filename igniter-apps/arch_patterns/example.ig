@@ -62,7 +62,7 @@ contract RunFullScenario {
 
   -- ── Step 3: Pipeline — validate a withdraw command ──
   compute withdraw_cmd = { kind: "withdraw", amount: 3000, actor: "user", timestamp: 1006 }
-  compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")
+  compute empty_trail : Collection[String] = ["pipeline:start", "pipeline:init"]
 
   compute pipeline_ctx = {
     command: withdraw_cmd,

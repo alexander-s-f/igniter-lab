@@ -1,6 +1,6 @@
 # Decision Tree Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
+Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/decision_tree`. It is evidence, not canon authority.
 
@@ -8,13 +8,13 @@ This registry tracks app pressure from `igniter-apps/decision_tree`. It is evide
 | --- | --- | --- | --- | --- |
 | DT-P01 | RESOLVED | `stdlib.collection` import surface | Wave recheck: Rust shows 4 diags (all `call_contract: unknown callee 'append'`), no OOF-IMP2; `stdlib.collection` recognized in inventory | `LANG-STDLIB-COLLECTION-APPEND-PROP-P3` inventory |
 | DT-P02 | RESOLVED | Ruby parser keyword hygiene | Wave P2: Ruby stopped at `ParseError: Expected name, got keyword(label)`. Wave P3: LANG-PARSER-CONTEXTUAL-KEYWORDS-P2 CLOSED — `name_token!` now accepts `%i[ident keyword]` in all binding positions; `label` is valid as a binding name; Ruby progresses to TC | `LANG-PARSER-CONTEXTUAL-KEYWORDS-P2` CLOSED |
-| DT-P03 | ACTIVE | `append` via call_contract | Wave P3: Rust 4 diags (4× `call_contract: unknown callee 'append'`); Ruby 7 diags (4× `call_contract: unknown callee 'append'` + 3× `Unresolved symbol` cascade); stdlib-form call_contract('append',...) still not dispatched in either toolchain | stringly stdlib migration + call_contract parity |
+| DT-P03 | RESOLVED | `append` via call_contract | Wave P3: Rust 4 diags (4× `call_contract: unknown callee 'append'`); Ruby 7 diags (4× `call_contract: unknown callee 'append'` + 3× `Unresolved symbol` cascade). P2 migration: all 4 sites migrated — DT-S01 (`nodes_0` BOOTSTRAP), DT-S02 (`features_good` BOOTSTRAP), DT-S03 (`features_bad` BOOTSTRAP), DT-S04 (`new_nodes` ACCUMULATING in builder.ig); both TCs now ok/0 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 | DT-P04 | ACTIVE | Single-element collection extraction | `FindNodeById` and `LookupFeature` can only return `Collection[T]`; no `head`/`first`/`find_one` | `LAB-STDLIB-FIND-ONE-P1` |
 | DT-P05 | RESOLVED | Text equality | Wave recheck (Rust): 0 equality errors; `==` works via Rust TC; Ruby blocked by DT-P02 but LANG-STDLIB-TEXT-EQUALITY-P3 implements `==` in Ruby `operator_type` | `LANG-STDLIB-TEXT-EQUALITY-P3` CLOSED |
 | DT-P06 | WATCH | Managed traversal | `Evaluate` is fixed-depth unrolled because tree traversal cannot recurse/loop safely | managed recursion / bounded traversal follow-up |
 | DT-P07 | ACTIVE | Variant/ADT surface | `TreeNode` uses `kind` plus sentinel fields for leaf vs decision nodes | variant/ADT surface follow-up |
 | DT-P08 | WATCH | Contract invocation return shape | Single-output `call_contract` collapses to scalar, not wrapper record | typed refs / invocation forms docs |
-| DT-P09 | ACTIVE | Typed compute binding gap (stringly call_contract) | Wave P3: 3 cascade `Unresolved symbol` diags from Ruby TC — `new_nodes`, `nodes_0`, `features_good`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause confirmed: cascade from stringly `call_contract("append", ...)` failures; output variables not bound into symbol_types when callee is unresolved; clears when stringly stdlib migration resolves append | stringly stdlib migration (`LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`) |
+| DT-P09 | RESOLVED | Typed compute binding gap (stringly call_contract) | Wave P3: 3 cascade `Unresolved symbol` diags — `new_nodes`, `nodes_0`, `features_good`. Root cause: cascade from stringly `call_contract("append", ...)` failures. P2 migration resolved all 4 append sites; all cascade symbols now resolved. Both TCs ok/0 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 
 ## Live Commands Used
 
@@ -38,6 +38,13 @@ Probes:
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (4 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: error (1 diagnostic — `ParseError: Expected name, got keyword(label)`). No new resolutions in Wave P2; DT-P02 (`label` keyword) still blocks all Ruby TC output. Rust remains blocked on call_contract("append",...) form. Parser keyword fix (LANG-PARSER-LABEL-IDENTIFIER-P1 CLOSED readiness proof) is the prerequisite before Ruby recheck is meaningful.
+
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 Recheck (2026-06-13)
+
+Ruby: **ok/0** — all 4 stringly append sites migrated (3 BOOTSTRAP in example.ig, 1 ACCUMULATING in builder.ig); DT-P03 and DT-P09 both RESOLVED.  
+Rust: **ok/0** — same.  
+**decision_tree is DUAL-TOOLCHAIN CLEAN.**  
+Remaining active pressures: DT-P04 (find-one), DT-P06 (managed traversal), DT-P07 (variant/ADT).
 
 ## Wave P6 Recheck Summary (2026-06-13)
 

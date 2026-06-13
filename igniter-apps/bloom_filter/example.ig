@@ -32,21 +32,21 @@ contract InitFilter16 {
   compute s15 = { pos: 15, set: false }
 
   -- Build the collection by chaining appends
-  compute b0 = call_contract("append", s0, s1)
-  compute b1 = call_contract("append", b0, s2)
-  compute b2 = call_contract("append", b1, s3)
-  compute b3 = call_contract("append", b2, s4)
-  compute b4 = call_contract("append", b3, s5)
-  compute b5 = call_contract("append", b4, s6)
-  compute b6 = call_contract("append", b5, s7)
-  compute b7 = call_contract("append", b6, s8)
-  compute b8 = call_contract("append", b7, s9)
-  compute b9 = call_contract("append", b8, s10)
-  compute b10 = call_contract("append", b9, s11)
-  compute b11 = call_contract("append", b10, s12)
-  compute b12 = call_contract("append", b11, s13)
-  compute b13 = call_contract("append", b12, s14)
-  compute b14 = call_contract("append", b13, s15)
+  compute b0 : Collection[BitSlot] = [s0, s1]
+  compute b1 = append(b0, s2)
+  compute b2 = append(b1, s3)
+  compute b3 = append(b2, s4)
+  compute b4 = append(b3, s5)
+  compute b5 = append(b4, s6)
+  compute b6 = append(b5, s7)
+  compute b7 = append(b6, s8)
+  compute b8 = append(b7, s9)
+  compute b9 = append(b8, s10)
+  compute b10 = append(b9, s11)
+  compute b11 = append(b10, s12)
+  compute b12 = append(b11, s13)
+  compute b13 = append(b12, s14)
+  compute b14 = append(b13, s15)
 
   compute bf = {
     size: 16,

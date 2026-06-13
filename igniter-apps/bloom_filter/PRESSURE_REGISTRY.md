@@ -1,6 +1,6 @@
 # Bloom Filter Pressure Registry
 
-Status: APP-RECHECK-WAVE-P6 candidate
+Status: LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 CLOSED — DUAL-CLEAN
 Last checked: 2026-06-13
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
@@ -48,8 +48,8 @@ Files:
 
 | ID | Status | Pressure | Evidence | Route |
 |---|---|---|---|---|
-| BF-P01 | ACTIVE | Stringly `call_contract("append")` initialization chain | `InitFilter16` has 15 chained `call_contract("append", ...)` sites; both toolchains reject them as unknown local callees | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
-| BF-P02 | ACTIVE-BEHIND-P01 | Collection bootstrap shape | First append is `call_contract("append", s0, s1)`, two bare `BitSlot` values, not canonical `append(Collection[T], T)` | `LANG-TYPED-COMPUTE-BINDING` plus explicit `[]` seed rewrite or a dedicated migration card |
+| BF-P01 | RESOLVED | Stringly `call_contract("append")` initialization chain | `InitFilter16` had 15 chained stringly sites; all migrated in `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2`: BF-S01 → `compute b0 : Collection[BitSlot] = [s0, s1]`; BF-S02–S15 → `append(b{n-1}, s{n+1})` | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
+| BF-P02 | RESOLVED | Collection bootstrap shape | First append was `call_contract("append", s0, s1)` (BOOTSTRAP); migrated to `compute b0 : Collection[BitSlot] = [s0, s1]` typed seed in P2; Rust ok because output is record literal `output bf : BloomFilter` (gap does not apply) | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 | BF-P03 | ACTIVE-DESIGN-PRESSURE | Missing `range()` / collection generation | `example.ig` manually defines 16 slots and chains append; report says `range(0, 16)` would reduce this to a compact map | `LANG-STDLIB-COLLECTION-RANGE-P1` |
 | BF-P04 | ACTIVE-DESIGN-PRESSURE | No indexed collection access | Bit array modeled as `Collection[BitSlot]`; `SetBitAtIndex` maps over all slots by `pos` | `LAB-STDLIB-COLLECTION-INDEX-ACCESS-P1` |
 | BF-P05 | PARTIALLY-RESOLVED | Filter-to-boolean collapse | Prior report says `is_empty`/`length` needed; `stdlib.collection.is_empty/non_empty` now exists, app source has not been migrated | Include in stringly/source migration after P01 |
@@ -57,6 +57,13 @@ Files:
 | BF-P07 | ACTIVE-DESIGN-PRESSURE | No string hashing | `example.ig` uses integer URL hashes because string hashing is absent | `LANG-STDLIB-STRING-HASH-P1` after string surface |
 | BF-P08 | OBSERVED | Map/filter collection ops are usable | `ops.ig` imports and uses `map`/`filter`; current first failure is append initialization, not map/filter import | Keep as regression evidence for collection stdlib |
 | BF-P09 | OBSERVED | Liveness budget is safe | Rust liveness `tc=6`, `fr=6`, no breaches despite chained initialization | Keep as baseline evidence for app-pressure wave |
+
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 Recheck (2026-06-13)
+
+Ruby: **ok/0** — all 15 stringly append sites migrated; BF-P01 RESOLVED; BF-P02 RESOLVED; OOF-P1 b14 cascade cleared.  
+Rust: **ok/0** — all 15 sites migrated; output is `BloomFilter` record (typed-[] propagation gap does not apply).  
+**bloom_filter is DUAL-TOOLCHAIN CLEAN.**  
+Remaining design pressures: BF-P03 (range), BF-P04 (indexed access), BF-P06 (modulo), BF-P07 (string hashing) — unchanged.
 
 ## Wave P6 Recheck Summary (2026-06-13)
 

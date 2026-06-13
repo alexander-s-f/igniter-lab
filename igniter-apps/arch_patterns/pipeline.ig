@@ -36,7 +36,7 @@ contract MwValidateAmount {
     false
   }
 
-  compute new_trail = call_contract("append", ctx.audit_trail, "mw:validate_amount")
+  compute new_trail = append(ctx.audit_trail, "mw:validate_amount")
 
   compute result = if ctx.rejected {
     ctx
@@ -66,7 +66,7 @@ contract MwValidateAmount {
 contract MwCheckFrozen {
   input ctx : PipelineContext
 
-  compute new_trail = call_contract("append", ctx.audit_trail, "mw:check_frozen")
+  compute new_trail = append(ctx.audit_trail, "mw:check_frozen")
 
   compute is_frozen = if ctx.account.status == "frozen" {
     true
@@ -102,7 +102,7 @@ contract MwCheckFrozen {
 contract MwCheckBalance {
   input ctx : PipelineContext
 
-  compute new_trail = call_contract("append", ctx.audit_trail, "mw:check_balance")
+  compute new_trail = append(ctx.audit_trail, "mw:check_balance")
 
   compute insufficient = if ctx.command.kind == "withdraw" {
     if ctx.account.balance < ctx.command.amount {

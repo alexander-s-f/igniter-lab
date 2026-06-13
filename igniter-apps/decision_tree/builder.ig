@@ -50,7 +50,7 @@ contract AddNode {
   input tree : DecisionTree
   input node : TreeNode
 
-  compute new_nodes = call_contract("append", tree.nodes, node)
+  compute new_nodes = append(tree.nodes, node)
 
   compute updated_tree = {
     root_id: tree.root_id,

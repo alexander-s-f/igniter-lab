@@ -1,13 +1,13 @@
 # Architectural Patterns Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
+Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 — partial; c0-c4 deferred)
 
 This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evidence, not canon authority.
 
 | ID | Status | Pressure | Evidence | Suggested route |
 | --- | --- | --- | --- | --- |
 | AP-P01 | RESOLVED | `stdlib.collection` import surface | Wave recheck: no OOF-IMP2 in Ruby or Rust; app reaches emitter (Ruby) / TC (Rust); `stdlib.collection` recognized in inventory | `LANG-STDLIB-COLLECTION-APPEND-PROP-P3` inventory |
-| AP-P02 | ACTIVE | `append` via call_contract | Wave P2: Rust 7× stdlib append diags; Ruby 39 diags (call_contract dominant). Wave P3: Rust 8 diags (7× stdlib append + 1× OOF-TY1); Ruby 14 diags (9× stdlib append + 1× OOF-TY1 + 4× unresolved). P3 resolved 25 Ruby Tier 1 same-module call_contract calls; stdlib-form 'append' still blocked both toolchains | stringly stdlib migration + call_contract parity |
+| AP-P02 | PARTIALLY-RESOLVED | `append` via call_contract | Wave P3: Rust 8 diags; Ruby 14 diags. P2 migration: 3 pipeline.ig ACCUMULATING sites migrated (AP-S01–S03) + 1 example.ig empty_trail BOOTSTRAP migrated (AP-S04). 5 example.ig c0-c4 sites DEFERRED — BOOTSTRAP → direct `output c4 : Collection[Transition]` chain causes OOF-TY1 in Rust (typed-[] propagation gap; `LANG-TYPED-COMPUTE-BINDING-P2` Ruby-only). Remaining: 5×OOF-TY0 (c0-c4) in both TCs | `LANG-RUST-TYPED-COMPUTE-BINDING-P1` (Rust parity needed to complete) |
 | AP-P03 | ACTIVE | Event replay wants fold | `ReplayEvents3` / `ReplayEvents5` are manual unrolls of `ApplyEvent` | fold parity + typed invocation/form follow-up |
 | AP-P04 | READY | Collection emptiness / find-one | `is_empty`/`non_empty` now available; `CheckTransition` can now be updated to enforce non-empty candidate check; state_machine.ig comment `-- candidates is non-empty, but we lack is_empty()` is stale | App can use `filter + is_empty`; `LAB-STDLIB-FIND-ONE-P1` for scalar |
 | AP-P05 | POSITIVE | Static middleware pipeline | `RunPipeline` chains pure `PipelineContext -> PipelineContext` contracts | preserve as static composition evidence |
@@ -16,8 +16,8 @@ This registry tracks app pressure from `igniter-apps/arch_patterns`. It is evide
 | AP-P08 | WATCH | Variant/ADT surface | `DomainEvent.kind`, `AccountState.status`, `Command.kind` are string tags | variant/ADT follow-up |
 | AP-P09 | RESOLVED | `<` operator gap (Ruby TC) | LANG-STDLIB-NUMERIC-COMPARISON-P3 CLOSED — `<`, `<=`, `>=` added to Ruby TC `operator_type` + emitter `operator_for`; Wave P2 unstripped Ruby recheck: 0 `Unsupported operator: <` (39 total diags vs 41 in P1, 2 fewer = the two `<` errors) | `LANG-STDLIB-NUMERIC-COMPARISON-P3` CLOSED |
 | AP-P10 | RESOLVED | Ruby emitter UTF-8 encoding | LANG-EMITTER-ENCODING-P2 CLOSED — 6 encoding sites fixed; Wave P2 unstripped Ruby recheck: no JSON crash; 39 actual diagnostics surface (was crashing before strip workaround); types.ig box-drawing chars are tolerated | `LANG-EMITTER-ENCODING-P2` CLOSED |
-| AP-P11 | ACTIVE | Output type mismatch OOF-TY1 cascade | Wave P3: both Rust and Ruby emit `Output type mismatch: expected Collection[Transition], got Unknown`; append failure returns Unknown which propagates to output boundary annotated as Collection[Transition]; LANG-OUTPUT-TYPE-ASSIGNABILITY-P3/P4 correctly surfaces this; clears when stdlib append resolves | stringly stdlib migration resolves append → clears OOF-TY1 cascade |
-| AP-P12 | ACTIVE | Typed compute binding gap (split) | Wave P3: Ruby 4 unresolved symbol diags — `genesis`, `new_trail` ×3. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `genesis` = unannotated record literal (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`); `new_trail` ×3 = cascade from stringly `call_contract("append", ...)` failures (route: stringly stdlib migration) | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` (genesis) + stringly stdlib migration (new_trail) |
+| AP-P11 | ACTIVE | Output type mismatch OOF-TY1 cascade | Wave P3: both Rust and Ruby emit `Output type mismatch: expected Collection[Transition], got Unknown`. P2 migration: does NOT clear — c0-c4 chain deferred; c4 still returns Unknown; OOF-TY1 at output boundary remains. Clears when LANG-RUST-TYPED-COMPUTE-BINDING-P1 enables full c0-c4 migration | `LANG-RUST-TYPED-COMPUTE-BINDING-P1` |
+| AP-P12 | RESOLVED | Typed compute binding gap (split) | Wave P3: Ruby 4 unresolved symbol diags — `genesis` + `new_trail` ×3. `genesis` resolved by LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (Wave P6). `new_trail` ×3 (from pipeline.ig ACCUMULATING sites) resolved by P2 migration (AP-S01–S03). All 4 unresolved symbol diags cleared | `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED + `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 
 ## Live Commands Used
 
@@ -39,11 +39,18 @@ Probe: temporary copy in `/tmp/arch_patterns_probe` with only `stdlib.collection
 
 Rust: oof (7 diagnostics — all `call_contract: unknown callee 'append'`). Ruby: oof (39 diagnostics — call_contract dominant, no `<` errors, no JSON crash). AP-P09 RESOLVED (`<` operator added via LANG-STDLIB-NUMERIC-COMPARISON-P3). AP-P10 RESOLVED (UTF-8 crash fixed via LANG-EMITTER-ENCODING-P2). Dominant remaining blocker: call_contract parity (AP-P02) — 7 Rust + many Ruby calls.
 
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 Recheck (2026-06-13)
+
+Ruby: oof/6 — 5×OOF-TY0 (`call_contract: unknown callee 'append'` for c0-c4 deferred) + 1×OOF-TY1 (`Output type mismatch: expected Collection[Transition], got Unknown` — c4 cascade). Down from oof/14.  
+Rust: oof/6 — identical to Ruby.  
+AP-P12 RESOLVED (new_trail cascade cleared by pipeline.ig migration). AP-P13 RESOLVED (empty_trail migrated). AP-P02 PARTIALLY-RESOLVED (c0-c4 deferred). AP-P11 still ACTIVE.  
+Remaining route: `LANG-RUST-TYPED-COMPUTE-BINDING-P1` to complete c0-c4 migration → arch_patterns dual-CLEAN.
+
 ## Wave P6 Recheck Summary (2026-06-13)
 
 Rust: oof / 8 diagnostics — unchanged (7× `call_contract: unknown callee 'append'`, 1× OOF-TY1). Ruby: oof / 14 diagnostics — unchanged in count but composition changed. LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 resolved AP-P12 partial: `genesis` (example.ig:34) now infers its record type via structural matching — AP-P12 genesis sub-pressure RESOLVED. However, `empty_trail` newly appeared: AP-P13 NEW — `compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")` (example.ig:65) is a stringly call_contract("append",...) that was previously hidden behind `genesis` being Unknown; now that `genesis` resolves, the downstream execution path in example.ig exposes `empty_trail` as an Unresolved symbol (because call_contract("append",...) returns Unknown). Total Ruby diag count remains 14: 9×append + OOF-TY1 + empty_trail + 3×new_trail. Route for AP-P13: `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1`. No regressions.
 
-| AP-P13 | ACTIVE | Newly exposed stringly call_contract cascade (`empty_trail` in example.ig:65) | Wave P6: `Unresolved symbol: empty_trail` — `compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")` exposed after AP-P12 genesis resolution; stringly bootstrap BOOTSTRAP pattern (two bare Text values as append args); same root cause as AP-P02/VE-P02/DT-P03 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P1` |
+| AP-P13 | RESOLVED | Stringly call_contract cascade (`empty_trail` in example.ig:65) | Wave P6: `Unresolved symbol: empty_trail` exposed after AP-P12 genesis resolution. P2 migration: `compute empty_trail = call_contract("append", "pipeline:start", "pipeline:init")` → `compute empty_trail : Collection[String] = ["pipeline:start", "pipeline:init"]` (BOOTSTRAP typed seed; String primitives safe in both TCs; empty_trail feeds pipeline_ctx record literal) | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 
 ## Wave P5 Recheck Summary (2026-06-13)
 

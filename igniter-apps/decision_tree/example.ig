@@ -29,7 +29,7 @@ contract BuildLoanTree {
 
   -- Step 3: Assemble the tree arena
   -- Start with a single-node tree, then add remaining nodes
-  compute nodes_0 = call_contract("append", decision_income, decision_credit)
+  compute nodes_0 : Collection[TreeNode] = [decision_income, decision_credit]
   compute tree_init = {
     root_id: "dec-income",
     nodes: nodes_0
@@ -53,8 +53,8 @@ contract RunLoanExample {
   compute feat_credit_bad = { name: "credit_score", value: 580 }
 
   -- Build feature collections by appending
-  compute features_good = call_contract("append", feat_income_high, feat_credit_good)
-  compute features_bad = call_contract("append", feat_income_low, feat_credit_bad)
+  compute features_good : Collection[FeatureEntry] = [feat_income_high, feat_credit_good]
+  compute features_bad : Collection[FeatureEntry] = [feat_income_low, feat_credit_bad]
 
   compute applicant_good = {
     id: "applicant-001",

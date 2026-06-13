@@ -1,19 +1,19 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P5)
+Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 — Rust CLEAN; Ruby VE-P09)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
 | ID | Status | Pressure | Evidence | Suggested route |
 | --- | --- | --- | --- | --- |
 | VE-P01 | RESOLVED | `stdlib.collection` import surface | Wave recheck: Ruby reports 0 OOF-IMP2 (7 call_contract diags instead); Rust reports 1 diag (call_contract callee); `stdlib.collection` recognized via inventory (append/map/filter/is_empty entries present) | `LANG-STDLIB-COLLECTION-APPEND-PROP-P3` inventory entry |
-| VE-P02 | ACTIVE | `append` via call_contract (Rust) | Rust wave recheck: 1 diag `call_contract: unknown callee 'append' — not found in this module`; document.ig uses `call_contract("append", layer.objects, obj)` not bare `append(...)`; Rust TC stdlib dispatch doesn't cover stringly-typed call_contract form | call_contract parity follow-up |
-| VE-P03 | ACTIVE | Stringly contract invocation | Wave P2: 7 diags (4× `Unknown function: call_contract` + 3× `Unresolved symbol`). Wave P3: 4 diags remain — 1× `call_contract: unknown callee 'append'` (stdlib form) + 3× `Unresolved symbol: new_objects/default_style/new_pos` (cascade). P3 resolved 4 Tier 1 same-module call_contract calls; stdlib-form 'append' callee still blocked in both Rust and Ruby | stringly stdlib migration + call_contract parity |
+| VE-P02 | RESOLVED | `append` via call_contract (Rust) | Rust wave recheck: 1 diag `call_contract: unknown callee 'append' — not found in this module`. P2 migration: VE-S01 `call_contract("append", layer.objects, obj)` → `append(layer.objects, obj)` in document.ig; `layer.objects : Collection[GraphicObject]` typed from input; Rust ok/0 | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
+| VE-P03 | RESOLVED | Stringly stdlib append invocation | P2 migration resolved the stdlib-form append site in document.ig (VE-S01). Remaining Ruby diag (`Unresolved symbol: new_objects` cascade) also cleared when append resolved. User PascalCase `call_contract("AppendObjectToLayer", ...)` preserved | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` CLOSED |
 | VE-P04 | RESOLVED | Text equality | Wave recheck: no `Unsupported operator: ==` in Ruby or Rust output; `==` now in `operator_type` via LANG-STDLIB-TEXT-EQUALITY-P3 | `LANG-STDLIB-TEXT-EQUALITY-P3` CLOSED |
 | VE-P05 | ACTIVE | Variant/ADT surface | `GraphicObject` uses `kind : String` plus optional payload records | variant/ADT surface follow-up |
 | VE-P06 | WATCH | App-state / command reducer shape | `HandleCanvasClick(Document, ToolState, Point) -> Document` exposes pure UI command transition shape | app-state / app-assembly track |
 | VE-P07 | WATCH | Numeric geometry | Integer coordinate workaround avoids Float/Decimal gaps | numeric/fixed-point stdlib track |
-| VE-P08 | ACTIVE | Typed compute binding gap (split) | Wave P3: 3 cascade `Unresolved symbol` diags — `new_objects`, `default_style`, `new_pos`. Wave P4: unchanged — LANG-TYPED-COMPUTE-BINDING-P2 had no effect. Root cause split: `new_objects` = stringly `call_contract("append", ...)` return (route: stringly stdlib migration); `default_style` and `new_pos` = unannotated record literals (route: `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1`) | stringly stdlib migration + `LANG-RUBY-RECORD-LITERAL-INFERENCE-P1` |
+| VE-P08 | RESOLVED | Typed compute binding gap (split) | Wave P3: 3 cascade `Unresolved symbol` diags — `new_objects`, `default_style`, `new_pos`. Root cause split: `new_objects` → stringly migration (VE-S01 resolved in P2); `default_style` + `new_pos` → LANG-RUBY-RECORD-LITERAL-INFERENCE-P3 (Wave P6). All three cascade symbols now resolved. VE-P09 (`new_obj`) newly exposed after cascade cleared | `LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2` + `LANG-RUBY-RECORD-LITERAL-INFERENCE-P3` CLOSED |
 
 ## Live Commands Used
 
@@ -34,6 +34,12 @@ Probe: temporary copy in `/tmp/vector_editor_probe` with only `import stdlib.col
 ## Wave P2 Recheck Summary (2026-06-12)
 
 Rust: oof (1 diagnostic — `call_contract: unknown callee 'append'`). Ruby: oof (7 diagnostics — 4× `Unknown function: call_contract`, 3× `Unresolved symbol` cascade). No new resolutions in Wave P2 for this app; all prerequisite cards (append/equality/encoding) were already captured in P1. Dominant blocker is call_contract parity (VE-P02/P03) on both toolchains.
+
+## LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P2 Recheck (2026-06-13)
+
+Ruby: oof/1 — `OOF-P1 Unresolved symbol: new_obj` (VE-P09, pre-existing, unrelated to stringly migration). VE-P02, VE-P03, VE-P08 (`new_objects` sub-pressure) all RESOLVED.  
+Rust: **ok/0** — stringly append site resolved; no other Rust diags.  
+vector_editor is **Rust CLEAN**. Ruby residual is VE-P09 only.
 
 ## Wave P6 Recheck Summary (2026-06-13)
 
