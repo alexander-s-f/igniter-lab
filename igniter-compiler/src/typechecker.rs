@@ -2835,6 +2835,66 @@ impl TypeChecker {
                                     }
                                 }
                             }
+                            // LANG-STDLIB-STRING-SUBSTRING-P2: substring(String, Integer, Integer) -> String
+                            // (source, start, length) — byte-based, 0-based. OOF-TY0 only.
+                            "substring" => {
+                                is_resolved = true;
+                                resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                if args.len() != 3 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-TY0".to_string(),
+                                        message: format!(
+                                            "stdlib.string.substring: expected 3 argument(s), got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                } else {
+                                    if !typed_args.is_empty() {
+                                        let source_name = self.type_name(&typed_args[0].resolved_type);
+                                        if source_name != "Unknown" && source_name != "String" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "stdlib.string.substring arg 1: expected String, got {}",
+                                                    source_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                    if typed_args.len() >= 2 {
+                                        let start_name = self.type_name(&typed_args[1].resolved_type);
+                                        if start_name != "Unknown" && start_name != "Integer" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "stdlib.string.substring arg 2: expected Integer, got {}",
+                                                    start_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                    if typed_args.len() >= 3 {
+                                        let length_name = self.type_name(&typed_args[2].resolved_type);
+                                        if length_name != "Unknown" && length_name != "Integer" {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "stdlib.string.substring arg 3: expected Integer, got {}",
+                                                    length_name
+                                                ),
+                                                node: node_name.to_string(),
+                                                line: None,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
                             "first" | "last" => {
                                 is_resolved = true;
                                 let mut inner_ty = serde_json::Value::Null;

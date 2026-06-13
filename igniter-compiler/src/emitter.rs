@@ -818,8 +818,10 @@ impl Emitter {
                                 return serde_json::Value::Object(new_map);
                             }
                             // LANG-STDLIB-STRING-SURFACE-P3: qualify string stdlib bare name to stdlib.string.*
+                            // LANG-STDLIB-STRING-SUBSTRING-P2: substring added.
                             const STRING_STDLIB_OPS: &[(&str, &str)] = &[
                                 ("char_at", "stdlib.string.char_at"),
+                                ("substring", "stdlib.string.substring"),
                             ];
                             if let Some((_, qualified)) = STRING_STDLIB_OPS.iter().find(|(bare, _)| *bare == fn_val) {
                                 let mut new_map = serde_json::Map::new();
@@ -948,7 +950,9 @@ impl Emitter {
                             // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
                             || matches!(fn_val, "map" | "filter" | "count" | "append" | "is_empty" | "non_empty" | "range")
                             // LANG-STDLIB-STRING-SURFACE-P3: delegate string stdlib to semantic_expr
+                            // LANG-STDLIB-STRING-SUBSTRING-P2: substring added.
                             || fn_val == "char_at"
+                            || fn_val == "substring"
                         {
                             return self.semantic_expr(val);
                         }
