@@ -759,9 +759,10 @@ impl Emitter {
                                 new_map.insert("resolved_type".to_string(), resolved_type);
                                 return serde_json::Value::Object(new_map);
                             }
-                            // (B) already-qualified stdlib.text.* (from typechecker concat rewrite)
-                            // — attach resolved_type if not already present.
-                            if fn_val.starts_with("stdlib.text.") || fn_val == "stdlib.collection.concat" {
+                            // (B) already-qualified stdlib.text.* / stdlib.collection.concat /
+                            //     stdlib.string.concat (from typechecker rewrite)
+                            //     — attach resolved_type if not already present.
+                            if fn_val.starts_with("stdlib.text.") || fn_val == "stdlib.collection.concat" || fn_val == "stdlib.string.concat" {
                                 if !map.contains_key("resolved_type") {
                                     let base = fn_val.strip_prefix("stdlib.text.").unwrap_or("concat");
                                     let resolved_type = if fn_val == "stdlib.collection.concat" {
@@ -770,6 +771,12 @@ impl Emitter {
                                         col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
                                         col.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
                                         serde_json::Value::Object(col)
+                                    } else if fn_val == "stdlib.string.concat" {
+                                        // LANG-STRING-TEXT-ALIAS-P2: String+String → String
+                                        let mut m = serde_json::Map::new();
+                                        m.insert("name".to_string(), serde_json::Value::String("String".to_string()));
+                                        m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                        serde_json::Value::Object(m)
                                     } else {
                                         text_return_type(base)
                                     };
@@ -789,6 +796,7 @@ impl Emitter {
                             // names to canonical stdlib.collection.* — mirrors TEXT_STDLIB_OPS pattern.
                             // LANG-STDLIB-COLLECTION-APPEND-PROP-P4: append added.
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
+                            // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
                             const COLLECTION_HOF_OPS: &[(&str, &str)] = &[
                                 ("map",       "stdlib.collection.map"),
                                 ("filter",    "stdlib.collection.filter"),
@@ -796,6 +804,7 @@ impl Emitter {
                                 ("append",    "stdlib.collection.append"),
                                 ("is_empty",  "stdlib.collection.is_empty"),
                                 ("non_empty", "stdlib.collection.non_empty"),
+                                ("range",     "stdlib.collection.range"),
                             ];
                             if let Some((_, qualified)) = COLLECTION_HOF_OPS.iter().find(|(bare, _)| *bare == fn_val) {
                                 let mut new_map = serde_json::Map::new();
@@ -936,7 +945,8 @@ impl Emitter {
                             // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P4: delegate collection HOF
                             // bare names to semantic_expr for stdlib.collection.* qualification.
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
-                            || matches!(fn_val, "map" | "filter" | "count" | "append" | "is_empty" | "non_empty")
+                            // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
+                            || matches!(fn_val, "map" | "filter" | "count" | "append" | "is_empty" | "non_empty" | "range")
                             // LANG-STDLIB-STRING-SURFACE-P3: delegate string stdlib to semantic_expr
                             || fn_val == "char_at"
                         {

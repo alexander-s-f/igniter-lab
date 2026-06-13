@@ -2235,6 +2235,16 @@ impl TypeChecker {
                         .unwrap_or_else(|| "Unknown".to_string());
                     if first_type == "Collection" || first_type == "Unknown" {
                         "stdlib.collection.concat".to_string()
+                    } else if first_type == "String" {
+                        // LANG-STRING-TEXT-ALIAS-P2: String+String → stdlib.string.concat
+                        let second_type = args.get(1)
+                            .map(|a| self.quick_arg_type(a, symbol_types))
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        if second_type == "String" {
+                            "stdlib.string.concat".to_string()
+                        } else {
+                            "stdlib.text.concat".to_string()
+                        }
                     } else {
                         "stdlib.text.concat".to_string()
                     }
@@ -2910,6 +2920,8 @@ impl TypeChecker {
                                 }
                             }
                             "range" => {
+                                // LANG-STDLIB-COLLECTION-RANGE-P3: range(start, stop) -> Collection[Integer]
+                                // OOF-COL1 on arity != 2 (parity with Ruby TC P2).
                                 is_resolved = true;
                                 let mut col = serde_json::Map::new();
                                 col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
@@ -2918,6 +2930,17 @@ impl TypeChecker {
                                 inner_ty.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
                                 col.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]));
                                 resolved_type = serde_json::Value::Object(col);
+                                if args.len() != 2 {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-COL1".to_string(),
+                                        message: format!(
+                                            "stdlib.collection.range: expected 2 arguments (start, stop), got {}",
+                                            args.len()
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                }
                             }
                             "filter" | "take" => {
                                 is_resolved = true;
@@ -3315,11 +3338,19 @@ impl TypeChecker {
                                         }
                                     }
                                 } else {
-                                    // Text path: accepts Text or String (v0 compat)
-                                    resolved_type = self.check_text_stdlib_call(
-                                        "concat", &typed_args, &["Text", "Text"],
-                                        type_errors, node_name,
-                                    );
+                                    // Text path: accepts Text or String (v0 compat).
+                                    // LANG-STRING-TEXT-ALIAS-P2: String+String → stdlib.string.concat → String.
+                                    let both_string = typed_args.len() == 2
+                                        && self.type_name(&typed_args[0].resolved_type) == "String"
+                                        && self.type_name(&typed_args[1].resolved_type) == "String";
+                                    if both_string {
+                                        resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                                    } else {
+                                        resolved_type = self.check_text_stdlib_call(
+                                            "concat", &typed_args, &["Text", "Text"],
+                                            type_errors, node_name,
+                                        );
+                                    }
                                 }
                             }
                             "split" => {
