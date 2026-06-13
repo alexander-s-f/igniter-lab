@@ -1,6 +1,6 @@
 # LAB-IGNITER-LANG-IO-RUNTIME-P4
 
-**Status:** OPEN — DISPATCH READY / GATED BY LANG-EFFECT-SURFACE-RUNTIME-BRIDGE-P3  
+**Status:** CLOSED — PROOF COMPLETE (104/104)  
 **Route:** LAB RUNTIME / RUNTIMEMACHINE EXECUTOR WIRING  
 **Date:** 2026-06-13  
 **Authority:** proof-local runtime wiring only; no real IO and no production runtime claim
@@ -77,6 +77,39 @@ Runtime behavior must distinguish:
 - No Reference Runtime claim.
 - No full PROP-035 Effect Surface.
 - No storage write family.
+
+## Closure
+
+**Closed:** 2026-06-13  
+**Score:** 104/104 PASS
+
+| Deliverable | Location | Result |
+|-------------|----------|--------|
+| Implementation | `experiments/io_capability_executor/runtime_machine_io_extension.rb` | COMPLETE (`evaluate_effect` + 8 preflight gates) |
+| Proof runner | `igniter-lab/igniter-view-engine/proofs/verify_lab_igniter_lang_io_runtime_p4.rb` | 104/104 PASS |
+| Proof doc | `igniter-lab/lab-docs/lang/lab-igniter-lang-io-runtime-p4-runtime-wiring-proof-v0.md` | COMPLETE |
+| Card update | `.agents/work/cards/lang/LAB-IGNITER-LANG-IO-RUNTIME-P4.md` | CLOSED |
+| Portfolio | `igniter-lab/.agents/portfolio-index.md` | entry prepended |
+
+**Acceptance checklist:**
+- [x] Minimal runtime evaluation path reads effect evidence and dispatches through executor registry
+- [x] Missing executor/passport/authority/idempotency fails before executor → `RuntimeRefusal` with no receipt
+- [x] Successful storage read returns `EffectResult.succeeded` with receipt
+- [x] Denied gate returns `EffectResult.denied` with receipt
+- [x] `unknown_external_state` remains distinct from `failed` per P15
+- [x] Pure input/compute/output runtime behavior from prior proof remains unchanged
+
+**8 preflight gates proved (RuntimeRefusal, no receipt):**
+- `effect.unknown_contract` / `effect.no_effect_surface` / `effect.unknown_effect_name`
+- `effect.no_executor` / `effect.missing_passport` / `effect.passport_revoked`
+- `effect.passport_expired` / `effect.passport_family_mismatch`
+
+**G1–G6 executor paths proved (EffectResult, receipt always emitted):**
+- G1/G2/G3 → `EffectResult.denied` (gate field present)
+- G4 → row limit clamp (both directions: no-clamp and clamp)
+- G5 → `EffectResult.failed(error_kind: "query_error")`
+- G6 error_trigger → `EffectResult.failed(error_kind: "system_error")`
+- G6 mocked rows → `EffectResult.succeeded` with value
 
 ## Next Route
 
