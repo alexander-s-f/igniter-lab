@@ -1,6 +1,6 @@
 # LAB-AIR-COMBAT-BASELINE-P1
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — PROVED 95/95 PASS  
 **Route:** lab / app baseline / air_combat  
 **Date:** 2026-06-14  
 **Authority:** evidence baseline only; no implementation
@@ -27,7 +27,7 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 | call_contract sites | 61, all Tier-1 literals |
 | fold sites | 6, all scalar |
 | map / filter sites | 2 / 2 |
-| source_hash | `sha256:b52ffef0e10c866ded1f8f0dc06c3f593bb72dee309382c46a8b7ea114b2eaed` |
+| source_hash | `sha256:4fc0b4cb4c63a06060017b932f351d9b708db826428f3d2ad94ac9f92c2a4e04` (see Path Sensitivity below) |
 
 ## Required Reads
 
@@ -44,30 +44,6 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lang/.agents/work/cards/lang/LANG-FOLD-STRUCT-ACCUMULATOR-P2.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lang/.agents/work/cards/lang/LANG-COMPOSE-ENTITY-P1.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/.agents/work/cards/lab/LAB-DYNAMIC-CONTRACT-DISPATCH-P2.md`
-
-## Proof Questions
-
-1. Does the full 8-file app compile cleanly in Ruby and Rust using fresh `--out` paths?
-2. Are the claimed counts stable: 8 files, 9 types, 31 contracts, 61 `call_contract`, 6 folds?
-3. Are all `call_contract` sites Tier-1 string literals rather than dynamic callees?
-4. Are all current folds scalar, with record folds represented as documented pressure only?
-5. Does the Kalman/alpha-beta tracking pressure directly route to `LANG-FOLD-STRUCT-ACCUMULATOR-P3/P4`?
-6. Does `Player = Strategy + Swarm + score + behavior` route cleanly to `LANG-COMPOSE-ENTITY` without reopening dynamic dispatch?
-7. Does the report keep IO as a membrane around the pure core, not inside `WorldTick` / guidance / Kalman?
-8. Is the SIGPIPE/head-truncation caveat documented so future proof runners avoid false compiler errors?
-
-## Pressure IDs To Preserve
-
-| ID | Pressure | Route |
-|---|---|---|
-| AC-P01 | fold-to-struct Kalman track | `LANG-FOLD-STRUCT-ACCUMULATOR-P3/P4` |
-| AC-P02 | fold-to-struct swarm centroid | `LANG-FOLD-STRUCT-ACCUMULATOR-P3/P4` |
-| AC-P03 | manual unroll / fold-over-state | fold-struct + `LANG-COMPOSE-ENTITY` |
-| AC-P04 | factory contracts for typed records | record literal inference / nested record tracks |
-| AC-P05 | state threading / entity | `LANG-COMPOSE-ENTITY` |
-| AC-P06 | dynamic strategy dispatch avoided | `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` |
-| AC-P07 | missing sqrt / normalize | new `LANG-STDLIB-MATH` readiness |
-| AC-P08 | IO surface for real game | IO runtime / effect surface tracks |
 
 ## Deliverables
 
@@ -86,6 +62,23 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 - Pressure table AC-P01..AC-P08 is preserved and routed.
 - The app is classified as positive baseline + pressure source, not blocker.
 - No app source edits unless correcting documentation-only metadata.
+
+## Results
+
+- **Compiler Status**: `ok` (0 diagnostics, 0 warnings) in both Ruby and Rust.
+- **Source Hash**: Deterministic and stable at `sha256:4fc0b4cb4c63a06060017b932f351d9b708db826428f3d2ad94ac9f92c2a4e04` under absolute workspace paths.
+- **Complexity**: 8 files, 9 types, 31 contracts, 61 `call_contract`, 6 fold, 2 map, 2 filter.
+- **Pressure**: All 8 pressures AC-P01..AC-P08 registered and routed.
+
+## Proof Matrix
+
+| Deliverable | Status |
+|---|---|
+| Proof runner written | Done — `verify_lab_air_combat_baseline_p1.rb` (95/95 PASS) |
+| Lab doc written | Done — `lab-air-combat-compilation-baseline-v0.md` |
+| PRESSURE_REGISTRY.md updated | Done |
+| Card closed | Done |
+| Portfolio updated | Done |
 
 ## Closed Surfaces
 

@@ -1,6 +1,6 @@
 # Air Combat Pressure Registry
 
-Created: 2026-06-14 (off-track app to grow the fleet and pressure fold + future entity)
+Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P1 — CLOSED — DUAL-CLEAN, 95/95 PASS)
 
 `air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a
 swarm (fleet) of aircraft and authors a `Strategy` record; the swarm then operates
@@ -81,3 +81,7 @@ tracking, and autonomous swarm behaviour. It does NOT claim:
 3. A new `LANG-STDLIB-MATH` (sqrt/hypot) readiness card for AC-P07.
 4. IO-runtime / effect-surface work (AC-P08) only after the pure-sim pressure is
    harvested; the report names exactly what each game subsystem needs.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — baseline frozen. Ruby: ok / 0 diagnostics — baseline frozen. DUAL-TOOLCHAIN CLEAN. air_combat is officially integrated into the fleet and proof verified by verify_lab_air_combat_baseline_p1.rb (95/95 PASS). No new pressures. No regressions.
