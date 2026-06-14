@@ -1,6 +1,6 @@
 # LAB-AIR-COMBAT-COMPILATION-BASELINE-v0
 
-**Status:** CLOSED — PROVED (95/95 PASS)  
+**Status:** CLOSED — PROVED (99/99 PASS; AC-P09 added)  
 **Route:** lab / app baseline / air_combat  
 **Date:** 2026-06-14  
 **Authority:** evidence baseline only; no implementation
@@ -55,6 +55,13 @@ The `source_hash` uses absolute file paths during multifile collection. Under th
 | **AC-P08** | IO membrane | The game logic remains pure. The report details the required clock, input stream, RNG, socket, and storage capabilities as a thin outer shell. | `PROP-035` / `PROP-023` / IO-runtime |
 
 ---
+
+### ServiceLoop Direction Note
+
+AC-P09 is a documentation pressure, not an implementation authorization. The
+canonical direction for a real game loop is already named by
+[`docs/spec/ch13-managed-recursion.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch13-managed-recursion.md): `ServiceLoop` is the alive-by-liveness loop class, and §13.5 maps timer-driven source binding through PROP-037 progression descriptors (`clock.every`, explicit `tick.time`). The Covenant repeats this boundary in
+[`docs/language-covenant.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/language-covenant.md) P14. `air_combat` should therefore be treated as a future ServiceLoop fixture, not as justification for an ad hoc host loop.
 
 ## Closed Surfaces (Non-Goals)
 

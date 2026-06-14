@@ -33,6 +33,7 @@ language tracks already in flight, plus to articulate the IO surface we still la
 2. **entity / compose** — a `Player` is a config+state+behaviour triad threaded by
    hand. It is the cleanest motivation yet for `LANG-COMPOSE-ENTITY`.
 3. **IO** — a simulation is not a game. The report names what each subsystem needs.
+4. **ServiceLoop readiness** — the pure `WorldTick` core is already shaped like a future PROP-037 progression step handler.
 
 ## Pressure 1 — fold-to-struct (the headline)
 
@@ -99,12 +100,35 @@ pressure:
 
 | Game subsystem | What it needs from IO | Closest language/runtime track |
 |---|---|---|
-| **Frame / tick loop** | a real time source and a scheduler to advance `WorldTick` at a fixed rate (`now()`, sleep/tick) | clock capability — deliberately closed (`LANG-TEMPORAL-STATE-P1`); needs an effect-surface clock |
-| **Player input** | an event stream of strategy edits / commands arriving over time | `PROP-023` stream input surface |
+| **Frame / tick loop** | a real time source and scheduler to advance `WorldTick` at a fixed rate | **ServiceLoop / PROP-037 Progression** (`clock.every`, explicit `tick.time`) — concept exists; runtime scheduler/clock authority closed |
+| **Player input** | an event stream of strategy edits / commands arriving over time | `PROP-023` stream input surface; feeds future ServiceLoop step materialization |
 | **Stochastic realism** | an RNG capability to sample measurement & process noise (today noise is hand-authored constants) | effect-surface RNG capability (none yet) |
 | **Multiplayer** | an authoritative server loop: accept connections, ingest each client's strategy, broadcast world state | `PROP-035` effect surface + IO-runtime (`LAB-IGNITER-LANG-IO-RUNTIME`, `MICROSERVICE`) — no Rack/socket today |
 | **Rendering / telemetry** | an output capability to emit world snapshots to a renderer or client | effect-surface output capability |
 | **Persistence / replay** | a storage capability to save match state and replay ticks deterministically | `PROP-046` storage capability / IO-runtime |
+
+### ServiceLoop / Progression: the intended game-loop direction
+
+The authoritative tick loop should not be an ad hoc host while-loop. Igniter
+already names the right concept: **ServiceLoop** / **Progression**.
+
+- [`docs/spec/ch13-managed-recursion.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch13-managed-recursion.md) classifies `ServiceLoop` as the alive-by-liveness loop class. §13.5 gives the relevant timer binding shape: `loop TickLoop tick in clock.every(250.ms) { as_of = tick.time ... }`.
+- [`docs/language-covenant.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/language-covenant.md) Postulate 14 says service-loop liveness maps through PROP-037 progression descriptors.
+- `PROP-023` stream input is the matching direction for player strategy edits / commands arriving over time.
+
+That maps directly onto this app:
+
+```text
+ProgressionSource(clock.every)  ->  tick.time
+                                 ->  PURE CORE: WorldTick(world)
+PROP-023 input stream           ->  strategy edits / commands
+Effect/output capabilities      ->  broadcast, replay, persistence
+```
+
+Current status is intentionally closed: no parser/runtime ServiceLoop authority,
+no scheduler, no clock capability, no socket loop. The useful fact is that
+`air_combat` is already shaped for that future surface: `WorldTick` is pure, time
+is an explicit tick input, and strategy dispatch is static.
 
 **The shape of the ask.** Crucially, the *core* of the game stays pure: `WorldTick`,
 the doctrines, the Kalman filter, the guidance law are all CORE contracts and should

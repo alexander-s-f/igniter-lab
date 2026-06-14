@@ -252,6 +252,10 @@ check("K-07: report.md covers AC-P06 (dispatch strategy avoidance)") { read_sour
 check("K-08: registry matches AC-P06 (doctrine dispatch)") { read_source("PRESSURE_REGISTRY.md").include?("AC-P06") }
 check("K-09: report.md covers AC-P07 (missing math sqrt)") { read_source("report.md").include?("VMag2") && read_source("report.md").include?("sqrt") }
 check("K-10: registry matches AC-P08 (IO surface game needs)") { read_source("PRESSURE_REGISTRY.md").include?("AC-P08") }
+check("K-11: registry matches AC-P09 (ServiceLoop readiness)") { read_source("PRESSURE_REGISTRY.md").include?("AC-P09") && read_source("PRESSURE_REGISTRY.md").include?("ServiceLoop") }
+check("K-12: report.md links ServiceLoop direction") { read_source("report.md").include?("ServiceLoop / Progression") && read_source("report.md").include?("clock.every") }
+check("K-13: report.md keeps tick as explicit event-time binding") { read_source("report.md").include?("tick.time") && read_source("report.md").include?("explicit tick input") }
+check("K-14: report.md routes player commands to PROP-023 streams") { read_source("report.md").include?("PROP-023") && read_source("report.md").include?("strategy edits") }
 
 puts
 puts "Section L — Closed Surfaces"

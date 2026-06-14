@@ -1,6 +1,6 @@
 # LAB-AIR-COMBAT-BASELINE-P1
 
-**Status:** CLOSED — PROVED 95/95 PASS  
+**Status:** CLOSED — PROVED 99/99 PASS — AC-P09 ADDED  
 **Route:** lab / app baseline / air_combat  
 **Date:** 2026-06-14  
 **Authority:** evidence baseline only; no implementation
@@ -11,7 +11,7 @@ Freeze `air_combat` as a positive dual-toolchain baseline and pressure source.
 
 `air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a fleet of aircraft and authors a `Strategy`; the swarm acts autonomously through pure target tracking, pursuit/evasion guidance, and per-tick world updates.
 
-This card should prove the app is clean today and capture the pressure it creates for fold-to-struct, entity composition, static strategy dispatch, stdlib math, and the future IO membrane.
+This card should prove the app is clean today and capture the pressure it creates for fold-to-struct, entity composition, static strategy dispatch, stdlib math, the future IO membrane, and ServiceLoop/Progression readiness.
 
 ## Current Claimed Baseline
 
@@ -44,6 +44,8 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lang/.agents/work/cards/lang/LANG-FOLD-STRUCT-ACCUMULATOR-P2.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lang/.agents/work/cards/lang/LANG-COMPOSE-ENTITY-P1.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/.agents/work/cards/lab/LAB-DYNAMIC-CONTRACT-DISPATCH-P2.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch13-managed-recursion.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/language-covenant.md`
 
 ## Deliverables
 
@@ -59,7 +61,7 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 - Rust compile is `ok` / 0 diagnostics.
 - Full app source hash is stable across two fresh runs or explicitly documented if path-sensitive.
 - Proof runner does not pipe compiler stdout through `head` or another truncating consumer.
-- Pressure table AC-P01..AC-P08 is preserved and routed.
+- Pressure table AC-P01..AC-P09 is preserved and routed.
 - The app is classified as positive baseline + pressure source, not blocker.
 - No app source edits unless correcting documentation-only metadata.
 
@@ -68,13 +70,13 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 - **Compiler Status**: `ok` (0 diagnostics, 0 warnings) in both Ruby and Rust.
 - **Source Hash**: Deterministic and stable at `sha256:4fc0b4cb4c63a06060017b932f351d9b708db826428f3d2ad94ac9f92c2a4e04` under absolute workspace paths.
 - **Complexity**: 8 files, 9 types, 31 contracts, 61 `call_contract`, 6 fold, 2 map, 2 filter.
-- **Pressure**: All 8 pressures AC-P01..AC-P08 registered and routed.
+- **Pressure**: All 9 pressures AC-P01..AC-P09 registered and routed.
 
 ## Proof Matrix
 
 | Deliverable | Status |
 |---|---|
-| Proof runner written | Done — `verify_lab_air_combat_baseline_p1.rb` (95/95 PASS) |
+| Proof runner written | Done — `verify_lab_air_combat_baseline_p1.rb` (99/99 PASS) |
 | Lab doc written | Done — `lab-air-combat-compilation-baseline-v0.md` |
 | PRESSURE_REGISTRY.md updated | Done |
 | Card closed | Done |
@@ -95,3 +97,18 @@ From `air_combat/PRESSURE_REGISTRY.md` and `report.md`:
 ## Runner Notes
 
 Use fresh `--out` paths for every Rust compile. Do not pipe compiler stdout into `head -c` or any consumer that can close the pipe early; that can create a false SIGPIPE/internal-error trail unrelated to source correctness.
+
+## Post-Closure Documentation Update — AC-P09
+
+Added AC-P09 (`ServiceLoop / Progression readiness`) after Opus follow-up research.
+This does not authorize a runtime loop. It records that `air_combat` should route
+future authoritative tick work through the existing language concept of
+ServiceLoop / PROP-037 Progression (`clock.every`, explicit `tick.time`) and
+PROP-023 stream input, rather than an ad hoc host loop.
+
+Updated artifacts:
+
+- `air_combat/PRESSURE_REGISTRY.md`
+- `air_combat/report.md`
+- `lab-air-combat-compilation-baseline-v0.md`
+- `verify_lab_air_combat_baseline_p1.rb` — updated to 99/99 PASS

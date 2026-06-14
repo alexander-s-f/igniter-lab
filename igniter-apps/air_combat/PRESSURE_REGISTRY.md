@@ -1,6 +1,6 @@
 # Air Combat Pressure Registry
 
-Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P1 — CLOSED — DUAL-CLEAN, 95/95 PASS)
+Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P1 — CLOSED — DUAL-CLEAN, 99/99 PASS; AC-P09 ServiceLoop direction added)
 
 `air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a
 swarm (fleet) of aircraft and authors a `Strategy` record; the swarm then operates
@@ -52,6 +52,24 @@ cargo run -- compile \
 | AC-P07 | **missing math: sqrt / normalize** | `vec.ig` keeps distances SQUARED (`VMag2`/`VDist2`) and guidance uses gain-scaled steering instead of true unit vectors because there is no `sqrt`. True proportional navigation needs a normalized line-of-sight rate. | ACTIVE — stdlib gap | new `LANG-STDLIB-MATH` (sqrt/hypot) proposal |
 | AC-P08 | **IO surface needed for a real game** | Pure sim only: no clock, no RNG, no input, no rendering, no networking, no persistence. See "What We Need From IO" in `report.md`. | DOCUMENTED — behind | `PROP-035` effect surface / `PROP-023` stream input / IO-runtime track |
 
+## ServiceLoop / Progression Direction
+
+`air_combat` should not route future game-loop work through an ad hoc host loop.
+The language already has the right conceptual direction: **ServiceLoop** as an
+alive-by-liveness loop class, with source binding mapped through **PROP-037
+Progression** descriptors.
+
+Canonical anchors:
+
+- [`docs/spec/ch13-managed-recursion.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch13-managed-recursion.md): `ServiceLoop` is the service-liveness loop class; §13.5 names `clock.every(N.duration)` and explicit `tick.time` event-time binding.
+- [`docs/language-covenant.md`](/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/language-covenant.md): Postulate 14 says service-loop liveness maps through PROP-037 progression descriptors.
+- PROP-023 stream input remains the right direction for player strategy edits / commands over time.
+
+Current status remains closed: no scheduler, no clock capability, no socket loop,
+no parser/runtime authorization for a real ServiceLoop. The point of AC-P09 is to
+keep future agents on the canonical ServiceLoop/Progression route instead of
+inventing a side-channel loop.
+
 ## Safety Interpretation
 
 This app proves the current language can compile a non-trivial, multi-agent,
@@ -81,7 +99,9 @@ tracking, and autonomous swarm behaviour. It does NOT claim:
 3. A new `LANG-STDLIB-MATH` (sqrt/hypot) readiness card for AC-P07.
 4. IO-runtime / effect-surface work (AC-P08) only after the pure-sim pressure is
    harvested; the report names exactly what each game subsystem needs.
+5. ServiceLoop / Progression work (AC-P09) only through PROP-037 + PROP-023, not
+   through an ad hoc host loop.
 
 ## Wave P10 Recheck Summary (2026-06-14)
 
-Rust: ok / 0 diagnostics — baseline frozen. Ruby: ok / 0 diagnostics — baseline frozen. DUAL-TOOLCHAIN CLEAN. air_combat is officially integrated into the fleet and proof verified by verify_lab_air_combat_baseline_p1.rb (95/95 PASS). No new pressures. No regressions.
+Rust: ok / 0 diagnostics — baseline frozen. Ruby: ok / 0 diagnostics — baseline frozen. DUAL-TOOLCHAIN CLEAN. air_combat is officially integrated into the fleet and proof verified by verify_lab_air_combat_baseline_p1.rb (99/99 PASS). No new pressures. No regressions.
