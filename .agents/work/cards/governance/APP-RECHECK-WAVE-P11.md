@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P11
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — PROVED  
 **Route:** governance / fleet recheck  
 **Date:** 2026-06-14  
 **Scope:** all 16 apps; evidence and registry updates only
@@ -67,3 +67,29 @@ Compile both Ruby and Rust for all current apps, including:
 - No compiler changes.
 - No IO/runtime work.
 - No canon decisions.
+
+---
+
+## Closure Summary (2026-06-14)
+
+**Status:** CLOSED — PROVED.
+
+Wave P11 rechecked all 16 fleet apps with fresh Ruby and Rust compiles using the safe subprocess/fresh-output pattern for Rust. Result: **15/16 DUAL-CLEAN**.
+
+| App group | Result |
+|---|---|
+| 12-app Wave P10 clean set | unchanged DUAL-CLEAN |
+| `air_combat` | integrated DUAL-CLEAN via `LAB-AIR-COMBAT-BASELINE-P2` |
+| `lead_router` | integrated DUAL-CLEAN via `LAB-LEAD-ROUTER-BASELINE-P1` |
+| `call_router` | integrated DUAL-CLEAN via `LAB-CALL-ROUTER-BASELINE-P1` |
+| `rule_engine` | unchanged BLOCKED oof/2 Ruby + oof/2 Rust |
+
+`rule_engine` remains the only intentional non-clean app under `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` fail-closed policy. Fold P3/P4 caused no automatic app diagnostic delta because this wave made no source migrations.
+
+Deliverables:
+
+- Rollup doc: `.agents/docs/app-pressure-recheck-wave-p11-2026-06-14-v0.md`.
+- 16 app `PRESSURE_REGISTRY.md` files updated with Wave P11 summaries.
+- Portfolio index updated.
+
+Closed surfaces preserved: no app migrations, no compiler changes, no runtime changes, no IO work, no canon decisions.

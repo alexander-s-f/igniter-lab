@@ -1,6 +1,6 @@
 # Air Combat Pressure Registry
 
-Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P2 — CLOSED — DUAL-CLEAN, 115/115 PASS; `entrypoint RunDuel` rebaseline)
+Updated: 2026-06-14 — APP-RECHECK-WAVE-P11
 
 `air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a
 swarm (fleet) of aircraft and authors a `Strategy` record; the swarm then operates
@@ -131,3 +131,11 @@ toolchain `source_hash` is
 AC-P01..AC-P10 are preserved and routed. `AC-P10` remains pressure for PROP-029
 rich named run profiles; it is not host-loop configuration. No `.ig` app source
 was changed for this rebaseline.
+
+## Wave P11 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+Integrated into the fleet via `LAB-AIR-COMBAT-BASELINE-P2` (`115/115 PASS`). `entrypoint RunDuel` remains present and clean. Stable baseline hash: `sha256:b3c2bdd046475442d1b78705fbcb9bfda55da09b070df93a3d36ff8f825b0c55`.
+
+Fold P3/P4 are landed, but this wave made no app source changes; existing pressure IDs remain routed as migration/design opportunities. No new pressures. No regressions.

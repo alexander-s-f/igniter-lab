@@ -1,6 +1,6 @@
 # Simulation Framework Pressure Registry
 
-Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
+Updated: 2026-06-14 — APP-RECHECK-WAVE-P11
 
 This registry tracks language and stdlib pressure from the `sim_framework` app. The app is a large simulation fixture with temporal state, relation-like collections, proof/audit records, constraints, decision trees, lens-style updates, and snapshot/trajectory concepts.
 
@@ -93,3 +93,9 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. 
 ## Wave P10 Recheck Summary (2026-06-14)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. No regressions.
+
+## Wave P11 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN.
+
+Companion baseline integration (`air_combat`, `lead_router`, `call_router`) and Fold P3/P4 landing had no diagnostic impact on this app. No pressure ID changes this wave. No new pressures. No regressions.

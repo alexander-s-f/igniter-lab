@@ -1,6 +1,6 @@
 # Neural Net Pressure Registry
 
-Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
+Updated: 2026-06-14 — APP-RECHECK-WAVE-P11
 
 This registry tracks language and stdlib pressure from the `neural_net` app. The app implements a small feed-forward network using fixed-point integers and statically unrolled layer equations.
 
@@ -87,3 +87,9 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. 
 ## Wave P10 Recheck Summary (2026-06-14)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. No regressions.
+
+## Wave P11 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN.
+
+Companion baseline integration (`air_combat`, `lead_router`, `call_router`) and Fold P3/P4 landing had no diagnostic impact on this app. No pressure ID changes this wave. No new pressures. No regressions.

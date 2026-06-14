@@ -142,3 +142,11 @@ nested availability scan is reduced to a scalar slot total).
 4. Effect-surface / IO-runtime (LR-P07..P10) — the real microservice shell, via
    the MICROSERVICE envelope + ServiceLoop/PROP-037, once the pure pressure is
    harvested. See `report.md`.
+
+## Wave P11 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+Integrated into the fleet via `LAB-LEAD-ROUTER-BASELINE-P1` (`175/175 PASS`). `entrypoint RunAccept` remains present and clean. Stable baseline hash: `sha256:3cca9ed52a593e60ed86fb59e359809d255425af5690ded364cd8329fab71e1b`.
+
+Fold P3/P4 are landed, but this wave made no app source changes; existing pressure IDs remain routed as migration/design opportunities. No new pressures. No regressions.

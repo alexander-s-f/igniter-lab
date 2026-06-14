@@ -1,6 +1,6 @@
 # Trade Robot Pressure Registry
 
-Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
+Updated: 2026-06-14 — APP-RECHECK-WAVE-P11
 Last checked: 2026-06-14
 Scope: app-pressure evidence only; not canon authority and not financial/trading advice.
 
@@ -78,3 +78,9 @@ The pressure is architectural rather than diagnostic: the app compiles cleanly b
 ## Wave P10 Recheck Summary (2026-06-14)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. trade_robot is officially integrated as the 13th app in the fleet. No new pressures. No regressions.
+
+## Wave P11 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN.
+
+Companion baseline integration (`air_combat`, `lead_router`, `call_router`) and Fold P3/P4 landing had no diagnostic impact on this app. No pressure ID changes this wave. No new pressures. No regressions.
