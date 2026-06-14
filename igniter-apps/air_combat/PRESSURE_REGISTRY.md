@@ -1,6 +1,6 @@
 # Air Combat Pressure Registry
 
-Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P1 — CLOSED — DUAL-CLEAN, 99/99 PASS; AC-P09 ServiceLoop direction added)
+Updated: 2026-06-14 (LAB-AIR-COMBAT-BASELINE-P2 — CLOSED — DUAL-CLEAN, 115/115 PASS; `entrypoint RunDuel` rebaseline)
 
 `air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a
 swarm (fleet) of aircraft and authors a `Strategy` record; the swarm then operates
@@ -32,7 +32,7 @@ cargo run -- compile \
 | call_contract sites | 61 (all Tier-1 string literals — static dispatch) |
 | fold sites | 6 (all SCALAR — record folds blocked, see AC-P01/02) |
 | map / filter sites | 2 / 2 |
-| source_hash | `sha256:8b698e66d8635f83306d209c702f7231c8184b1e6ffddb8a63f3a147ed9600f8` (updated: `entrypoint RunDuel` added) |
+| source_hash | `sha256:b3c2bdd046475442d1b78705fbcb9bfda55da09b070df93a3d36ff8f825b0c55` (P2 rebaseline: `entrypoint RunDuel` present) |
 
 > NOTE: the Rust CLI writes a directory-package `.igapp`. Always compile to a
 > fresh `--out` path; piping stdout through `head`/truncating consumers can SIGPIPE
@@ -62,8 +62,11 @@ names the program's start contract in source instead of relying on tool heuristi
 |---|---|---|---|---|
 | AC-P10 | **named run-profiles wanted** | only ONE bare `entrypoint` is allowed; `RunDuel` and `TrackBogey` each want to be a named PROP-029 run-profile (panel preset with `args`/`output`/`default`). | ACTIVE — DX | `PROP-029` rich entrypoint (revive profiles) |
 
-> RE-BASELINE NEEDED: source_hash changed (`b52ffef0…` → `8b698e66…`) due to the
-> `entrypoint` line. `LAB-AIR-COMBAT-BASELINE-P1` (99/99) must be re-frozen.
+> P2 REBASELINE CLOSED: live Ruby/Rust compilers now agree on
+> `sha256:b3c2bdd046475442d1b78705fbcb9bfda55da09b070df93a3d36ff8f825b0c55`.
+> The dispatch-card claim `sha256:8b698e66d8635f83306d209c702f7231c8184b1e6ffddb8a63f3a147ed9600f8`
+> is superseded by the live artifact evidence. No `.ig` app source migration was
+> made for P2.
 
 ## ServiceLoop / Progression Direction
 
@@ -118,3 +121,13 @@ tracking, and autonomous swarm behaviour. It does NOT claim:
 ## Wave P10 Recheck Summary (2026-06-14)
 
 Rust: ok / 0 diagnostics — baseline frozen. Ruby: ok / 0 diagnostics — baseline frozen. DUAL-TOOLCHAIN CLEAN. air_combat is officially integrated into the fleet and proof verified by verify_lab_air_combat_baseline_p1.rb (99/99 PASS). No new pressures. No regressions.
+
+## Entrypoint Rebaseline P2 Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. Manifest and SemanticIR both
+carry `entrypoint RunDuel` as the default program selector. The stable dual-
+toolchain `source_hash` is
+`sha256:b3c2bdd046475442d1b78705fbcb9bfda55da09b070df93a3d36ff8f825b0c55`.
+AC-P01..AC-P10 are preserved and routed. `AC-P10` remains pressure for PROP-029
+rich named run profiles; it is not host-loop configuration. No `.ig` app source
+was changed for this rebaseline.

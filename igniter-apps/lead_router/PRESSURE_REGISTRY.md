@@ -33,16 +33,40 @@ cargo run -- compile \
 | types | 6 |
 | variants | 1 (`Pipe { Proceed \| Reject }` — the Result analogue) |
 | contracts | 31 |
-| call_contract sites | 38 (all Tier-1 literals — static dispatch) |
-| match sites | 10 (railway short-circuit) |
+| call_contract sites | 38 textual mentions; 37 executable sites (all Tier-1 literals — static dispatch) |
+| match sites | 10 textual mentions; 9 executable expressions (railway short-circuit) |
 | fold sites | 1 (scalar slot total) |
-| source_hash | `sha256:16deae290738578a09cc324de18ff2312b14b960e0d581945285b913d534e3ba` (updated: `entrypoint RunAccept` added) |
+| source_hash | `sha256:3cca9ed52a593e60ed86fb59e359809d255425af5690ded364cd8329fab71e1b` (full-app absolute-path multifile hash; `entrypoint RunAccept` present) |
 
 > NOTE (shared with air_combat): the Rust CLI's assembler intermittently surfaces
 > a spurious `Internal compiler error: No such file or directory (os error 2)`
 > when invoked in rapid back-to-back succession (a timing/path race in the
 > directory-package writer). It is NOT a source fault — the Ruby TC is clean and a
 > spaced single invocation to a fresh `--out` path returns the real `ok` result.
+
+## Closure Summary (LAB-LEAD-ROUTER-BASELINE-P1, 2026-06-14)
+
+Proof runner:
+
+`igniter-view-engine/proofs/verify_lab_lead_router_baseline_p1.rb`
+
+Result:
+
+`175/175 PASS`
+
+Closure notes:
+
+- Ruby canon and Rust lab both compile the 4-file app as `ok` / 0 diagnostics.
+- Ruby and Rust agree on the full-app source hash:
+  `sha256:3cca9ed52a593e60ed86fb59e359809d255425af5690ded364cd8329fab71e1b`.
+- The proof uses a spaced second Rust invocation and fresh `--out` paths to avoid
+  the known assembler timing/path race.
+- The previous hash `sha256:16deae290738578a09cc324de18ff2312b14b960e0d581945285b913d534e3ba`
+  is superseded as registry metadata by the live full-app hash above.
+- Textual counts preserve historical report pressure (`38` `call_contract`, `10`
+  `match`); executable source after stripping comments has `37` literal
+  `call_contract` forms and `9` `match` expressions.
+- No app `.ig` source was changed for this closure.
 
 ## Provenance (production → pure model)
 

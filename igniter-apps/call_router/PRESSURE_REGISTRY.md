@@ -36,7 +36,7 @@ cargo run -- compile \
 | call_contract sites | 30 (Tier-1 literals — static dispatch) |
 | match sites | 11 (state machine + channel flow + extraction) |
 | filter / concat | 1 / 1 |
-| source_hash | `sha256:470c5378e465534f3b7b520e3b2d91be8cac13b59bc97030bc0f72cf07eece19` (updated: `entrypoint RunConnectedMatched` added) |
+| source_hash | `sha256:1b8da43dd1fb66ae6b587056bfe459734e9eb854ccb2a1b308e996ac0334eed5` (absolute proof-runner path; `entrypoint RunConnectedMatched` added) |
 
 > NOTE: the Rust CLI's package writer intermittently surfaces a spurious
 > `Internal compiler error: No such file or directory` when its stdout is shell-
@@ -113,3 +113,25 @@ loop, or stream buffering across the two webhook sources.
 3. `LANG-FOLD-STRUCT-ACCUMULATOR-P3/P4` — for CR-P06 (webhook fold).
 4. Effect-surface + stream input + ServiceLoop (CR-P08..P10) — the real
    correlation service shell. See `report.md`.
+
+## Baseline Closure (2026-06-14)
+
+`LAB-CALL-ROUTER-BASELINE-P1` closed this registry as a positive dual-toolchain
+baseline and pressure source. Proof runner:
+`igniter-view-engine/proofs/verify_lab_call_router_baseline_p1.rb`
+(`178/178 PASS`).
+
+Closure facts:
+
+- Ruby: `ok` / 0 diagnostics.
+- Rust: `ok` / 0 diagnostics.
+- Absolute proof-runner source hash:
+  `sha256:1b8da43dd1fb66ae6b587056bfe459734e9eb854ccb2a1b308e996ac0334eed5`.
+- Counts preserved: 6 files, 7 types, 3 variants, 25 contracts, 30
+  `call_contract` sites, 11 `match` sites, 1 `filter`, 1 `concat`.
+- CR-P01..CR-P11 preserved and routed.
+- `entrypoint RunConnectedMatched` verified in manifest and SemanticIR.
+- Shell-pipe Rust stdout/package-writer false failures remain documented as an
+  fd/timing artifact; use Open3/mktmpdir proof-runner path.
+- No app source edits, no DB/clock/HTTP/queue/dynamic-dispatch implementation,
+  no host-loop authority.

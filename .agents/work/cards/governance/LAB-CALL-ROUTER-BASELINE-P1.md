@@ -1,6 +1,6 @@
 # LAB-CALL-ROUTER-BASELINE-P1
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — PROVED (178/178 PASS)  
 **Route:** lab / app baseline / call_router  
 **Date:** 2026-06-14  
 **Authority:** evidence baseline only; no implementation
@@ -34,10 +34,11 @@ From `call_router/PRESSURE_REGISTRY.md` and `report.md`:
 | call_contract sites | 30, all Tier-1 literals |
 | match sites | 11 |
 | filter / concat | 1 / 1 |
-| source_hash | `sha256:e6639379b7498e55d6ee3faa106f4ec8ff59c5d573bc4eea30a2a548d8801143` |
+| source_hash | `sha256:1b8da43dd1fb66ae6b587056bfe459734e9eb854ccb2a1b308e996ac0334eed5` (absolute proof-runner path; `entrypoint RunConnectedMatched` added) |
 
 ## Required Reads
 
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/dev-tutorial.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/call_router/PRESSURE_REGISTRY.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/call_router/report.md`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/call_router/types.ig`
@@ -64,7 +65,9 @@ From `call_router/PRESSURE_REGISTRY.md` and `report.md`:
 8. Does CR-P03 correctly route to dual-toolchain `first`/`last` plus matchable `Option`?
 9. Does CR-P10 explicitly route standing two-stream correlation to ServiceLoop / PROP-037 rather than an ad hoc host loop?
 10. Does the app keep DB/clock/RNG/HTTP/outbox/background-worker authority outside the pure core?
-11. Is the Rust assembler/stdout timing flake documented so baseline verification avoids false internal-error conclusions?
+11. Is `entrypoint RunConnectedMatched` present, dual-clean, and reflected in manifest/metadata?
+12. Is CR-P11 captured as rich PROP-029 run-profile pressure (`RunConnectedMatched` / `RunNoCall` / `RunUpsert` / `RunChannel`)?
+13. Is the Rust assembler/stdout timing flake documented so baseline verification avoids false internal-error conclusions?
 
 ## Pressure IDs To Preserve
 
@@ -80,10 +83,11 @@ From `call_router/PRESSURE_REGISTRY.md` and `report.md`:
 | CR-P08 | DB reads/writes | `PROP-046` storage + `PROP-035` effect surface + IO runtime |
 | CR-P09 | clock / freshness window | clock capability / temporal boundary |
 | CR-P10 | two-stream webhook ingress + correlation window | `PROP-023` stream input + ServiceLoop / `PROP-037` |
+| CR-P11 | named run-profiles wanted | `PROP-029` rich entrypoint profiles |
 
 ## Deliverables
 
-- Proof runner: `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-view-engine/proofs/verify_lab_call_router_baseline_p1.rb`, target at least 95 checks.
+- Proof runner: `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-view-engine/proofs/verify_lab_call_router_baseline_p1.rb`, target at least 100 checks.
 - Lab doc: `/Users/alex/dev/projects/igniter-workspace/igniter-lab/lab-docs/governance/lab-call-router-compilation-baseline-v0.md`.
 - Update `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/call_router/PRESSURE_REGISTRY.md` with closure summary if needed.
 - Update this card with closure summary.
@@ -95,7 +99,8 @@ From `call_router/PRESSURE_REGISTRY.md` and `report.md`:
 - Rust compile is `ok` / 0 diagnostics.
 - Source hash is stable across two fresh proof-runner-style runs or path sensitivity is documented.
 - Proof runner uses Open3/mktmpdir or an equivalent clean subprocess route and avoids shell-pipe false failures.
-- CR-P01..CR-P10 are preserved and routed.
+- CR-P01..CR-P11 are preserved and routed.
+- `entrypoint RunConnectedMatched` is present and verified dual-clean.
 - `Telephony`/`ChannelFlow`/`MatchResult` positive `variant` + `match` evidence is explicitly documented.
 - `call_router` is classified as positive baseline + pressure source, not blocker.
 - ServiceLoop / PROP-037 is named as the route for standing correlation; no host-loop evasion.
@@ -119,3 +124,63 @@ From `call_router/PRESSURE_REGISTRY.md` and `report.md`:
 ## Runner Notes
 
 The registry reports a Rust CLI package-writer false failure when stdout is shell-redirected or piped in rapid succession. Use a clean subprocess path such as Ruby `Open3` plus `mktmpdir`, fresh `--out` paths, and avoid piping compiler stdout through truncating consumers. The baseline should distinguish compiler/typecheck diagnostics from package-writer fd/timing artifacts.
+
+---
+
+## Closure Summary (2026-06-14)
+
+**Status:** CLOSED - PROVED 178/178.  
+**Result:** `verify_lab_call_router_baseline_p1.rb` passes the full baseline
+guard.
+
+### Compiler baseline
+
+| Toolchain | Status | Diagnostics |
+|---|---|---|
+| Ruby | `ok` | 0 |
+| Rust | `ok` | 0 |
+
+The absolute proof-runner source hash is stable in both toolchains:
+
+`sha256:1b8da43dd1fb66ae6b587056bfe459734e9eb854ccb2a1b308e996ac0334eed5`
+
+Relative-path invocations can produce a different deterministic hash, so the
+baseline names the absolute Open3/mktmpdir proof-runner path as the evidence
+path.
+
+### Counts frozen
+
+6 files, 7 types, 3 variants, 25 contracts, 30 Tier-1 literal
+`call_contract` sites, 11 `match` sites, 1 `filter`, 1 `concat`.
+
+### Positive evidence
+
+- `Telephony` + `OperatorStep` proves the RingCentral presence state machine.
+- `ChannelFlow` + `ChannelBehaviorOf` proves channel-to-behavior policy.
+- `MatchResult` proves correlation result shape while DB `.first` remains
+  injected/outside the pure core.
+- `entrypoint RunConnectedMatched` is present and reflected in manifest/SIR.
+
+### Pressure routes preserved
+
+CR-P01..CR-P11 are preserved and routed. Standing two-stream correlation routes
+to PROP-023 stream input plus ServiceLoop / PROP-037, not an ad hoc host loop.
+CR-P11 captures named run-profile pressure for `RunConnectedMatched`,
+`RunNoCall`, `RunUpsert`, and `RunChannel`.
+
+### Deliverables
+
+| Artefact | Path | Status |
+|---|---|---|
+| Proof runner | `igniter-view-engine/proofs/verify_lab_call_router_baseline_p1.rb` | **178/178 PASS** |
+| Lab doc | `lab-docs/governance/lab-call-router-compilation-baseline-v0.md` | Written |
+| Pressure registry | `igniter-apps/call_router/PRESSURE_REGISTRY.md` | Updated |
+| This card | `.agents/work/cards/governance/LAB-CALL-ROUTER-BASELINE-P1.md` | CLOSED |
+| Portfolio index | `.agents/portfolio-index.md` | Updated |
+
+### Closed surfaces
+
+No app source edits, DB/SQL/ORM/ActiveRecord, HTTP/Rack/server/socket, real fuzzy
+phone matching, clock/`now()`/DateTime, durable outbox/queue, background worker,
+dynamic vendor/channel dispatch, `contains`/`ends_with`, `first`/`last`/`Option`,
+fold-to-struct, entity implementation, or host-loop authority.
