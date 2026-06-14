@@ -7,7 +7,7 @@
 
 ## Goal
 
-Refresh the app fleet after `air_combat`, `lead_router`, and `call_router` baseline integration and any Fold P3/P4 changes that land before execution.
+Refresh the app fleet after `air_combat`, `lead_router`, and `call_router` baseline integration, with Fold P3/P4 already landed.
 
 Starting point:
 
@@ -15,6 +15,8 @@ Starting point:
 - `LAB-AIR-COMBAT-BASELINE-P1`: `air_combat` DUAL-CLEAN, 99/99 PASS, AC-P01..AC-P09 pressure table.
 - `LAB-LEAD-ROUTER-BASELINE-P1`: `lead_router` pending baseline freeze; expected DUAL-CLEAN with LR-P01..LR-P10 pressure table.
 - `LAB-CALL-ROUTER-BASELINE-P1`: `call_router` pending baseline freeze; expected DUAL-CLEAN with CR-P01..CR-P10 pressure table.
+- `LANG-FOLD-STRUCT-ACCUMULATOR-P3`: CLOSED — Rust TC implementation, 83/83 PASS.
+- `LANG-FOLD-STRUCT-ACCUMULATOR-P4`: CLOSED — Ruby/Rust lowering parity, 83/83 PASS.
 
 Expected fleet after `lead_router` and `call_router` baselines close, if no new implementation changes land first: **15/16 DUAL-CLEAN**, with `rule_engine` still the only intentional blocked app.
 
@@ -26,9 +28,10 @@ Start after at least:
 - `LAB-LEAD-ROUTER-BASELINE-P1` CLOSED — target ≥90.
 - `LAB-CALL-ROUTER-BASELINE-P1` CLOSED — target ≥95.
 
-Preferred if available before execution:
+Fold status to account for during execution:
 
-- `LANG-FOLD-STRUCT-ACCUMULATOR-P3` CLOSED, to capture any Rust TC app-pressure impact.
+- `LANG-FOLD-STRUCT-ACCUMULATOR-P3` CLOSED — capture Rust TC app-pressure impact.
+- `LANG-FOLD-STRUCT-ACCUMULATOR-P4` CLOSED — capture fold SIR/lowering parity impact.
 
 ## Apps
 
@@ -53,7 +56,7 @@ Compile both Ruby and Rust for all current apps, including:
 - `air_combat`, `lead_router`, and `call_router` are included as the 14th, 15th, and 16th apps.
 - `rule_engine` diagnostics are refreshed exactly.
 - `call_router` Rust verification uses the proof-runner subprocess route or explicitly accounts for the known package-writer stdout/timing artifact.
-- If Fold P3 lands first, note whether any app pressure changes; do not edit app source.
+- Note whether Fold P3/P4 changed any app pressure; do not edit app source.
 - No source/compiler/runtime edits in this recheck card.
 
 ## Closed Surfaces
