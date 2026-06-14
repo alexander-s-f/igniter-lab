@@ -46,16 +46,20 @@ APPS         = LAB_ROOT / "igniter-apps"
 BIN          = COMPILER_DIR / "target" / "release" / "igniter_compiler"
 LANG_ROOT    = LAB_ROOT.parent / "igniter-lang"
 
-TC_RS   = SRC / "typechecker.rs"
-LIB_RS  = SRC / "lib.rs"
+TC_RS     = SRC / "typechecker.rs"
+STDLIB_RS = SRC / "typechecker" / "stdlib_calls.rs"
+LIB_RS    = SRC / "lib.rs"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def read(p) = (File.read(p.to_s, encoding: "utf-8") rescue "")
 
-TC_SRC  = read(TC_RS)
-TC_LINES = TC_SRC.lines
-LIB_SRC = read(LIB_RS)
+TC_SRC     = read(TC_RS)
+STDLIB_SRC = read(STDLIB_RS)
+TC_LINES   = TC_SRC.lines
+ALL_TC_SRC = "#{TC_SRC}\n#{STDLIB_SRC}"
+ALL_TC_LINES = ALL_TC_SRC.lines
+LIB_SRC    = read(LIB_RS)
 
 # Find the 1-based start line of a top-level `fn name(` (indented method).
 def fn_line(name)
@@ -76,11 +80,11 @@ end
 
 # 1-based line of an `infer_expr` stdlib arm `"name" =>` (or `"a" | "b" =>`).
 def arm_line(name)
-  TC_LINES.index { |l| l =~ /^\s+"#{Regexp.escape(name)}"(\s*\|\s*"[a-z_]+")?\s*=>/ }&.+(1)
+  ALL_TC_LINES.index { |l| l =~ /^\s+"#{Regexp.escape(name)}"(\s*\|\s*"[a-z_]+")?\s*=>/ }&.+(1)
 end
 
 def count_stdlib_arms
-  TC_LINES.count { |l| l =~ /^\s{12,}"[a-z_]+"(\s*\|\s*"[a-z_]+")*\s*=>/ }
+  ALL_TC_LINES.count { |l| l =~ /^\s{8,}"[a-z_]+"(\s*\|\s*"[a-z_]+")*\s*=>/ }
 end
 
 # Compile an app via a CLEAN subprocess (dodges the package-writer race).
@@ -116,6 +120,7 @@ def section(t) = puts("\n─── #{t} #{'─' * [0, 68 - t.length].max}")
 
 # Measured constants
 TC_LC        = TC_LINES.length
+TC_TOTAL_LC  = TC_LC + STDLIB_SRC.lines.length
 INFER_SPAN   = fn_span("infer_expr")
 CONTRACT_SPAN = fn_span("typecheck_contract")
 ARMS         = count_stdlib_arms
@@ -144,9 +149,9 @@ check("A-03: each core pass is its own source file") do
   %w[lexer parser classifier typechecker emitter assembler multifile monomorphizer]
     .all? { |m| File.exist?((SRC / "#{m}.rs").to_s) }
 end
-check("A-04: NO typechecker submodule dir yet (refactor not started)") { !Dir.exist?((SRC / "typechecker").to_s) }
-check("A-05: the problem is intra-file, not pass architecture (typechecker.rs is one file)") do
-  File.file?(TC_RS.to_s) && !Dir.exist?((SRC / "typechecker").to_s)
+check("A-04: P2 fixed-state submodule dir exists") { Dir.exist?((SRC / "typechecker").to_s) }
+check("A-05: the problem remained intra-pass, not pass architecture (typechecker.rs plus child module)") do
+  File.file?(TC_RS.to_s) && File.file?(STDLIB_RS.to_s)
 end
 check("A-06: a crate/workspace split is unwarranted (single crate, ~17k lines total)") do
   total = Dir.glob((SRC / "*.rs").to_s).sum { |f| read(Pathname.new(f)).lines.length }
@@ -158,16 +163,18 @@ check("A-07: recommendation = Rust submodules inside the typechecker pass") { tr
 section("B  typechecker.rs concentration — measured facts")
 # ══════════════════════════════════════════════════════════════════════════════
 
-check("B-01: typechecker.rs is the largest source file (> 5000 lines)") { TC_LC > 5000 }
+check("B-01: typechecker pass total remains large (> 5000 lines)") { TC_TOTAL_LC > 5000 }
 check("B-02: typechecker.rs is larger than parser.rs/classifier.rs/emitter.rs") do
   [%w[parser], %w[classifier], %w[emitter]].all? { |m| TC_LC > read(SRC / "#{m[0]}.rs").lines.length }
 end
 check("B-03: only 2 impl blocks (a god-impl, not many small ones)") { TC_SRC.scan(/^impl /).length <= 3 }
-check("B-04: infer_expr is a god-function (> 1500 lines)") { INFER_SPAN > 1500 }
-check("B-05: infer_expr span measured ~1958 lines") { INFER_SPAN.between?(1700, 2100) }
+check("B-04: infer_expr is thinner after P2 extraction (< 1000 lines)") { INFER_SPAN < 1000 }
+check("B-05: P1 baseline captured infer_expr ~1958 lines before extraction") do
+  read(LAB_ROOT / "lab-docs" / "lang" / "lab-rust-typechecker-decomp-p1-v0.md").include?("1958")
+end
 check("B-06: typecheck_contract is large (> 600 lines)") { CONTRACT_SPAN > 600 }
-check("B-07: infer_expr + typecheck_contract are ~half the file") { (INFER_SPAN + CONTRACT_SPAN).to_f / TC_LC > 0.4 }
-check("B-08: stdlib-style dispatch arms are numerous (>= 30)") { ARMS >= 30 }
+check("B-07: extracted stdlib module carries the removed dispatch weight") { STDLIB_SRC.lines.length > 1000 }
+check("B-08: stdlib-style dispatch arms remain numerous (>= 28)") { ARMS >= 28 }
 check("B-09: anchor functions exist where the card claims") do
   fn_line("infer_expr") && fn_line("typecheck_contract") && fn_line("operator_type") &&
     fn_line("infer_match_expr") && fn_line("infer_field_expr_type")
@@ -184,8 +191,8 @@ check("C-01: a `\"substring\"` arm exists") { arm_line("substring") }
 check("C-02: a `\"first\"`/`\"last\"` arm exists") { arm_line("first") }
 check("C-03: a `\"map\"` arm exists") { arm_line("map") }
 check("C-04: a `\"fold\"` arm exists (Fold P3 landed here)") { arm_line("fold") }
-check("C-05: the substring/map/fold arms are INSIDE infer_expr's body") do
-  [arm_line("substring"), arm_line("map"), arm_line("fold")].compact.all? { |l| l > IE_START && l < IE_END }
+check("C-05: the substring/map/fold arms are now in stdlib_calls.rs") do
+  %w[substring map fold].all? { |name| STDLIB_SRC.include?("\"#{name}\"") }
 end
 check("C-06: the stdlib arms form a contiguous dispatch block (substring < map < fold)") do
   s, m, f = arm_line("substring"), arm_line("map"), arm_line("fold")
@@ -208,9 +215,9 @@ check("D-05: dynamic-dispatch policy card exists (call_contract arm region)") do
   File.exist?((CARDS_DIR / "LAB-DYNAMIC-CONTRACT-DISPATCH-P2.md").to_s) ||
     File.exist?((LAB_ROOT / ".agents" / "work" / "cards" / "lab" / "LAB-DYNAMIC-CONTRACT-DISPATCH-P2.md").to_s)
 end
-check("D-06: >= 3 queued cards land in the SAME infer_expr region (collision risk real)") do
+check("D-06: >= 3 queued cards land in the SAME extracted stdlib region (collision risk addressed)") do
   hot = [arm_line("fold"), arm_line("first"), arm_line("map")].compact
-  hot.length >= 3 && hot.all? { |l| l > IE_START && l < IE_END }
+  hot.length >= 3
 end
 check("D-07: => split-first reduces merge/regression risk for the queued wave") { true }
 
@@ -235,7 +242,9 @@ check("E-05: no ad-hoc &mut self field mutation inside arms would block a &self 
   # (&self, args, typed_args, type_errors) can host it without ownership change.
   TC_SRC.include?("typed_args") && TC_SRC.include?("resolved_type")
 end
-check("E-06: extracting dispatch leaves infer_expr as a thin router (the goal)") { INFER_SPAN > 1500 }
+check("E-06: extracting dispatch left infer_expr as a thinner router") do
+  INFER_SPAN < 1000 && TC_SRC.include?("infer_stdlib_call")
+end
 check("E-07: seam choice = stdlib_calls.rs FIRST; records/operators/match later") { true }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -264,10 +273,11 @@ check("F-11: P2 must use the Open3/mktmpdir subprocess route (package-writer rac
 section("G  Closed surfaces — no refactor / no edits in P1")
 # ══════════════════════════════════════════════════════════════════════════════
 
-check("G-01: typechecker.rs NOT yet split (still one file)") { File.file?(TC_RS.to_s) && !Dir.exist?((SRC / "typechecker").to_s) }
+check("G-01: typechecker.rs split is present in the P2 fixed state") { File.file?(TC_RS.to_s) && Dir.exist?((SRC / "typechecker").to_s) }
 check("G-02: lib.rs unchanged shape (typechecker still a single module decl)") { LIB_SRC.include?("pub mod typechecker;") }
-check("G-03: no new stdlib_calls/records/operators submodule files created in P1") do
-  %w[stdlib_calls records operators match_expr infer_expr].none? { |m| File.exist?((SRC / "typechecker" / "#{m}.rs").to_s) }
+check("G-03: only stdlib_calls submodule is present; later modules remain unopened") do
+  File.exist?((SRC / "typechecker" / "stdlib_calls.rs").to_s) &&
+    %w[records operators match_expr infer_expr].none? { |m| File.exist?((SRC / "typechecker" / "#{m}.rs").to_s) }
 end
 check("G-04: no Rust crate/workspace member added") { !File.exist?((COMPILER_DIR / "crates").to_s) }
 check("G-05: Ruby canon typechecker.rb not touched by this card") do

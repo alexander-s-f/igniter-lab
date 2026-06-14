@@ -1,6 +1,6 @@
 # LAB-RUST-TYPECHECKER-DECOMP-P2
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — PROVED 119/119  
 **Route:** lab / compiler hygiene / Rust typechecker decomposition implementation  
 **Date:** 2026-06-14  
 **Authority:** behavior-preserving Rust lab refactor only
@@ -164,6 +164,59 @@ Proof runner target: **at least 80 checks**.
 - No broad formatting sweep.
 - No IO/runtime work.
 - No app migrations.
+
+## Closure Summary (2026-06-14)
+
+**Status:** CLOSED — PROVED.
+
+P2 implemented the behavior-preserving Rust lab refactor selected by P1:
+stdlib call dispatch is now hosted in
+`igniter-compiler/src/typechecker/stdlib_calls.rs`, while
+`igniter-compiler/src/typechecker.rs` keeps the `TypeChecker` public API and
+`infer_expr` call flow unchanged.
+
+Measured fixed-state shape:
+
+| Fact | Value |
+|---|---:|
+| `typechecker.rs` | 4520 lines |
+| `typechecker/stdlib_calls.rs` | 1379 lines |
+| `infer_expr` | 626 lines |
+
+Proof:
+
+- `cargo build --release` succeeds.
+- `verify_rust_typechecker_decomp_p1.rb` updated to fixed-state source checks:
+  **60/60 PASS**.
+- `verify_rust_typechecker_decomp_p2.rb`: **119/119 PASS**.
+- Wave P11 Rust matrix preserved exactly:
+  - 15 apps `ok/0`.
+  - `rule_engine` `oof/2`.
+- Exact `rule_engine` golden unchanged:
+  - `OOF-P1` / `Unresolved field: Unknown.action` / `active_decisions`.
+  - `OOF-TY1` / `Output type mismatch: expected RuleDecision, got Unknown` /
+    `decision`.
+- Manifest entrypoints unchanged:
+  - `air_combat` -> `RunDuel`.
+  - `lead_router` -> `RunAccept`.
+  - `call_router` -> `RunConnectedMatched`.
+- Representative SemanticIR names/path checks preserved:
+  `stdlib.string.char_at`, `stdlib.string.substring`,
+  `stdlib.collection.append`, `stdlib.collection.map`,
+  `stdlib.collection.filter`, `stdlib.collection.count`,
+  `stdlib.collection.concat`, and fold lowering path.
+
+Closed surfaces preserved: no semantic changes, no new stdlib functions, no OOF
+code/message/node changes, no app source changes, no parser/emitter/assembler/
+classifier/multifile/monomorphizer/liveness edits, no Ruby canon mirror, no
+crate/workspace split, no `cargo fmt` sweep, no IO/runtime work.
+
+Deliverables:
+
+- Implementation: `igniter-compiler/src/typechecker.rs` and
+  `igniter-compiler/src/typechecker/stdlib_calls.rs`.
+- Proof runner: `igniter-compiler/verify_rust_typechecker_decomp_p2.rb`.
+- Proof doc: `lab-docs/lang/lab-rust-typechecker-decomp-p2-proof-v0.md`.
 
 ## Agent Recommendation
 
