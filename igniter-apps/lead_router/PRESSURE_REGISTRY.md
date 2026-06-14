@@ -36,7 +36,7 @@ cargo run -- compile \
 | call_contract sites | 38 (all Tier-1 literals — static dispatch) |
 | match sites | 10 (railway short-circuit) |
 | fold sites | 1 (scalar slot total) |
-| source_hash | `sha256:fc0eb86bd30d2f9fb0631c6564ae6f718069454d86bed114a9967bfda0b036ca` |
+| source_hash | `sha256:16deae290738578a09cc324de18ff2312b14b960e0d581945285b913d534e3ba` (updated: `entrypoint RunAccept` added) |
 
 > NOTE (shared with air_combat): the Rust CLI's assembler intermittently surfaces
 > a spurious `Internal compiler error: No such file or directory (os error 2)`
@@ -69,6 +69,19 @@ cargo run -- compile \
 | LR-P08 | **clock capability** | `set_current_time` / business hours / availability dates need a TZ-aware clock; injected as `current_min` (minute-of-day). Same event-time discipline as air_combat (no source `now()`). | DOCUMENTED — behind | clock capability (see `LANG-TEMPORAL-STATE-P1` boundary) |
 | LR-P09 | **RNG capability** | `upi = Random.alphanumeric(8)` — injected as a string token; a real service needs an RNG effect. | DOCUMENTED — behind | effect-surface RNG capability (none yet) |
 | LR-P10 | **service envelope + outbox write** | webhook ingress → ServiceRequest; JSON reply → ServiceResponse; `OutboxEvent.create!` is an effect-with-receipt. `BuildLeadSignal` builds the payload purely; the append is out of scope. | DOCUMENTED — behind | `LAB-IGNITER-LANG-MICROSERVICE` envelope + effect write + ServiceLoop/PROP-037 for the serve loop |
+
+## Entrypoint / DX Refactor (2026-06-14)
+
+`entrypoint RunAccept` added — names the start contract in source.
+
+| ID | Name | Evidence | Status | Route |
+|---|---|---|---|---|
+| LR-P11 | **named run-profiles wanted** | `RunAccept` / `RunAcceptSignal` / `RunReject` are three natural run targets; only one bare `entrypoint` is expressible. Each wants a PROP-029 named profile with its own `args` (accept vs reject fixtures). | ACTIVE — DX | `PROP-029` rich entrypoint |
+
+Cross-cutting (validated across the 3 SparkCRM companions): `variant`+`match` is
+dual-clean for result/railway types; the **effect surface is NOT yet dual-clean**
+(`effect`+`capability`+`effect using` → Rust `E-IO-EFFECT-UNKNOWN`; `via profile`
+→ Rust parser `OOF-G1`) — Ruby-only, confirming the IO gap LR-P07..P10 name.
 
 ## Capability Discovery (positive)
 

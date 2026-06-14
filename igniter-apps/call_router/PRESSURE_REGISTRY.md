@@ -36,7 +36,7 @@ cargo run -- compile \
 | call_contract sites | 30 (Tier-1 literals — static dispatch) |
 | match sites | 11 (state machine + channel flow + extraction) |
 | filter / concat | 1 / 1 |
-| source_hash | `sha256:e6639379b7498e55d6ee3faa106f4ec8ff59c5d573bc4eea30a2a548d8801143` |
+| source_hash | `sha256:470c5378e465534f3b7b520e3b2d91be8cac13b59bc97030bc0f72cf07eece19` (updated: `entrypoint RunConnectedMatched` added) |
 
 > NOTE: the Rust CLI's package writer intermittently surfaces a spurious
 > `Internal compiler error: No such file or directory` when its stdout is shell-
@@ -72,6 +72,14 @@ cargo run -- compile \
 | CR-P08 | **effect surface — DB reads/writes** | `find_operator_by_extension_id`, `callrail_find_record`, company/vendor/tracking lookups, and operator/call `.save` are StorageCapability effects; all injected here. | DOCUMENTED — behind | `PROP-046` storage + `PROP-035` effect surface + IO-runtime |
 | CR-P09 | **clock / freshness window** | `callrail_find_record` is scoped to `created_at: 15.minutes.ago..now` (commented in prod); time is injected as `started_at_min`. Same event-time discipline (no source `now()`). | DOCUMENTED — behind | clock capability (`LANG-TEMPORAL-STATE-P1` boundary) |
 | CR-P10 | **two-stream webhook ingress + correlation window** | two independent webhook streams (CallRail lifecycle + RingCentral presence) must be correlated; a real service buffers/windows them. | DOCUMENTED — behind | `PROP-023` stream input + `MICROSERVICE` envelope + ServiceLoop/`PROP-037` |
+
+## Entrypoint / DX Refactor (2026-06-14)
+
+`entrypoint RunConnectedMatched` added — names the start contract in source.
+
+| ID | Name | Evidence | Status | Route |
+|---|---|---|---|---|
+| CR-P11 | **named run-profiles wanted** | `RunConnectedMatched` / `RunNoCall` / `RunUpsert` / `RunChannel` are four natural scenarios; only one bare `entrypoint` is expressible. Each wants a PROP-029 named profile. | ACTIVE — DX | `PROP-029` rich entrypoint |
 
 ## Capability Discovery (positive)
 

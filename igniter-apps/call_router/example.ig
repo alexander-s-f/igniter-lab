@@ -3,6 +3,11 @@ import CallRouterTypes
 import CallRouterService
 import CallRouterWebhook
 
+-- Program entry point — the connected+matched correlation is the default target.
+-- PRESSURE CR-P11: RunConnectedMatched / RunNoCall / RunUpsert / RunChannel each
+-- want a named PROP-029 run-profile; only one bare `entrypoint` is expressible today.
+entrypoint RunConnectedMatched
+
 -- ============================================================
 -- Example: an inbound call correlated end-to-end
 -- ============================================================

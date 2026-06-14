@@ -3,6 +3,11 @@ import AirCombatTypes
 import AirCombatEngine
 import AirCombatKalman
 
+-- Program entry point — the duel is the default run target.
+-- PRESSURE AC-P10: only ONE bare `entrypoint` is allowed today; RunDuel and
+-- TrackBogey each want to be a named PROP-029 run-profile (panel preset).
+entrypoint RunDuel
+
 -- ============================================================
 -- Example: a 3-tick duel between two strategy-authored swarms
 -- ============================================================

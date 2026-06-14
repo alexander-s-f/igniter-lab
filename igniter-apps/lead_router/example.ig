@@ -2,6 +2,11 @@ module LeadRouterExample
 import LeadRouterTypes
 import LeadRouterService
 
+-- Program entry point — the accept path is the default run target.
+-- PRESSURE LR-P11: RunAccept / RunAcceptSignal / RunReject each want to be a
+-- named PROP-029 run-profile; only one bare `entrypoint` is expressible today.
+entrypoint RunAccept
+
 -- ============================================================
 -- Example: the eLocal webhook, two scenarios (accept / reject)
 -- ============================================================

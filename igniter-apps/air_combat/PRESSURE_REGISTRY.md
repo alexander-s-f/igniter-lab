@@ -32,7 +32,7 @@ cargo run -- compile \
 | call_contract sites | 61 (all Tier-1 string literals — static dispatch) |
 | fold sites | 6 (all SCALAR — record folds blocked, see AC-P01/02) |
 | map / filter sites | 2 / 2 |
-| source_hash | `sha256:b52ffef0e10c866ded1f8f0dc06c3f593bb72dee309382c46a8b7ea114b2eaed` |
+| source_hash | `sha256:8b698e66d8635f83306d209c702f7231c8184b1e6ffddb8a63f3a147ed9600f8` (updated: `entrypoint RunDuel` added) |
 
 > NOTE: the Rust CLI writes a directory-package `.igapp`. Always compile to a
 > fresh `--out` path; piping stdout through `head`/truncating consumers can SIGPIPE
@@ -51,6 +51,19 @@ cargo run -- compile \
 | AC-P06 | **dynamic strategy dispatch avoided** | `strategy.ig` `DoctrineDispatcher` hardcodes `CombinedDoctrine`; we want `call_contract(swarm.doctrine, ...)` but a variable callee returns Unknown. Static-dispatch discipline preserved. | INTENTIONAL fail-closed | `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` (policy; not an unblock) |
 | AC-P07 | **missing math: sqrt / normalize** | `vec.ig` keeps distances SQUARED (`VMag2`/`VDist2`) and guidance uses gain-scaled steering instead of true unit vectors because there is no `sqrt`. True proportional navigation needs a normalized line-of-sight rate. | ACTIVE — stdlib gap | new `LANG-STDLIB-MATH` (sqrt/hypot) proposal |
 | AC-P08 | **IO surface needed for a real game** | Pure sim only: no clock, no RNG, no input, no rendering, no networking, no persistence. See "What We Need From IO" in `report.md`. | DOCUMENTED — behind | `PROP-035` effect surface / `PROP-023` stream input / IO-runtime track |
+
+## Entrypoint / DX Refactor (2026-06-14)
+
+`entrypoint RunDuel` added to `example.ig` — the first time the fleet uses the
+implemented `entrypoint` selector (parser→TC→SemanticIR→manifest, dual-clean). It
+names the program's start contract in source instead of relying on tool heuristics.
+
+| ID | Name | Evidence | Status | Route |
+|---|---|---|---|---|
+| AC-P10 | **named run-profiles wanted** | only ONE bare `entrypoint` is allowed; `RunDuel` and `TrackBogey` each want to be a named PROP-029 run-profile (panel preset with `args`/`output`/`default`). | ACTIVE — DX | `PROP-029` rich entrypoint (revive profiles) |
+
+> RE-BASELINE NEEDED: source_hash changed (`b52ffef0…` → `8b698e66…`) due to the
+> `entrypoint` line. `LAB-AIR-COMBAT-BASELINE-P1` (99/99) must be re-frozen.
 
 ## ServiceLoop / Progression Direction
 
