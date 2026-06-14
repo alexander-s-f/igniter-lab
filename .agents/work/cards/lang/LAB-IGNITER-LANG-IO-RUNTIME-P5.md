@@ -1,6 +1,6 @@
 # LAB-IGNITER-LANG-IO-RUNTIME-P5
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — PROOF COMPLETE (145/145)  
 **Route:** LAB RUNTIME / IO REGRESSION CONSOLIDATION  
 **Date:** 2026-06-14  
 **Authority:** proof-local runtime regression only; no new runtime surface
@@ -28,8 +28,9 @@ The purpose is regression confidence before any substrate adapter discussion. Th
 Start only after all are closed:
 
 - `LANG-EFFECT-SURFACE-RUNTIME-BRIDGE-P3` — 65/65
-- `LANG-IO-CAPABILITY-EXECUTOR-P3` — executor runtime substrate
-- `LAB-IGNITER-LANG-IO-RUNTIME-P3` — 129/129
+- `LANG-IO-CAPABILITY-EXECUTOR-P1` — 80/80
+- `LANG-IO-CAPABILITY-EXECUTOR-P2` — 86/86
+- `LAB-IGNITER-LANG-IO-RUNTIME-P3` — executor runtime substrate, 129/129
 - `LAB-IGNITER-LANG-IO-RUNTIME-P4` — 104/104
 - `LAB-IGNITER-LANG-MICROSERVICE-P3` — 90/90
 
@@ -76,3 +77,39 @@ Start only after all are closed:
 - No storage write family.
 - No production/reference runtime claim.
 - No full PROP-035 effect surface implementation.
+
+## Closure Summary
+
+Closed on 2026-06-14 with:
+
+- Proof runner: `igniter-view-engine/proofs/verify_lab_igniter_lang_io_runtime_p5.rb`
+- Regression doc: `lab-docs/lang/lab-igniter-lang-io-runtime-p5-regression-v0.md`
+- Result: `LAB-IGNITER-LANG-IO-RUNTIME-P5 Regression Consolidation` — 145/145 PASS
+
+The P5 runner invokes and verifies upstream proof counts:
+
+- `LANG-EFFECT-SURFACE-RUNTIME-BRIDGE-P3` — 65/65
+- `LAB-IGNITER-LANG-IO-RUNTIME-P3` — 129/129
+- `LAB-IGNITER-LANG-IO-RUNTIME-P4` — 104/104
+- `LAB-IGNITER-LANG-MICROSERVICE-P3` — 90/90
+
+P5 then rechecks the consolidated runtime chain directly:
+
+```text
+effect_surface_v0_stub
+  -> RuntimeMachine.evaluate_effect
+  -> CapabilityExecutorRegistry
+  -> CapabilityPassport preflight
+  -> StorageCapabilityExecutor
+  -> EffectResult + EffectReceipt
+  -> ServiceResponse envelope
+```
+
+Confirmed invariants:
+
+- Runtime refusals are pre-executor and receipt-free.
+- Executor denials are data outcomes and carry receipts.
+- Success, denial, failure, row-limit clamp, and unknown external outcomes remain stable.
+- P15 remains enforced for unknown external outcomes.
+- ServiceResponse preserves replay evidence and substrate neutrality.
+- No Rack/HTTP/DB/file/network/process/storage-write surface was opened.
