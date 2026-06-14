@@ -948,7 +948,8 @@ impl Emitter {
                             // bare names to semantic_expr for stdlib.collection.* qualification.
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
                             // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
-                            || matches!(fn_val, "map" | "filter" | "count" | "append" | "is_empty" | "non_empty" | "range")
+                            || matches!(fn_val, "map" | "filter" | "count" | "fold" | "append" | "is_empty" | "non_empty" | "range")
+                            || fn_val == "stdlib.collection.fold"
                             // LANG-STDLIB-STRING-SURFACE-P3: delegate string stdlib to semantic_expr
                             // LANG-STDLIB-STRING-SUBSTRING-P2: substring added.
                             || fn_val == "char_at"
@@ -1545,7 +1546,7 @@ impl Emitter {
             .and_then(|s| s.get("kind"))
             .and_then(|k| k.as_str()) == Some("range");
 
-        if pipeline.len() > 1 || is_range {
+        if pipeline.len() > 1 || is_range || fn_name == "fold" {
             Some(json!({
                 "kind": "map_reduce_aggregate",
                 "source": source,

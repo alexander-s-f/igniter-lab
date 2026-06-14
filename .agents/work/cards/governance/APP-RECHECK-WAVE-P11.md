@@ -3,19 +3,20 @@
 **Status:** OPEN — DISPATCH READY  
 **Route:** governance / fleet recheck  
 **Date:** 2026-06-14  
-**Scope:** all 15 apps; evidence and registry updates only
+**Scope:** all 16 apps; evidence and registry updates only
 
 ## Goal
 
-Refresh the app fleet after `air_combat` and `lead_router` baseline integration and any Fold P3/P4 changes that land before execution.
+Refresh the app fleet after `air_combat`, `lead_router`, and `call_router` baseline integration and any Fold P3/P4 changes that land before execution.
 
 Starting point:
 
 - `APP-RECHECK-WAVE-P10`: 12/13 DUAL-CLEAN (`rule_engine` only blocked).
 - `LAB-AIR-COMBAT-BASELINE-P1`: `air_combat` DUAL-CLEAN, 99/99 PASS, AC-P01..AC-P09 pressure table.
 - `LAB-LEAD-ROUTER-BASELINE-P1`: `lead_router` pending baseline freeze; expected DUAL-CLEAN with LR-P01..LR-P10 pressure table.
+- `LAB-CALL-ROUTER-BASELINE-P1`: `call_router` pending baseline freeze; expected DUAL-CLEAN with CR-P01..CR-P10 pressure table.
 
-Expected fleet after `lead_router` baseline closes, if no new implementation changes land first: **14/15 DUAL-CLEAN**, with `rule_engine` still the only intentional blocked app.
+Expected fleet after `lead_router` and `call_router` baselines close, if no new implementation changes land first: **15/16 DUAL-CLEAN**, with `rule_engine` still the only intentional blocked app.
 
 ## Gate
 
@@ -23,6 +24,7 @@ Start after at least:
 
 - `LAB-AIR-COMBAT-BASELINE-P1` CLOSED — 99/99.
 - `LAB-LEAD-ROUTER-BASELINE-P1` CLOSED — target ≥90.
+- `LAB-CALL-ROUTER-BASELINE-P1` CLOSED — target ≥95.
 
 Preferred if available before execution:
 
@@ -34,6 +36,7 @@ Compile both Ruby and Rust for all current apps, including:
 
 - `air_combat`
 - `lead_router`
+- `call_router`
 - `trade_robot`
 - the 12-app fleet from Wave P10
 
@@ -47,8 +50,9 @@ Compile both Ruby and Rust for all current apps, including:
 ## Acceptance
 
 - Every app has fresh Ruby and Rust compile status.
-- `air_combat` and `lead_router` are included as the 14th and 15th apps.
+- `air_combat`, `lead_router`, and `call_router` are included as the 14th, 15th, and 16th apps.
 - `rule_engine` diagnostics are refreshed exactly.
+- `call_router` Rust verification uses the proof-runner subprocess route or explicitly accounts for the known package-writer stdout/timing artifact.
 - If Fold P3 lands first, note whether any app pressure changes; do not edit app source.
 - No source/compiler/runtime edits in this recheck card.
 

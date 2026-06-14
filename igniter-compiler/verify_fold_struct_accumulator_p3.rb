@@ -524,8 +524,8 @@ check("F-02: Rust emitter fold node still carries param_acc") { EMITTER_SRC.incl
 check("F-03: Rust emitter fold node still carries param_val") { EMITTER_SRC.include?('"param_val": param_val') }
 check("F-04: Rust emitter fold node still carries init") { EMITTER_SRC.include?('"init": self.semantic_expr(init)') }
 check("F-05: Rust emitter fold node still carries body") { EMITTER_SRC.include?('"body": self.semantic_expr(body)') }
-check("F-06: inline fold artifact remains accepted even though ordinary fold lowering is P4") do
-  ok?(inline_ok) && !find_kind?(inline_ok["_semantic_ir"], "fold")
+check("F-06: inline fold artifact remains accepted after P4 ordinary fold lowering") do
+  ok?(inline_ok) && find_kind?(inline_ok["_semantic_ir"], "fold")
 end
 check("F-07: no Rust emitter P3 marker was added") { !EMITTER_SRC.include?("LANG-FOLD-STRUCT-ACCUMULATOR-P3") }
 check("F-08: typechecker P3 changed TC only, not emitter") { TYPECHECKER_SRC.include?("infer_fold_call_type") && !EMITTER_SRC.include?("infer_fold_call_type") }
