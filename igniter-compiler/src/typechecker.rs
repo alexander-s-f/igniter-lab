@@ -1118,6 +1118,57 @@ impl TypeChecker {
                             }
                         }
                     }
+                    // LANG-FOLD-STRUCT-ACCUMULATOR-P3: contextual record
+                    // accumulator typing for `fold(Collection[T], Acc, lambda)`.
+                    // `infer_expr` has no enclosing output context, so an inline
+                    // record seed stays Unknown there. When this compute has a
+                    // named-record output or compute annotation, re-check the fold
+                    // seed and lambda body against that expected `Acc`.
+                    if self.type_name(&typed_expr.resolved_type) == "Unknown" {
+                        let fold_acc_hint = decl.type_annotation.as_ref()
+                            .map(|ann| self.type_ir(ann))
+                            .filter(|ir| local_type_shapes.contains_key(&self.type_name(ir)))
+                            .or_else(|| {
+                                output_type_hints.get(&decl.name)
+                                    .map(|name| self.type_ir(&serde_json::Value::String(name.clone())))
+                            });
+                        if let (Some(expected_acc), Some(Expr::Call { fn_name, args })) =
+                            (fold_acc_hint, decl.expr.as_ref())
+                        {
+                            if fn_name == "fold" {
+                                let mut fold_typed_args = Vec::new();
+                                for arg in args {
+                                    let arg_typed = self.infer_expr(
+                                        arg,
+                                        &symbol_types,
+                                        olap_env,
+                                        &local_type_shapes,
+                                        &mut type_errors,
+                                        &mut type_warnings,
+                                        &decl.name,
+                                        functions,
+                                        contract_registry,
+                                        &classified.name,
+                                    );
+                                    fold_typed_args.push(arg_typed);
+                                }
+                                typed_expr.resolved_type = self.infer_fold_call_type(
+                                    args,
+                                    &fold_typed_args,
+                                    Some(&expected_acc),
+                                    &symbol_types,
+                                    olap_env,
+                                    &local_type_shapes,
+                                    &mut type_errors,
+                                    &mut type_warnings,
+                                    &decl.name,
+                                    functions,
+                                    contract_registry,
+                                    &classified.name,
+                                );
+                            }
+                        }
+                    }
                     // LAB-RACK-P13: nominal record type checking.
                     // If this compute node is Unknown (e.g. from a RecordLiteral) and there
                     // is an output declaration expecting a named record type, validate the
@@ -2105,6 +2156,305 @@ impl TypeChecker {
         if params.is_empty() { return name; }
         let rendered: Vec<String> = params.iter().map(|p| self.type_display(&self.type_ir(p))).collect();
         format!("{}[{}]", name, rendered.join(","))
+    }
+
+    fn check_record_literal_shape_col4(
+        &self,
+        fields: &HashMap<String, Expr>,
+        expected_shape: &HashMap<String, serde_json::Value>,
+        expected_type_name: &str,
+        node_name: &str,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+    ) {
+        let mut shape_errors = Vec::new();
+        self.check_record_literal_shape(
+            fields,
+            expected_shape,
+            expected_type_name,
+            node_name,
+            symbol_types,
+            type_shapes,
+            &mut shape_errors,
+        );
+        for err in shape_errors {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-COL4".to_string(),
+                message: format!(
+                    "stdlib.collection.fold: accumulator record literal does not match {}: {}",
+                    expected_type_name,
+                    err.message
+                ),
+                node: node_name.to_string(),
+                line: err.line,
+            });
+        }
+    }
+
+    fn infer_fold_body_type(
+        &self,
+        body: &ExprOrBlock,
+        local_symbols: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        expected_acc: &serde_json::Value,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> serde_json::Value {
+        match body {
+            ExprOrBlock::Expr(expr) => self.infer_fold_expr_type(
+                expr,
+                local_symbols,
+                olap_env,
+                type_shapes,
+                expected_acc,
+                type_errors,
+                type_warnings,
+                node_name,
+                functions,
+                contract_registry,
+                current_contract_name,
+            ),
+            ExprOrBlock::Block(block) => {
+                let mut local = local_symbols.clone();
+                let mut last_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                for stmt in &block.stmts {
+                    match stmt {
+                        Stmt::Let { name, expr } => {
+                            let typed = self.infer_expr(
+                                expr,
+                                &local,
+                                olap_env,
+                                type_shapes,
+                                type_errors,
+                                type_warnings,
+                                node_name,
+                                functions,
+                                contract_registry,
+                                current_contract_name,
+                            );
+                            local.insert(name.clone(), typed.resolved_type.clone());
+                            last_type = typed.resolved_type;
+                        }
+                        Stmt::ExprStmt { expr } => {
+                            let typed = self.infer_expr(
+                                expr,
+                                &local,
+                                olap_env,
+                                type_shapes,
+                                type_errors,
+                                type_warnings,
+                                node_name,
+                                functions,
+                                contract_registry,
+                                current_contract_name,
+                            );
+                            last_type = typed.resolved_type;
+                        }
+                    }
+                }
+                if let Some(return_expr) = &block.return_expr {
+                    last_type = self.infer_fold_expr_type(
+                        return_expr,
+                        &local,
+                        olap_env,
+                        type_shapes,
+                        expected_acc,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                }
+                last_type
+            }
+        }
+    }
+
+    fn infer_fold_expr_type(
+        &self,
+        expr: &Expr,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        expected_acc: &serde_json::Value,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> serde_json::Value {
+        let typed = self.infer_expr(
+            expr,
+            symbol_types,
+            olap_env,
+            type_shapes,
+            type_errors,
+            type_warnings,
+            node_name,
+            functions,
+            contract_registry,
+            current_contract_name,
+        );
+        if let Expr::RecordLiteral { fields } = expr {
+            let expected_name = self.type_name(expected_acc);
+            if let Some(shape) = type_shapes.get(expected_name.as_str()) {
+                let errors_before = type_errors.len();
+                self.check_record_literal_shape_col4(
+                    fields,
+                    shape,
+                    &expected_name,
+                    node_name,
+                    symbol_types,
+                    type_shapes,
+                    type_errors,
+                );
+                if type_errors.len() == errors_before {
+                    return expected_acc.clone();
+                }
+            }
+        }
+        typed.resolved_type
+    }
+
+    fn infer_fold_call_type(
+        &self,
+        args: &[Expr],
+        typed_args: &[TypedExpression],
+        expected_acc: Option<&serde_json::Value>,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> serde_json::Value {
+        let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        if args.len() != 3 {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-COL4".to_string(),
+                message: format!(
+                    "stdlib.collection.fold: expected 3 arguments (collection, seed, lambda), got {}",
+                    args.len()
+                ),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return unknown;
+        }
+
+        let collection_type = typed_args
+            .get(0)
+            .map(|t| t.resolved_type.clone())
+            .unwrap_or_else(|| unknown.clone());
+        let collection_name = self.type_name(&collection_type);
+        if collection_name != "Collection" && collection_name != "Unknown" {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-COL4".to_string(),
+                message: format!(
+                    "stdlib.collection.fold: first argument must be Collection[T], got {}",
+                    collection_name
+                ),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+        let elem_type = if collection_name == "Collection" {
+            self.get_param(&collection_type, 0).unwrap_or_else(|| unknown.clone())
+        } else {
+            unknown.clone()
+        };
+
+        let mut acc_type = typed_args
+            .get(1)
+            .map(|t| t.resolved_type.clone())
+            .unwrap_or_else(|| unknown.clone());
+        if self.type_name(&acc_type) == "Unknown" {
+            if let (Some(expected), Expr::RecordLiteral { fields }) = (expected_acc, &args[1]) {
+                let expected_name = self.type_name(expected);
+                if let Some(shape) = type_shapes.get(expected_name.as_str()) {
+                    let errors_before = type_errors.len();
+                    self.check_record_literal_shape_col4(
+                        fields,
+                        shape,
+                        &expected_name,
+                        node_name,
+                        symbol_types,
+                        type_shapes,
+                        type_errors,
+                    );
+                    if type_errors.len() == errors_before {
+                        acc_type = expected.clone();
+                    }
+                }
+            }
+        }
+
+        if let Expr::Lambda { params, body } = &args[2] {
+            if params.len() != 2 {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-COL4".to_string(),
+                    message: format!(
+                        "stdlib.collection.fold: lambda must accept exactly 2 params (acc, elem), got {}",
+                        params.len()
+                    ),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            } else if self.type_name(&acc_type) != "Unknown" {
+                let mut local_symbols = symbol_types.clone();
+                local_symbols.insert(params[0].clone(), acc_type.clone());
+                local_symbols.insert(params[1].clone(), elem_type.clone());
+                let body_errors_before = type_errors.len();
+                let body_type = self.infer_fold_body_type(
+                    body,
+                    &local_symbols,
+                    olap_env,
+                    type_shapes,
+                    &acc_type,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                if type_errors.len() == body_errors_before
+                    && !self.structurally_assignable(&body_type, &acc_type)
+                {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL4".to_string(),
+                        message: format!(
+                            "stdlib.collection.fold: lambda return type {} does not match accumulator type {}",
+                            self.type_display(&body_type),
+                            self.type_display(&acc_type)
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+            }
+        } else {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-COL4".to_string(),
+                message: "stdlib.collection.fold: third argument must be a lambda".to_string(),
+                node: node_name.to_string(),
+                line: None,
+            });
+        }
+
+        acc_type
     }
 
     // igniter-string-core-units-and-pure-stdlib-boundary-v0 helpers ----------
@@ -3663,11 +4013,20 @@ impl TypeChecker {
                             }
                             "fold" => {
                                 is_resolved = true;
-                                if typed_args.len() >= 2 {
-                                    resolved_type = typed_args[1].resolved_type.clone();
-                                } else {
-                                    resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
-                                }
+                                resolved_type = self.infer_fold_call_type(
+                                    args,
+                                    &typed_args,
+                                    None,
+                                    symbol_types,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                );
                             }
                             "append" => {
                                 // LANG-STDLIB-COLLECTION-APPEND-PROP-P4: stdlib.collection.append
