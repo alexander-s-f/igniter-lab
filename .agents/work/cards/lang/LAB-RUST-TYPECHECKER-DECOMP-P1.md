@@ -1,6 +1,6 @@
 # LAB-RUST-TYPECHECKER-DECOMP-P1
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — READINESS PROVED 60/60 — ROUTE: P2 (stdlib dispatch seam)  
 **Route:** lab / compiler hygiene / Rust typechecker decomposition  
 **Date:** 2026-06-14  
 **Authority:** readiness + refactor plan only; no behavior change
@@ -138,6 +138,51 @@ Potential later modules, not P2 scope:
 `LAB-RUST-TYPECHECKER-DECOMP-P2`: extract stdlib call dispatch from `infer_expr`
 into a Rust submodule while preserving behavior exactly. P2 must run the full
 16-app Wave P11 fleet and compare diagnostic sets before/after.
+
+## Closure Summary (2026-06-14)
+
+**READINESS PROVED 60/60.** Route: intra-typechecker decomposition (NOT a crate
+split); P2 = extract the stdlib call dispatch from `infer_expr`.
+
+### Measured facts (live source)
+| Fact | Value |
+|---|---:|
+| `typechecker.rs` | 5849 ln (largest; parser 3201 / classifier 2052 / emitter 1804) |
+| `infer_expr` | **1958 ln** (lines 2679–4637) — the main risk |
+| `typecheck_contract` | 877 ln |
+| infer_expr + typecheck_contract | ~48% of the file |
+| dispatch arms (in infer_expr) | 71 (`"name" =>`), incl. all stdlib calls |
+| pass modules in `lib.rs` | 11 → pipeline already modular |
+| stdlib anchors | substring@3190, first/last@3248, map@3447, fold@4014 |
+
+### 10 questions — answers
+1. **Intra-typechecker**, not crate/workspace (11 pass modules already; ~17k single crate).
+2. Facts above; biggest bodies infer_expr 1958 / typecheck_contract 877.
+3. Collision: Fold P3/P4 → `"fold"`@4014; first-last-option → `"first"/"last"`@3248; outcome-bind → `infer_match_expr`@5044; substring → @3190; all inside one `infer_expr`.
+4. **Yes — stdlib dispatch is the safest first seam** (contiguous, cohesive, exactly the hotspot).
+5. Arms use `&self` helpers (`type_ir`/`type_name`/`get_param`/`structurally_assignable`/`type_shapes`) + a passed `type_errors`; movable to `infer_stdlib_call(&self,…)` with NO public-API/ownership change.
+6. Identical `{rule,message,node}` sets + `status` per app; OOF-COL*/TY*/P1 unchanged.
+7. 16-app Wave P11 fleet; exact diagnostics; **rule_engine fail-closed golden** captured live = Rust `OOF-P1 Unresolved field: Unknown.action` + `OOF-TY1 … expected RuleDecision, got Unknown` (exactly 2). 15/16 dual-clean.
+8. Also compare manifest `entrypoint`, SIR stdlib-call fn-names, and the pinned companion hashes.
+9. Closed: no diagnostic/message change, no other-pass/app edits, no crate split, no Ruby canon, no IO, no fmt sweep.
+10. Ruby canon `typechecker.rb` mirror **deferred** (canon governance bar; mirror only after Rust seam proves useful).
+
+### Recommended P2
+`LAB-RUST-TYPECHECKER-DECOMP-P2`: extract stdlib dispatch → `src/typechecker/stdlib_calls.rs`,
+behavior-preserving; `infer_expr` becomes a thin router; 16-app exact-diagnostic
+parity proof via Open3/mktmpdir; rule_engine golden asserted. Later seams (named,
+not authorized): `records.rs`, `operators.rs`, `match_expr.rs`, then `infer_expr.rs`.
+
+### Deliverables
+| Artefact | Path | Status |
+|---|---|---|
+| Plan doc | `lab-docs/lang/lab-rust-typechecker-decomp-p1-v0.md` | Written |
+| Proof runner | `igniter-compiler/verify_rust_typechecker_decomp_p1.rb` | **60/60 PASS** (target ≥55) |
+| This card | `.agents/work/cards/lang/LAB-RUST-TYPECHECKER-DECOMP-P1.md` | CLOSED |
+| Portfolio index | `.agents/portfolio-index.md` | Updated |
+
+### Acceptance
+- ✅ ≥55 checks (60). ✅ Concentration confirmed by measurement. ✅ Pipeline modular → no crate split. ✅ One first seam recommended. ✅ Behavior-preserving P2 matrix over 16-app fleet defined. ✅ rule_engine fail-closed preserved (golden captured). ✅ Future modules named, not authorized. ✅ No compiler source edits in P1 (only proof/doc/card).
 
 ## Agent Recommendation
 
