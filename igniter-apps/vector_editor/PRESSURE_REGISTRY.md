@@ -1,6 +1,6 @@
 # Vector Editor Pressure Registry
 
-Updated: 2026-06-13 (LAB-VE-NEW-OBJ-INFERENCE-P1 — VE-P09 RESOLVED; vector_editor DUAL-CLEAN)
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/vector_editor`. It is evidence, not canon authority.
 
@@ -90,3 +90,7 @@ Post-fix: Ruby ok / 0, Rust ok / 0. **vector_editor DUAL-CLEAN.**
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics (was oof/1 in Wave P8 — VE-P09 RESOLVED by LAB-VE-NEW-OBJ-INFERENCE-P1). DUAL-CLEAN. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. VE-P09 remains resolved. No new pressures. No regressions.

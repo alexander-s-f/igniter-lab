@@ -1,6 +1,6 @@
 # Simulation Framework Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — SIM-P10/P11/P14 all RESOLVED; sim_framework now DUAL-CLEAN)
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
 
 This registry tracks language and stdlib pressure from the `sim_framework` app. The app is a large simulation fixture with temporal state, relation-like collections, proof/audit records, constraints, decision trees, lens-style updates, and snapshot/trajectory concepts.
 
@@ -89,3 +89,7 @@ LANG-TYPED-COMPUTE-BINDING-P2 had zero effect (no annotated `compute name : Type
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, LAB-VE-NEW-OBJ-INFERENCE-P1, LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1, LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2, and LAB-PARSER-RECORD-IN-HOF-P1 had no effect on this app. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. No regressions.

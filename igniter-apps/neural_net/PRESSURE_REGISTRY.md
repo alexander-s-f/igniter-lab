@@ -1,6 +1,6 @@
 # Neural Net Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P8 — DUAL-CLEAN)
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
 
 This registry tracks language and stdlib pressure from the `neural_net` app. The app implements a small feed-forward network using fixed-point integers and statically unrolled layer equations.
 
@@ -83,3 +83,7 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. 
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, LAB-VE-NEW-OBJ-INFERENCE-P1, LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1, LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2, and LAB-PARSER-RECORD-IN-HOF-P1 had no effect on this app. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. No regressions.

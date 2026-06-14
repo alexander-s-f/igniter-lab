@@ -1,6 +1,6 @@
 # Advanced Logistics Pressure Registry
 
-**Date:** 2026-06-13 (APP-RECHECK-WAVE-P8 — DUAL-CLEAN)
+**Date:** 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
 **App:** `igniter-lab/igniter-apps/advanced_logistics`
 **Purpose:** compact registry of language/compiler pressures surfaced by the advanced logistics fixture.
 
@@ -95,3 +95,7 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. 
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, LAB-VE-NEW-OBJ-INFERENCE-P1, LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1, LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2, and LAB-PARSER-RECORD-IN-HOF-P1 had no effect on this app. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. No pressure ID changes this wave. No new pressures. No regressions.

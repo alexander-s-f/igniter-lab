@@ -1,7 +1,7 @@
 # Trade Robot Pressure Registry
 
-Updated: 2026-06-13 (LAB-TRADE-ROBOT-BASELINE-P1 — dual-toolchain clean baseline, 100/100 PASS)
-Last checked: 2026-06-13
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
+Last checked: 2026-06-14
 Scope: app-pressure evidence only; not canon authority and not financial/trading advice.
 
 ## Current Live Check
@@ -74,3 +74,7 @@ The pressure is architectural rather than diagnostic: the app compiles cleanly b
 - No dynamic dispatch implementation.
 - No fold-to-struct implementation.
 - No app source changes in the baseline proof.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. trade_robot is officially integrated as the 13th app in the fleet. No new pressures. No regressions.

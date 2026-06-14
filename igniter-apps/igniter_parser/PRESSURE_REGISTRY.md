@@ -1,7 +1,7 @@
 # Igniter Parser Pressure Registry
 
-Updated: 2026-06-13 (LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 — IP-P06 RESOLVED; igniter_parser DUAL-CLEAN ok/0 both toolchains)
-Last checked: 2026-06-13
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
+Last checked: 2026-06-14
 Scope: app-pressure evidence only; not a canon stdlib or compiler proposal.
 
 ## Current Live Check
@@ -141,3 +141,7 @@ Proof: `igniter-lab/igniter-view-engine/proofs/verify_lab_stdlib_stringly_call_c
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics (was oof/5 in Wave P8). Ruby: ok / 0 diagnostics (was oof/7 in Wave P8). DUAL-CLEAN. IP-P06 RESOLVED by LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4 (51/51 PASS) — all stringly stdlib constructor sites migrated to canonical forms. igniter_parser first wave with DUAL-CLEAN status. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. IP-P06 remains resolved. No new pressures. No regressions.

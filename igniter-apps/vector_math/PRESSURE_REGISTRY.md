@@ -1,6 +1,6 @@
 # Vector Math Pressure Registry
 
-Updated: 2026-06-13 (LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1 — VM-P10 RESOLVED; Ruby 36→0; Rust CLEAN)
+Updated: 2026-06-14 (APP-RECHECK-WAVE-P10 — DUAL-CLEAN)
 
 This registry tracks app pressure from `igniter-apps/vector_math`. It is evidence, not canon authority.
 
@@ -74,3 +74,7 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics (was oof/36). L
 ## Wave P8 Recheck Summary (2026-06-13)
 
 Rust: ok / 0 diagnostics — unchanged. Ruby: oof / 36 diagnostics — unchanged (all 36 are VM-P10 record literal field name mismatch: `x/y/z` provided vs `r0/r1/r2` expected). VM-P10 ACTIVE. LANG-STRING-TEXT-ALIAS-P2, LANG-RUBY-RECORD-LITERAL-INFERENCE-P5, LANG-STDLIB-STRING-SUBSTRING-P2 had no effect on vector_math. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN. VM-P10 remains resolved. No new pressures. No regressions.

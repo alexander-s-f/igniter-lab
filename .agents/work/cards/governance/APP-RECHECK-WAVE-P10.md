@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P10
 
-**Status:** OPEN — DISPATCH READY  
+**Status:** CLOSED — 12/13 DUAL-CLEAN — WAVE P10 COMPLETE  
 **Route:** governance / fleet recheck  
 **Date:** 2026-06-14  
 **Scope:** all 13 apps; evidence and registry updates only
@@ -70,6 +70,39 @@ Compile both Ruby and Rust for:
 - Fleet status should be **12/13 DUAL-CLEAN**.
 - `rule_engine` should remain blocked unless a separate safety card has landed.
 - If a new blocker appears, open a precise pressure ID with diagnostic text and route.
+
+## Results
+
+| App | Wave P9 | Wave P10 | Delta |
+|---|---|---|---|
+| advanced_logistics | DUAL-CLEAN | DUAL-CLEAN | — |
+| arch_patterns | DUAL-CLEAN | DUAL-CLEAN | — |
+| bloom_filter | DUAL-CLEAN | DUAL-CLEAN | — |
+| dataframes | DUAL-CLEAN | DUAL-CLEAN | — |
+| decision_tree | DUAL-CLEAN | DUAL-CLEAN | — |
+| dsa | DUAL-CLEAN | DUAL-CLEAN | — |
+| igniter_parser | DUAL-CLEAN | DUAL-CLEAN | — |
+| neural_net | DUAL-CLEAN | DUAL-CLEAN | — |
+| sim_framework | DUAL-CLEAN | DUAL-CLEAN | — |
+| **trade_robot** | **N/A** | **DUAL-CLEAN** | **NEW** — Integrated from baseline P1 |
+| vector_editor | DUAL-CLEAN | DUAL-CLEAN | — |
+| vector_math | DUAL-CLEAN | DUAL-CLEAN | — |
+| rule_engine | BLOCKED oof/2+2 | BLOCKED oof/2+2 | Diagnostics unchanged |
+
+**Fleet: 12/13 DUAL-CLEAN** (+1 vs Wave P9 due to new app integration).
+
+All expected outcomes confirmed. `rule_engine` diagnostic form is unchanged from Wave P9.
+
+## Proof Matrix
+
+| Deliverable | Status |
+|---|---|
+| Rollup doc written | Done — `app-pressure-recheck-wave-p10-2026-06-14-v0.md` |
+| All 13 PRESSURE_REGISTRY.md updated | Done |
+| Wave P10 Rust compile (all 13) | Fresh — all confirmed |
+| Wave P10 Ruby compile (all 13) | Fresh — all confirmed |
+| Card closed | Done |
+| Portfolio updated | Done |
 
 ## Closed Surfaces
 

@@ -1,6 +1,6 @@
 # Rule Engine Pressure Registry
 
-Updated: 2026-06-13 (APP-RECHECK-WAVE-P9 — diagnostics unchanged from Wave P8; RE-P04/RE-P07 still ACTIVE)
+Updated: 2026-06-14 (LAB-DYNAMIC-CONTRACT-DISPATCH-P2 CLOSED 47/47 — route DEFER + NO-CHANGE + PRESERVE fail-closed; BLOCKED status is a selected safe route, not an open gap)
 
 This registry tracks language and safety pressure from the `rule_engine` app. The app demonstrates a dynamic rule pipeline built from contract names, and exposes a high-leverage but high-risk Unknown-flow path.
 
@@ -93,3 +93,13 @@ Rust: oof / 2 diagnostics — **diagnostic content changed vs baseline freeze**.
 ## Wave P9 Recheck Summary (2026-06-13)
 
 Rust: oof / 2 diagnostics — unchanged from Wave P8 form (OOF-P1: "Unresolved field: Unknown.action" (node: active_decisions); OOF-TY1: "Output type mismatch: expected RuleDecision, got Unknown" (node: decision)). Ruby: oof / 2 diagnostics — unchanged (OOF-P1: "Unresolved symbol: d" (node: active_decisions); OOF-P1: "Unresolved field: Unknown.action" (node: active_decisions)). RE-P01 baseline source hash unchanged. Diagnostic form unchanged since Wave P8 (HOF-P2 Rust propagation change). Root cause unchanged: Tier 2 dynamic dispatch. Route unchanged: LAB-DYNAMIC-CONTRACT-DISPATCH-P1. LAB-STDLIB-STRINGLY-CALL-CONTRACT-MIGRATION-P4, LAB-VE-NEW-OBJ-INFERENCE-P1, LAB-VECTOR-MATH-FIELD-ALIGNMENT-P1, LAB-HOF-LAMBDA-ERROR-PROPAGATION-P2, and LAB-PARSER-RECORD-IN-HOF-P1 had no effect on rule_engine. No new pressures. No regressions.
+
+## Wave P10 Recheck Summary (2026-06-14)
+
+Rust: oof / 2 diagnostics (OOF-P1 Unknown.action + OOF-TY1 output type mismatch) — unchanged from Wave P9 form.
+Ruby: oof / 2 diagnostics (OOF-P1 Unresolved symbol d + OOF-P1 Unknown.action) — unchanged from Wave P9 form.
+BLOCKED status remains active as a deliberate safety-dispatch boundary under LAB-DYNAMIC-CONTRACT-DISPATCH-P2. No new pressures. No regressions.
+
+## LAB-DYNAMIC-CONTRACT-DISPATCH-P2 Closure (2026-06-14)
+
+CLOSED 47/47 PASS. Route selected: **DEFER (implementation) + NO-CHANGE (rule_engine source) + PRESERVE fail-closed**. The BLOCKED state is now a *selected safe route*, not an open gap — the dynamic Tier 2 callee (`map(rules, r -> call_contract(r, t))`) is retained as intentional fail-closed evidence and is **not** migrated to static dispatch (trade_robot already carries the positive static-dispatch baseline via TR-P06). RE-P02 (dynamic contract dispatch) route resolved to DEFER under a future canon-gated typed-union / typed-contract-reference design with an 8-part proof bar; no implementation authorized. RE-P03 (Unknown field access) and RE-P04 (Unknown output coercion) confirmed CLOSED-as-fail-closed (OOF-P1 + OOF-TY1, both toolchains). `output : Unknown` quarantine confirmed NOT a clean route for this app (Ruby OOF-P1 on `d.action` survives the D3 escape hatch). Diagnostics unchanged. No source edits. No compiler changes. No new OOF codes. Proof: `verify_dynamic_dispatch_p2.rb`; doc: `lab-docs/lang/lab-dynamic-contract-dispatch-p2-safe-route-v0.md`.
