@@ -1,0 +1,83 @@
+# Air Combat Pressure Registry
+
+Created: 2026-06-14 (off-track app to grow the fleet and pressure fold + future entity)
+
+`air_combat` is a multiplayer, strategy-driven swarm simulation: each player owns a
+swarm (fleet) of aircraft and authors a `Strategy` record; the swarm then operates
+**autonomously** as a pure derivative of that strategy. It exercises target tracking
+(alpha-beta / steady-state Kalman), pursuit/evasion guidance, and a per-tick
+authoritative world step — all at the SIMULATION level (no IO, no clock, no RNG).
+
+## Baseline
+
+Dual-toolchain CLEAN.
+
+```bash
+cd igniter-compiler
+cargo run -- compile \
+  ../igniter-apps/air_combat/types.ig ../igniter-apps/air_combat/vec.ig \
+  ../igniter-apps/air_combat/kalman.ig ../igniter-apps/air_combat/guidance.ig \
+  ../igniter-apps/air_combat/strategy.ig ../igniter-apps/air_combat/swarm.ig \
+  ../igniter-apps/air_combat/engine.ig ../igniter-apps/air_combat/example.ig \
+  --out /tmp/air_combat.igapp
+```
+
+| Metric | Value |
+|---|---|
+| Ruby | ok / 0 diagnostics |
+| Rust | ok / 0 diagnostics |
+| source files | 8 |
+| types | 9 |
+| contracts | 31 |
+| call_contract sites | 61 (all Tier-1 string literals — static dispatch) |
+| fold sites | 6 (all SCALAR — record folds blocked, see AC-P01/02) |
+| map / filter sites | 2 / 2 |
+| source_hash | `sha256:b52ffef0e10c866ded1f8f0dc06c3f593bb72dee309382c46a8b7ea114b2eaed` |
+
+> NOTE: the Rust CLI writes a directory-package `.igapp`. Always compile to a
+> fresh `--out` path; piping stdout through `head`/truncating consumers can SIGPIPE
+> the writer and surface a spurious "Internal compiler error: No such file or
+> directory". Redirect to a file to see the real `ok` result.
+
+## Pressures
+
+| ID | Name | Evidence | Status | Route |
+|---|---|---|---|---|
+| AC-P01 | **fold-to-struct (Kalman track)** | `kalman.ig` `TrackFold3` manually unrolls `TrackStep` over 3 measurements — it WANTS `fold(measurements, track0, (t, m) -> TrackStep(t, m))` but the record accumulator `Track {est, vel, p}` fails (`OOF-COL4`). The headline pressure. | ACTIVE — primary | `LANG-FOLD-STRUCT-ACCUMULATOR-P2/P3` |
+| AC-P02 | **fold-to-struct (swarm centroid)** | `swarm.ig` `SwarmCentroid` runs TWO scalar folds + `count` because `{sum_x, sum_y, count}` can't be folded in one pass. | ACTIVE | `LANG-FOLD-STRUCT-ACCUMULATOR-P2/P3` |
+| AC-P03 | **manual unroll / fold-over-state** | `engine.ig` `RunBattle3` unrolls `WorldTick` ×3 (trade_robot RunBacktest pattern). Wants `fold(range(0,N), world0, (w,_) -> WorldTick(w))`. | ACTIVE | fold-struct + `LANG-COMPOSE-ENTITY` |
+| AC-P04 | **factory contracts** | `MakePlane` / `MakeStrategy` exist only to construct typed records (inline/branch records infer to Unknown). | ACTIVE | `LANG-RUBY-RECORD-LITERAL-INFERENCE` / `LAB-NESTED-RECORD-LITERAL-TYPING` |
+| AC-P05 | **state threading / entity** | `engine.ig` `WorldTick` re-threads `Player`/`Swarm` records field-by-field; `Player` is the config(strategy)+state(swarm,score)+behavior(doctrines) triad a future `entity` would bind. | ACTIVE — design | `LANG-COMPOSE-ENTITY-P1 → PROP` |
+| AC-P06 | **dynamic strategy dispatch avoided** | `strategy.ig` `DoctrineDispatcher` hardcodes `CombinedDoctrine`; we want `call_contract(swarm.doctrine, ...)` but a variable callee returns Unknown. Static-dispatch discipline preserved. | INTENTIONAL fail-closed | `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` (policy; not an unblock) |
+| AC-P07 | **missing math: sqrt / normalize** | `vec.ig` keeps distances SQUARED (`VMag2`/`VDist2`) and guidance uses gain-scaled steering instead of true unit vectors because there is no `sqrt`. True proportional navigation needs a normalized line-of-sight rate. | ACTIVE — stdlib gap | new `LANG-STDLIB-MATH` (sqrt/hypot) proposal |
+| AC-P08 | **IO surface needed for a real game** | Pure sim only: no clock, no RNG, no input, no rendering, no networking, no persistence. See "What We Need From IO" in `report.md`. | DOCUMENTED — behind | `PROP-035` effect surface / `PROP-023` stream input / IO-runtime track |
+
+## Safety Interpretation
+
+This app proves the current language can compile a non-trivial, multi-agent,
+strategy-parametrised real-time-style simulation with **pure** kinematics, target
+tracking, and autonomous swarm behaviour. It does NOT claim:
+
+- proven real-time behaviour (no clock, no scheduler),
+- multiplayer networking (no IO),
+- stochastic realism (measurement noise is hand-authored, not sampled),
+- numerically exact guidance (no sqrt; squared-distance + gain-steer approximation).
+
+## Non-Goals
+
+- No `now()` / clock / tick source.
+- No RNG / sampled noise.
+- No network / socket / Rack / HTTP authoritative loop.
+- No rendering / telemetry / broadcast IO.
+- No persistence / replay store.
+- No dynamic doctrine dispatch (static only).
+- No fold-to-struct or entity implementation (this app is pressure, not a fix).
+
+## Recommended Route
+
+1. `LANG-FOLD-STRUCT-ACCUMULATOR-P3/P4` — the single highest-leverage unlock here
+   (collapses AC-P01, AC-P02, and half of AC-P03).
+2. `LANG-COMPOSE-ENTITY` PROP — collapses AC-P05 and the rest of AC-P03.
+3. A new `LANG-STDLIB-MATH` (sqrt/hypot) readiness card for AC-P07.
+4. IO-runtime / effect-surface work (AC-P08) only after the pure-sim pressure is
+   harvested; the report names exactly what each game subsystem needs.
