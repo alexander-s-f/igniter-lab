@@ -2,6 +2,7 @@ pub mod backend;
 pub mod bridge;
 pub mod capability;
 pub mod capsule;
+pub mod clock;
 pub mod errors;
 pub mod executors;
 pub mod fact;

@@ -17,11 +17,13 @@
 //! never the contract. This is machine-host IO, NOT language IO.
 
 use crate::capability::{
-    run_effect, CapabilityExecutorRegistry, EffectOutcome, EffectRequest, RunMode,
+    run_effect_with_clock, CapabilityExecutorRegistry, EffectOutcome, EffectRequest, RunMode,
 };
+use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;
 use crate::machine::IgniterMachine;
 use serde_json::Value;
+use std::sync::Arc;
 
 /// The declared effect surface of a contract, read from its already-emitted IR fields.
 #[derive(Debug, Clone)]
@@ -136,9 +138,10 @@ pub struct HostRequest {
 ///
 /// Receipts are written to the machine's own `TBackend` (`machine.storage`), so effect
 /// receipts live alongside domain facts. The contract body is never executed for IO here.
-pub async fn run_service(
+pub async fn run_service_with_clock(
     machine: &IgniterMachine,
     registry: &CapabilityExecutorRegistry,
+    clock: &Arc<dyn ClockProvider>,
     req: &HostRequest,
     mode: RunMode,
 ) -> Result<EffectOutcome, EngineError> {
@@ -169,5 +172,17 @@ pub async fn run_service(
         authority_ref: req.authority_ref.clone(),
         args: req.args.clone(),
     };
-    run_effect(registry, &machine.storage, &effect_req, mode).await
+    run_effect_with_clock(registry, &machine.storage, clock, &effect_req, mode).await
+}
+
+/// Convenience boundary entrypoint using the default production clock (`SystemClock`).
+/// Use `run_service_with_clock` to inject a deterministic clock or a custom provider.
+pub async fn run_service(
+    machine: &IgniterMachine,
+    registry: &CapabilityExecutorRegistry,
+    req: &HostRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let clock: Arc<dyn ClockProvider> = Arc::new(SystemClock::new());
+    run_service_with_clock(machine, registry, &clock, req, mode).await
 }

@@ -12,15 +12,19 @@ Keep the production IO track aligned:
 P1 proved executor + receipt model                              [CLOSED 2026-06-15]
 P2 wires declared-effect host entrypoint through run_effect     [CLOSED 2026-06-15]
 P3 binds one real substrate (read-only local RocksDB/TBackend)  [CLOSED 2026-06-15]
+--- branch A: harden the boundary before write IO ---
+P4 host clock capability (receipt tt from injected provider)    [CLOSED 2026-06-15]
+P5 richer authority/passport (vs presence-only authority_ref)   [NEXT]
+P6 receipt-gated idempotent write substrate                     [AFTER P5]
 ```
 
-> Progress: P1 (`capability.rs`, 13 tests), P2 (`service_loop.rs`, 9 tests), and P3
-> (`executors.rs`, 5 tests) are all CLOSED — see `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` and
-> `lab-docs/lang/lab-machine-capability-io-p{1,2,3}-*.md`. **The capability IO boundary is
-> proven end-to-end on a real substrate.** Portfolio batch entry filed
-> (`igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`).
-> Open: bounded follow-up cards (real clock / richer authority / retry scheduler / write
-> substrate / HTTP executor) — none started.
+> Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs`, 5), P4
+> (`clock.rs`, 5) all CLOSED — see `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` and
+> `lab-docs/lang/lab-machine-capability-io-*`. **IO boundary proven end-to-end on a real
+> substrate; time authority now controlled.** Portfolio batch (P1–P3):
+> `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`.
+> Branch A order locked: P5 (caller authority) before P6 (write) — don't jump to write IO until
+> both base invariants (time + caller authority) are settled.
 
 The route must preserve the core boundary:
 

@@ -14,6 +14,7 @@
 //! its pattern. Fake executors only (no real DB/HTTP) — this is a proof of the model.
 
 use crate::backend::TBackend;
+use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;
 use crate::fact::Fact;
 use async_trait::async_trait;
@@ -134,6 +135,7 @@ fn outcome_from_receipt(value: &Value) -> EffectOutcome {
 
 async fn write_receipt(
     receipts: &Arc<dyn TBackend>,
+    now: f64,
     rkey: &str,
     req: &EffectRequest,
     outcome: &EffectOutcome,
@@ -153,7 +155,7 @@ async fn write_receipt(
         value,
         value_hash: String::new(),
         causation: None,
-        transaction_time: 1.0, // a real ServiceLoop stamps tt = now; fixed here for the proof
+        transaction_time: now, // stamped by the injected ClockProvider at the boundary
         valid_time: None,
         schema_version: 1,
         producer: Some(json!("service-loop")),
@@ -162,12 +164,15 @@ async fn write_receipt(
     receipts.write_fact(fact).await
 }
 
-/// ServiceLoop-like effect runner — the data-plane boundary.
-/// Order: preflight refusal (no executor) → receipt lookup (idempotency / replay) →
-/// executor once → write receipt fact. Denial is written as data, not hidden.
-pub async fn run_effect(
+/// ServiceLoop-like effect runner with an explicitly injected clock — the data-plane
+/// boundary. Order: preflight refusal (no executor) → receipt lookup (idempotency / replay)
+/// → executor once → write receipt fact stamped by `clock.now()`. Denial is written as data,
+/// not hidden. **Replay never reads the clock** (it writes no receipt), so a replayed effect
+/// never rewrites the original timestamp.
+pub async fn run_effect_with_clock(
     registry: &CapabilityExecutorRegistry,
     receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
     req: &EffectRequest,
     mode: RunMode,
 ) -> Result<EffectOutcome, EngineError> {
@@ -186,18 +191,31 @@ pub async fn run_effect(
     // 2. Idempotency / replay — receipt lookup before any external call.
     let rkey = receipt_key(req);
     if let Some(fact) = receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
-        return Ok(outcome_from_receipt(&fact.value)); // replayed; executor NOT called
+        return Ok(outcome_from_receipt(&fact.value)); // replayed; executor + clock NOT touched
     }
     if mode == RunMode::Replay {
         // Replay requested but no receipt exists → epistemic unknown, NOT a failure,
-        // and still no executor call.
+        // and still no executor call and no clock read.
         return Ok(EffectOutcome::unknown("replay: no receipt to replay"));
     }
 
-    // 3. Live: call the executor exactly once, then record the receipt fact.
+    // 3. Live: call the executor exactly once, then record the receipt fact. The clock is
+    // read here and only here — at the boundary, never inside a contract.
     let outcome = exec.execute(req).await;
-    write_receipt(receipts, &rkey, req, &outcome).await?;
+    write_receipt(receipts, clock.now(), &rkey, req, &outcome).await?;
     Ok(outcome)
+}
+
+/// Convenience boundary entrypoint using the default production clock (`SystemClock`).
+/// Use `run_effect_with_clock` to inject a deterministic clock (tests) or a custom provider.
+pub async fn run_effect(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    req: &EffectRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let clock: Arc<dyn ClockProvider> = Arc::new(SystemClock::new());
+    run_effect_with_clock(registry, receipts, &clock, req, mode).await
 }
 
 // ── Fake executors (proof only — no real IO) ──────────────────────────────────
