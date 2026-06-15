@@ -662,7 +662,26 @@ impl Compiler {
             }
 
             "lambda" | "fn" => {
-                let serialized = serde_json::to_string(node)
+                // Closure conversion (LAB-VM-HOF-CLOSURE-CONVERSION-P1): attach a
+                // capture list of the enclosing `compute` bindings the body references.
+                // Inputs already reach the lambda body via the runtime `inputs` map, so
+                // only compute bindings (held in registers by index) need capturing.
+                let mut lam = node.clone();
+                let mut params = std::collections::HashSet::new();
+                if let Some(ps) = node.get("params").and_then(|p| p.as_array()) {
+                    for p in ps { if let Some(s) = p.as_str() { params.insert(s.to_string()); } }
+                }
+                let mut refs = std::collections::BTreeSet::new();
+                if let Some(body) = node.get("body") { collect_ref_names(body, &mut refs); }
+                let captures: Vec<serde_json::Value> = refs.iter()
+                    .filter(|n| !params.contains(n.as_str()))
+                    .filter_map(|n| self.compute_node_registers.get(n)
+                        .map(|&reg| serde_json::json!({ "name": n, "reg": reg })))
+                    .collect();
+                if let Some(obj) = lam.as_object_mut() {
+                    obj.insert("captures".to_string(), serde_json::Value::Array(captures));
+                }
+                let serialized = serde_json::to_string(&lam)
                     .map_err(|e| format!("Failed to serialize lambda: {}", e))?;
                 self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(serialized))]);
             }
@@ -869,4 +888,23 @@ fn verify_ast_constraints(node: &serde_json::Value, modifier: &str) -> Result<()
         }
     }
     Ok(())
+}
+
+// Collect every `ref` name appearing anywhere in an AST subtree (used by closure
+// conversion to find a lambda body's free variables). Over-collection is safe:
+// names that turn out to be locally bound are shadowed at eval time by the lambda
+// param / inner let in `local_env`, which is checked before the captured `inputs`.
+fn collect_ref_names(v: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            if map.get("kind").and_then(|k| k.as_str()) == Some("ref") {
+                if let Some(name) = map.get("name").and_then(|n| n.as_str()) {
+                    out.insert(name.to_string());
+                }
+            }
+            for (_, child) in map.iter() { collect_ref_names(child, out); }
+        }
+        serde_json::Value::Array(arr) => { for c in arr.iter() { collect_ref_names(c, out); } }
+        _ => {}
+    }
 }

@@ -491,6 +491,33 @@ impl VM {
                     }
                     args.reverse();
                     
+                    // Closure captures (LAB-VM-HOF-CLOSURE-CONVERSION-P1): if any arg is
+                    // a lambda carrying a `captures` list, resolve those enclosing compute
+                    // registers and expose them to the lambda body via `inputs` (which
+                    // eval_ast's `ref` resolution already consults). One chokepoint covers
+                    // every HOF arm. Inputs flow through unchanged; only computes are added.
+                    // Recursively collect captures from the lambda arg AND any nested
+                    // lambdas in its body — all reference the current contract's registers.
+                    let mut captured: HashMap<String, Value> = HashMap::new();
+                    for a in &args {
+                        if let Value::String(s) = a {
+                            if s.starts_with('{') {
+                                if let Ok(la) = serde_json::from_str::<serde_json::Value>(s) {
+                                    collect_captures(&la, &registers, &mut captured);
+                                }
+                            }
+                        }
+                    }
+                    let aug_inputs;
+                    let inputs: &HashMap<String, Value> = if captured.is_empty() {
+                        inputs
+                    } else {
+                        let mut m = inputs.clone();
+                        for (k, v) in captured { m.insert(k, v); }
+                        aug_inputs = m;
+                        &aug_inputs
+                    };
+
                     // stdlib.collection.* namespaced aliases -> existing bare handlers.
                     // The compiler emits namespaced names; the VM historically matched
                     // bare names. (Same alignment the text.* ops already received.)
@@ -509,6 +536,7 @@ impl VM {
                         "stdlib.collection.any"    => "any",
                         "stdlib.collection.all"    => "all",
                         "stdlib.collection.find"   => "find",
+                        "stdlib.string.concat"     => "concat",
                         other => other,
                     };
 
@@ -3541,4 +3569,34 @@ fn sha256_hex(input: &str) -> String {
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
     hex::encode(&result[0..8]) // 8 bytes = 16 hex chars
+}
+
+// Closure conversion (LAB-VM-HOF-CLOSURE-CONVERSION-P1): recursively gather every
+// `captures` entry in a lambda artifact (including nested lambdas) and resolve each
+// to its enclosing-contract register value. All captures reference the contract that
+// is currently executing, so the live `registers` map resolves them at any nesting.
+fn collect_captures(
+    v: &serde_json::Value,
+    registers: &HashMap<i64, Value>,
+    out: &mut HashMap<String, Value>,
+) {
+    match v {
+        serde_json::Value::Object(map) => {
+            if let Some(caps) = map.get("captures").and_then(|c| c.as_array()) {
+                for cap in caps {
+                    if let (Some(n), Some(r)) = (
+                        cap.get("name").and_then(|x| x.as_str()),
+                        cap.get("reg").and_then(|x| x.as_i64()),
+                    ) {
+                        if let Some(val) = registers.get(&r) {
+                            out.insert(n.to_string(), val.clone());
+                        }
+                    }
+                }
+            }
+            for (_, c) in map.iter() { collect_captures(c, registers, out); }
+        }
+        serde_json::Value::Array(arr) => { for c in arr.iter() { collect_captures(c, registers, out); } }
+        _ => {}
+    }
 }
