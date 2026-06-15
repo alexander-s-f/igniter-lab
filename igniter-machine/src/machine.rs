@@ -15,6 +15,7 @@ use igniter_compiler::classifier::Classifier;
 use igniter_compiler::emitter::Emitter;
 use igniter_compiler::lexer::Lexer;
 use igniter_compiler::monomorphizer::monomorphize_program;
+use igniter_compiler::multifile;
 use igniter_compiler::parser::Parser;
 use igniter_compiler::typechecker::TypeChecker;
 
@@ -185,6 +186,31 @@ impl IgniterMachine {
             )));
         }
         Ok(())
+    }
+
+    /// Multi-file load: resolve a set of `.ig` source files (module decls + imports)
+    /// into one merged program, then compile + register all its contracts. Lets the
+    /// machine run real multi-file apps, not just single-source contracts.
+    pub fn load_program(
+        &self,
+        source_paths: &[String],
+        contract_name: &str,
+    ) -> Result<(), EngineError> {
+        let merged = match multifile::compile_units(source_paths)
+            .map_err(|e| EngineError::IOError(e.to_string()))?
+        {
+            Ok(m) => m,
+            Err(diags) => {
+                let msgs: Vec<String> = diags.iter().map(|d| d.message.clone()).collect();
+                return Err(EngineError::CompilationError(format!(
+                    "Multifile resolve errors: {:?}",
+                    msgs
+                )));
+            }
+        };
+        // The merged source is a single self-contained program string; reuse the
+        // existing single-source pipeline (which registers every contract).
+        self.load_contract_source(&merged.source, contract_name)
     }
 
     /// Compile source for diagnostics only — does NOT register the contract.

@@ -14,6 +14,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 |---|---|---|
 | construct | ✅ | `new(data_dir, "in_memory" \| "rocksdb" \| "remote_tcp[:addr]")` |
 | compile + load source | ✅ | `load_contract_source(src, name)` — full front-end pipeline in-process; **registers ALL contracts in the source** (by `contract_name` field) |
+| multi-file load | ✅ | `load_program(paths, name)` — `multifile::compile_units` merges modules+imports → single program → registers all (runs real fleet apps) |
 | diagnostics only | ✅ | `check_source(src)` → typed diagnostics (no register) |
 | dispatch (run) | ✅ | `dispatch(name, inputs)` → VM execute; **builds dispatch_table from the whole registry** so cross-contract `call_contract` resolves |
 | bitemporal facts | ✅ | `write_fact` / `read_fact(store, key, as_of)` via the TBackend adapter |
@@ -40,14 +41,16 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   closure capturing an enclosing compute) → 3.
 - `test_machine_cross_contract_dispatch` — **orchestrator → `call_contract("Helper")`**
   resolves and runs → 10.
+- `test_machine_loads_multifile_app` — **real fleet app `web_router` (3 files,
+  modules+imports)** via `load_program` → dispatch `RunArticle` → `{body, status:200}`
+  (identical to the CLI).
 
 ## Known gaps (pressure frontier)
 
-- **Multi-*source* load** — `load_contract_source` takes ONE source string. Real fleet
-  apps are multiple `.ig` files with `import`s; loading them needs a multi-source /
-  multifile load path (or single-file form). Next pressure target.
 - REPL / MCP live exercise not yet done.
 - Time-travel / multi-version fact pressure not yet stressed.
+- Machine-fleet sweep (run many fleet apps through `load_program` + dispatch) — would
+  catch any machine-specific divergence from the CLI, app-by-app (needs per-app entry+inputs).
 
 ## Boundary (per README)
 

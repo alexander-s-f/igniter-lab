@@ -34,10 +34,19 @@ Fixes:
 self-contained contracts. 5/5 tests pass, no regression. Crystallized in
 `igniter-machine/IMPLEMENTED_SURFACE.md`.
 
-## Next pressure (cycle 2)
+## Cycle 2 DONE — multi-source load
 
-- **Multi-source load** — `load_contract_source` takes one source string; real fleet
-  apps are multiple `.ig` files with `import`s → needs a multi-source/multifile load.
+Added `machine.rs::load_program(source_paths, name)`: `multifile::compile_units` merges
+module decls + imports into one program source, then reuses the cycle-1 register-all
+pipeline. Proof `test_machine_loads_multifile_app`: real fleet app **web_router** (3
+files) → dispatch `RunArticle` (cross-contract orchestrator) → `{body, status:200}`,
+identical to the CLI. **First try, no new gap** — `compile_units` + register-all compose
+cleanly. The machine can now run real multi-file fleet apps. **6/6 tests pass.**
+
+## Next pressure (cycle 3)
+
+- **Machine-fleet sweep** — run many fleet apps through `load_program` + dispatch to
+  catch any machine-specific divergence from the CLI (app-by-app, needs entry+inputs).
 - Time-travel / multi-version fact pressure (as-of boundaries).
-- Checkpoint/resume of a cross-contract program (persist whole registry).
+- Checkpoint/resume of a multi-file cross-contract program.
 - REPL / MCP live exercise (the `igniter-mcp` 11-tool surface).

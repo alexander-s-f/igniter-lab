@@ -173,3 +173,19 @@ async fn test_machine_cross_contract_dispatch() {
     let result = machine.dispatch("Orchestrator", inputs).await.unwrap();
     assert_eq!(result, json!(10)); // Helper(5) = 10
 }
+
+// Machine-pressure: load a REAL multi-file fleet app (modules + imports) through the
+// machine and dispatch its cross-contract orchestrator — same result as the CLI.
+#[tokio::test]
+async fn test_machine_loads_multifile_app() {
+    let machine = IgniterMachine::new(None, "in_memory").unwrap();
+    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../igniter-apps/web_router");
+    let paths: Vec<String> = ["example.ig", "serve.ig", "types.ig"]
+        .iter()
+        .map(|f| format!("{}/{}", base, f))
+        .collect();
+
+    machine.load_program(&paths, "RunArticle").unwrap();
+    let result = machine.dispatch("RunArticle", json!({})).await.unwrap();
+    assert_eq!(result, json!({ "body": "article", "status": 200 }));
+}
