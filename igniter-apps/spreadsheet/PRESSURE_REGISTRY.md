@@ -140,3 +140,17 @@ no dynamic dispatch.
 
 Proof: `igniter-view-engine/proofs/verify_lab_function_sir_runtime_p1.rb`.
 Lab doc: `lab-docs/lang/lab-function-sir-runtime-p1-v0.md`.
+
+## VM RUN-OK Recheck P3 (2026-06-15)
+
+Fresh active-fleet runtime recheck confirms the SS-P08 runtime route is closed for
+Rust+VM:
+
+- Entrypoint: `RunWorkbookDemo`.
+- Status: RUN-OK.
+- Fleet effect: `spreadsheet` moved P2 RUN-NOT-OK -> P3 RUN-OK, raising fleet RUN-OK from
+  23/25 to 24/25.
+- Evidence: `verify_lab_vm_run_ok_recheck_p3.rb`; rollup
+  `.agents/docs/vm-run-ok-recheck-p3-2026-06-15-v0.md`.
+
+Ruby residuals remain outside this VM runtime recheck.

@@ -19,8 +19,9 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | dispatch (run) | ✅ | `dispatch(name, inputs)` → VM execute; **builds dispatch_table from the whole registry** so cross-contract `call_contract` resolves |
 | bitemporal facts | ✅ | `write_fact` / `read_fact(store, key, as_of)` (transaction-time axis) |
 | **bitemporal query** | ✅ | `read_bitemporal(store, key, valid_at, known_at)` — both axes explicit (`known_at`=transaction/audit, `valid_at`=valid/effective); `valid_time=None` strictly excluded. Default trait method → all backends. (LAB-MACHINE-BITEMPORAL-AXIS-P1) |
-| checkpoint | ✅ | `checkpoint(.igm)` — MessagePack `SemanticImage{contracts, facts, observations}` |
-| resume | ✅ | `resume(.igm, data_dir, backend)` — restores contracts + facts |
+| checkpoint | ✅ | `checkpoint(.igm)` / `checkpoint_bytes()` — MessagePack `SemanticImage{contracts(BTreeMap), facts(sorted), observations}`; **deterministic → byte-identical roundtrip** |
+| resume | ✅ | `resume(.igm)` / `resume_bytes(&[u8])` — restores contracts + facts (in-memory capsule) |
+| **capsules (control panel)** | ✅ | `capsule::CapsuleManager` — named immutable frames: `snapshot`/`list`/`instantiate`/`activate`(dispatch over a frame)/`fork`(branch+patch+freeze). Filmstrip-proven (immutable base, divergent forks, same activation diverges). + 5 live MCP tools (capsule_snapshot/list/activate/fork/diff), agent-driven. (LAB-MACHINE-CAPSULE-MANAGER-P1) |
 | inherits the VM wave | ✅ | path-dep on `igniter_vm` → closures / match / HOF / dispatch-unification all run through `dispatch` |
 
 ## Surfaces
@@ -57,10 +58,14 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 
 ## Known gaps (pressure frontier)
 
-- REPL / MCP live exercise not yet done.
-- Persistent-backend (RocksDB) fleet sweep (current sweep is in-memory).
-- valid_time-axis travel (read_as_of filters transaction_time only; valid_time is stored
-  but not queried — the second bitemporal axis is unexercised).
+- REPL `igniter-repl` not yet exercised live (MCP is — see Surfaces; both bitemporal axes
+  via `igniter_time_travel`).
+- Persistent-backend (RocksDB) fleet sweep + capsule store (current sweep/capsules are in-memory).
+- MCP `igniter_load_contract` uses single-source `load_contract_source`, not `load_program`
+  (multifile) — multifile apps not yet loadable via MCP.
+- Interval valid_time (v0 = point); `valid_policy` fallback.
+
+(11/11 machine tests pass — the header count is the historical baseline.)
 
 ## Boundary (per README)
 

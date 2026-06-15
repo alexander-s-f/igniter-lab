@@ -137,3 +137,18 @@ Diagnostics preserved:
 - Rust: `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`) + `OOF-TY1 Output type mismatch: expected RuleDecision, got Unknown` (node `decision`).
 - Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
 No source changes in this wave. No new pressures. No regressions.
+
+## VM RUN-OK Recheck P3 (2026-06-15)
+
+Rust VM active-fleet recheck:
+
+- Entrypoint selected by runtime fleet harness: `RunRuleEngine`.
+- Status: COMPILE-NOT-OK, unchanged owner class.
+- Diagnostics remain the intentional fail-closed dynamic dispatch boundary:
+  `OOF-P1 Unresolved field: Unknown.action` and `OOF-TY1 Output type mismatch: expected
+  RuleDecision, got Unknown`.
+- Fleet context: `rule_engine` is now the only non-green app after `spreadsheet` moved to
+  RUN-OK; overall RUN-OK is 24/25.
+
+No source changes. No dynamic dispatch relaxation. Route remains the
+`LAB-DYNAMIC-CONTRACT-DISPATCH-P2` selected safe route / ledger D-001.

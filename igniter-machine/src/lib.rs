@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod bridge;
+pub mod capsule;
 pub mod errors;
 pub mod fact;
 pub mod machine;

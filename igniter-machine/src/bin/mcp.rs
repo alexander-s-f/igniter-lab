@@ -5,6 +5,7 @@
 //   ~/Library/Application Support/Claude/claude_desktop_config.json
 //   { "mcpServers": { "igniter": { "command": "/path/to/igniter-mcp" } } }
 
+use igniter_machine::capsule::CapsuleManager;
 use igniter_machine::fact::Fact;
 use igniter_machine::machine::IgniterMachine;
 use serde_json::{json, Value};
@@ -167,6 +168,58 @@ fn tools_list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {}
+            }
+        },
+        {
+            "name": "capsule_snapshot",
+            "description": "Freeze the current machine state (contracts + facts + observations) into a named, immutable capsule frame. Build many and cycle them like a filmstrip.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "name": { "type": "string", "description": "Capsule name" } },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "capsule_list",
+            "description": "List all capsule frames currently held.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "capsule_activate",
+            "description": "Activation: dispatch a contract against a capsule's frame (read-only — the frame is not mutated). Returns the result for that frame.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Capsule to activate" },
+                    "contract_name": { "type": "string", "description": "Contract to dispatch" },
+                    "inputs": { "type": "object", "description": "Dispatch inputs" }
+                },
+                "required": ["name", "contract_name"]
+            }
+        },
+        {
+            "name": "capsule_fork",
+            "description": "Branch a NEW immutable capsule from an existing one, optionally writing extra facts into the fork (a what-if). The source frame is untouched.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string", "description": "Source capsule" },
+                    "new_name": { "type": "string", "description": "Name of the forked capsule" },
+                    "facts": { "type": "array", "description": "Optional facts to write into the fork: [{store,key,value,valid_time?}]" }
+                },
+                "required": ["from", "new_name"]
+            }
+        },
+        {
+            "name": "capsule_diff",
+            "description": "Diff two capsule frames by their facts: what was added/removed between A and B (the debugger lens).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "a": { "type": "string" },
+                    "b": { "type": "string" }
+                },
+                "required": ["a", "b"]
             }
         }
     ])
@@ -540,7 +593,7 @@ fn handle_checkpoint(
         None => return tool_err(out, id, "Missing path".into()),
     };
     let m = machine.lock().unwrap();
-    match m.checkpoint(path) {
+    match futures::executor::block_on(m.checkpoint(path)) {
         Ok(()) => tool_ok(out, id, format!(
             "## Checkpoint Saved ✅\n\n**Path:** `{}`\n\nMachine state (contracts + facts + observations) has been saved. Use `igniter-mcp --resume {}` to restore.",
             path.display(), path.display()
@@ -559,6 +612,89 @@ fn handle_status(out: &mut impl Write, id: Value, machine: &Mutex<IgniterMachine
         "## Igniter Machine Status\n\n- **Backend:** `{}`\n- **Contracts loaded:** {}\n- **Observations:** {}\n\n### Available Tools\nUse `igniter_load_contract` to load a contract, `igniter_dispatch` to run it, `igniter_write_fact` / `igniter_query_facts` for bitemporal data.",
         backend_type, contract_count, obs_count
     ));
+}
+
+// ── Capsule tools (LAB-MACHINE-CAPSULE-MANAGER-P1) ────────────────────────────
+
+fn handle_capsule_snapshot(
+    out: &mut impl Write,
+    id: Value,
+    args: &Value,
+    machine: &Mutex<IgniterMachine>,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    let name = match args["name"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing name".into()),
+    };
+    let m = machine.lock().unwrap();
+    let mut caps = capsules.lock().unwrap();
+    match futures::executor::block_on(caps.snapshot(name, &m)) {
+        Ok(()) => tool_ok(out, id, format!(
+            "## Capsule snapshot ✅\n\n- **Name:** `{}`\n\nFrame frozen (immutable). Use `capsule_fork` for what-ifs, `capsule_activate` to run it, `capsule_diff` to compare.", name)),
+        Err(e) => tool_err(out, id, format!("Snapshot failed: {}", e)),
+    }
+}
+
+fn handle_capsule_list(out: &mut impl Write, id: Value, capsules: &Mutex<CapsuleManager>) {
+    let caps = capsules.lock().unwrap();
+    let names = caps.list();
+    if names.is_empty() {
+        return tool_ok(out, id, "## Capsules\n\nNone yet. Use `capsule_snapshot` to freeze the current state.".into());
+    }
+    let body = names.iter().map(|n| format!("- `{}`", n)).collect::<Vec<_>>().join("\n");
+    tool_ok(out, id, format!("## Capsules ({})\n\n{}", names.len(), body));
+}
+
+fn handle_capsule_activate(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
+    let name = match args["name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing name".into()) };
+    let contract = match args["contract_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing contract_name".into()) };
+    let inputs = args.get("inputs").cloned().unwrap_or_else(|| json!({}));
+    let caps = capsules.lock().unwrap();
+    match futures::executor::block_on(caps.activate(name, contract, inputs.clone())) {
+        Ok(result) => tool_ok(out, id, format!(
+            "## Activate: `{}` @ capsule `{}`\n\n**Inputs:** `{}`\n\n### Result\n```json\n{}\n```",
+            contract, name, inputs, serde_json::to_string_pretty(&result).unwrap_or_default())),
+        Err(e) => tool_err(out, id, format!("Activation failed: {}", e)),
+    }
+}
+
+fn handle_capsule_fork(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
+    let from = match args["from"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing from".into()) };
+    let new_name = match args["new_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing new_name".into()) };
+    let mut facts: Vec<Fact> = Vec::new();
+    if let Some(arr) = args["facts"].as_array() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+        for f in arr {
+            if let (Some(s), Some(k), Some(v)) = (f["store"].as_str(), f["key"].as_str(), f.get("value")) {
+                let val_str = serde_json::to_string(v).unwrap_or_default();
+                facts.push(Fact {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    store: s.to_string(), key: k.to_string(), value: v.clone(),
+                    value_hash: blake3::hash(val_str.as_bytes()).to_hex().to_string(),
+                    causation: None, transaction_time: now, valid_time: f["valid_time"].as_f64(),
+                    schema_version: 1, producer: Some(json!("igniter-mcp")), derivation: None,
+                });
+            }
+        }
+    }
+    let mut caps = capsules.lock().unwrap();
+    match futures::executor::block_on(caps.fork(from, new_name, &facts)) {
+        Ok(()) => tool_ok(out, id, format!(
+            "## Capsule fork ✅\n\n- **From:** `{}` (untouched)\n- **New:** `{}`\n- **Patched facts:** {}\n\nA new immutable frame.", from, new_name, facts.len())),
+        Err(e) => tool_err(out, id, format!("Fork failed: {}", e)),
+    }
+}
+
+fn handle_capsule_diff(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
+    let a = match args["a"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing a".into()) };
+    let b = match args["b"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing b".into()) };
+    let caps = capsules.lock().unwrap();
+    match futures::executor::block_on(caps.diff(a, b)) {
+        Ok(d) => tool_ok(out, id, format!(
+            "## Capsule diff: `{}` → `{}`\n\n```json\n{}\n```", a, b, serde_json::to_string_pretty(&d).unwrap_or_default())),
+        Err(e) => tool_err(out, id, format!("Diff failed: {}", e)),
+    }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -580,7 +716,7 @@ fn main() {
 
     let machine = if let Some(ref path) = resume_path {
         eprintln!("[igniter-mcp] Resuming from: {}", path.display());
-        match IgniterMachine::resume(path, None, &backend) {
+        match futures::executor::block_on(IgniterMachine::resume(path, None, &backend)) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("[igniter-mcp] Resume failed: {}. Starting fresh.", e);
@@ -592,6 +728,7 @@ fn main() {
     };
 
     let machine = Mutex::new(machine);
+    let capsules = Mutex::new(CapsuleManager::new(&backend));
     let mut stdout = std::io::stdout();
     let stdin = std::io::stdin();
     let reader = BufReader::new(stdin.lock());
@@ -666,6 +803,11 @@ fn main() {
                     "igniter_time_travel" => handle_time_travel(&mut stdout, id, args, &machine),
                     "igniter_checkpoint" => handle_checkpoint(&mut stdout, id, args, &machine),
                     "igniter_status" => handle_status(&mut stdout, id, &machine),
+                    "capsule_snapshot" => handle_capsule_snapshot(&mut stdout, id, args, &machine, &capsules),
+                    "capsule_list" => handle_capsule_list(&mut stdout, id, &capsules),
+                    "capsule_activate" => handle_capsule_activate(&mut stdout, id, args, &capsules),
+                    "capsule_fork" => handle_capsule_fork(&mut stdout, id, args, &capsules),
+                    "capsule_diff" => handle_capsule_diff(&mut stdout, id, args, &capsules),
                     _ => tool_err(&mut stdout, id, format!("Unknown tool: `{}`", tool)),
                 }
             }

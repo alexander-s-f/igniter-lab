@@ -98,9 +98,9 @@ async fn test_machine_checkpoint_and_resume() {
     machine.write_fact(fact).await.unwrap();
 
     let checkpoint_file = std::env::temp_dir().join(format!("image_{}.igm", uuid::Uuid::new_v4()));
-    machine.checkpoint(&checkpoint_file).unwrap();
+    machine.checkpoint(&checkpoint_file).await.unwrap();
 
-    let machine2 = IgniterMachine::resume(&checkpoint_file, None, "in_memory").unwrap();
+    let machine2 = IgniterMachine::resume(&checkpoint_file, None, "in_memory").await.unwrap();
 
     let inputs = json!({
         "a": 10,
@@ -300,4 +300,85 @@ async fn test_machine_bitemporal_valid_axis() {
     assert_eq!(bal(machine.read_bitemporal("acct","a",Some(5.0),Some(100.0)).await.unwrap()),  None, "valid@5 → none");
     // valid_at=None → transaction-time only = latest knowledge (tt50 → 105)
     assert_eq!(bal(machine.read_bitemporal("acct","a",None,Some(100.0)).await.unwrap()),       Some(json!({"balance":105})), "valid_at=None → latest known");
+}
+
+// Capsule bytes API (LAB-MACHINE-CAPSULE-MANAGER-P1 step 1): a capsule is an immutable
+// frame → checkpoint_bytes must be deterministic and resume_bytes must roundtrip
+// byte-identically (so the same frame = the same bytes = content-addressable).
+#[tokio::test]
+async fn test_machine_checkpoint_bytes_roundtrip() {
+    let m = IgniterMachine::new(None, "in_memory").unwrap();
+    let src = "
+    module M
+    contract Add {
+      input  a: Integer
+      input  b: Integer
+      compute sum = a + b
+      output sum: Integer
+    }
+    ";
+    m.load_contract_source(src, "Add").unwrap();
+    // facts across stores/keys, written OUT of order (stresses the deterministic sort)
+    let facts = [("acct","b",30.0,3),("acct","a",10.0,1),("orders","x",20.0,2),("acct","a",5.0,0)];
+    for (s, k, tt, v) in facts {
+        m.write_fact(Fact {
+            id: format!("{}-{}-{}", s, k, tt as i64), store: s.to_string(), key: k.to_string(),
+            value: json!({ "v": v }), value_hash: String::new(), causation: None,
+            transaction_time: tt, valid_time: None, schema_version: 1, producer: None, derivation: None,
+        }).await.unwrap();
+    }
+    let bytes1 = m.checkpoint_bytes().await.unwrap();
+    let m2 = IgniterMachine::resume_bytes(&bytes1, None, "in_memory").await.unwrap();
+    let bytes2 = m2.checkpoint_bytes().await.unwrap();
+    assert_eq!(bytes1, bytes2, "capsule byte-identical roundtrip");
+
+    // the resumed frame still dispatches and preserves facts
+    assert_eq!(m2.dispatch("Add", json!({ "a": 2, "b": 3 })).await.unwrap(), json!(5));
+    assert_eq!(m2.read_fact("acct","a",100.0).await.unwrap().unwrap().value, json!({ "v": 1 }));
+
+    // file `.igm` == checkpoint_bytes (the two APIs agree)
+    let f = std::env::temp_dir().join(format!("cap_{}.igm", uuid::Uuid::new_v4()));
+    m.checkpoint(&f).await.unwrap();
+    assert_eq!(std::fs::read(&f).unwrap(), bytes1, "file .igm == checkpoint_bytes");
+    let _ = std::fs::remove_file(&f);
+}
+
+// Filmstrip proof (LAB-MACHINE-CAPSULE-MANAGER-P1 step 4): one immutable base frame,
+// forked into divergent what-if frames; the SAME activation across frames diverges,
+// and the base frame is untouched (a fork is a new frame, not a mutation of the past).
+#[tokio::test]
+async fn test_capsule_filmstrip() {
+    use igniter_machine::capsule::CapsuleManager;
+    let m = IgniterMachine::new(None, "in_memory").unwrap();
+    let src = "
+    module M
+    contract Add { input a: Integer  input b: Integer  compute sum = a + b  output sum: Integer }
+    ";
+    m.load_contract_source(src, "Add").unwrap();
+
+    let mut mgr = CapsuleManager::new("in_memory");
+    mgr.snapshot("base", &m).await.unwrap(); // frame: Add loaded, no balance fact
+
+    let bal = |v: i64| Fact {
+        id: format!("b{}", v), store: "acct".to_string(), key: "a".to_string(),
+        value: json!({ "balance": v }), value_hash: String::new(), causation: None,
+        transaction_time: 1.0, valid_time: None, schema_version: 1, producer: None, derivation: None,
+    };
+    mgr.fork("base", "hi", &[bal(1000)]).await.unwrap();
+    mgr.fork("base", "lo", &[bal(10)]).await.unwrap();
+
+    // filmstrip: same activation (read balance) across frames → divergence
+    let hi = mgr.instantiate("hi").await.unwrap().read_fact("acct","a",100.0).await.unwrap().unwrap();
+    let lo = mgr.instantiate("lo").await.unwrap().read_fact("acct","a",100.0).await.unwrap().unwrap();
+    assert_eq!(hi.value, json!({ "balance": 1000 }));
+    assert_eq!(lo.value, json!({ "balance": 10 }));
+
+    // base frame is IMMUTABLE — the forks did not touch it
+    assert!(mgr.instantiate("base").await.unwrap().read_fact("acct","a",100.0).await.unwrap().is_none(),
+            "base frame untouched by forks");
+
+    // dispatch activation works on a resumed frame
+    assert_eq!(mgr.activate("hi", "Add", json!({ "a": 2, "b": 3 })).await.unwrap(), json!(5));
+
+    assert_eq!(mgr.list(), vec!["base".to_string(), "hi".to_string(), "lo".to_string()]);
 }

@@ -68,7 +68,7 @@ for lambda/HOF bodies) lagging the bytecode path on a node kind — `call_contra
 `if_expr`, `stdlib.*`, `match`. The two paths are now near-parity. Future
 "X not found in eval_ast" is a *known class*, not a new mystery.
 
-### RUN-OK recheck — CLOSED 2026-06-15 (RUN-OK 23/25)
+### RUN-OK rechecks — CLOSED 2026-06-15 (RUN-OK 24/25 current)
 
 Proof: `igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p1.rb`.
 Rollup: `.agents/docs/vm-run-ok-recheck-p1-2026-06-15-v0.md`.
@@ -78,11 +78,17 @@ Delta vs checkpoint: **+5 RUN-OK**. `advanced_logistics`, `vector_editor`,
 entrypoints. The old needs-inputs/demo-entry and Decimal construction buckets are
 closed for the active registry-backed runtime fleet.
 
-Current non-green apps:
+P2 recheck (`verify_lab_vm_run_ok_recheck_p2.rb`) stayed **RUN-OK 23/25** because
+`LAB-VM-EVALAST-EVAL-EXPR-P1` closed as a routed spike, not implementation.
+
+P3 recheck (`verify_lab_vm_run_ok_recheck_p3.rb`) is now **RUN-OK 24/25**. `spreadsheet`
+`RunWorkbookDemo` moved to RUN-OK after `LAB-FUNCTION-SIR-RUNTIME-P1` materialized
+app-local `def` functions into executable SIR and the VM static function registry.
+
+Current non-green app:
 
 | class | apps | owner / next route |
 |---|---|---|
-| function SIR/runtime substrate | spreadsheet | `LAB-FUNCTION-SIR-RUNTIME-P1` — compiler/emitter must materialize app-local `def` bodies before VM can run `eval_expr` |
 | governance-gated | rule_engine | `LAB-DYNAMIC-CONTRACT-DISPATCH` DEFER (ledger D-001) |
 
 `rule_engine` remains intentionally fail-closed. This recheck is evidence-only and
@@ -92,6 +98,9 @@ does not relax dynamic dispatch.
 `{kind:"call", fn:"eval_expr"}` inside a map lambda, but the `.igapp` has no
 `functions` table or function sidecar. No VM-only source patch was made; route is
 function SIR materialization plus VM static app-local function runtime.
+
+`LAB-FUNCTION-SIR-RUNTIME-P1` closed that route for Rust+VM: the `.igapp` now carries
+`functions`, and P3 live runtime evidence shows `spreadsheet` RUN-OK.
 
 ## Provenance
 

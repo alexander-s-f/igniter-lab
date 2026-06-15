@@ -35,12 +35,26 @@ dispatch over a frame), `fork(from, new_name, extra_facts)` (branch + patch + fr
 **base is untouched** (immutability); dispatch works on resumed frames; registry lists
 all. **11/11 machine tests pass.**
 
-## Next
+## Step 3 DONE — MCP capsule tools (the live control panel)
 
-**Step 3 — MCP thin tools** (facade over `CapsuleManager`): `capsule_snapshot`,
-`capsule_list`, `capsule_activate`, then `capsule_fork`, then `capsule_diff`. This is
-where the agent gets the live control panel. (`capsule_diff` = frame A vs B fact/state
-delta — the debugger lens.)
+5 thin tools over `CapsuleManager` in `igniter-mcp`: `capsule_snapshot`, `capsule_list`,
+`capsule_activate`, `capsule_fork`, `capsule_diff`. **Driven live** (agent → MCP):
+load Add → snapshot `base` → fork `base`→`hi`(balance 1000)/`lo`(10) (base untouched) →
+list (3) → diff `hi`/`lo` (delta: `acct/a` balance 10) → activate `hi` Add(2,3)→5.
+
+Refactor needed: `checkpoint_bytes`/`resume_bytes`/`checkpoint`/`resume` are now **async**
+(awaited the storage ops instead of an internal `futures::executor::block_on`). The old
+internal block_on panicked under MCP (`EnterError`: nested executor) when a handler also
+block_on'd. Now there is exactly one `block_on` at the sync handler boundary. 11/11 tests.
+
+### Note — the agent as proto-IO (observed by Alex)
+
+The MCP/agent surface is effectively Igniter's **effect boundary**: contracts stay pure;
+the agent drives effects (write_fact, fork, snapshot) from outside. This is "functional
+core, agent-as-imperative-shell" — and crucially the effects are **recorded bitemporal
+facts + immutable capsule frames**, i.e. IO that is explicit, auditable (transaction-time),
+and reversible (fork instead of mutate). The IO we kept out of the language re-appears at
+the boundary, in a controlled, observable form.
 
 ## Closed surfaces (this card)
 

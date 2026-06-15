@@ -6,7 +6,7 @@ use crate::registry::ContractRegistry;
 use crate::wal::WALWriter;
 
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -29,7 +29,9 @@ use serde::{Deserialize, Serialize};
 struct SemanticImage {
     magic: String,
     version: String,
-    contracts: HashMap<String, serde_json::Value>,
+    // BTreeMap (not HashMap) so a capsule serializes deterministically → byte-identical
+    // roundtrip (a capsule is an immutable frame; same content = same bytes).
+    contracts: BTreeMap<String, serde_json::Value>,
     facts: Vec<Fact>,
     observations: Vec<Observation>,
 }
@@ -378,35 +380,47 @@ impl IgniterMachine {
             .await
     }
 
-    pub fn checkpoint(&self, path: &Path) -> Result<(), EngineError> {
-        let registry_contracts = self.registry.read().contracts.clone();
+    /// Serialize the full machine state (contracts + facts + observations) into a
+    /// capsule (`.igm`) byte image. Deterministic: contracts via BTreeMap, facts sorted
+    /// by (store, key, transaction_time, id), so the same frame yields the same bytes.
+    pub async fn checkpoint_bytes(&self) -> Result<Vec<u8>, EngineError> {
+        let contracts: BTreeMap<String, serde_json::Value> = self
+            .registry
+            .read()
+            .contracts
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let observations = self.observations.read().clone();
-        let facts = futures::executor::block_on(self.storage.all_facts())?;
+        let mut facts = self.storage.all_facts().await?;
+        facts.sort_by(|a, b| {
+            (a.store.as_str(), a.key.as_str(), a.transaction_time, a.id.as_str())
+                .partial_cmp(&(b.store.as_str(), b.key.as_str(), b.transaction_time, b.id.as_str()))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let image = SemanticImage {
             magic: "IGM\x01".to_string(),
             version: "0.1.0".to_string(),
-            contracts: registry_contracts,
+            contracts,
             facts,
             observations,
         };
-
-        let bytes = rmp_serde::to_vec(&image)
-            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
-
-        std::fs::write(path, bytes).map_err(|e| EngineError::IOError(e.to_string()))?;
-
-        Ok(())
+        rmp_serde::to_vec(&image).map_err(|e| EngineError::SerializationError(e.to_string()))
     }
 
-    pub fn resume(
-        path: &Path,
+    pub async fn checkpoint(&self, path: &Path) -> Result<(), EngineError> {
+        let bytes = self.checkpoint_bytes().await?;
+        std::fs::write(path, bytes).map_err(|e| EngineError::IOError(e.to_string()))
+    }
+
+    /// Rebuild a machine from a capsule byte image (in-memory; no file needed).
+    pub async fn resume_bytes(
+        bytes: &[u8],
         data_dir: Option<PathBuf>,
         backend_type: &str,
     ) -> Result<Self, EngineError> {
-        let bytes = std::fs::read(path).map_err(|e| EngineError::IOError(e.to_string()))?;
-
-        let image: SemanticImage = rmp_serde::from_slice(&bytes)
+        let image: SemanticImage = rmp_serde::from_slice(bytes)
             .map_err(|e| EngineError::SerializationError(e.to_string()))?;
 
         if image.magic != "IGM\x01" {
@@ -433,9 +447,19 @@ impl IgniterMachine {
 
         // Restore facts into storage
         for fact in image.facts {
-            futures::executor::block_on(machine.storage.write_fact(fact))?;
+            machine.storage.write_fact(fact).await?;
         }
 
         Ok(machine)
+    }
+
+    /// Resume from a capsule file on disk (thin wrapper over `resume_bytes`).
+    pub async fn resume(
+        path: &Path,
+        data_dir: Option<PathBuf>,
+        backend_type: &str,
+    ) -> Result<Self, EngineError> {
+        let bytes = std::fs::read(path).map_err(|e| EngineError::IOError(e.to_string()))?;
+        Self::resume_bytes(&bytes, data_dir, backend_type).await
     }
 }

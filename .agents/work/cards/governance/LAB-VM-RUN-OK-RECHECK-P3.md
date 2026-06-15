@@ -1,6 +1,6 @@
 # LAB-VM-RUN-OK-RECHECK-P3
 
-**Status:** OPEN - RUNTIME RECHECK
+**Status:** CLOSED - RUNTIME RECHECK (2026-06-15)
 **Route:** lab / VM / RUN-OK fleet recheck
 **Date:** 2026-06-15
 **Authority:** evidence-only runtime recheck; no source changes
@@ -66,3 +66,39 @@ Start after at least one of:
 ## Agent Recommendation
 
 Give this to **Codex GPT 5.5** after one or more implementation cards in this wave close.
+
+---
+
+## Closure Summary - CLOSED 2026-06-15
+
+Fresh registry-backed runtime fleet recheck completed with
+`igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p3.rb`.
+
+### Result
+
+- Active runtime fleet: **25** apps.
+- RUN-OK 24/25.
+- Delta vs P2: **+1**.
+- No source edits.
+
+`spreadsheet` moved from RUN-NOT-OK to RUN-OK after `LAB-FUNCTION-SIR-RUNTIME-P1`.
+Live evidence: `RunWorkbookDemo` compiles, SIR includes static `eval_expr` / `eval_ref`
+function bodies, and the VM returns a successful evaluated cell result.
+
+### Current Non-Green
+
+| app | status | owner class | next route |
+|---|---|---|---|
+| `rule_engine` | COMPILE-NOT-OK | governance-gated dynamic dispatch | `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` selected safe route / ledger D-001 |
+
+### Acceptance
+
+- RUN-OK count explicit and reproducible: **24/25** - MET.
+- Every non-green app has one owner class and route - MET.
+- `rule_engine` remains governance-gated - MET.
+- No source edits - MET.
+
+### Artifacts
+
+- Rollup: `.agents/docs/vm-run-ok-recheck-p3-2026-06-15-v0.md`
+- Proof: `igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p3.rb`
