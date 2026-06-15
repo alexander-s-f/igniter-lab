@@ -56,6 +56,32 @@ numeric ops. Neither is fully green yet, due to **non-numeric** residuals:
 So homogeneous numeric is done; the two apps need follow-ons (heterogeneous numeric;
 demo-entry/inputs) to flip green.
 
+## Cluster 2 — DONE 2026-06-15 (dispatch-table completeness)
+
+Root: the VM builds `dispatch_table` by compiling each contract independently
+(`main.rs`); failures are **silently skipped**. 7 lead_router contracts (FindTrade,
+FindVendor, …) failed VM bytecode-compile, so call_contract couldn't find them.
+
+Cause: the front-end emits **two `if_expr` shapes** — `condition/then_branch/else_branch`
+AND `cond/then/else` (with branch **blocks** `{return_expr, stmts}`). Both VM readers
+(`compiler.rs`, `eval_ast`) only knew the first.
+
+Fix (igniter-vm): `compiler.rs` + `eval_ast` if_expr now accept both field shapes and
+**unwrap a branch block to its `return_expr`** (stmts empty in practice). Also added
+`stdlib.collection.filter_map` (map + drop None) — surfaced once the contracts compiled.
+
+**Result: call_router + lead_router GREEN. RUN-OK 15 → 16.**
+
+### Cascade exposed (honest): batch_importer
+
+batch_importer's prior "green" was partly hollow — its `validate` contract (which does
+`filter_map(rows, r -> match r {…})`) was a **skipped** dispatch entry, so the real
+validation never ran. With the dispatch table now complete, batch_importer runs its
+real path and hits **`Unsupported AST kind: match_expr` in `eval_ast`** — the
+tree-walker lacks `match` (the bytecode path has it). Same class as the closures/if
+gaps: a node kind eval_ast doesn't handle, needed inside a lambda body. → follow-up
+**`LAB-VM-EVALAST-MATCH-P1`** (add `match_expr` to the tree-walker). Net RUN-OK still +1.
+
 ## Implementation plan
 
 | # | cluster | change | repo/file | risk |
