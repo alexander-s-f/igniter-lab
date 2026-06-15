@@ -199,8 +199,11 @@ impl Compiler {
     ) -> Result<crate::vm::DispatchEntry, String> {
         // Extract input names from the "inputs" top-level array (SemanticIR structure).
         // Each input has a "name" field; extract in declaration order.
+        // `inputs` = semantic_ir contract shape (CLI path); `input_ports` = per-contract
+        // file shape (igniter-machine registry path). Both carry `name` in order.
         let input_names: Vec<String> = contract_jv
             .get("inputs")
+            .or_else(|| contract_jv.get("input_ports"))
             .and_then(|d| d.as_array())
             .map(|inputs| {
                 inputs.iter()

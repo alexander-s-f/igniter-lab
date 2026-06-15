@@ -1,6 +1,6 @@
 # LAB-NUMERIC-DECIMAL-CONSTRUCT-P1
 
-**Status:** OPEN — IMPLEMENTATION
+**Status:** CLOSED — IMPLEMENTED dual-toolchain (2026-06-15)
 **Route:** lab / numeric / Decimal construction / dual-toolchain
 **Date:** 2026-06-15
 **Authority:** dual-toolchain stdlib + VM implementation authorized after the decimal-boundary policy; no implicit coercion
@@ -69,3 +69,52 @@ Start after:
 
 Give this to **Codex GPT 5.5** or **Claude Opus 4.8**. Well-bounded after the P1 boundary;
 the only subtlety is the Ruby `Decimal[N]` annotation fix and scale-literal validation.
+
+---
+
+## Closure Summary — CLOSED 2026-06-15
+
+`decimal(value, scale) -> Decimal[scale]` implemented dual-toolchain. No `Money` type, no
+`round_decimal`, no implicit coercion, no bookkeeping migration.
+
+### Done
+- **Rust TC** (`typechecker/stdlib_calls.rs`): `"decimal"` arm — arity 2, `value:Integer`,
+  `scale` Integer **literal**, result `Decimal[scale]`. `OOF-TY0` (arity / non-Integer
+  value), `OOF-DM4` (non-literal / negative scale).
+- **Rust VM** (`vm.rs`): `"decimal" | "stdlib.decimal.decimal"` → `Value::Decimal { value,
+  scale }` (substrate already in `igniter_stdlib::decimal`).
+- **Ruby canon TC** (`typechecker.rb`): mirror `infer_decimal_call` (identical rules/
+  messages); **fixed the `Decimal[N]` input annotation crash** by wrapping
+  `structurally_assignable?` and `unknown_or_unknown_bearing?` params through `type_ir`
+  before recursing (mirrors Rust; scale now compares by value, `Decimal[2]` ≠ `Decimal[4]`).
+- **Spec/inventory**: ch3 "Decimal construction" subsection, ch8 `stdlib.decimal.decimal`
+  signature, `stdlib-inventory.json` entry + recomputed `stdlib_surface_digest`.
+
+### Acceptance
+- `decimal(0,2) -> Decimal[2]` clean dual + VM `Value::Decimal{0,2}` — **MET**.
+- Implicit `Float/Integer → Decimal` still `OOF-TY1` — **MET** (no regression).
+- Ruby `Decimal[N]` annotation no longer crashes — **MET**.
+- No bookkeeping source change — **MET**.
+
+### Dual-toolchain evidence
+`decimal(0,2)`/`decimal(150,2)` ok/0 both; `->Decimal[4]` OOF-TY1 both; non-literal scale
+OOF-DM4 both; arity OOF-TY0 both; `decimal(1.5,2)` OOF-TY0 both; `0.00->Decimal[2]`
+OOF-TY1 both (regression intact); Rust↔Ruby source_hash agree. VM: `decimal(150,2)` →
+`{value:150, scale:2}`.
+
+### Predecessor proof
+`LAB-NUMERIC-DECIMAL-BOUNDARY-P1`'s six pre-implementation gap-assertions (D-01/02/03/05,
+H-04, I-01) were updated to assert the resolved state with CONSTRUCT-P1 references; that
+proof stays green (62/62) as a forward regression guard.
+
+### Follow-ups (unchanged, separate cards)
+- bookkeeping migration `0.00 → decimal(0, 2)`.
+- `round_decimal(Float, scale)` explicit rounding bridge.
+- Inventory-proof refresh (the P5 / append-P4 proofs are pre-existing stale on entry-count
+  / refactored-source greps / vocabulary — unrelated to this card; digest checks stay green).
+
+### Artifacts
+- Proof: `igniter-view-engine/proofs/verify_lab_numeric_decimal_construct_p1.rb`
+- Lab doc: `lab-docs/lang/lab-numeric-decimal-construct-p1-v0.md`
+- Edits: `igniter-compiler/src/typechecker/stdlib_calls.rs`, `igniter-vm/src/vm.rs`,
+  `igniter-lang/lib/igniter_lang/typechecker.rb`, ch3 / ch8 / stdlib-inventory.json

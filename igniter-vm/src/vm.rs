@@ -24,6 +24,45 @@ fn parse_utc(dt_str: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
     Err(format!("Invalid datetime string: {}", dt_str))
 }
 
+fn stdlib_string_char_at(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "stdlib.string.char_at expects exactly 2 arguments, got {}",
+            args.len()
+        ));
+    }
+    let s = args[0].as_str()?;
+    let raw_index = args[1].as_integer()?;
+    if raw_index < 0 {
+        return Ok(Value::String(Arc::from("")));
+    }
+    let idx = raw_index as usize;
+    let result = s.chars().nth(idx)
+        .map(|ch| ch.to_string())
+        .unwrap_or_default();
+    Ok(Value::String(Arc::from(result.as_str())))
+}
+
+fn stdlib_string_substring(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "stdlib.string.substring expects exactly 3 arguments, got {}",
+            args.len()
+        ));
+    }
+    let s = args[0].as_str()?;
+    let raw_start = args[1].as_integer()?;
+    let raw_len = args[2].as_integer()?;
+    if raw_len <= 0 {
+        return Ok(Value::String(Arc::from("")));
+    }
+    let rune_count = s.chars().count() as i64;
+    let start = raw_start.max(0).min(rune_count) as usize;
+    let len = raw_len as usize;
+    let result: String = s.chars().skip(start).take(len).collect();
+    Ok(Value::String(Arc::from(result.as_str())))
+}
+
 // LAB-RACK-P9: pre-compiled dispatch entry for user-contract calls.
 // bytecode: compiled instructions for the callee contract.
 // input_names: input declaration names in declaration order (used for positional arg mapping).
@@ -546,6 +585,15 @@ impl VM {
                     };
 
                     let res = match fn_name {
+                        "char_at" | "stdlib.string.char_at" => {
+                            // LAB-STDLIB-STRING-CHAR-AT-VM-P1: frontend already emits this
+                            // String surface; VM execution follows rune-indexed text policy.
+                            stdlib_string_char_at(&args)?
+                        }
+                        "substring" | "stdlib.string.substring" => {
+                            // substring(source, start, length), with rune-counted length.
+                            stdlib_string_substring(&args)?
+                        }
                         "stdlib.IO.read_text" => {
                             if args.len() != 2 {
                                 return Err(format!("stdlib.IO.read_text expects 2 arguments, got {}", args.len()));
@@ -666,6 +714,31 @@ impl VM {
                                 Value::Nil => Value::Integer(0),
                                 _ => return Err("count argument must be an array".to_string()),
                             }
+                        }
+                        // LAB-NUMERIC-DECIMAL-CONSTRUCT-P1: explicit Decimal constructor.
+                        // decimal(value, scale) -> Value::Decimal { value, scale } — exact
+                        // minor units, no Float rounding. The front-end already enforces an
+                        // Integer literal scale; the VM re-validates defensively.
+                        "decimal" | "stdlib.decimal.decimal" => {
+                            if args.len() != 2 {
+                                return Err(format!(
+                                    "stdlib.decimal.decimal expects 2 arguments (value, scale), got {}",
+                                    args.len()
+                                ));
+                            }
+                            let value = match &args[0] {
+                                Value::Integer(v) => *v,
+                                other => return Err(format!(
+                                    "stdlib.decimal.decimal: value must be Integer, got {:?}", other
+                                )),
+                            };
+                            let scale = match &args[1] {
+                                Value::Integer(s) if *s >= 0 => *s as u32,
+                                other => return Err(format!(
+                                    "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
+                                )),
+                            };
+                            Value::Decimal { value, scale }
                         }
                         "length" => {
                             if args.len() != 1 {
@@ -3302,6 +3375,36 @@ fn eval_ast<'a>(
                             err_map.insert("err".to_string(), err_val);
                             Ok(Value::Record(Arc::new(err_map)))
                         }
+                    }
+                    "char_at" | "stdlib.string.char_at" => {
+                        stdlib_string_char_at(&evaluated_operands)
+                    }
+                    "substring" | "stdlib.string.substring" => {
+                        stdlib_string_substring(&evaluated_operands)
+                    }
+                    // LAB-NUMERIC-DECIMAL-CONSTRUCT-P1: decimal(value, scale) in the
+                    // eval_ast path (e.g. inside a fold/map lambda) — same lowering as the
+                    // bytecode OP_CALL arm: Value::Decimal { value, scale }, exact minor units.
+                    "decimal" | "stdlib.decimal.decimal" => {
+                        if evaluated_operands.len() != 2 {
+                            return Err(format!(
+                                "stdlib.decimal.decimal expects 2 arguments (value, scale), got {}",
+                                evaluated_operands.len()
+                            ));
+                        }
+                        let value = match &evaluated_operands[0] {
+                            Value::Integer(v) => *v,
+                            other => return Err(format!(
+                                "stdlib.decimal.decimal: value must be Integer, got {:?}", other
+                            )),
+                        };
+                        let scale = match &evaluated_operands[1] {
+                            Value::Integer(s) if *s >= 0 => *s as u32,
+                            other => return Err(format!(
+                                "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
+                            )),
+                        };
+                        Ok(Value::Decimal { value, scale })
                     }
                     "map" => {
                         if evaluated_operands.len() != 2 {

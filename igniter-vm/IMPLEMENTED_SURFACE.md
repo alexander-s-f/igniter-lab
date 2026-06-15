@@ -56,7 +56,7 @@ Full arc + per-fix detail: `.agents/work/cards/lang/LAB-VM-RUNTIME-WAVE-CHECKPOI
 
 Resolved this wave (all in `igniter-vm`, + one typechecker relax): stdlib collection
 ops (namespaced→bare HOF aliases); `integer.{lt,gt,lte,gte}` + `collection.append` +
-`string.concat`/lenient `collection.concat`; **dispatch unification** (`VM::call_contract_value`
+`string.concat`/`stdlib.string.char_at`/`stdlib.string.substring` + lenient `collection.concat`; **dispatch unification** (`VM::call_contract_value`
 single-sourced; `&VM` threaded into `eval_ast`/`eval_lambda`); field_access generalized;
 `MAX_CALL_DEPTH` 8→64; **closures (B)** + aggregate-source-ref; `if_expr` dual-shape +
 dispatch-table completeness + `filter_map`; **`match_expr` in `eval_ast`**; homogeneous
@@ -74,7 +74,10 @@ for lambda/HOF bodies) lagging the bytecode path on a node kind — `call_contra
 | needs-inputs / demo-entry | advanced_logistics, spreadsheet, vector_editor, erp_logistics, igniter_parser | `LAB-APP-DEMO-ENTRY-WAVE-P1` (app-side) |
 | Decimal policy → construct | bookkeeping | `LAB-NUMERIC-DECIMAL-BOUNDARY-P1` → `LAB-NUMERIC-DECIMAL-CONSTRUCT-P1` |
 | governance-gated | rule_engine | `LAB-DYNAMIC-CONTRACT-DISPATCH` DEFER (ledger D-001) |
-| tiny stdlib tail | igniter_parser | `LAB-STDLIB-STRING-CHAR-AT-VM-P1` |
+
+`LAB-STDLIB-STRING-CHAR-AT-VM-P1` closed the former `igniter_parser`
+`stdlib.string.char_at`/`stdlib.string.substring` VM tail. `igniter_parser` remains
+in the app-side demo-entry bucket only because it has no zero-input demo entry.
 
 ## Provenance
 

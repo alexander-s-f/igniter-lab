@@ -1,6 +1,6 @@
 # LAB-APP-DEMO-ENTRY-WAVE-P1
 
-**Status:** OPEN - APP FIXTURE WAVE
+**Status:** CLOSED - APP FIXTURE WAVE
 **Route:** lab / runtime / needs-input apps / demo entrypoints
 **Date:** 2026-06-15
 **Authority:** app-side demo/orchestrator entries only; no compiler, VM, or language changes
@@ -86,3 +86,53 @@ For each target app:
 
 Give this to **Sonnet 4.6** or **Codex GPT 5.5**. It is app-by-app fixture work;
 precision and not touching production logic matter more than deep compiler skill.
+
+## Closure Summary - 2026-06-15
+
+Closed as an app-side fixture wave. Added zero-input companion `example.ig` entries
+for all four target apps; no compiler, VM, typechecker, or production handler code
+was changed.
+
+| App | Entrypoint | Ruby | Rust | VM no-input result |
+|---|---|---:|---:|---|
+| `advanced_logistics` | `RunDailyRoutesDemo` | ok/0 | ok/0 | success |
+| `spreadsheet` | `RunWorkbookDemo` | oof/6 | ok/0 | blocked: `Unsupported operator: eval_expr` |
+| `vector_editor` | `RunCanvasClickDemo` | ok/0 | ok/0 | success |
+| `igniter_parser` | `RunParseDemo` | ok/0 | ok/0 | blocked: `stdlib.string.char_at` |
+
+Source hashes:
+
+- `advanced_logistics`: `sha256:df623dec726a847355914892805d433c7ead695d9c70e2cf0316b3f332862102`
+- `spreadsheet`: `sha256:5802728da8d4eda2ff055057f92d55ca292a61f6ecea136695659e2e7683bd05`
+- `vector_editor`: `sha256:967b2b50a666b89cb64ecbd72d2d12f09ed958aec53fd92d63feaa2f2db04144`
+- `igniter_parser`: `sha256:915ea3463bc49ce78f6edd2492d4bedb2111934795e7a4b23de1535b0d6dd04c`
+
+Residuals pinned:
+
+- `spreadsheet` now has a zero-input demo entry and Rust ok/0, but VM runtime
+  stops at app-local `def eval_expr` (`Unsupported operator: eval_expr`).
+  Ruby remains oof because of the existing `eval_expr` blocker plus optional
+  recursive `Expr?` record construction exposed by the fixture. Routed as
+  `SS-P08` / `SS-P09` in the registry.
+- `igniter_parser` now has a zero-input demo entry and compiles ok/0 in both
+  toolchains, but VM stops at `stdlib.string.char_at`; routed to
+  `LAB-STDLIB-STRING-CHAR-AT-VM-P1` / `IP-P08`.
+
+Artifacts:
+
+- Proof: `igniter-view-engine/proofs/verify_lab_app_demo_entry_wave_p1.rb`
+- Lab doc: `lab-docs/governance/lab-app-demo-entry-wave-p1-v0.md`
+- Registries updated:
+  - `igniter-apps/advanced_logistics/PRESSURE_REGISTRY.md`
+  - `igniter-apps/spreadsheet/PRESSURE_REGISTRY.md`
+  - `igniter-apps/vector_editor/PRESSURE_REGISTRY.md`
+  - `igniter-apps/igniter_parser/PRESSURE_REGISTRY.md`
+
+Closed surfaces preserved:
+
+- No VM changes.
+- No compiler or typechecker changes.
+- No IO, file, queue, HTTP, scheduler, clock, or database authority.
+- No dynamic dispatch relaxation.
+- No broad app refactor.
+- No production handler semantics changed.

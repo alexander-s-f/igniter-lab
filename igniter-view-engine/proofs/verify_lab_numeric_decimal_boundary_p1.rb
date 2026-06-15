@@ -141,13 +141,17 @@ check("C-10: root = structurally_assignable requires matching type name") { RSTC
 check("C-11: => implicit Float/Integer→Decimal is ALREADY money-safe; keep rejecting") { has?(RS[:fvar], "OOF-TY1") }
 
 # ══════════════════════════════════════════════════════════════════════════════
-section("D  No Decimal construction surface today")
-check("D-01: Ruby decimal(0,2) → OOF-TY0 Unknown function") { has?(RB[:decctor], "OOF-TY0") }
-check("D-02: Rust decimal(0,2) → OOF-TY0 Unknown function") { has?(RS[:decctor], "OOF-TY0") }
-check("D-03: no decimal() constructor in either toolchain") { has?(RB[:decctor], "OOF-TY0") && has?(RS[:decctor], "OOF-TY0") }
-check("D-04: no Decimal literal — 0.00 types as Float, fails Decimal[2] output") { has?(RS[:bare_float], "OOF-TY1") }
-check("D-05: => a pure contract cannot mint a Decimal constant (the real gap)") { has?(RS[:decctor], "OOF-TY0") && has?(RS[:bare_float], "OOF-TY1") }
-check("D-06: only Decimal sources today = typed input or Decimal arithmetic") { clean?(RS[:decin]) }
+# NOTE: section D originally pinned the *pre-implementation* gap (decimal() was an
+# Unknown function). LAB-NUMERIC-DECIMAL-CONSTRUCT-P1 implemented the constructor, so
+# these checks now assert the RESOLVED state and act as a forward regression guard.
+# The historical gap is preserved in this card's closure summary + the readiness doc.
+section("D  Decimal construction surface (CONSTRUCT-P1 implemented)")
+check("D-01: Ruby decimal(0,2) now compiles clean (CONSTRUCT-P1)") { clean?(RB[:decctor]) }
+check("D-02: Rust decimal(0,2) now compiles clean (CONSTRUCT-P1)") { clean?(RS[:decctor]) }
+check("D-03: decimal() constructor now resolves in both toolchains") { clean?(RB[:decctor]) && clean?(RS[:decctor]) }
+check("D-04: still no Decimal literal — 0.00 types as Float, fails Decimal[2] output") { has?(RS[:bare_float], "OOF-TY1") }
+check("D-05: => a pure contract can now mint a Decimal constant, yet implicit Float stays rejected") { clean?(RS[:decctor]) && has?(RS[:bare_float], "OOF-TY1") }
+check("D-06: Decimal sources = typed input, Decimal arithmetic, or decimal() constructor") { clean?(RS[:decin]) && clean?(RS[:decctor]) }
 
 # ══════════════════════════════════════════════════════════════════════════════
 section("E  bookkeeping blocker live (dual)")
@@ -182,12 +186,12 @@ section("H  Canon vs lab")
 check("H-01: policy + decimal() surface belong to canon-lang") { read(DOC).include?("Canon-lang") }
 check("H-02: runtime substrate already exists in lab (Value::Decimal)") { RSVM.include?("Value::Decimal") }
 check("H-03: decimal() impl is a lab follow-up (TC arm + VM/stdlib)") { read(DOC).include?("lab follow-up") }
-check("H-04: canon parity gap — Ruby crashes on Decimal[N] input annotation") { RB[:decin].any? { |r| r.start_with?("EXC") } }
-check("H-05: Rust handles Decimal[N] input annotation cleanly (lab-leaning)") { clean?(RS[:decin]) }
+check("H-04: canon parity restored — Ruby Decimal[N] input annotation no longer crashes (CONSTRUCT-P1)") { clean?(RB[:decin]) }
+check("H-05: Rust handles Decimal[N] input annotation cleanly") { clean?(RS[:decin]) }
 
 # ══════════════════════════════════════════════════════════════════════════════
 section("I  Closed surfaces / scope")
-check("I-01: no implementation in P1 (decimal() still Unknown function)") { has?(RS[:decctor], "OOF-TY0") }
+check("I-01: readiness card stayed policy-only; decimal() implemented by CONSTRUCT-P1 (now clean)") { clean?(RS[:decctor]) }
 check("I-02: no implicit coercion introduced (Float→Decimal still OOF-TY1)") { has?(RS[:fvar], "OOF-TY1") }
 check("I-03: no Money type") { read(DOC).include?("No `Money`") || read(DOC).include?("no `Money`") }
 check("I-04: no rounding-policy change") { read(DOC).include?("rounding-policy change") }

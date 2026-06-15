@@ -116,3 +116,19 @@ The 20-app fleet expansion and new companion intake (`audit_ledger`, `batch_impo
 
 Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:4bb462de0378f9d3907d05f01d3a95e6e4b6d0b5247003a01aca6f4d214042f1`. Entrypoint: `none`. unchanged clean app.
 No source changes in this wave. No new pressures. No regressions.
+
+## Demo Entry Wave P1 (2026-06-15)
+
+`LAB-APP-DEMO-ENTRY-WAVE-P1` added `example.ig` as a zero-input companion fixture.
+
+- Source files: 5.
+- Source hash: `sha256:df623dec726a847355914892805d433c7ead695d9c70e2cf0316b3f332862102`.
+- Entrypoint: `RunDailyRoutesDemo`.
+- Contracts: 9.
+- Ruby: ok/0.
+- Rust: ok/0.
+- VM: success; result is two route-plan collections, with `van-a` accepting both demo orders and `van-b` accepting the smaller order.
+- App-source scope: added factories `MakeLocation`, `MakePackage`, `MakeTransport`, `MakeOrder` plus `RunDailyRoutesDemo`; production contracts unchanged.
+- Authority: explicit in-app fixture data only; no IO, storage, scheduler, clock, queue, or dynamic dispatch authority.
+
+| AL-P08 | RESOLVED | Zero-input runtime demo entry | `RunDailyRoutesDemo` builds typed sample transports/orders and exercises `PlanDailyRoutes` through the VM with no external inputs | `LAB-APP-DEMO-ENTRY-WAVE-P1` CLOSED |

@@ -1,8 +1,9 @@
 # LAB-STDLIB-STRING-CHAR-AT-VM-P1
 
-**Status:** OPEN - VM IMPLEMENTATION
+**Status:** CLOSED — IMPLEMENTED 96/96 PASS
 **Route:** lab / VM / stdlib.string runtime parity
 **Date:** 2026-06-15
+**Date closed:** 2026-06-15
 **Authority:** VM runtime support for already-typed stdlib.string calls; no front-end changes
 
 ## Goal
@@ -57,6 +58,55 @@ May run before or in parallel with `LAB-APP-DEMO-ENTRY-WAVE-P1`; the app wave sh
 - `igniter_parser` with a simple `source` input advances past the prior `char_at` gap.
 - No compiler/typechecker/inventory changes are needed in this card.
 - Existing `stdlib.text.*` behavior remains unchanged.
+
+## Closure Summary
+
+Implemented VM runtime support in:
+
+- `igniter-lab/igniter-vm/src/vm.rs`
+
+Updated runtime surface index:
+
+- `igniter-lab/igniter-vm/IMPLEMENTED_SURFACE.md`
+
+The VM now handles both canonical and current bare runtime names:
+
+- `stdlib.string.char_at` / `char_at`
+- `stdlib.string.substring` / `substring`
+
+Both the bytecode `OP_CALL` path and the `eval_ast` tree-walker path call the same
+helpers, preserving parity for HOF/lambda bodies.
+
+Runtime policy follows this card's instruction: rune/character indexing,
+consistent with `stdlib.text.rune_slice`.
+
+Proof:
+
+```text
+cd /Users/alex/dev/projects/igniter-workspace
+ruby igniter-lab/igniter-view-engine/proofs/verify_lab_stdlib_string_char_at_vm_p1.rb
+RESULT: 96/96 PASS
+```
+
+Key evidence:
+
+- `char_at("abc", 1)` returns `"b"`.
+- `substring("module", 2, 3)` returns `"dul"`.
+- `char_at("aé🚀", 1)` returns `"é"`.
+- `substring("aé🚀z", 1, 2)` returns `"é🚀"`.
+- `map(words, word -> char_at(word, 1))` runs through `eval_ast`.
+- `igniter_parser` `ParseSource` with `source: "module Demo"` reaches VM success and returns a `ModuleDecl` node.
+- `stdlib.text.rune_slice` regression remains green.
+
+Artifacts:
+
+| Artifact | Path |
+|---|---|
+| VM implementation | `igniter-lab/igniter-vm/src/vm.rs` |
+| Runtime surface index | `igniter-lab/igniter-vm/IMPLEMENTED_SURFACE.md` |
+| Proof runner | `igniter-lab/igniter-view-engine/proofs/verify_lab_stdlib_string_char_at_vm_p1.rb` |
+| Lab doc | `igniter-lab/lab-docs/lang/lab-stdlib-string-char-at-vm-p1-v0.md` |
+| Portfolio index | `igniter-lab/.agents/portfolio-index.md` |
 
 ## Closed Surfaces
 

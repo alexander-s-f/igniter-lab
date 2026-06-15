@@ -55,6 +55,77 @@ impl TypeChecker {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("Decimal".to_string()));
             }
+            // LAB-NUMERIC-DECIMAL-CONSTRUCT-P1: explicit Decimal constructor.
+            //   decimal(value, scale) -> Decimal[scale]
+            //   value : Integer (exact minor units), scale : Integer *literal*.
+            // The scale must be a literal so Decimal[scale] is statically known
+            // (mirrors the Decimal[N] annotation, whose scale is also a literal).
+            // OOF-TY0: arity != 2 or value not Integer.  OOF-DM4: non-literal /
+            // negative scale. On any error, falls back to bare Decimal to avoid a
+            // cascade. No implicit Float/Integer -> Decimal coercion is introduced.
+            "decimal" => {
+                is_resolved = true;
+                let mut scale_opt: Option<i64> = None;
+                if args.len() != 2 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!(
+                            "stdlib.decimal.decimal: expected 2 arguments (value, scale), got {}",
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    let value_name = self.type_name(&typed_args[0].resolved_type);
+                    if value_name != "Integer" && value_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!(
+                                "stdlib.decimal.decimal arg 1: expected Integer, got {}",
+                                value_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                    match &args[1] {
+                        Expr::Literal { value, type_tag } if type_tag == "Integer" => {
+                            match value.as_i64() {
+                                Some(s) if s >= 0 => { scale_opt = Some(s); }
+                                _ => {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-DM4".to_string(),
+                                        message: "stdlib.decimal.decimal: scale must be a non-negative Integer literal".to_string(),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                }
+                            }
+                        }
+                        _ => {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-DM4".to_string(),
+                                message: "stdlib.decimal.decimal: scale must be an Integer literal".to_string(),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    }
+                }
+                resolved_type = match scale_opt {
+                    Some(s) => {
+                        let mut dec = serde_json::Map::new();
+                        dec.insert("name".to_string(), serde_json::Value::String("Decimal".to_string()));
+                        let mut inner = serde_json::Map::new();
+                        inner.insert("name".to_string(), serde_json::Value::String(s.to_string()));
+                        inner.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                        dec.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner)]));
+                        serde_json::Value::Object(dec)
+                    }
+                    None => self.type_ir(&serde_json::Value::String("Decimal".to_string())),
+                };
+            }
             "stdlib.numeric.add" => {
                 is_resolved = true;
                 if !typed_args.is_empty() {

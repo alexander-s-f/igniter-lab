@@ -111,3 +111,19 @@ The 20-app fleet expansion and new companion intake (`audit_ledger`, `batch_impo
 
 Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:cafd7085a537f8efb8751ebe48148fbc9931ebb10041babb6f4b33f1b20fb2fc`. Entrypoint: `none`. unchanged clean app.
 No source changes in this wave. No new pressures. No regressions.
+
+## Demo Entry Wave P1 (2026-06-15)
+
+`LAB-APP-DEMO-ENTRY-WAVE-P1` added `example.ig` as a zero-input companion fixture.
+
+- Source files: 5.
+- Source hash: `sha256:967b2b50a666b89cb64ecbd72d2d12f09ed958aec53fd92d63feaa2f2db04144`.
+- Entrypoint: `RunCanvasClickDemo`.
+- Contracts: 10.
+- Ruby: ok/0.
+- Rust: ok/0.
+- VM: success; result is `doc-demo` with `rect-new` appended to `layer-1`.
+- App-source scope: added factories `MakePoint`, `MakeLayer`, `MakeDocument`, `MakeToolState` plus `RunCanvasClickDemo`; handler contracts unchanged.
+- Authority: explicit in-app fixture state/event only; no UI loop, storage, IO, queue, clock, or dynamic dispatch authority.
+
+| VE-P10 | RESOLVED | Zero-input runtime demo entry | `RunCanvasClickDemo` builds an empty one-layer document, draw-rect tool state, and click point, then exercises `HandleCanvasClick` through the VM | `LAB-APP-DEMO-ENTRY-WAVE-P1` CLOSED |

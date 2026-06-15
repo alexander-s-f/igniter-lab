@@ -162,3 +162,19 @@ The 20-app fleet expansion and new companion intake (`audit_ledger`, `batch_impo
 
 Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:f7d388d96cc7248604cbacfc05ebaa1361174dbf56585e23568509e81edcf9cb`. Entrypoint: `none`. unchanged clean app.
 No source changes in this wave. No new pressures. No regressions.
+
+## Demo Entry Wave P1 (2026-06-15)
+
+`LAB-APP-DEMO-ENTRY-WAVE-P1` added `example.ig` as a zero-input companion fixture.
+
+- Source files: 5.
+- Source hash: `sha256:915ea3463bc49ce78f6edd2492d4bedb2111934795e7a4b23de1535b0d6dd04c`.
+- Entrypoint: `RunParseDemo`.
+- Contracts: 4.
+- Ruby: ok/0.
+- Rust: ok/0.
+- VM: blocked after successful compile and entrypoint selection: `OP_CALL: Unknown/unimplemented function 'stdlib.string.char_at' with 2 arguments`.
+- App-source scope: added `RunParseDemo` only; parser/lexer contracts unchanged.
+- Authority: explicit in-app source fixture only; no file IO, compiler-package authority, or self-hosting claim.
+
+| IP-P08 | ACTIVE | VM `stdlib.string.char_at` runtime tail | `RunParseDemo` makes the app runnable without external inputs, then confirms the known VM blocker: `stdlib.string.char_at` is compile-known but not implemented in VM OP_CALL | `LAB-STDLIB-STRING-CHAR-AT-VM-P1` |

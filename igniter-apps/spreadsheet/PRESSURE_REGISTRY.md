@@ -87,3 +87,20 @@ No recursion-related diagnostics in either toolchain.
 ## Wave P13 Appendix Check (2026-06-15)
 
 Ruby: oof/2. Rust: ok/0. Source files: 3. outside active fleet; Ruby call/function blocker remains. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.
+
+## Demo Entry Wave P1 (2026-06-15)
+
+`LAB-APP-DEMO-ENTRY-WAVE-P1` added `example.ig` as a zero-input companion fixture.
+
+- Source files: 4.
+- Source hash: `sha256:5802728da8d4eda2ff055057f92d55ca292a61f6ecea136695659e2e7683bd05`.
+- Entrypoint: `RunWorkbookDemo`.
+- Contracts: 6.
+- Rust: ok/0.
+- Ruby: oof/6. Existing app-local function blocker remains (`Unknown function: eval_expr` in `CalculateGrid`); demo fixture additionally exposes Ruby optional-recursive record construction limitations for `Expr?` fields.
+- VM: blocked after successful Rust compile and entrypoint selection: `Unsupported operator: eval_expr`.
+- App-source scope: added `MakeNumberExpr`, `MakeCell`, `MakeGrid`, and `RunWorkbookDemo`; production recalculation contracts unchanged.
+- Authority: explicit in-app workbook fixture only; no file/CSV/IO/storage authority.
+
+| SS-P08 | ACTIVE | VM app-local function call support | `RunWorkbookDemo` reaches VM and traps on `Unsupported operator: eval_expr`; this is runtime support for `def` calls, not an app demo-entry problem | VM function-call/runtime route, outside LAB-APP-DEMO-ENTRY-WAVE-P1 |
+| SS-P09 | ACTIVE | Ruby optional recursive record construction | Demo `Expr` fixture exposes Ruby field expectations for `ref_id`, `left`, and `right` despite `?` annotations; Rust compiles ok/0 | Ruby optional/recursive record typing route, outside LAB-APP-DEMO-ENTRY-WAVE-P1 |
