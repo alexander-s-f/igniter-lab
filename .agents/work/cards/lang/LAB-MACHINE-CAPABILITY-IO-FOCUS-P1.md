@@ -15,18 +15,19 @@ P3 binds one real substrate (read-only local RocksDB/TBackend)  [CLOSED 2026-06-
 --- branch A: harden the boundary before write IO ---
 P4 host clock capability (receipt tt from injected provider)    [CLOSED 2026-06-15]
 P5 typed capability passport (vs presence-only authority_ref)   [CLOSED 2026-06-15]
-P6 receipt-gated idempotent write substrate                     [NEXT — both base invariants set]
+P6a receipt-gated write lifecycle (fake write executor)         [CLOSED 2026-06-15]
+P6b real local TBackend write executor (same protocol)          [NEXT]
 ```
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs`, 5), P4
-> (`clock.rs`, 5), P5 (`capability.rs` passport, 9) all CLOSED — see
-> `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` + `-AUTHORITY-P5.md` and
-> `lab-docs/lang/lab-machine-capability-io-*`. **IO boundary proven end-to-end on a real
-> substrate; BOTH base production invariants now in place — time authority (P4) + caller
-> authority (P5).** Portfolio batch (P1–P3):
+> (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9) all CLOSED — see
+> `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` + `-AUTHORITY-P5.md` + `-WRITE-P6.md`
+> and `lab-docs/lang/lab-machine-capability-io-*`. **IO boundary proven end-to-end on a real
+> read substrate; both base invariants set (time P4 + caller authority P5); write lifecycle
+> proven on a fake executor (P6a).** Portfolio batch (P1–P3):
 > `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`
-> (P4/P5 fold into the same track; separate portfolio entry only if a checkpoint warrants).
-> P6 (write substrate) is now unblocked — scope it tightly (receipt GATES the write).
+> (P4/P5/P6a fold into the same track). P6b = real local TBackend write behind the SAME
+> protocol (leaf change). Then reconciliation / compensation / retry.
 
 The route must preserve the core boundary:
 

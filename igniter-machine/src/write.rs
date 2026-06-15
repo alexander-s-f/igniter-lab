@@ -1,0 +1,341 @@
+//! Receipt-gated write semantics (LAB-MACHINE-CAPABILITY-IO-WRITE-P6a).
+//!
+//! Read records *what happened*; **write must gate whether the external mutation may
+//! happen.** That asymmetry is the whole point of this module. A write uses a two-phase
+//! receipt:
+//!
+//! ```text
+//! prepared   -- written BEFORE the executor (the gate); if it can't be written, no write
+//! committed  -- executor succeeded
+//! denied     -- executor refused (denial-as-data)
+//! unknown_external_state -- timeout / no answer; mutation status UNKNOWN; NO blind retry
+//! aborted    -- reserved: explicit host abort after prepare (not produced in P6a)
+//! ```
+//!
+//! Idempotency identity binds `capability_id + operation + authority_digest + payload_digest`.
+//! Same key + same payload → replay the receipt. Same key + **different** payload → refuse
+//! before the executor (no write). A dangling `prepared` or an `unknown_external_state` is
+//! never blindly retried. Fake write executor only — no real substrate (that is P6b).
+
+use crate::backend::TBackend;
+use crate::capability::{
+    verify_passport, CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind,
+    RunMode, RECEIPTS_STORE,
+};
+use crate::clock::ClockProvider;
+use crate::errors::EngineError;
+use crate::fact::Fact;
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+/// Lifecycle state of a write receipt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WriteState {
+    Prepared,
+    Committed,
+    Denied,
+    UnknownExternalState,
+    Aborted,
+}
+
+impl WriteState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WriteState::Prepared => "prepared",
+            WriteState::Committed => "committed",
+            WriteState::Denied => "denied",
+            WriteState::UnknownExternalState => "unknown_external_state",
+            WriteState::Aborted => "aborted",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "prepared" => WriteState::Prepared,
+            "committed" => WriteState::Committed,
+            "denied" => WriteState::Denied,
+            "aborted" => WriteState::Aborted,
+            _ => WriteState::UnknownExternalState,
+        }
+    }
+}
+
+/// A write request: a declared mutation with an operation name and a payload.
+pub struct WriteRequest {
+    pub capability_id: String,
+    pub operation: String,
+    pub idempotency_key: String,
+    pub payload: Value,
+}
+
+/// The result of a receipt-gated write attempt.
+#[derive(Clone, Debug)]
+pub struct WriteResult {
+    pub state: WriteState,
+    pub result: Value,
+    pub detail: Option<String>,
+}
+
+impl WriteResult {
+    /// A boundary refusal — no receipt was written (nothing happened externally).
+    fn refused(reason: &str) -> Self {
+        Self {
+            state: WriteState::Denied,
+            result: Value::Null,
+            detail: Some(reason.to_string()),
+        }
+    }
+    fn unknown(reason: &str) -> Self {
+        Self {
+            state: WriteState::UnknownExternalState,
+            result: Value::Null,
+            detail: Some(reason.to_string()),
+        }
+    }
+    fn from_receipt(v: &Value) -> Self {
+        Self {
+            state: WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or("")),
+            result: v.get("result").cloned().unwrap_or(Value::Null),
+            detail: v.get("detail").and_then(|d| d.as_str()).map(|s| s.to_string()),
+        }
+    }
+}
+
+/// Deterministic digest of a write payload (serde_json `Map` is sorted by key, so the
+/// serialization is stable). Used to bind the idempotency key to the exact payload.
+pub fn payload_digest(payload: &Value) -> String {
+    let s = serde_json::to_string(payload).unwrap_or_default();
+    blake3::hash(s.as_bytes()).to_hex().to_string()
+}
+
+fn receipt_key(req: &WriteRequest) -> String {
+    format!("{}:{}", req.capability_id, req.idempotency_key)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_receipt(
+    receipts: &Arc<dyn TBackend>,
+    now: f64,
+    rkey: &str,
+    req: &WriteRequest,
+    authority_digest: &str,
+    payload_digest: &str,
+    state: WriteState,
+    result: &Value,
+    detail: Option<&str>,
+) -> Result<(), EngineError> {
+    let value = json!({
+        "capability_id": req.capability_id,
+        "operation": req.operation,
+        "idempotency_key": req.idempotency_key,
+        "authority_digest": authority_digest,
+        "payload_digest": payload_digest,
+        "state": state.as_str(),
+        "result": result,
+        "detail": detail,
+    });
+    let fact = Fact {
+        // include the state in the id so `prepared` and the terminal fact are distinct facts
+        // on the same (store, key) timeline; the latest by tx-time (terminal) wins the read.
+        id: format!("write-receipt:{}:{}", rkey, state.as_str()),
+        store: RECEIPTS_STORE.to_string(),
+        key: rkey.to_string(),
+        value,
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: now,
+        valid_time: None,
+        schema_version: 1,
+        producer: Some(json!("service-loop-write")),
+        derivation: None,
+    };
+    receipts.write_fact(fact).await
+}
+
+/// Receipt-gated write runner. Authority is verified at the boundary; the receipt gates the
+/// mutation (prepared before the executor); duplicates and replays resolve by the receipt;
+/// unknown outcomes are never blindly retried.
+pub async fn run_write_effect(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
+    // 1. Authority at the boundary — refusal writes NO receipt.
+    let authority_digest = match verify_passport(passport, &req.capability_id, required_scope, clock) {
+        Ok(d) => d,
+        Err(reason) => return Ok(WriteResult::refused(&format!("authority refused ({:?})", reason))),
+    };
+    if req.idempotency_key.is_empty() {
+        return Ok(WriteResult::refused("missing idempotency_key"));
+    }
+    let exec = match registry.get(&req.capability_id) {
+        Some(e) => e,
+        None => return Ok(WriteResult::refused("unknown capability")),
+    };
+
+    let pdigest = payload_digest(&req.payload);
+    let rkey = receipt_key(req);
+
+    // 2. Existing receipt? Resolve duplicates / replays / unresolved priors.
+    if let Some(fact) = receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
+        let v = &fact.value;
+        let stored_auth = v.get("authority_digest").and_then(|s| s.as_str()).unwrap_or("");
+        let stored_payload = v.get("payload_digest").and_then(|s| s.as_str()).unwrap_or("");
+        let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
+
+        // replay with different authority → refuse (P5 policy).
+        if stored_auth != authority_digest {
+            return Ok(WriteResult::refused("replay: authority scope mismatch"));
+        }
+        // same key, DIFFERENT payload → refuse before executor, no write.
+        if stored_payload != pdigest {
+            return Ok(WriteResult::refused(
+                "idempotency key reused with a different payload",
+            ));
+        }
+        // same key + same payload → resolve by state.
+        match state {
+            WriteState::Committed | WriteState::Denied => {
+                return Ok(WriteResult::from_receipt(v)); // replay terminal receipt
+            }
+            WriteState::Prepared | WriteState::UnknownExternalState | WriteState::Aborted => {
+                // a dangling prepare (crash mid-write) or a known-unknown: the mutation status
+                // is UNKNOWN. No blind retry — the caller must reconcile out of band.
+                return Ok(WriteResult::unknown(
+                    "prior write attempt unresolved — no blind retry",
+                ));
+            }
+        }
+    }
+
+    // replay mode with no receipt → unknown, no prepare, no executor.
+    if mode == RunMode::Replay {
+        return Ok(WriteResult::unknown("replay: no committed receipt"));
+    }
+
+    // 3. GATE: write the `prepared` receipt BEFORE the executor. If it cannot be written, the
+    //    executor must NOT be called.
+    let prepared_at = clock.now();
+    if let Err(e) = write_receipt(
+        receipts,
+        prepared_at,
+        &rkey,
+        req,
+        &authority_digest,
+        &pdigest,
+        WriteState::Prepared,
+        &Value::Null,
+        None,
+    )
+    .await
+    {
+        return Ok(WriteResult::refused(&format!(
+            "prepare receipt write failed — executor not called ({})",
+            e
+        )));
+    }
+
+    // 4. Perform the mutation exactly once.
+    let effect_req = EffectRequest {
+        capability_id: req.capability_id.clone(),
+        idempotency_key: req.idempotency_key.clone(),
+        authority_ref: None,
+        args: req.payload.clone(),
+    };
+    let outcome = exec.execute(&effect_req).await;
+
+    // 5. Finalize the receipt from the outcome.
+    let state = match outcome.kind {
+        OutcomeKind::Succeeded => WriteState::Committed,
+        OutcomeKind::Denied => WriteState::Denied,
+        // timeout / transient / permanent → the external mutation status is not knowably
+        // "done"; record unknown rather than guessing. (Splitting permanent/ retryable is a
+        // later slice.)
+        OutcomeKind::UnknownExternalState | OutcomeKind::Retryable | OutcomeKind::PermanentFailure => {
+            WriteState::UnknownExternalState
+        }
+    };
+    let finalized_at = clock.now();
+    write_receipt(
+        receipts,
+        finalized_at,
+        &rkey,
+        req,
+        &authority_digest,
+        &pdigest,
+        state,
+        &outcome.result,
+        outcome.failure_kind.as_deref(),
+    )
+    .await?;
+
+    Ok(WriteResult {
+        state,
+        result: outcome.result,
+        detail: outcome.failure_kind,
+    })
+}
+
+// ── Fake write executor (proof only — no real substrate) ───────────────────────
+
+use crate::capability::{CapabilityExecutor, EffectOutcome};
+use async_trait::async_trait;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+
+/// What a fake write executor does when reached.
+#[derive(Clone, Copy)]
+pub enum WriteBehavior {
+    Commit,
+    Deny,
+    Timeout,
+}
+
+/// A fake write executor: records "applied" mutations in memory and counts attempts so
+/// duplicate-prevention and gating can be proven. No real substrate.
+pub struct FakeWriteExecutor {
+    capability_id: String,
+    behavior: WriteBehavior,
+    applied: Mutex<Vec<Value>>,
+    attempts: AtomicU64,
+}
+
+impl FakeWriteExecutor {
+    pub fn new(capability_id: &str, behavior: WriteBehavior) -> Self {
+        Self {
+            capability_id: capability_id.to_string(),
+            behavior,
+            applied: Mutex::new(Vec::new()),
+            attempts: AtomicU64::new(0),
+        }
+    }
+    /// How many times the executor was actually reached (a replay must not increment this).
+    pub fn attempts(&self) -> u64 {
+        self.attempts.load(Ordering::SeqCst)
+    }
+    /// How many mutations were actually applied (Commit behavior only).
+    pub fn applied_count(&self) -> usize {
+        self.applied.lock().unwrap().len()
+    }
+}
+
+#[async_trait]
+impl CapabilityExecutor for FakeWriteExecutor {
+    fn capability_id(&self) -> &str {
+        &self.capability_id
+    }
+    async fn execute(&self, req: &EffectRequest) -> EffectOutcome {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        match self.behavior {
+            WriteBehavior::Commit => {
+                self.applied.lock().unwrap().push(req.args.clone());
+                EffectOutcome::succeeded(json!({ "written": true }))
+            }
+            WriteBehavior::Deny => EffectOutcome::denied("write denied by executor"),
+            WriteBehavior::Timeout => EffectOutcome::unknown("write timed out — mutation unknown"),
+        }
+    }
+}

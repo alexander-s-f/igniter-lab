@@ -28,6 +28,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | **real substrate executor** | ✅ (first real, read-only) | `executors::TBackendReadExecutor` — read-only `CapabilityExecutor` over a real `Arc<dyn TBackend>` (RocksDB on disk / remote-TCP). `run_service` + receipts UNCHANGED; only the executor is real. Outcome mapping: found→Succeeded, none→PermanentFailure, backend Err→UnknownExternalState (unavailable=epistemic). Proven on real RocksDB read + real RemoteTcp dead-port unavailability. Read-only — no writes/HTTP/scheduler. (LAB-MACHINE-CAPABILITY-IO-P3) |
 | **host clock capability** | ✅ | `clock::{ClockProvider, FixedClock, SystemClock}` — receipt `transaction_time` from an injected provider, read ONLY at the ServiceLoop boundary (`run_effect_with_clock` / `run_service_with_clock`; `run_effect`/`run_service` default to `SystemClock`). No `now()` in the language; `dispatch` has no clock (contract can't read time). Replay writes no receipt → never rewrites a timestamp. (LAB-MACHINE-CAPABILITY-IO-CLOCK-P4) |
 | **typed capability authority** | ✅ | `capability::{CapabilityPassport, verify_passport, AuthRefusal, run_effect_with_passport}` + `service_loop::run_service_with_passport` — verifiable passport (subject/capability/scopes/expiry/revoked/evidence) checked at the host boundary before the executor; expiry uses the injected clock; refusals (wrong-cap/missing-scope/revoked/expired) write NO receipt; executor denial stays denial-as-data; receipt records `authority_digest`; replay requires the same digest. Shared `run_effect_core` (zero churn to P1–P4). No OAuth/JWT/roles. (LAB-MACHINE-CAPABILITY-IO-AUTHORITY-P5) |
+| **receipt-gated write (P6a, fake)** | ✅ (lifecycle proof, fake executor) | `write::{run_write_effect, WriteState, WriteRequest, WriteResult, FakeWriteExecutor}` — two-phase receipt: `prepared` (gate, before executor) → `committed`/`denied`/`unknown_external_state` (`aborted` reserved). Idempotency binds capability+operation+authority+`payload_digest`: same payload→replay, different payload→refuse-no-write; timeout→unknown with NO blind retry; prepare-receipt failure → executor not called. Reuses P4 clock + P5 passport. **Fake write executor only** — no real substrate (P6b). (LAB-MACHINE-CAPABILITY-IO-WRITE-P6) |
 
 ## Surfaces
 
@@ -75,6 +76,10 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   authorizes + records digest; wrong-cap/missing-scope/revoked/expired refused with no receipt;
   expiry uses injected clock; replay requires same authority digest; executor denial stays
   denial-as-data; authority is host-side (`dispatch` gets no passport). Real `ExecuteQuery`.
+- `tests/capability_io_write_tests.rs` (9) — **receipt-gated write lifecycle** (fake executor):
+  two-phase prepared→committed; duplicate same-payload replays (mutation once); different-payload
+  refused pre-executor; denial→denied state; timeout→unknown + no blind retry; prepare-failure
+  blocks executor; authority refusal writes no receipt; replay-different-authority refused.
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -92,7 +97,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 
 (`machine_tests.rs` 12 + `capability_io_tests.rs` 13 + `capability_io_host_tests.rs` 9 +
 `capability_io_real_tests.rs` 5 + `capability_io_clock_tests.rs` 5 + `capability_io_authority_tests.rs` 9
-= 53 pass — the header count is the historical baseline.)
++ `capability_io_write_tests.rs` 9 = 62 pass — the header count is the historical baseline.)
 
 ## Boundary (per README)
 

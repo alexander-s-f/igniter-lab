@@ -9,6 +9,7 @@ pub mod fact;
 pub mod machine;
 pub mod registry;
 pub mod service_loop;
+pub mod write;
 pub mod wal;
 
 #[cfg(feature = "ffi")]
