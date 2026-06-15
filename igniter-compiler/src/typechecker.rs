@@ -949,11 +949,6 @@ impl TypeChecker {
                             .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
                             .unwrap_or_else(|| "item".to_string());
 
-                        // PROP-039 gate 8: OOF-L7/OOF-L5 target checks only apply when the body
-                        // has at least one `lead` binding (gate-8 mode). Without lead, the old
-                        // accumulation pattern (compute outer_symbol = ...) remains valid for VM compat.
-                        let is_gate8_body = body_nodes.iter().any(|n| n.kind == "lead");
-
                         for inner_decl in body_nodes {
                             match inner_decl.kind.as_str() {
                                 "lead" => {
@@ -989,40 +984,41 @@ impl TypeChecker {
                                     typed_body_nodes.push(self.typed_decl(inner_decl, lead_type_ir, inner_decl.expr.clone(), inner_decl.deps.clone()));
                                 }
                                 "compute" => {
-                                    // PROP-039 gate 8: OOF-L7/OOF-L5 target checks (gate-8 mode only)
+                                    // PROP-039 gate 8: OOF-L7/OOF-L5 target checks.
+                                    // Match canon Ruby: every loop body compute must target a
+                                    // declared lead binding, regardless of whether the body
+                                    // contains any lead declarations.
                                     let target = &inner_decl.name;
-                                    if is_gate8_body {
-                                        if target == &item_var || target == "item" {
-                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
-                                                rule: "OOF-L7".to_string(),
-                                                message: format!(
-                                                    "body compute in loop '{}' targets loop item '{}' — item is read-only",
-                                                    decl.name, target
-                                                ),
-                                                node: decl.name.clone(),
-                                                line: None,
-                                            });
-                                        } else if symbol_types.contains_key(target.as_str()) && !lead_names.contains(target) {
-                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
-                                                rule: "OOF-L7".to_string(),
-                                                message: format!(
-                                                    "body compute in loop '{}' targets outer contract symbol '{}' — outer state is read-only",
-                                                    decl.name, target
-                                                ),
-                                                node: decl.name.clone(),
-                                                line: None,
-                                            });
-                                        } else if !lead_names.contains(target) && !symbol_types.contains_key(target.as_str()) && target != &item_var && target != "item" {
-                                            type_errors.push(crate::classifier::ClassifierDiagnostic {
-                                                rule: "OOF-L5".to_string(),
-                                                message: format!(
-                                                    "body compute in loop '{}' targets '{}' which is not a declared lead binding",
-                                                    decl.name, target
-                                                ),
-                                                node: decl.name.clone(),
-                                                line: None,
-                                            });
-                                        }
+                                    if target == &item_var || target == "item" {
+                                        type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                            rule: "OOF-L7".to_string(),
+                                            message: format!(
+                                                "body compute in loop '{}' targets loop item '{}' — item is read-only",
+                                                decl.name, target
+                                            ),
+                                            node: decl.name.clone(),
+                                            line: None,
+                                        });
+                                    } else if symbol_types.contains_key(target.as_str()) && !lead_names.contains(target) {
+                                        type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                            rule: "OOF-L7".to_string(),
+                                            message: format!(
+                                                "body compute in loop '{}' targets outer contract symbol '{}' — outer state is read-only",
+                                                decl.name, target
+                                            ),
+                                            node: decl.name.clone(),
+                                            line: None,
+                                        });
+                                    } else if !lead_names.contains(target) && !symbol_types.contains_key(target.as_str()) && target != &item_var && target != "item" {
+                                        type_errors.push(crate::classifier::ClassifierDiagnostic {
+                                            rule: "OOF-L5".to_string(),
+                                            message: format!(
+                                                "body compute in loop '{}' targets '{}' which is not a declared lead binding",
+                                                decl.name, target
+                                            ),
+                                            node: decl.name.clone(),
+                                            line: None,
+                                        });
                                     }
 
                                     let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions, contract_registry, &classified.name);

@@ -50,7 +50,7 @@ closed baseline uses absolute source paths through the Open3/mktmpdir proof rout
 |---|---|---|---|---|
 | JR-P01 | **sealed JobOutcome variant** | the lifecycle (Done/Retry/Exhausted/DeadLetter) is a sealed sum, not a stringly status; routing is `match`. | POSITIVE — capability | regression evidence for `LANG-SUMTYPE-CONSTRUCT-MATCH` |
 | JR-P02 | **dynamic dispatch avoided** | the production fixture uses `call_contract(job_class, …)` with a VARIABLE callee → Tier-2 Unknown / fail-closed. `DispatchJob` branches on the class STATICALLY (trade_robot/call_router pattern). A typed job registry would let the class be data without losing the static guarantee. | INTENTIONAL fail-closed | `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` (policy) + typed contract registry |
-| JR-P03 | **managed loop is Rust-only** | the retry simulator wants a managed `loop … max_steps: N` (PROP-039 BudgetedLocalLoop), but that surface is **NOT dual-clean** — the Ruby TC rejects loop-body compute reassignment (`OOF-L7`), Rust accepts it. So `RunWithRetry3` unrolls 3 attempts by hand (per-attempt success injected). | ACTIVE — parity gap | `PROP-039` BudgetedLocalLoop **Ruby parity** (the real fresh finding) |
+| JR-P03 | **managed retry loop remains not-app-route** | the retry simulator wants a managed `loop … max_steps: N` (PROP-039 BudgetedLocalLoop), but loop-body reassignment of outer state is now rejected by both toolchains after `LAB-RUST-LOOP-BODY-ASSIGNMENT-P1`. `RunWithRetry3` still unrolls 3 attempts by hand because v0 loops return `Unit` and body computes may only target declared `lead` bindings. | ACTIVE — semantics gap, divergence closed | fold-to-struct retry modeling or future value-returning loop design |
 | JR-P04 | **retry budget is explicit arithmetic** | `RetryBudget = max_attempts - attempt`; pure, no clock, no queue. budget>0 → Retry, =0 → Exhausted. | POSITIVE | — |
 | JR-P05 | **no Redis / worker / scheduler / queue** | no durable queue, no worker daemon, no real re-dispatch; attempt success is injected and the loop is bounded by source. A real runner needs all of these as IO. | DOCUMENTED — behind | ServiceLoop/`PROP-037` (standing worker) + effect surface (re-dispatch, queue) |
 | JR-P06 | **record-literal factories** | `MakeReq` / `BuildReceipt` pin `JobRequest` / `JobReceipt` (inline literals infer Unknown in Rust). | ACTIVE | `LANG-RUBY-RECORD-LITERAL-INFERENCE` |
@@ -60,8 +60,9 @@ closed baseline uses absolute source paths through the Open3/mktmpdir proof rout
 The retry railway — `AttemptOutcome` → `ShouldRetry` (match) → unrolled `RunWithRetry3`
 threading a `JobOutcome` value through `if/else` branches — is dual-clean, same as
 the reconciler. Static name-based dispatch with a fail-closed `KnownJob` gate is the
-safe Sidekiq pattern. The single missing piece for a faithful retry loop is **PROP-039
-managed-loop Ruby parity** (JR-P03) — the standout gap this app surfaces.
+safe Sidekiq pattern. The loop-body assignment divergence is closed; the remaining
+faithful retry-loop gap is a pure value-returning loop shape or fold-to-struct
+modeling, not Ruby relaxation.
 
 ## Safety Interpretation
 
@@ -73,14 +74,15 @@ a managed retry loop (unrolled), or Sidekiq compatibility.
 
 - No Redis / queue / worker daemon / scheduler.
 - No real retry dispatch (attempt outcomes injected).
-- No managed `loop` (Rust-only; unrolled by hand).
+- No managed `loop` retry implementation (unrolled by hand).
 - No dynamic job dispatch (static, name-based).
 - No clock / `now()`.
 
 ## Recommended Route
 
-1. **PROP-039 BudgetedLocalLoop Ruby parity** (JR-P03) — the fresh gap; would let the
-   retry loop be a real managed loop instead of a 3-unroll.
+1. **Fold-to-struct retry modeling or value-returning loop design** (JR-P03) —
+   the Rust/Ruby assignment-check divergence is closed; a pure retry loop still
+   needs a value-returning shape rather than outer reassignment.
 2. Keep as **regression evidence** for `LANG-SUMTYPE-CONSTRUCT-MATCH` (JR-P01) and
    `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` (JR-P02).
 3. ServiceLoop/`PROP-037` + effect surface for a standing worker (JR-P05).
@@ -109,4 +111,15 @@ ServiceLoop implementation, DB/SQL/ORM, or HTTP/Rack/socket server.
 
 Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 
-Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: `PROP-039` BudgetedLocalLoop Ruby parity, sealed outcome regression for `LANG-SUMTYPE-CONSTRUCT-MATCH`, typed contract registry / dynamic dispatch policy, and ServiceLoop/effect surfaces. No source edits. No new pressures. No regressions.
+Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: `PROP-039` BudgetedLocalLoop / fold-to-struct retry modeling, sealed outcome regression for `LANG-SUMTYPE-CONSTRUCT-MATCH`, typed contract registry / dynamic dispatch policy, and ServiceLoop/effect surfaces. No source edits. No new pressures. No regressions.
+
+## LAB-RUST-LOOP-BODY-ASSIGNMENT-P1 Update (2026-06-15)
+
+Rust/Ruby divergence for loop-body reassignment is closed. Rust now emits
+OOF-L7/OOF-L5 for loop body computes that target outer symbols, loop items, or
+undeclared body targets even when no `lead` binding exists.
+
+`job_runner` remains dual-clean and unchanged because it does not use managed
+loop syntax. JR-P03 remains active as a semantics/modeling pressure: a faithful
+retry loop still needs fold-to-struct modeling or a future value-returning loop
+design, not a relaxation of body assignment rules.

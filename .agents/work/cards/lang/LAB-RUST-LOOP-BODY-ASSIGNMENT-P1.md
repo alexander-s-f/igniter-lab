@@ -1,8 +1,9 @@
 # LAB-RUST-LOOP-BODY-ASSIGNMENT-P1
 
-**Status:** OPEN  
+**Status:** CLOSED — IMPLEMENTED 90/90 PASS  
 **Route:** lab / Rust typechecker / loop-body assignment tightening  
 **Date:** 2026-06-15  
+**Date closed:** 2026-06-15  
 **Authority:** lab Rust implementation card; canon Ruby is the authority baseline
 
 ## Goal
@@ -62,6 +63,49 @@ Implement the narrow Rust tightening:
 - Full fleet recheck shows no app regressions, or any new failure is explained as
   an intended tightening with a pressure ID.
 - No app source edits.
+
+## Closure Summary
+
+Implemented the narrow Rust tightening in:
+
+- `igniter-lab/igniter-compiler/src/typechecker.rs`
+
+The Rust typechecker no longer uses `is_gate8_body` as a guard for OOF-L7/OOF-L5
+loop-body target checks. It now matches canon Ruby: every loop-body `compute`
+must target a declared `lead` binding. Outer contract symbols, loop item
+variables, and undeclared targets are rejected even when the body has no `lead`.
+
+Proof:
+
+```text
+cd igniter-lab/igniter-compiler
+ruby verify_rust_loop_body_assignment_p1.rb
+Summary: 90/90 checks passed
+```
+
+Fixed-state predecessor proof:
+
+```text
+cd igniter-lang
+ruby experiments/budgeted_local_loop_proof/verify_budgeted_local_loop_ruby_p1.rb
+PASS 62/62
+```
+
+Fleet smoke:
+
+- 20 apps checked.
+- 19 apps remain Rust `ok / 0 diagnostics`.
+- `rule_engine` remains the single expected fail-closed app.
+- `job_runner` remains dual-clean because it does not use managed loop syntax.
+
+Artifacts:
+
+| Artifact | Path |
+|---|---|
+| Proof runner | `igniter-lab/igniter-compiler/verify_rust_loop_body_assignment_p1.rb` |
+| Proof doc | `igniter-lab/lab-docs/lang/lab-rust-loop-body-assignment-p1-proof-v0.md` |
+| Fixed-state P1 runner | `igniter-lang/experiments/budgeted_local_loop_proof/verify_budgeted_local_loop_ruby_p1.rb` |
+| Portfolio index | `igniter-lab/.agents/portfolio-index.md` |
 
 ## Closed Surfaces
 
