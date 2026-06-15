@@ -102,5 +102,19 @@ Ruby: oof/2. Rust: ok/0. Source files: 3. outside active fleet; Ruby call/functi
 - App-source scope: added `MakeNumberExpr`, `MakeCell`, `MakeGrid`, and `RunWorkbookDemo`; production recalculation contracts unchanged.
 - Authority: explicit in-app workbook fixture only; no file/CSV/IO/storage authority.
 
-| SS-P08 | ACTIVE | VM app-local function call support | `RunWorkbookDemo` reaches VM and traps on `Unsupported operator: eval_expr`; this is runtime support for `def` calls, not an app demo-entry problem | VM function-call/runtime route, outside LAB-APP-DEMO-ENTRY-WAVE-P1 |
+| SS-P08 | ROUTED | app-local function SIR/runtime substrate | `RunWorkbookDemo` reaches VM and traps on `Unsupported operator: eval_expr`; `LAB-VM-EVALAST-EVAL-EXPR-P1` proved the `.igapp` has no `functions` table or `eval_expr` body, so this cannot be fixed as VM-only eval_ast support | `LAB-FUNCTION-SIR-RUNTIME-P1` |
 | SS-P09 | ACTIVE | Ruby optional recursive record construction | Demo `Expr` fixture exposes Ruby field expectations for `ref_id`, `left`, and `right` despite `?` annotations; Rust compiles ok/0 | Ruby optional/recursive record typing route, outside LAB-APP-DEMO-ENTRY-WAVE-P1 |
+
+## LAB-VM-EVALAST-EVAL-EXPR-P1 (2026-06-15)
+
+Routed spike result:
+
+- Rust compile: ok.
+- VM: blocked with `Unsupported operator: eval_expr`.
+- Live SIR shape: `CalculateGrid` contains `kind: "call", fn: "eval_expr"` inside the
+  `stdlib.collection.map` lambda.
+- Missing substrate: `.igapp/semantic_ir_program.json` has no `functions` key, no function
+  sidecar, and no `eval_expr` / `eval_ref` body for the VM to execute.
+- Decision: no VM-only source patch; route to `LAB-FUNCTION-SIR-RUNTIME-P1`.
+
+No app source was changed.
