@@ -75,6 +75,37 @@ impl CapsuleManager {
         m.dispatch(contract, inputs).await
     }
 
+    /// Filmstrip: run the SAME activation across N capsule frames and collect a result
+    /// table `[{capsule, output} | {capsule, error}]`. `parallel` runs them concurrently
+    /// (frames are immutable → no data races). The proof of "one request, many frames":
+    /// divergent frames give divergent outputs.
+    pub async fn activate_many(
+        &self,
+        names: &[String],
+        contract: &str,
+        inputs: serde_json::Value,
+        parallel: bool,
+    ) -> Vec<serde_json::Value> {
+        let run = |name: String| {
+            let inputs = inputs.clone();
+            async move {
+                match self.activate(&name, contract, inputs).await {
+                    Ok(output) => serde_json::json!({ "capsule": name, "output": output }),
+                    Err(e) => serde_json::json!({ "capsule": name, "error": e.to_string() }),
+                }
+            }
+        };
+        if parallel {
+            futures::future::join_all(names.iter().cloned().map(run)).await
+        } else {
+            let mut out = Vec::with_capacity(names.len());
+            for name in names {
+                out.push(run(name.clone()).await);
+            }
+            out
+        }
+    }
+
     /// Diff two capsule frames by their facts (the debugger lens): what facts are in
     /// `b` but not `a` (added) and in `a` but not `b` (removed), keyed by fact id.
     pub async fn diff(&self, a: &str, b: &str) -> Result<serde_json::Value, EngineError> {

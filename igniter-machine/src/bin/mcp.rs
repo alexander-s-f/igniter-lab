@@ -221,6 +221,20 @@ fn tools_list() -> Value {
                 },
                 "required": ["a", "b"]
             }
+        },
+        {
+            "name": "capsule_activate_many",
+            "description": "Filmstrip: run ONE activation (a dispatch) across many capsule frames at once and return a result table [{capsule, output|error}]. Divergent frames give divergent outputs. Set parallel=true to run them concurrently.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "capsules": { "type": "array", "description": "Capsule names (omit = all capsules)" },
+                    "contract_name": { "type": "string", "description": "Contract to dispatch in each frame" },
+                    "inputs": { "type": "object", "description": "Dispatch inputs (same for every frame)" },
+                    "parallel": { "type": "boolean", "description": "Run frames concurrently (default false)" }
+                },
+                "required": ["contract_name"]
+            }
         }
     ])
 }
@@ -697,6 +711,32 @@ fn handle_capsule_diff(out: &mut impl Write, id: Value, args: &Value, capsules: 
     }
 }
 
+fn handle_capsule_activate_many(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
+    let contract = match args["contract_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing contract_name".into()) };
+    let inputs = args.get("inputs").cloned().unwrap_or_else(|| json!({}));
+    let parallel = args["parallel"].as_bool().unwrap_or(false);
+    let caps = capsules.lock().unwrap();
+    let names: Vec<String> = match args["capsules"].as_array() {
+        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
+        None => caps.list(),
+    };
+    if names.is_empty() {
+        return tool_ok(out, id, "## Filmstrip\n\nNo capsules to activate.".into());
+    }
+    let table = futures::executor::block_on(caps.activate_many(&names, contract, inputs.clone(), parallel));
+    let rows: Vec<String> = table.iter().map(|r| {
+        let cap = r["capsule"].as_str().unwrap_or("?");
+        if let Some(o) = r.get("output") {
+            format!("| `{}` | `{}` |", cap, serde_json::to_string(o).unwrap_or_default())
+        } else {
+            format!("| `{}` | ⛔ {} |", cap, r["error"].as_str().unwrap_or("error"))
+        }
+    }).collect();
+    tool_ok(out, id, format!(
+        "## Filmstrip: `{}` over {} capsule(s){}\n\n**Inputs:** `{}`\n\n| capsule | output / error |\n|---|---|\n{}",
+        contract, names.len(), if parallel { " (parallel)" } else { "" }, inputs, rows.join("\n")));
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -808,6 +848,7 @@ fn main() {
                     "capsule_activate" => handle_capsule_activate(&mut stdout, id, args, &capsules),
                     "capsule_fork" => handle_capsule_fork(&mut stdout, id, args, &capsules),
                     "capsule_diff" => handle_capsule_diff(&mut stdout, id, args, &capsules),
+                    "capsule_activate_many" => handle_capsule_activate_many(&mut stdout, id, args, &capsules),
                     _ => tool_err(&mut stdout, id, format!("Unknown tool: `{}`", tool)),
                 }
             }

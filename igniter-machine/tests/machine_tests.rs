@@ -382,3 +382,32 @@ async fn test_capsule_filmstrip() {
 
     assert_eq!(mgr.list(), vec!["base".to_string(), "hi".to_string(), "lo".to_string()]);
 }
+
+// Filmstrip activate_many (LAB-MACHINE-MCP-FILMSTRIP-P1): ONE request over N frames →
+// a result table; divergent frames give divergent outputs. Sequential + parallel.
+#[tokio::test]
+async fn test_capsule_activate_many() {
+    use igniter_machine::capsule::CapsuleManager;
+    let mut mgr = CapsuleManager::new("in_memory");
+    for (cap, val) in [("big", 1000), ("small", 10)] {
+        let m = IgniterMachine::new(None, "in_memory").unwrap();
+        let src = format!("module M\ncontract V {{ input x: Integer  compute out = x + {}  output out: Integer }}", val);
+        m.load_contract_source(&src, "V").unwrap();
+        mgr.snapshot(cap, &m).await.unwrap();
+    }
+    let names = vec!["big".to_string(), "small".to_string()];
+    let out = |t: &[serde_json::Value], cap: &str| {
+        t.iter().find(|r| r["capsule"] == cap).unwrap()["output"].clone()
+    };
+
+    // one request (V, x=0) across both frames → divergence
+    let table = mgr.activate_many(&names, "V", json!({ "x": 0 }), false).await;
+    assert_eq!(table.len(), 2);
+    assert_eq!(out(&table, "big"), json!(1000));
+    assert_eq!(out(&table, "small"), json!(10));
+
+    // parallel mode → same results (frames immutable, no races)
+    let tp = mgr.activate_many(&names, "V", json!({ "x": 5 }), true).await;
+    assert_eq!(out(&tp, "big"), json!(1005));
+    assert_eq!(out(&tp, "small"), json!(15));
+}
