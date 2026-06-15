@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod bridge;
+pub mod capability;
 pub mod capsule;
 pub mod errors;
 pub mod fact;

@@ -1,5 +1,37 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-P1 — production capability IO boundary
 
+**Status: CLOSED 2026-06-15 — readiness/design + fake-executor proof DONE.**
+13 machine tests (`igniter-machine/tests/capability_io_tests.rs`), full machine suite
+green (`cargo test --no-default-features`). Design doc:
+`lab-docs/lang/lab-machine-capability-io-p1-v0.md`. Boundary held (no real
+DB/HTTP/queue/clock; no language change; no MCP hot path; no D-001 canon claim).
+
+## Closure summary
+
+- **Model proven end-to-end with fake executors**: `CapabilityExecutor` trait +
+  `CapabilityExecutorRegistry` + `run_effect` (ServiceLoop-like) +
+  `EchoCapabilityExecutor` / `KvReadExecutor` in `igniter-machine/src/capability.rs`.
+- **Receipt = bitemporal fact**: written to TBackend store `__receipts__`, key
+  `capability_id:idempotency_key`. Audit/replay share the fact substrate (not a side-log).
+- **Idempotency**: receipt lookup before the external call; second call with the same
+  `(capability_id, idempotency_key)` replays, executor counter unchanged.
+- **Replay mode**: executor bypass via receipt; replay with no receipt →
+  `unknown_external_state` (epistemic, no executor call).
+- **Outcome taxonomy**: `succeeded` / `denied` / `retryable` / `permanent_failure` /
+  `unknown_external_state`. Timeout→unknown is kept distinct from not-found→permanent.
+- **ServiceLoop boundary**: preflight refusal (missing cap/authority/idempotency) → `Denied`
+  before executor, **no receipt**; executor-level denial → **denial-as-data**, receipt written.
+- **`TBackend` generalized, not replaced**: it is the first proven capability family.
+- Proof route note: machine-tests route (card's allowed alternative for proof-local Rust),
+  13 tests / ~45 assertions covering §B–H; §A grounded in the design doc's verify-first.
+- **Next**: `LAB-MACHINE-CAPABILITY-IO-P2` (impl) — dispatch a declared-effect contract
+  through `run_effect` from a machine-local host entrypoint (fake executors still); P3 binds
+  one real substrate (local RocksDB/TBackend read first, not HTTP).
+
+---
+
+_Original card below._
+
 **Status: READY — READINESS/DESIGN + fake-executor proof.** This is the first
 production data-plane IO card after the MCP/capsule control-plane work. It must
 prove the model without opening real DB/network authority.

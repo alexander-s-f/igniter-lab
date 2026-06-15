@@ -23,6 +23,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | resume | ✅ | `resume(.igm)` / `resume_bytes(&[u8])` — restores contracts + facts (in-memory capsule) |
 | **capsules (control panel)** | ✅ | `capsule::CapsuleManager` — named immutable frames: `snapshot`/`list`/`instantiate`/`activate`(dispatch over a frame)/`fork`(branch+patch+freeze). Filmstrip-proven (immutable base, divergent forks, same activation diverges). + filmstrip activate_many; 6 live MCP tools (capsule_snapshot/list/activate/fork/diff/activate_many), agent-driven. (LAB-MACHINE-CAPSULE-MANAGER-P1) |
 | inherits the VM wave | ✅ | path-dep on `igniter_vm` → closures / match / HOF / dispatch-unification all run through `dispatch` |
+| **capability IO boundary** | ✅ (fake-executor proof) | `capability::{CapabilityExecutor, CapabilityExecutorRegistry, run_effect}` — ServiceLoop-like data-plane: preflight authority/idempotency → executor once → **receipt written as a bitemporal fact** (store `__receipts__`) → typed outcome. Idempotency = receipt lookup; replay = executor bypass; `unknown_external_state` kept epistemic (≠ failure); denial-as-data. `TBackend` = first proven capability family. **Fake executors only** (Echo/KvRead) — no real DB/HTTP. (LAB-MACHINE-CAPABILITY-IO-P1) |
 
 ## Surfaces
 
@@ -50,6 +51,10 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   audit_ledger, batch_importer, call_router, erp_logistics, igniter_parser, job_runner,
   lead_router, query_engine, reconciler, vector_editor, web_router) loaded + dispatched
   through the machine → **13/13 ok = full machine↔CLI parity**, no divergence.
+- `tests/capability_io_tests.rs` (13) — **production capability IO boundary**: receipt-as-fact,
+  idempotency prevents the 2nd executor call, replay bypasses the executor, `unknown_external_state`
+  stays epistemic (distinct from `permanent_failure`), preflight refusal vs executor denial-as-data,
+  receipts live in the same TBackend store. Fake executors only.
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -65,7 +70,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   (multifile) — multifile apps not yet loadable via MCP.
 - Interval valid_time (v0 = point); `valid_policy` fallback.
 
-(11/11 machine tests pass — the header count is the historical baseline.)
+(`machine_tests.rs` 12 + `capability_io_tests.rs` 13 pass — the header count is the historical baseline.)
 
 ## Boundary (per README)
 
