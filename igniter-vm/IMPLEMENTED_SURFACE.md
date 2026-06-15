@@ -31,6 +31,40 @@ Last verified against source: **2026-06-15**.
 | HOF `map/filter/fold/reduce` | ✅ implemented | `compiler.rs:307-346` | (lambda + op dispatch) | consumes lambda literal |
 | opcode definitions | ✅ present | `instructions.rs:28-39` | `0x16`–`0x21` | full comparison/logic/collection/call set |
 
+## Runtime / execution (the live language path)
+
+Verified end-to-end 2026-06-15: `igniter-compiler` (Rust front-end) emits a
+SemanticIR `.igapp`; `igniter-vm` runs it. Proof: `Add(a=2,b=3)` →
+`{"result":5,"status":"success","latency_us":154}` via the release binary.
+
+| Capability | Status | Anchor / how |
+|---|---|---|
+| one-shot run | ✅ | `igniter-vm run --contract <app.igapp> --inputs in.json [--entry N] [--as-of T] [--json]` (`main.rs`) |
+| input model | ✅ | reads `semantic_ir_program.json` + `manifest.json` from an `.igapp` dir (not `.ig` source) |
+| temporal as_of | ✅ | `--as-of` injects temporal coordinate; `OP_LOAD_AS_OF` |
+| TBackend binding | ✅ | `--tbackend`; `MemoryHistoryBackend` (zero-dep) / `LedgerTcpBackend` (`tbackend.rs`) |
+| reactive projection loop | ✅ | `pipeline.rs` — webhook trigger → execute → commit bitemporal fact |
+| execution trace | ✅ | `igniter-vm trace <app> --entry N --inputs in.json` (IDE/debug substrate) |
+| bytecode source-map | ✅ | `igniter-vm bytecode-map <app>` |
+| compiled example apps | ✅ | `igniter-compiler/out/*.igapp` (add, decimal_contract, availability_projection, tenant_availability_projection, vendor_lead_pipeline, …) |
+| recursive self-call / TCO | ⛔ v0 hold | `call_contract` dispatches with depth-guard; self-recursion/cycles closed in v0 (ledger D-007) |
+| single `source → run` command / REPL | ❌ missing | two-step (compile then run); the main DX gap for "live" |
+
+## Known runtime gaps — fleet pressure 2026-06-15
+
+Surfaced by running `igniter-apps/*` through `tools/igniter` (compile → run).
+27 apps; 1 ran clean (`web_router`), the rest hit these gaps (priority order):
+
+| # | gap | evidence | apps blocked |
+|---|---|---|---|
+| 1 | **VM stdlib collection ops** — `OP_CALL: Unknown/unimplemented function 'stdlib.collection.filter'` (map/fold/count/sum likely same). Compiler emits + front-end typechecks them; VM `OP_CALL` handler lacks the builtins. | `dsa` RunArrayExample | most collection-using apps (dsa, dataframes, decision_tree, neural_net, query_engine, reconciler, …) |
+| 2 | **cross-contract callee not in igapp** — `call_contract: no contract named 'FindTrade'` / `OP_CALL: Unknown callee` | lead_router, audit_ledger, batch_importer, call_router, job_runner | ~7 |
+| 3 | **field access resolution** — `Field access not resolved` | air_combat | 1 |
+| 4 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029 run-profiles); 13 apps compile but have no single entry | advanced_logistics, dsa, vector_math, … | 13 (UX/lang, not VM) |
+| 5 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
+
+**#1 (VM stdlib collection ops) is the highest-leverage lever for live app work.**
+
 ## Provenance
 
 These surfaces were the stale claims in `igniter-lab/lab-docs/igniter-delta-1.md`

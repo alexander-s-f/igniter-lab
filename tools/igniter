@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# igniter — P0 live runner: .ig source -> compile -> run -> result
+#
+# Chains the two lab binaries into one "live language" command:
+#   igniter_compiler compile SRC --out APP.igapp     (front-end)
+#   igniter-vm run --contract APP.igapp --inputs ...  (runtime)
+# Memory backend by default (no Ledger server needed). See SEARCH.md / VM
+# IMPLEMENTED_SURFACE.md for the underlying capabilities.
+#
+# Usage:
+#   igniter run FILE.ig [-e ENTRY] [-i k=v ...] [-f inputs.json]
+#                       [-t AS_OF] [-b TBACKEND_ADDR] [--keep]
+# Examples:
+#   igniter run add.ig -i a=2 -i b=3
+#   igniter run proj.ig -f inputs.json -t 2026-06-15T00:00:00Z -b 127.0.0.1:9999
+set -eo pipefail   # not -u: empty arrays under bash 3.2 (macOS) are fine without it
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAB_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+find_bin() { # name subdir
+  local name="$1" sub="$2" p
+  for p in "$LAB_DIR/$sub/target/release/$name" "$LAB_DIR/$sub/target/debug/$name"; do
+    [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+  done
+  return 1
+}
+
+usage() { sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  run) : ;;
+  ""|-h|--help) usage; exit 0 ;;
+  *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
+esac
+
+SRC=""; ENTRY=""; AS_OF=""; TBACKEND=""; INPUTS_FILE=""; KEEP=0
+declare -a INLINE
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -e|--entry)       ENTRY="$2"; shift 2 ;;
+    -t|--as-of)       AS_OF="$2"; shift 2 ;;
+    -b|--tbackend)    TBACKEND="$2"; shift 2 ;;
+    -f|--inputs-file) INPUTS_FILE="$2"; shift 2 ;;
+    -i|--in)          INLINE+=("$2"); shift 2 ;;
+    --keep)           KEEP=1; shift ;;
+    -*) echo "unknown option: $1" >&2; exit 1 ;;
+    *)  SRC="$1"; shift ;;
+  esac
+done
+
+[ -n "$SRC" ] || { echo "error: need a .ig source file or app dir" >&2; usage; exit 1; }
+[ -e "$SRC" ] || { echo "error: no such path: $SRC" >&2; exit 1; }
+
+# Resolve source set: a dir -> all *.ig; a file with `import` -> file + siblings
+# (multifile module); a standalone file -> just it.
+declare -a SRCS
+if [ -d "$SRC" ]; then
+  while IFS= read -r f; do SRCS+=("$f"); done < <(find "$SRC" -maxdepth 1 -name '*.ig' | sort)
+  [ "${#SRCS[@]}" -gt 0 ] || { echo "error: no .ig files in $SRC" >&2; exit 1; }
+elif grep -qE '^[[:space:]]*import ' "$SRC"; then
+  while IFS= read -r f; do SRCS+=("$f"); done < <(find "$(dirname "$SRC")" -maxdepth 1 -name '*.ig' | sort)
+else
+  SRCS=("$SRC")
+fi
+
+IGC="$(find_bin igniter_compiler igniter-compiler)" || {
+  echo "error: compiler not built — run: (cd $LAB_DIR/igniter-compiler && cargo build --release)" >&2; exit 1; }
+IVM="$(find_bin igniter-vm igniter-vm)" || {
+  echo "error: vm not built — run: (cd $LAB_DIR/igniter-vm && cargo build --release)" >&2; exit 1; }
+
+WORK="$(mktemp -d)"; APP="$WORK/app.igapp"
+cleanup() { [ "$KEEP" = 1 ] || rm -rf "$WORK"; }
+trap cleanup EXIT
+[ "$KEEP" = 1 ] && echo "workdir: $WORK" >&2
+
+# 1. compile front-end -> SemanticIR .igapp (all resolved sources)
+if ! "$IGC" compile "${SRCS[@]}" --out "$APP" >"$WORK/compile.log" 2>&1; then
+  echo "compile failed:" >&2; cat "$WORK/compile.log" >&2; exit 1
+fi
+
+# 2. assemble inputs
+IN="$WORK/inputs.json"
+if [ -n "$INPUTS_FILE" ]; then
+  cp "$INPUTS_FILE" "$IN"
+elif [ "${#INLINE[@]}" -gt 0 ]; then
+  json="{"; sep=""
+  for kv in "${INLINE[@]}"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    if [[ "$v" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then val="$v"; else val="\"$v\""; fi
+    json="$json$sep\"$k\":$val"; sep=","
+  done
+  printf '%s}' "$json" > "$IN"
+else
+  printf '{}' > "$IN"
+fi
+
+# 3. auto-detect entry: explicit `entrypoint` decl -> single contract -> else ask
+if [ -z "$ENTRY" ]; then
+  ENTRY="$(grep -hoE '^[[:space:]]*entrypoint[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' \
+           "${SRCS[@]}" 2>/dev/null | awk '{print $2}' | head -1 || true)"
+fi
+if [ -z "$ENTRY" ]; then
+  names="$(grep -o '"contract_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+           "$APP/semantic_ir_program.json" | sed -E 's/.*"([^"]*)"$/\1/' | sort -u)"
+  count="$(printf '%s\n' "$names" | grep -c . || true)"
+  if [ "$count" = "1" ]; then
+    ENTRY="$names"
+  else
+    echo "multiple contracts — pass --entry <Name> (or add an 'entrypoint' decl):" >&2
+    printf '%s\n' "$names" | sed 's/^/  /' >&2; exit 1
+  fi
+fi
+
+# 4. run on the VM (memory backend unless --tbackend given)
+RUN_ARGS=(run --contract "$APP" --inputs "$IN" --entry "$ENTRY" --json)
+[ -n "$AS_OF" ]    && RUN_ARGS+=(--as-of "$AS_OF")
+[ -n "$TBACKEND" ] && RUN_ARGS+=(--tbackend "$TBACKEND")
+exec "$IVM" "${RUN_ARGS[@]}"
