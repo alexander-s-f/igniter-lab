@@ -701,6 +701,29 @@ async fn main() {
     let mut vm = VM::new(backend);
     vm.dispatch_table = p9_dispatch_table;
 
+    // LAB-FUNCTION-SIR-RUNTIME-P1: build the static app-local def-function registry from the
+    // igapp `functions` array. Only statically-emitted function names become invocable; the
+    // body is the compiler-emitted SIR (no dynamic dispatch, no source-file runtime reads).
+    {
+        let mut fn_registry: std::collections::HashMap<String, igniter_vm::vm::FunctionEntry> =
+            std::collections::HashMap::new();
+        if let Some(funcs) = contract_json.get("functions").and_then(|f| f.as_array()) {
+            for f in funcs {
+                let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                if name.is_empty() { continue; }
+                let params: Vec<String> = f.get("params").and_then(|p| p.as_array())
+                    .map(|arr| arr.iter().filter_map(|p| {
+                        p.get("name").and_then(|n| n.as_str()).map(String::from)
+                            .or_else(|| p.as_str().map(String::from))
+                    }).collect())
+                    .unwrap_or_default();
+                let body = f.get("body").cloned().unwrap_or(JsonValue::Null);
+                fn_registry.insert(name, igniter_vm::vm::FunctionEntry { params, body });
+            }
+        }
+        vm.functions = fn_registry;
+    }
+
     let start_time = tokio::time::Instant::now();
     let result = vm.execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants).await;
     let elapsed = start_time.elapsed();

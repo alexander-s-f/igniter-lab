@@ -124,7 +124,94 @@ impl Emitter {
             result.insert("variant_declarations".to_string(), Value::Array(enriched));
         }
 
+        // LAB-FUNCTION-SIR-RUNTIME-P1: materialize app-local `def` functions as executable
+        // SIR so the VM can build a static function registry (no dynamic dispatch). Each
+        // entry carries name, params, return type, decreases metadata, and a runnable body.
+        if !typed.functions.is_empty() {
+            let fns: Vec<Value> = typed.functions.iter().map(|f| self.emit_function_ir(f)).collect();
+            result.insert("functions".to_string(), Value::Array(fns));
+        }
+
         Value::Object(result)
+    }
+
+    // LAB-FUNCTION-SIR-RUNTIME-P1: emit one app-local def function as SIR.
+    // The body (a parser BlockBody {stmts, return_expr}) is lowered to a right-nested chain
+    // of `let` nodes ending in the return expression — the VM eval_ast `let` handler already
+    // threads a continuation `body`, so no new node kind is needed. Expr nodes are carried
+    // through `semantic_expr` for the same lowering contracts receive.
+    fn emit_function_ir(&self, f: &Value) -> Value {
+        let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+        let mut params_out = Vec::new();
+        if let Some(params) = f.get("params").and_then(|p| p.as_array()) {
+            for p in params {
+                let pname = p.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                let ptype = p.get("type_annotation")
+                    .map(|t| self.semantic_type_display(t))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let mut pm = Map::new();
+                pm.insert("name".to_string(), Value::String(pname));
+                pm.insert("type".to_string(), Value::String(ptype));
+                params_out.push(Value::Object(pm));
+            }
+        }
+        let return_type = f.get("return_type")
+            .map(|t| self.semantic_type_display(t))
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let body = f.get("body").cloned().unwrap_or(Value::Null);
+        let body_sir = self.emit_function_body(&body);
+
+        let mut node = Map::new();
+        node.insert("kind".to_string(), Value::String("function_ir".to_string()));
+        node.insert("name".to_string(), Value::String(name));
+        node.insert("params".to_string(), Value::Array(params_out));
+        node.insert("return_type".to_string(), Value::String(return_type));
+        if let Some(dec) = f.get("decreases").and_then(|d| d.as_str()) {
+            node.insert("decreases".to_string(), Value::String(dec.to_string()));
+        }
+        node.insert("body".to_string(), body_sir);
+        Value::Object(node)
+    }
+
+    // Lower a parser BlockBody to a runnable SIR expression (right-nested let chain).
+    fn emit_function_body(&self, body: &Value) -> Value {
+        let mut acc = body.get("return_expr")
+            .filter(|v| !v.is_null())
+            .map(|e| self.semantic_expr(e))
+            .unwrap_or(Value::Null);
+        if let Some(stmts) = body.get("stmts").and_then(|s| s.as_array()) {
+            for stmt in stmts.iter().rev() {
+                let expr = stmt.get("expr").map(|e| self.semantic_expr(e)).unwrap_or(Value::Null);
+                let name = stmt.get("name").and_then(|n| n.as_str()).unwrap_or("__seq__").to_string();
+                let mut node = Map::new();
+                node.insert("kind".to_string(), Value::String("let".to_string()));
+                node.insert("name".to_string(), Value::String(name));
+                node.insert("expr".to_string(), expr);
+                node.insert("body".to_string(), acc);
+                acc = Value::Object(node);
+            }
+        }
+        acc
+    }
+
+    // Minimal type display for a parser TypeRef JSON (name + optional bracket params).
+    fn semantic_type_display(&self, t: &Value) -> String {
+        match t {
+            Value::String(s) => s.clone(),
+            Value::Object(m) => {
+                let name = m.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string();
+                let params = m.get("params").and_then(|p| p.as_array());
+                match params {
+                    Some(ps) if !ps.is_empty() => {
+                        let inner: Vec<String> = ps.iter().map(|p| self.semantic_type_display(p)).collect();
+                        format!("{}[{}]", name, inner.join(","))
+                    }
+                    _ => name,
+                }
+            }
+            _ => "Unknown".to_string(),
+        }
     }
 
     fn semantic_entrypoint(&self, typed: &TypedProgram, contracts: Option<&Vec<Value>>) -> Option<Value> {

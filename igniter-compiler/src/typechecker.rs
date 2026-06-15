@@ -146,6 +146,10 @@ pub struct TypedProgram {
     /// Built from classified.variant_declarations after variant_shapes pass.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variant_declarations: Vec<serde_json::Value>,
+    /// LAB-FUNCTION-SIR-RUNTIME-P1: app-local `def` functions (parser JSON), carried to the
+    /// emitter so their bodies are materialized as executable SIR / VM function registry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub functions: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -533,6 +537,10 @@ impl TypeChecker {
             type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
             pass_result,
             variant_declarations,
+            // LAB-FUNCTION-SIR-RUNTIME-P1: carry app-local def functions (parser JSON) forward.
+            functions: functions.iter()
+                .map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null))
+                .collect(),
         }
     }
 
@@ -2228,6 +2236,13 @@ impl TypeChecker {
             .map(|val| self.type_ir(val))
     }
 
+    fn decimal_scale(&self, type_info: &serde_json::Value) -> String {
+        self.get_param(type_info, 0)
+            .map(|param| self.type_name(&param))
+            .filter(|name| name != "Unknown")
+            .unwrap_or_else(|| "0".to_string())
+    }
+
     fn type_name(&self, type_info: &serde_json::Value) -> String {
         type_info.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
     }
@@ -3447,8 +3462,8 @@ impl TypeChecker {
 
         if is_left_decimal || is_right_decimal {
             if is_left_decimal && is_right_decimal {
-                let left_scale = left.get("params").and_then(|p| p.as_array()).and_then(|p| p.get(0)).and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("0");
-                let right_scale = right.get("params").and_then(|p| p.as_array()).and_then(|p| p.get(0)).and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("0");
+                let left_scale = self.decimal_scale(left);
+                let right_scale = self.decimal_scale(right);
                 match op {
                     "+" | "-" => {
                         // Decimal scale mismatch in add/sub: OOF-TC5

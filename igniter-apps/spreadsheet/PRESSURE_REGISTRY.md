@@ -118,3 +118,25 @@ Routed spike result:
 - Decision: no VM-only source patch; route to `LAB-FUNCTION-SIR-RUNTIME-P1`.
 
 No app source was changed.
+
+## LAB-FUNCTION-SIR-RUNTIME-P1 — SS-P08 RESOLVED (2026-06-15)
+
+**Rust source_hash:** `sha256:5802728da8d4eda2ff055057f92d55ca292a61f6ecea136695659e2e7683bd05`.
+
+The compiler now materializes app-local `def` functions into the SIR (`functions` array of
+`function_ir` entries with name/params/return_type/decreases/body), and the VM builds a
+static function registry (`VM.functions`) that `eval_ast` invokes for statically-emitted
+names inside lambda bodies — bounded by `MAX_CALL_DEPTH` (the `decreases fuel` backstop),
+no dynamic dispatch.
+
+- SIR now carries `eval_expr(expr, grid) -> CellValue decreases=fuel` and
+  `eval_ref(ref_id, grid) -> CellValue decreases=fuel`.
+- **VM `RunWorkbookDemo` → `{"status":"success","result":[{"kind":"Number","num_val":7.0,"str_val":null}]}`**
+  — the `map(grid.cells, cell -> eval_expr(...))` lambda now calls `eval_expr` through the
+  registry (no more `Unsupported operator: eval_expr`).
+- **SS-P08 RESOLVED** for the Rust+VM toolchain. No app source edit.
+- Canon boundary: Ruby still `oof` (`Unknown function: eval_expr`) — canon does not adopt
+  app-local `def` functions yet (lab evidence only; see SS-P05/SS-P09 for the Ruby residuals).
+
+Proof: `igniter-view-engine/proofs/verify_lab_function_sir_runtime_p1.rb`.
+Lab doc: `lab-docs/lang/lab-function-sir-runtime-p1-v0.md`.

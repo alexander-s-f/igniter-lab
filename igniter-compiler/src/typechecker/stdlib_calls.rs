@@ -28,12 +28,8 @@ impl TypeChecker {
                     let left_name = self.type_name(left);
                     let right_name = self.type_name(right);
                     if left_name == "Decimal" && right_name == "Decimal" {
-                        let left_scale_val = self.get_param(left, 0)
-                            .and_then(|p| p.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
-                            .unwrap_or_else(|| "0".to_string());
-                        let right_scale_val = self.get_param(right, 0)
-                            .and_then(|p| p.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
-                            .unwrap_or_else(|| "0".to_string());
+                        let left_scale_val = self.decimal_scale(left);
+                        let right_scale_val = self.decimal_scale(right);
                         let l_s = left_scale_val.parse::<i64>().unwrap_or(0);
                         let r_s = right_scale_val.parse::<i64>().unwrap_or(0);
                         let sum_scale = l_s + r_s;
@@ -348,22 +344,46 @@ impl TypeChecker {
             }
             "sum" => {
                 is_resolved = true;
-                let mut resolved = self.type_ir(&serde_json::Value::String("Decimal".to_string()));
-                if args.len() >= 2 {
-                    let mut field_name = String::new();
-                    if let Expr::Symbol { value } = &args[1] {
-                        field_name = value.clone();
+                if args.len() == 1 {
+                    // LANG-STDLIB-COLLECTION-SUM-SCALAR-P2: scalar sum(Collection[T]) -> T
+                    // (T must be Numeric). Returns the element type EXACTLY — not bare
+                    // `Decimal` — so Decimal scale is preserved. OOF-COL8 on a non-numeric element.
+                    let elem = self.get_param(&typed_args[0].resolved_type, 0)
+                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    let elem_name = self.type_name(&elem);
+                    if matches!(elem_name.as_str(), "Integer" | "Float" | "Decimal" | "Unknown") {
+                        resolved_type = elem;
+                    } else {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-COL8".to_string(),
+                            message: format!(
+                                "stdlib.collection.sum: scalar sum element type must be Numeric (Integer, Float, Decimal[N]), got {}",
+                                elem_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                        resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                     }
-                    if let Some(param) = self.get_param(&typed_args[0].resolved_type, 0) {
-                        let inner_type_name = self.type_name(&param);
-                        if let Some(fields) = type_shapes.get(&inner_type_name) {
-                            if let Some(field_ty) = fields.get(&field_name) {
-                                resolved = field_ty.clone();
+                } else {
+                    // 2-arg field projection: sum(Collection[T], :field) -> F (existing).
+                    let mut resolved = self.type_ir(&serde_json::Value::String("Decimal".to_string()));
+                    if args.len() >= 2 {
+                        let mut field_name = String::new();
+                        if let Expr::Symbol { value } = &args[1] {
+                            field_name = value.clone();
+                        }
+                        if let Some(param) = self.get_param(&typed_args[0].resolved_type, 0) {
+                            let inner_type_name = self.type_name(&param);
+                            if let Some(fields) = type_shapes.get(&inner_type_name) {
+                                if let Some(field_ty) = fields.get(&field_name) {
+                                    resolved = field_ty.clone();
+                                }
                             }
                         }
                     }
+                    resolved_type = resolved;
                 }
-                resolved_type = resolved;
             }
             "zip" => {
                 is_resolved = true;

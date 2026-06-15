@@ -80,12 +80,25 @@ pub struct DispatchEntry {
 // Prevents stack overflow from deep or cyclic dispatch chains.
 pub const MAX_CALL_DEPTH: i64 = 64;
 
+// LAB-FUNCTION-SIR-RUNTIME-P1: a statically-emitted app-local `def` function.
+// params: parameter names in declaration order; body: runnable SIR (eval_ast-evaluated).
+// Built from the igapp `functions` array at load time. No dynamic dispatch: only names
+// present in this registry are invocable, and only the body emitted by the compiler runs.
+#[derive(Clone)]
+pub struct FunctionEntry {
+    pub params: Vec<String>,
+    pub body: serde_json::Value,
+}
+
 pub struct VM {
     backend: Option<Arc<dyn TBackend>>,
     pub observation_sink: Arc<Mutex<Vec<serde_json::Value>>>,
     // LAB-RACK-P9: pre-built dispatch table for call_contract("Name", ...) support.
     // Key: contract_name. Built from igapp at load time in main.rs; empty by default.
     pub dispatch_table: HashMap<String, DispatchEntry>,
+    // LAB-FUNCTION-SIR-RUNTIME-P1: static registry of app-local def functions.
+    // Key: function name. Built from igapp `functions` at load time; empty by default.
+    pub functions: HashMap<String, FunctionEntry>,
     // LAB-VMTRACE-P1: opt-in record-only trace collector; None = trace disabled (normal run).
     pub trace_collector: Option<std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
 }
@@ -96,6 +109,7 @@ impl VM {
             backend,
             observation_sink: Arc::new(Mutex::new(Vec::new())),
             dispatch_table: HashMap::new(),
+            functions: HashMap::new(),
             trace_collector: None,
         }
     }
@@ -1062,9 +1076,48 @@ impl VM {
                                 _ => return Err("last argument must be an array".to_string()),
                             }
                         }
+                        "sum" if args.len() == 1 => {
+                            // LANG-STDLIB-COLLECTION-SUM-SCALAR-P2: scalar sum(Collection[T]) -> T.
+                            // Sum the elements directly (not a record field). Family + Decimal
+                            // scale are read from the elements; empty → Integer 0 (additive zero,
+                            // consistent with the 2-arg field form). Non-numeric → fail-closed.
+                            let array = match &args[0] {
+                                Value::Array(a) => a,
+                                Value::Nil => &Arc::new(Vec::new()),
+                                _ => return Err("sum first argument must be an array".to_string()),
+                            };
+                            let mut sum_integer = 0i64;
+                            let mut sum_float = 0.0f64;
+                            let mut sum_decimal = Decimal::new(0, 0);
+                            let mut has_float = false;
+                            let mut has_decimal = false;
+                            for item in array.iter() {
+                                match item {
+                                    Value::Integer(i) => { sum_integer += *i; }
+                                    Value::Float(f) => { sum_float += *f; has_float = true; }
+                                    Value::Decimal { value: v, scale: s } => {
+                                        if !has_decimal {
+                                            sum_decimal = Decimal::new(0, *s);
+                                            has_decimal = true;
+                                        }
+                                        let d = Decimal::new(*v, *s);
+                                        sum_decimal = sum_decimal.add(&d)?;
+                                    }
+                                    Value::Nil => {}
+                                    _ => return Err(format!("Unsupported type for scalar sum: {:?}", item)),
+                                }
+                            }
+                            if has_decimal {
+                                Value::Decimal { value: sum_decimal.value, scale: sum_decimal.scale }
+                            } else if has_float {
+                                Value::Float(sum_float + sum_integer as f64)
+                            } else {
+                                Value::Integer(sum_integer)
+                            }
+                        }
                         "sum" => {
                             if args.len() != 2 {
-                                return Err(format!("sum expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!("sum expects 1 or 2 arguments, got {}", args.len()));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -2740,6 +2793,37 @@ fn eval_ast<'a>(
                 for operand in operands {
                     let val = eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
                     evaluated_operands.push(val);
+                }
+
+                // LAB-FUNCTION-SIR-RUNTIME-P1: app-local `def` function call. If `op` names a
+                // statically-emitted SIR function, bind params to the evaluated args and run
+                // its body via eval_ast. Only registry names are invocable (no dynamic
+                // dispatch). Bounded by MAX_CALL_DEPTH (shared with call_contract), which is
+                // the fail-closed backstop for `decreases fuel` recursion (eval_expr/eval_ref).
+                if let Some(func) = vm.functions.get(op) {
+                    let depth = temporal_context.get("__call_depth__")
+                        .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
+                        .unwrap_or(0);
+                    if depth >= MAX_CALL_DEPTH {
+                        return Err(format!(
+                            "function '{}': max call depth ({}) exceeded; check `decreases fuel` recursion",
+                            op, MAX_CALL_DEPTH
+                        ));
+                    }
+                    if evaluated_operands.len() != func.params.len() {
+                        return Err(format!(
+                            "function '{}' expects {} argument(s) [{}], got {}",
+                            op, func.params.len(), func.params.join(", "), evaluated_operands.len()
+                        ));
+                    }
+                    let fn_inputs: HashMap<String, Value> = func.params.iter()
+                        .cloned()
+                        .zip(evaluated_operands.iter().cloned())
+                        .collect();
+                    let mut fn_temporal = temporal_context.clone();
+                    fn_temporal.insert("__call_depth__".to_string(), Value::Integer(depth + 1));
+                    let fn_env: HashMap<String, Value> = HashMap::new();
+                    return eval_ast(&func.body, &fn_inputs, &fn_temporal, &fn_env, backend, vm).await;
                 }
 
                 match op {

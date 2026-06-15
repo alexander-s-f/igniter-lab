@@ -43,6 +43,7 @@ SemanticIR `.igapp`; `igniter-vm` runs it. Proof: `Add(a=2,b=3)` →
 | input model | ✅ | reads `semantic_ir_program.json` + `manifest.json` from an `.igapp` dir (not `.ig` source) |
 | temporal as_of | ✅ | `--as-of` injects temporal coordinate; `OP_LOAD_AS_OF` |
 | TBackend binding | ✅ | `--tbackend`; `MemoryHistoryBackend` (zero-dep) / `LedgerTcpBackend` (`tbackend.rs`) |
+| app-local `def` function registry | ✅ | LAB-FUNCTION-SIR-RUNTIME-P1: emitter writes a `functions` array (`function_ir`) into the SIR; `main.rs` builds `VM.functions` (`FunctionEntry{params,body}`); `eval_ast` `call` invokes registry names inside lambda bodies (bind params → fresh inputs, `MAX_CALL_DEPTH`-bounded `decreases fuel` recursion, no dynamic dispatch). Proof: `verify_lab_function_sir_runtime_p1.rb`; spreadsheet `RunWorkbookDemo` runs |
 | reactive projection loop | ✅ | `pipeline.rs` — webhook trigger → execute → commit bitemporal fact |
 | execution trace | ✅ | `igniter-vm trace <app> --entry N --inputs in.json` (IDE/debug substrate) |
 | bytecode source-map | ✅ | `igniter-vm bytecode-map <app>` |
