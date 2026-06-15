@@ -1,6 +1,6 @@
 # LAB-VM-RUN-OK-RECHECK-P1
 
-**Status:** OPEN - RUNTIME RECHECK
+**Status:** CLOSED - RUNTIME RECHECK (2026-06-15)
 **Route:** lab / VM / RUN-OK fleet recheck
 **Date:** 2026-06-15
 **Authority:** evidence-only runtime recheck; no source changes
@@ -64,3 +64,42 @@ Start after any meaningful subset of:
 ## Agent Recommendation
 
 Give this to **Codex GPT 5.5** after at least one implementation/app card in the wave lands.
+
+---
+
+## Closure Summary — CLOSED 2026-06-15
+
+Fresh registry-backed runtime fleet recheck completed with
+`igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p1.rb`.
+
+### Result
+
+- Active runtime fleet: **25** apps, defined by `PRESSURE_REGISTRY.md` presence.
+- RUN-OK 23/25.
+- Checkpoint delta: **18/25 -> 23/25** (**+5 RUN-OK**).
+- No source files modified.
+
+New green apps after the checkpoint:
+
+- `advanced_logistics` — `RunDailyRoutesDemo`
+- `vector_editor` — `RunCanvasClickDemo`
+- `erp_logistics` — `RunBestRoute`
+- `igniter_parser` — `RunParseDemo`
+- `bookkeeping` — `ComputeAccountBalance`
+
+### Current Non-Green
+
+| app | status | owner class | next route |
+|---|---|---|---|
+| `spreadsheet` | RUN-NOT-OK | real runtime bug | VM app-local function-call / `eval_expr` support |
+| `rule_engine` | COMPILE-NOT-OK | governance-gated | `LAB-DYNAMIC-CONTRACT-DISPATCH` / ledger D-001 |
+
+No app remains in the old needs-inputs/demo-entry owner bucket. `rule_engine` remains
+governance-gated; no dynamic dispatch relaxation was made.
+
+### Artifacts
+
+- Rollup: `.agents/docs/vm-run-ok-recheck-p1-2026-06-15-v0.md`
+- Proof: `igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p1.rb`
+- Surface index: `igniter-vm/IMPLEMENTED_SURFACE.md`
+- Registry update: `igniter-apps/igniter_parser/PRESSURE_REGISTRY.md`

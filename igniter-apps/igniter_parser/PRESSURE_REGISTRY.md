@@ -177,4 +177,19 @@ No source changes in this wave. No new pressures. No regressions.
 - App-source scope: added `RunParseDemo` only; parser/lexer contracts unchanged.
 - Authority: explicit in-app source fixture only; no file IO, compiler-package authority, or self-hosting claim.
 
-| IP-P08 | ACTIVE | VM `stdlib.string.char_at` runtime tail | `RunParseDemo` makes the app runnable without external inputs, then confirms the known VM blocker: `stdlib.string.char_at` is compile-known but not implemented in VM OP_CALL | `LAB-STDLIB-STRING-CHAR-AT-VM-P1` |
+| IP-P08 | RESOLVED | VM `stdlib.string.char_at` runtime tail | `RunParseDemo` makes the app runnable without external inputs; `LAB-STDLIB-STRING-CHAR-AT-VM-P1` implemented the VM tail and RUN-OK recheck now executes the demo successfully | `LAB-STDLIB-STRING-CHAR-AT-VM-P1` + `LAB-VM-RUN-OK-RECHECK-P1` |
+
+## RUN-OK recheck P1 (2026-06-15)
+
+`LAB-VM-RUN-OK-RECHECK-P1` reran the active runtime fleet after
+`LAB-STDLIB-STRING-CHAR-AT-VM-P1`.
+
+- Source files: 5.
+- Source hash: `sha256:77a60f0cc78c5e26de267c336a2a587caf742e0950e8f57177b6e2f7a881ae8f`.
+- Entrypoint: `RunParseDemo`.
+- Compile: ok.
+- VM: RUN-OK.
+- IP-P08: RESOLVED.
+
+No parser/lexer source or self-hosting authority changed; this is runtime evidence for the
+explicit zero-input demo fixture only.

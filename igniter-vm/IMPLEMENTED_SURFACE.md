@@ -67,17 +67,25 @@ for lambda/HOF bodies) lagging the bytecode path on a node kind — `call_contra
 `if_expr`, `stdlib.*`, `match`. The two paths are now near-parity. Future
 "X not found in eval_ast" is a *known class*, not a new mystery.
 
-### Remaining non-green — by owner (NOT a shared VM bug)
+### RUN-OK recheck — CLOSED 2026-06-15 (RUN-OK 23/25)
 
-| class | apps | owner |
+Proof: `igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p1.rb`.
+Rollup: `.agents/docs/vm-run-ok-recheck-p1-2026-06-15-v0.md`.
+
+Delta vs checkpoint: **+5 RUN-OK**. `advanced_logistics`, `vector_editor`,
+`erp_logistics`, `igniter_parser`, and `bookkeeping` now run through selected
+entrypoints. The old needs-inputs/demo-entry and Decimal construction buckets are
+closed for the active registry-backed runtime fleet.
+
+Current non-green apps:
+
+| class | apps | owner / next route |
 |---|---|---|
-| needs-inputs / demo-entry | advanced_logistics, spreadsheet, vector_editor, erp_logistics, igniter_parser | `LAB-APP-DEMO-ENTRY-WAVE-P1` (app-side) |
-| Decimal policy → construct | bookkeeping | `LAB-NUMERIC-DECIMAL-BOUNDARY-P1` → `LAB-NUMERIC-DECIMAL-CONSTRUCT-P1` |
+| real runtime bug | spreadsheet | VM app-local function-call / `eval_expr` support |
 | governance-gated | rule_engine | `LAB-DYNAMIC-CONTRACT-DISPATCH` DEFER (ledger D-001) |
 
-`LAB-STDLIB-STRING-CHAR-AT-VM-P1` closed the former `igniter_parser`
-`stdlib.string.char_at`/`stdlib.string.substring` VM tail. `igniter_parser` remains
-in the app-side demo-entry bucket only because it has no zero-input demo entry.
+`rule_engine` remains intentionally fail-closed. This recheck is evidence-only and
+does not relax dynamic dispatch.
 
 ## Provenance
 
