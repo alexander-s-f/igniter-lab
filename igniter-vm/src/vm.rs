@@ -2575,6 +2575,43 @@ fn eval_ast<'a>(
                 let branch = if branch.get("kind").is_none() { branch.get("return_expr").unwrap_or(branch) } else { branch };
                 eval_ast(branch, inputs, temporal_context, local_env, backend, vm).await
             }
+            "match_node" | "match_expr" => {
+                // Mirror the bytecode match (LAB-VM-EVALAST-MATCH-P1): the subject is a
+                // Record carrying an `__arm` discriminant (sealed Option/Result + user
+                // variants share this SIR shape). Bind payload fields, eval the arm body.
+                let subject = node.get("subject").ok_or_else(|| "match: missing subject".to_string())?;
+                let subj_val = eval_ast(subject, inputs, temporal_context, local_env, backend, vm).await?;
+                let arms = node.get("arms").and_then(|a| a.as_array())
+                    .ok_or_else(|| "match: missing arms array".to_string())?;
+                let disc = match &subj_val {
+                    Value::Record(m) => m.get("__arm").and_then(|v| match v {
+                        Value::String(s) => Some(s.to_string()),
+                        _ => None,
+                    }),
+                    _ => None,
+                };
+                for arm in arms {
+                    let pattern = arm.get("pattern");
+                    let is_wildcard = pattern.and_then(|p| p.get("wildcard")).and_then(|w| w.as_bool()).unwrap_or(false);
+                    let arm_name = pattern.and_then(|p| p.get("arm")).and_then(|a| a.as_str());
+                    let hit = is_wildcard || (arm_name.is_some() && disc.as_deref() == arm_name);
+                    if hit {
+                        let body = arm.get("body").ok_or_else(|| "match: missing arm body".to_string())?;
+                        let mut arm_env = local_env.clone();
+                        if let (Some(p), Value::Record(m)) = (pattern, &subj_val) {
+                            if let Some(bindings) = p.get("bindings").and_then(|b| b.as_array()) {
+                                for b in bindings {
+                                    if let Some(name) = b.as_str() {
+                                        if let Some(v) = m.get(name) { arm_env.insert(name.to_string(), v.clone()); }
+                                    }
+                                }
+                            }
+                        }
+                        return eval_ast(body, inputs, temporal_context, &arm_env, backend, vm).await;
+                    }
+                }
+                Err(format!("match: no arm matched discriminant {:?} (fail-closed)", disc))
+            }
             "range" => {
                 let start_val = eval_ast(node.get("start").ok_or_else(|| "Missing start".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 let end_val = eval_ast(node.get("end").ok_or_else(|| "Missing end".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;

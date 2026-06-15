@@ -485,25 +485,53 @@ async fn main() {
     // LAB-RACK-P9: Build dispatch table from all contracts in the igapp.
     // Enables call_contract("ContractName", ...) dispatch at VM runtime.
     // Each contract is compiled independently into DispatchEntry { bytecode, input_names, modifier }.
-    // Non-fatal: compilation errors for individual contracts are skipped (logged in non-json mode).
+    // LAB-VM-DISPATCH-SKIP-DIAGNOSTICS-P1: dispatch-entry compilation is fail-closed.
+    // Build every possible entry first so diagnostics expose the full incomplete table.
     let mut p9_dispatch_table = std::collections::HashMap::new();
+    let mut dispatch_skipped: Vec<(String, String)> = Vec::new();
     if let Some(contracts_arr) = contract_json.get("contracts").and_then(|c| c.as_array()) {
         for contract_item in contracts_arr {
-            let c_name = contract_item.get("contract_name")
-                .or_else(|| contract_item.get("name"))
-                .and_then(|n| n.as_str())
-                .unwrap_or("");
+            let c_name = contract_display_name(contract_item);
             if !c_name.is_empty() {
-                match compiler.build_dispatch_entry(contract_item, c_name) {
-                    Ok(entry) => { p9_dispatch_table.insert(c_name.to_string(), entry); }
+                match compiler.build_dispatch_entry(contract_item, &c_name) {
+                    Ok(entry) => { p9_dispatch_table.insert(c_name, entry); }
                     Err(e) => {
-                        if !json_mode {
-                            eprintln!("  [P9] Note: skipping dispatch entry for '{}': {}", c_name, e);
-                        }
+                        dispatch_skipped.push((c_name, e));
                     }
                 }
             }
         }
+    }
+    if !dispatch_skipped.is_empty() {
+        if json_mode {
+            let skipped_json: Vec<JsonValue> = dispatch_skipped.iter()
+                .map(|(contract_name, error)| serde_json::json!({
+                    "contract_name": contract_name,
+                    "error": error
+                }))
+                .collect();
+            println!("{}", serde_json::json!({
+                "status": "error",
+                "error": format!(
+                    "Dispatch table construction failed for {} contract(s)",
+                    dispatch_skipped.len()
+                ),
+                "dispatch_built": p9_dispatch_table.len(),
+                "dispatch_skipped": skipped_json
+            }));
+        } else {
+            eprintln!(
+                "  {}Dispatch table construction failed for {} contract(s); refusing partial VM load.{}",
+                RED,
+                dispatch_skipped.len(),
+                RESET
+            );
+            eprintln!("  Successfully built dispatch entries: {}", p9_dispatch_table.len());
+            for (contract_name, error) in &dispatch_skipped {
+                eprintln!("  - skipped dispatch entry for '{}': {}", contract_name, error);
+            }
+        }
+        std::process::exit(1);
     }
 
     // 4. Load Inputs and Temporal coordinates
@@ -740,6 +768,15 @@ fn print_help() {
     println!("  --target-store <store>    Store name where computed projections are committed");
     println!("  -p, --listener-port <port> Port for the webhook listener (default: 8089)");
     println!("  -h, --help                Show this help message\n");
+}
+
+fn contract_display_name(contract_item: &JsonValue) -> String {
+    contract_item.get("contract_name")
+        .or_else(|| contract_item.get("name"))
+        .or_else(|| contract_item.get("contract_id"))
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 // LAB-SRCMAP-P2: produce bytecode_map.json for all contracts in an .igapp directory.
