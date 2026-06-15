@@ -7,10 +7,16 @@ entry point for this repo; `lab-docs/*`, `.agents/*`, `portfolio-index.md`,
 
 Navigation only, ~1 screen. Cross-repo master: `igniter-gov/MAP.md`.
 
+> **Verify-first:** "is X implemented?" → crate `IMPLEMENTED_SURFACE.md` + grep
+> `src/**`, not scattered cards. Stale "deferred/not-implemented" claims lose to
+> code. Full rule: [`SEARCH.md`](SEARCH.md).
+
 ## By category
 
 | category | path |
 |---|---|
+| **Implemented surface (per crate)** | `<crate>/IMPLEMENTED_SURFACE.md` — verify-first answer (pilot: `igniter-vm/`) |
+| **Search protocol** | `SEARCH.md` + `.rgignore` (active-first firewall) |
 | **Lab status board** | `lab-docs/STATUS.md` ← live |
 | **Lab roadmap** | `lab-docs/ROADMAP.md` |
 | **Project map / subprojects** | `lab-docs/igniter-lab-project-map.md` |

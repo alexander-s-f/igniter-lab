@@ -1,0 +1,24 @@
+# Search firewall (LAB-DOC-SEARCH-FIREWALL-P1)
+# Keeps default ripgrep / Grep-tool results off stale + noise paths so agents
+# don't drift. Nothing is deleted — excluded from DEFAULT search only.
+# To search everything: `rg --no-ignore <pattern>`. See SEARCH.md.
+
+# --- Build artifacts (pure noise, code + doc search) ---
+**/target/
+**/node_modules/
+**/dist/
+**/.svelte-kit/
+
+# --- Superseded docs (content migrated, SUPERSEDED banner present) ---
+# These caused real "stale claim outranks live code" drift. Excluded from default
+# search; the live answer is the crate IMPLEMENTED_SURFACE.md + the gov ledger.
+lab-docs/igniter-delta-1.md
+
+# --- Future: the lab-docs staleness sweep moves dead docs here, then uncomment ---
+# lab-docs/archive/
+
+# NOTE: .agents/** is a hidden (dot) dir → already invisible to default ripgrep
+# (needs --hidden). The card / portfolio-index / operational-archive noise lives
+# there and therefore needs NO exclusion here. The searchable stale surface is
+# lab-docs/**, which is evidence — do NOT blanket-exclude it; the verify-first
+# rule (SEARCH.md) is what neutralizes it. Add only specific superseded files.
