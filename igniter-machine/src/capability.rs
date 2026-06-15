@@ -118,6 +118,75 @@ pub enum RunMode {
     Replay,
 }
 
+// ── Authority: typed capability passport (LAB-MACHINE-CAPABILITY-IO-AUTHORITY-P5) ──
+
+/// A minimal, verifiable caller authority. NOT OAuth/JWT/ACL/roles — just enough to gate an
+/// effect at the host boundary: who, for which capability, with which scopes, valid when.
+#[derive(Clone, Debug)]
+pub struct CapabilityPassport {
+    pub subject: String,
+    pub capability_id: String,
+    pub scopes: Vec<String>,
+    pub issued_at: f64,
+    pub expires_at: Option<f64>,
+    pub revoked: bool,
+    /// Opaque caller-supplied evidence (e.g. a signature/material hash). Folded into the
+    /// authority digest; this layer does not parse or validate its internal structure.
+    pub evidence_digest: String,
+}
+
+impl CapabilityPassport {
+    /// A stable digest of the authority identity — recorded in the receipt and matched on
+    /// replay. Independent of `issued_at`/`expires_at`/`revoked` (those are validity, not
+    /// identity): subject + capability + sorted scopes + evidence_digest.
+    pub fn authority_digest(&self) -> String {
+        let mut scopes = self.scopes.clone();
+        scopes.sort();
+        let material = format!(
+            "{}|{}|{}|{}",
+            self.subject,
+            self.capability_id,
+            scopes.join(","),
+            self.evidence_digest
+        );
+        blake3::hash(material.as_bytes()).to_hex().to_string()
+    }
+}
+
+/// Why a passport was refused at the host boundary (all → runtime refusal, no receipt).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AuthRefusal {
+    WrongCapability,
+    MissingScope,
+    Revoked,
+    Expired,
+}
+
+/// Verify a passport at the host boundary. Expiry uses the injected clock. Returns the
+/// authority digest on success. Pure (no IO) — called before any executor.
+pub fn verify_passport(
+    passport: &CapabilityPassport,
+    capability_id: &str,
+    required_scope: &str,
+    clock: &Arc<dyn ClockProvider>,
+) -> Result<String, AuthRefusal> {
+    if passport.capability_id != capability_id {
+        return Err(AuthRefusal::WrongCapability);
+    }
+    if passport.revoked {
+        return Err(AuthRefusal::Revoked);
+    }
+    if let Some(exp) = passport.expires_at {
+        if clock.now() > exp {
+            return Err(AuthRefusal::Expired);
+        }
+    }
+    if !required_scope.is_empty() && !passport.scopes.iter().any(|s| s == required_scope) {
+        return Err(AuthRefusal::MissingScope);
+    }
+    Ok(passport.authority_digest())
+}
+
 /// Receipts are bitemporal facts in a dedicated TBackend store namespace.
 pub const RECEIPTS_STORE: &str = "__receipts__";
 
@@ -138,12 +207,14 @@ async fn write_receipt(
     now: f64,
     rkey: &str,
     req: &EffectRequest,
+    authority_digest: &str,
     outcome: &EffectOutcome,
 ) -> Result<(), EngineError> {
     let value = json!({
         "capability_id": req.capability_id,
         "idempotency_key": req.idempotency_key,
         "authority_ref": req.authority_ref,
+        "authority_digest": authority_digest,
         "outcome_kind": outcome.kind.as_str(),
         "result": outcome.result,
         "failure_kind": outcome.failure_kind,
@@ -164,33 +235,40 @@ async fn write_receipt(
     receipts.write_fact(fact).await
 }
 
-/// ServiceLoop-like effect runner with an explicitly injected clock — the data-plane
-/// boundary. Order: preflight refusal (no executor) → receipt lookup (idempotency / replay)
-/// → executor once → write receipt fact stamped by `clock.now()`. Denial is written as data,
-/// not hidden. **Replay never reads the clock** (it writes no receipt), so a replayed effect
-/// never rewrites the original timestamp.
-pub async fn run_effect_with_clock(
+/// Shared effect core — the executor + receipt + idempotency/replay machinery. The caller
+/// has ALREADY verified authority and passes the resolved `authority_digest` (the evidence to
+/// record and to match on replay). Order: idempotency-key check → resolve executor → receipt
+/// lookup (idempotency / replay, with authority-scope match) → executor once → write receipt.
+async fn run_effect_core(
     registry: &CapabilityExecutorRegistry,
     receipts: &Arc<dyn TBackend>,
     clock: &Arc<dyn ClockProvider>,
     req: &EffectRequest,
+    authority_digest: &str,
     mode: RunMode,
 ) -> Result<EffectOutcome, EngineError> {
-    // 1. Preflight refusals — BEFORE any executor is touched.
     if req.idempotency_key.is_empty() {
         return Ok(EffectOutcome::denied("preflight: missing idempotency_key"));
-    }
-    if req.authority_ref.is_none() {
-        return Ok(EffectOutcome::denied("preflight: missing authority"));
     }
     let exec = match registry.get(&req.capability_id) {
         Some(e) => e,
         None => return Ok(EffectOutcome::denied("preflight: unknown capability")),
     };
 
-    // 2. Idempotency / replay — receipt lookup before any external call.
+    // Idempotency / replay — receipt lookup before any external call.
     let rkey = receipt_key(req);
     if let Some(fact) = receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
+        // Replay policy: the replaying caller must present the SAME authority scope. A receipt
+        // recorded with a different authority digest is refused (default strict; a
+        // `replay_override` knob is a future slice, not implemented).
+        let stored = fact
+            .value
+            .get("authority_digest")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if stored != authority_digest {
+            return Ok(EffectOutcome::denied("replay: authority scope mismatch"));
+        }
         return Ok(outcome_from_receipt(&fact.value)); // replayed; executor + clock NOT touched
     }
     if mode == RunMode::Replay {
@@ -199,11 +277,53 @@ pub async fn run_effect_with_clock(
         return Ok(EffectOutcome::unknown("replay: no receipt to replay"));
     }
 
-    // 3. Live: call the executor exactly once, then record the receipt fact. The clock is
-    // read here and only here — at the boundary, never inside a contract.
+    // Live: call the executor exactly once, then record the receipt fact. The clock is read
+    // here and only here — at the boundary, never inside a contract.
     let outcome = exec.execute(req).await;
-    write_receipt(receipts, clock.now(), &rkey, req, &outcome).await?;
+    write_receipt(receipts, clock.now(), &rkey, req, authority_digest, &outcome).await?;
     Ok(outcome)
+}
+
+/// ServiceLoop-like effect runner with an explicitly injected clock and **presence-only**
+/// authority (the `req.authority_ref` string is the authority evidence). Preflight refuses a
+/// missing authority before any executor. For typed authority use `run_effect_with_passport`.
+pub async fn run_effect_with_clock(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    req: &EffectRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let digest = match &req.authority_ref {
+        Some(a) if !a.is_empty() => a.clone(),
+        _ => return Ok(EffectOutcome::denied("preflight: missing authority")),
+    };
+    run_effect_core(registry, receipts, clock, req, &digest, mode).await
+}
+
+/// ServiceLoop-like effect runner with a typed `CapabilityPassport` (richer authority). The
+/// passport is verified at the host boundary BEFORE the executor; a wrong capability / missing
+/// scope / revoked / expired passport is a runtime refusal with NO receipt. The verified
+/// authority digest is recorded in the receipt and matched on replay.
+pub async fn run_effect_with_passport(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &EffectRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let digest = match verify_passport(passport, &req.capability_id, required_scope, clock) {
+        Ok(d) => d,
+        Err(reason) => {
+            return Ok(EffectOutcome::denied(&format!(
+                "preflight: authority refused ({:?})",
+                reason
+            )))
+        }
+    };
+    run_effect_core(registry, receipts, clock, req, &digest, mode).await
 }
 
 /// Convenience boundary entrypoint using the default production clock (`SystemClock`).

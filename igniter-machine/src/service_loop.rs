@@ -17,7 +17,8 @@
 //! never the contract. This is machine-host IO, NOT language IO.
 
 use crate::capability::{
-    run_effect_with_clock, CapabilityExecutorRegistry, EffectOutcome, EffectRequest, RunMode,
+    run_effect_with_clock, run_effect_with_passport, CapabilityExecutorRegistry, CapabilityPassport,
+    EffectOutcome, EffectRequest, RunMode,
 };
 use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;
@@ -173,6 +174,52 @@ pub async fn run_service_with_clock(
         args: req.args.clone(),
     };
     run_effect_with_clock(registry, &machine.storage, clock, &effect_req, mode).await
+}
+
+/// Host entrypoint with typed `CapabilityPassport` authority (richer than presence-only).
+/// Discovers the declared effect surface, resolves effect → capability, then verifies the
+/// passport at the boundary before the executor (`run_effect_with_passport`). The contract /
+/// VM never receive the passport — authority is purely host-side.
+pub async fn run_service_with_passport(
+    machine: &IgniterMachine,
+    registry: &CapabilityExecutorRegistry,
+    clock: &Arc<dyn ClockProvider>,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &HostRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let surface = discover_effect_surface(machine, &req.contract)?;
+    if surface.is_pure() {
+        return Ok(EffectOutcome::denied(
+            "preflight: contract declares no effect (pure)",
+        ));
+    }
+    let capability_id = match surface.capability_type_for(&req.effect) {
+        Some(t) => t,
+        None => {
+            return Ok(EffectOutcome::denied(
+                "preflight: effect not declared by contract",
+            ))
+        }
+    };
+
+    let effect_req = EffectRequest {
+        capability_id,
+        idempotency_key: req.idempotency_key.clone(),
+        authority_ref: req.authority_ref.clone(),
+        args: req.args.clone(),
+    };
+    run_effect_with_passport(
+        registry,
+        &machine.storage,
+        clock,
+        passport,
+        required_scope,
+        &effect_req,
+        mode,
+    )
+    .await
 }
 
 /// Convenience boundary entrypoint using the default production clock (`SystemClock`).

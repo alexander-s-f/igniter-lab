@@ -14,17 +14,19 @@ P2 wires declared-effect host entrypoint through run_effect     [CLOSED 2026-06-
 P3 binds one real substrate (read-only local RocksDB/TBackend)  [CLOSED 2026-06-15]
 --- branch A: harden the boundary before write IO ---
 P4 host clock capability (receipt tt from injected provider)    [CLOSED 2026-06-15]
-P5 richer authority/passport (vs presence-only authority_ref)   [NEXT]
-P6 receipt-gated idempotent write substrate                     [AFTER P5]
+P5 typed capability passport (vs presence-only authority_ref)   [CLOSED 2026-06-15]
+P6 receipt-gated idempotent write substrate                     [NEXT — both base invariants set]
 ```
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs`, 5), P4
-> (`clock.rs`, 5) all CLOSED — see `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` and
+> (`clock.rs`, 5), P5 (`capability.rs` passport, 9) all CLOSED — see
+> `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` + `-AUTHORITY-P5.md` and
 > `lab-docs/lang/lab-machine-capability-io-*`. **IO boundary proven end-to-end on a real
-> substrate; time authority now controlled.** Portfolio batch (P1–P3):
-> `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`.
-> Branch A order locked: P5 (caller authority) before P6 (write) — don't jump to write IO until
-> both base invariants (time + caller authority) are settled.
+> substrate; BOTH base production invariants now in place — time authority (P4) + caller
+> authority (P5).** Portfolio batch (P1–P3):
+> `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`
+> (P4/P5 fold into the same track; separate portfolio entry only if a checkpoint warrants).
+> P6 (write substrate) is now unblocked — scope it tightly (receipt GATES the write).
 
 The route must preserve the core boundary:
 
