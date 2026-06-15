@@ -9,10 +9,14 @@ not an implementation card by itself.
 Keep the production IO track aligned:
 
 ```text
-P1 proved executor + receipt model
-P2 wires declared-effect host entrypoint through run_effect
-P3 binds one real substrate, preferably local RocksDB/TBackend read
+P1 proved executor + receipt model                              [CLOSED 2026-06-15]
+P2 wires declared-effect host entrypoint through run_effect     [CLOSED 2026-06-15]
+P3 binds one real substrate, preferably local RocksDB/TBackend read   [NEXT]
 ```
+
+> Progress: P1 (`capability.rs`, 13 tests) and P2 (`service_loop.rs`, 9 tests) are CLOSED —
+> see `LAB-MACHINE-CAPABILITY-IO-P1.md` / `-P2.md` and
+> `lab-docs/lang/lab-machine-capability-io-p{1,2}-*.md`. P3 is the next implementation card.
 
 The route must preserve the core boundary:
 

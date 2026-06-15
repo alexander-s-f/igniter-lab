@@ -6,6 +6,7 @@ pub mod errors;
 pub mod fact;
 pub mod machine;
 pub mod registry;
+pub mod service_loop;
 pub mod wal;
 
 #[cfg(feature = "ffi")]
