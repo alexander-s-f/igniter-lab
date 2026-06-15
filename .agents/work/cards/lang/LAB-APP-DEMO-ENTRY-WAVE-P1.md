@@ -1,33 +1,88 @@
-# Card: LAB-APP-DEMO-ENTRY-WAVE-P1 — demo entries for needs-input apps
+# LAB-APP-DEMO-ENTRY-WAVE-P1
 
-**Status: READY (not started).** App-side only — no VM/compiler change.
+**Status:** OPEN - APP FIXTURE WAVE
+**Route:** lab / runtime / needs-input apps / demo entrypoints
+**Date:** 2026-06-15
+**Authority:** app-side demo/orchestrator entries only; no compiler, VM, or language changes
 
 ## Goal
 
-Make the needs-input apps runnable end-to-end by adding a **zero-input demo /
-orchestrator entry** per app (a contract that builds sample inputs and calls the
-real handler). These apps compile and execute fine; they just lack a self-contained
-entry, so `tools/igniter` (and any reviewer) can't run them without crafted inputs.
+Make the remaining needs-input apps runnable end-to-end by adding zero-input demo /
+orchestrator entries. These apps are not blocked by a shared VM/compiler bug; they are
+libraries or handlers that require crafted inputs. The goal is to make their intended
+runtime path observable without inventing external IO authority.
 
-## Targets (one demo entry each)
+## Targets
 
-| app | handler that needs input | input needed |
-|---|---|---|
-| advanced_logistics | PlanDailyRoutes | `available_transports` |
-| spreadsheet | RecalculateWorkbook | `grid` |
-| vector_editor | HandleCanvasClick | `state` |
-| erp_logistics | (route/shipment handler) | `routes` / `shipment` |
-| igniter_parser | ParseSource | `source` (also needs `LAB-STDLIB-STRING-CHAR-AT-VM-P1`) |
+| App | Handler shape | Input needed | Notes |
+|---|---|---|---|
+| `advanced_logistics` | planning/orchestrator | `available_transports` | likely sample fleet / route request |
+| `spreadsheet` | recalculation | `grid` | sample workbook/grid fixture |
+| `vector_editor` | event handler | `state` | sample canvas state + event |
+| `igniter_parser` | parser | `source` | also depends on `LAB-STDLIB-STRING-CHAR-AT-VM-P1` for full VM run |
 
-## Shape (per app)
+`erp_logistics` is already handled by `LAB-ERP-LOGISTICS-DEMO-ENTRY-P1` and should be
+read as precedent, not repeated here.
 
-Add e.g. `contract RunDemo { compute input = {…sample…}  compute out =
-call_contract("Handler", input)  output out : … }` with **no inputs**, so the
-orchestrator-root heuristic in `tools/igniter` auto-selects it.
+## Gate
 
-## Proof / closed
+Start after:
 
-- Proof: `igniter run igniter-apps/<app>` (no `--entry`) → success.
-- Closed: NO VM/compiler/typechecker change; NO change to the handler contracts'
-  logic; demo inputs are illustrative, not canonical fixtures.
-- Expected: RUN-OK 18 → up to ~22 (igniter_parser also needs char_at).
+- `LAB-VM-RUNTIME-WAVE-CHECKPOINT-P1` checkpoint created.
+- `LAB-ERP-LOGISTICS-DEMO-ENTRY-P1` CLOSED (as pattern for partial/blocked honesty).
+- For `igniter_parser` full success: `LAB-STDLIB-STRING-CHAR-AT-VM-P1` CLOSED.
+
+## Required Reads
+
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lab/.agents/work/cards/lang/LAB-VM-RUNTIME-WAVE-CHECKPOINT-P1.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lab/.agents/work/cards/governance/LAB-ERP-LOGISTICS-DEMO-ENTRY-P1.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-vm/IMPLEMENTED_SURFACE.md`
+- App sources and `PRESSURE_REGISTRY.md` for:
+  - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/advanced_logistics/`
+  - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/spreadsheet/`
+  - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/vector_editor/`
+  - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/igniter_parser/`
+- Existing companion patterns: `air_combat`, `lead_router`, `call_router`, `erp_logistics`.
+
+## Work
+
+For each target app:
+
+1. Confirm current Ruby/Rust compile status and current VM runtime failure shape.
+2. Identify one meaningful handler path and the minimal typed sample inputs it needs.
+3. Add a zero-input `Run*Demo` / `Run*` orchestrator contract that builds sample records
+   through named factory contracts where needed.
+4. Add or update bare `entrypoint` only if the app has no suitable entrypoint.
+5. Keep production handler contracts unchanged.
+6. Run `igniter run igniter-apps/<app>` with no external inputs.
+7. Update that app's `PRESSURE_REGISTRY.md` with source hash, entrypoint, and result.
+
+## Deliverables
+
+- Minimal app source edits for successful targets.
+- Proof runner: `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-view-engine/proofs/verify_lab_app_demo_entry_wave_p1.rb`, target at least 120 checks.
+- Lab doc: `/Users/alex/dev/projects/igniter-workspace/igniter-lab/lab-docs/governance/lab-app-demo-entry-wave-p1-v0.md`.
+- Update this card, affected app pressure registries, and portfolio index.
+
+## Acceptance
+
+- Each migrated app has a zero-input demo entry or a documented residual blocker.
+- No compiler/VM/typechecker changes are made in this card.
+- Production handler logic is unchanged.
+- Demo records are explicit fixtures, not hidden runtime authority.
+- `advanced_logistics`, `spreadsheet`, and `vector_editor` should reach VM success if their handlers are pure and current VM surface supports them.
+- `igniter_parser` may close only after `char_at` VM support lands; otherwise document as pending.
+
+## Closed Surfaces
+
+- No VM changes.
+- No compiler or typechecker changes.
+- No IO, file, queue, HTTP, scheduler, clock, or database authority.
+- No dynamic dispatch relaxation.
+- No broad app refactor.
+- No changes to domain semantics beyond sample/demo fixture construction.
+
+## Agent Recommendation
+
+Give this to **Sonnet 4.6** or **Codex GPT 5.5**. It is app-by-app fixture work;
+precision and not touching production logic matter more than deep compiler skill.
