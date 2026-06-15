@@ -1,6 +1,6 @@
 # LAB-JOB-RUNNER-BASELINE-P1
 
-**Status:** OPEN  
+**Status:** CLOSED — PROVED
 **Route:** lab / app baseline / job_runner  
 **Date:** 2026-06-15  
 **Authority:** evidence baseline only; no implementation
@@ -63,3 +63,35 @@ and real re-dispatch outside the app.
 
 Give this to **Gemini** or **Sonnet 4.6**. The companion readiness card
 `LANG-BUDGETED-LOCAL-LOOP-RUBY-P1` can run in parallel.
+
+---
+
+## Closure Summary (2026-06-15)
+
+**Result:** CLOSED — proved 190/190 PASS by
+`igniter-view-engine/proofs/verify_lab_job_runner_baseline_p1.rb`.
+
+**Compilation:** Ruby `ok/0`; Rust `ok/0`.
+
+**Frozen absolute-route source hash:**
+`sha256:546c30b56c9b79d4b8bf1fbc396bb2252aec0b6ae58ac85bd7e7708932c3b91c`
+
+The registry's earlier
+`sha256:06f8e6d73f4476009011fd6980d0eca86ee3821adb058916ff2e393478d71225`
+hash is retained only as route-sensitive predecessor metadata. The closed
+baseline uses absolute source paths with the Open3/mktmpdir proof route.
+
+**Frozen shape:** 4 files / 2 types / 1 variant (`JobOutcome`) / 19 contracts /
+26 textual `call_contract` mentions / 25 executable literal Tier-1
+`call_contract` forms / 4 `match` expressions / entrypoint `RunSuccessSecond`.
+
+**Pressure routing preserved:** JR-P01 sealed `JobOutcome` capability witness;
+JR-P02 static dispatch / dynamic dispatch fail-closed route; JR-P03
+PROP-039 `BudgetedLocalLoop` Ruby parity pressure; JR-P04 explicit retry budget;
+JR-P05 ServiceLoop/effect surface route; JR-P06 record-literal factory route.
+
+**No app source edits.**
+
+**Closed surfaces preserved:** no Redis / queue / scheduler / worker daemon; no
+real retry dispatch; no managed-loop implementation; no dynamic job dispatch; no
+clock / `now()`; no ServiceLoop implementation.

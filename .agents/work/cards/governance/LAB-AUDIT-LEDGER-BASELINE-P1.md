@@ -1,6 +1,6 @@
 # LAB-AUDIT-LEDGER-BASELINE-P1
 
-**Status:** OPEN  
+**Status:** CLOSED - PROVED (197/197 PASS)
 **Route:** lab / app baseline / audit_ledger  
 **Date:** 2026-06-15  
 **Authority:** evidence baseline only; no implementation
@@ -62,3 +62,61 @@ scalar `fold`, and correction entries as append-only deltas.
 
 Give this to **Gemini** or **Sonnet 4.6**. It is a baseline/proof task with clear
 registry evidence; not a scarce Opus slot.
+
+---
+
+## Closure Summary (2026-06-15)
+
+**Status:** CLOSED - PROVED 197/197.
+**Result:** `verify_lab_audit_ledger_baseline_p1.rb` passes the full baseline
+guard.
+
+### Compiler baseline
+
+| Toolchain | Status | Diagnostics |
+|---|---|---|
+| Ruby | `ok` | 0 |
+| Rust | `ok` | 0 |
+
+The absolute proof-runner source hash is stable in both toolchains:
+
+`sha256:6789a12ecae4d888c84519ac268c20fcd7e1b91ac277bc1c335e6ce3c1346022`
+
+Older ad hoc or relative-path invocations can produce different deterministic
+hashes, so this closure names the absolute Open3/mktmpdir proof-runner path as
+the evidence path.
+
+### Counts frozen
+
+4 files, 4 types, 13 contracts, 15 Tier-1 PascalCase literal `call_contract`
+sites, 1 scalar `fold`, 2 `filter`, 2 `count`, entrypoint `BalanceAsOfDay5`.
+
+### Positive evidence
+
+- `VisibleAsOf` proves bitemporal visibility as pure filters over explicit
+  Integer transaction-time and valid-time axes.
+- `SumVisible` proves balance reconstruction with scalar fold.
+- `BuildCorrectionEntry` models correction as an append-only adjusting delta
+  with injected `transaction_time`; no mutation is inferred.
+- `BuildCorrectionReceipt` records was/became/delta as evidence only.
+- Fixed-point Integer cents are documented as a Decimal/Money substitute, not a
+  Decimal implementation.
+
+### Pressure routes preserved
+
+AL-P01..AL-P09 are preserved and routed. `PROP-022`/`LANG-TEMPORAL-STATE`
+remain the typed temporal-read route; `LANG-FOLD-STRUCT-ACCUMULATOR` remains
+the running-balance trajectory route; Decimal/Money and authority/provenance
+remain separate readiness/effect-surface routes.
+
+### Deliverables
+
+| Artefact | Path | Status |
+|---|---|---|
+| Proof runner | `igniter-view-engine/proofs/verify_lab_audit_ledger_baseline_p1.rb` | **197/197 PASS** |
+| Lab doc | `lab-docs/governance/lab-audit-ledger-baseline-v0.md` | Written |
+| Pressure registry | `igniter-apps/audit_ledger/PRESSURE_REGISTRY.md` | Updated |
+| This card | `.agents/work/cards/governance/LAB-AUDIT-LEDGER-BASELINE-P1.md` | CLOSED |
+| Portfolio index | `.agents/portfolio-index.md` | Updated |
+
+No app source edits were made.

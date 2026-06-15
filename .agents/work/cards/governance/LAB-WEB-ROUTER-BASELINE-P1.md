@@ -1,6 +1,6 @@
 # LAB-WEB-ROUTER-BASELINE-P1
 
-**Status:** OPEN  
+**Status:** CLOSED - PROVED (173/173 PASS)  
 **Route:** lab / app baseline / web_router  
 **Date:** 2026-06-15  
 **Authority:** evidence baseline only; no implementation
@@ -61,3 +61,57 @@ accept loop, Rack compatibility, path-param parsing, or header maps.
 
 Give this to **Gemini** or **Sonnet 4.6**. It is a clean baseline proof with good
 positive evidence for the Sumtype wave.
+
+---
+
+## Closure Summary (2026-06-15)
+
+**Status:** CLOSED - PROVED 173/173.  
+**Result:** `verify_lab_web_router_baseline_p1.rb` passes the full baseline
+guard.
+
+### Compiler baseline
+
+| Toolchain | Status | Diagnostics |
+|---|---|---|
+| Ruby | `ok` | 0 |
+| Rust | `ok` | 0 |
+
+The live proof-runner source hash is stable in both toolchains:
+
+`sha256:15cc6c7d4ba22f29aa02878f58b8507ce4c7cbc53f3c39d1a228004f0b57c3ce`
+
+The older registry hash
+`sha256:4d9b5472cf043be8f1f4373351ca20426012819a756382f598d6f801a73f1039`
+was stale metadata. No app source edits were made.
+
+### Counts frozen
+
+3 files, 2 types, 1 variant (`ContractResult`), 8 contracts, 10 Tier-1
+literal `call_contract` sites, registry metric 2 `match` sites, and one
+executable `Respond` match expression.
+
+### Positive evidence
+
+- `ContractResult` + `Respond` proves the KDR-to-sealed-variant route.
+- `Respond` proves annotated `match` arms returning `HttpResponse` record
+  literals are dual-clean.
+- `Handle` proves stdlib.text routing through `starts_with`, `byte_length`, and
+  String equality.
+- `entrypoint RunArticle` is present and reflected in manifest/SemanticIR.
+
+### Pressure routes preserved
+
+WR-P01..WR-P06 are preserved and routed. Header `Map` construction, path-param
+parsing, sockets, Rack env compatibility, accept loop, dynamic route dispatch,
+middleware, streaming, and chunked bodies remain closed.
+
+### Deliverables
+
+| Artefact | Path | Status |
+|---|---|---|
+| Proof runner | `igniter-view-engine/proofs/verify_lab_web_router_baseline_p1.rb` | **173/173 PASS** |
+| Lab doc | `lab-docs/governance/lab-web-router-baseline-v0.md` | Written |
+| Pressure registry | `igniter-apps/web_router/PRESSURE_REGISTRY.md` | Updated |
+| This card | `.agents/work/cards/governance/LAB-WEB-ROUTER-BASELINE-P1.md` | CLOSED |
+| Portfolio index | `.agents/portfolio-index.md` | Updated |

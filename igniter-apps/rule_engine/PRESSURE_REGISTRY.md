@@ -115,3 +115,15 @@ Diagnostics:
 - Ruby: `OOF-P1 Unresolved symbol: d` + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
 
 BLOCKED status remains intentional fail-closed evidence for Tier 2 dynamic contract dispatch. No source changes. No new pressures. No regressions.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: oof / 2 diagnostics — unchanged from Wave P11 and `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` selected safe route.
+Ruby: oof / 2 diagnostics — unchanged from Wave P11.
+
+Diagnostics:
+
+- Rust: `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`) + `OOF-TY1 Output type mismatch: expected RuleDecision, got Unknown` (node `decision`).
+- Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
+
+BLOCKED status remains intentional fail-closed evidence for Tier 2 dynamic contract dispatch. No source changes. No new pressures. No regressions.

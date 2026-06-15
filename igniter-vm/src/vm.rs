@@ -3416,7 +3416,7 @@ fn eval_ast<'a>(
                             "!=" | "ne" => {
                                 Ok(Value::Bool(left_val != right_val))
                             }
-                            ">" | "gt" => {
+                            ">" | "gt" | "stdlib.integer.gt" => {
                                 match (left_val, right_val) {
                                     (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
                                         let da = Decimal::new(*av, *as_);
@@ -3428,7 +3428,7 @@ fn eval_ast<'a>(
                                     _ => Err(format!("Invalid operand types for GT: {:?} > {:?}", left_val, right_val)),
                                 }
                             }
-                            "<" | "lt" => {
+                            "<" | "lt" | "stdlib.integer.lt" => {
                                 match (left_val, right_val) {
                                     (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
                                         let da = Decimal::new(*av, *as_);
@@ -3441,7 +3441,7 @@ fn eval_ast<'a>(
                                     _ => Err(format!("Invalid operand types for LT: {:?} < {:?}", left_val, right_val)),
                                 }
                             }
-                            "<=" | "le" => {
+                            "<=" | "le" | "stdlib.integer.lte" => {
                                 match (left_val, right_val) {
                                     (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
                                         let da = Decimal::new(*av, *as_);
@@ -3454,7 +3454,7 @@ fn eval_ast<'a>(
                                     _ => Err(format!("Invalid operand types for LE: {:?} <= {:?}", left_val, right_val)),
                                 }
                             }
-                            ">=" | "ge" => {
+                            ">=" | "ge" | "stdlib.integer.gte" => {
                                 match (left_val, right_val) {
                                     (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
                                         let da = Decimal::new(*av, *as_);

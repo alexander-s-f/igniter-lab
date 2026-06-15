@@ -28,7 +28,7 @@ cargo run -- compile \
 | contracts | 8 |
 | call_contract / match | 10 / 2 |
 | entrypoint | `RunArticle` |
-| source_hash | `sha256:4d9b5472cf043be8f1f4373351ca20426012819a756382f598d6f801a73f1039` |
+| source_hash | `sha256:15cc6c7d4ba22f29aa02878f58b8507ce4c7cbc53f3c39d1a228004f0b57c3ce` |
 
 ## Provenance (fixture → app)
 
@@ -76,3 +76,33 @@ a wire parser, header maps, path-param parsing, or Rack compatibility.
 1. Keep as **regression evidence** for `LANG-SUMTYPE-CONSTRUCT-MATCH` (WR-P01).
 2. `LANG-STDLIB-MAP` construction (WR-P03) + `split`/`Collection[String]` typing (WR-P04).
 3. ServiceLoop/`PROP-037` + microservice envelope for the serve loop (WR-P05).
+
+## Baseline Closure (2026-06-15)
+
+`LAB-WEB-ROUTER-BASELINE-P1` closed this registry as a positive
+dual-toolchain baseline and pressure source. Proof runner:
+`igniter-view-engine/proofs/verify_lab_web_router_baseline_p1.rb`
+(`173/173 PASS`).
+
+Closure facts:
+
+- Ruby: `ok` / 0 diagnostics.
+- Rust: `ok` / 0 diagnostics.
+- Absolute proof-runner source hash:
+  `sha256:15cc6c7d4ba22f29aa02878f58b8507ce4c7cbc53f3c39d1a228004f0b57c3ce`.
+- Counts preserved: 3 files, 2 types, 1 variant, 8 contracts, 10
+  `call_contract` sites, registry metric 2 `match` sites, executable
+  `Respond` match expression.
+- WR-P01..WR-P06 preserved and routed.
+- `entrypoint RunArticle` verified in manifest and SemanticIR.
+- The prior registry hash
+  `sha256:4d9b5472cf043be8f1f4373351ca20426012819a756382f598d6f801a73f1039`
+  was stale metadata; no app source edits were made for this closure.
+- No sockets, accept loop, Rack env, header `Map`, path-param parser,
+  middleware, streaming, or runtime authority opened.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: sealed variant/`match` response composition, `LANG-STDLIB-MAP` header construction, split/`Collection[String]` plus Option typing, and ServiceLoop/microservice envelope surfaces. No source edits. No new pressures. No regressions.

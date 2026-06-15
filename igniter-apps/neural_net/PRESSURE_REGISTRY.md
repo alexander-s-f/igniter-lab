@@ -93,3 +93,9 @@ Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. 
 Rust: ok / 0 diagnostics — unchanged. Ruby: ok / 0 diagnostics — unchanged. DUAL-TOOLCHAIN CLEAN.
 
 Companion baseline integration (`air_combat`, `lead_router`, `call_router`) and Fold P3/P4 landing had no diagnostic impact on this app. No pressure ID changes this wave. No new pressures. No regressions.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+The 20-app fleet expansion and new companion intake (`audit_ledger`, `batch_importer`, `job_runner`, `web_router`) had no diagnostic impact on this app. No pressure ID changes. No new pressures. No regressions.

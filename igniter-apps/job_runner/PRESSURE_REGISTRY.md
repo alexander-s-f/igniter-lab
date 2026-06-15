@@ -30,7 +30,11 @@ cargo run -- compile \
 | contracts | 19 |
 | call_contract / match | 26 / 4 |
 | entrypoint | `RunSuccessSecond` |
-| source_hash | `sha256:06f8e6d73f4476009011fd6980d0eca86ee3821adb058916ff2e393478d71225` |
+| source_hash | `sha256:546c30b56c9b79d4b8bf1fbc396bb2252aec0b6ae58ac85bd7e7708932c3b91c` |
+
+The earlier hash `sha256:06f8e6d73f4476009011fd6980d0eca86ee3821adb058916ff2e393478d71225`
+is preserved as route-sensitive predecessor metadata from a non-closed path. The
+closed baseline uses absolute source paths through the Open3/mktmpdir proof route.
 
 ## Provenance (fixture → app)
 
@@ -80,3 +84,29 @@ a managed retry loop (unrolled), or Sidekiq compatibility.
 2. Keep as **regression evidence** for `LANG-SUMTYPE-CONSTRUCT-MATCH` (JR-P01) and
    `LAB-DYNAMIC-CONTRACT-DISPATCH-P2` (JR-P02).
 3. ServiceLoop/`PROP-037` + effect surface for a standing worker (JR-P05).
+
+## Baseline Closure (2026-06-15)
+
+**Status:** CLOSED — proved 190/190 PASS by
+`igniter-view-engine/proofs/verify_lab_job_runner_baseline_p1.rb`.
+
+**Result:** Ruby `ok/0` + Rust `ok/0` under the absolute Open3/mktmpdir route.
+
+**Frozen hash:** `sha256:546c30b56c9b79d4b8bf1fbc396bb2252aec0b6ae58ac85bd7e7708932c3b91c`
+
+**Shape preserved:** 4 files / 2 types / 1 variant (`JobOutcome`) / 19
+contracts / 26 textual `call_contract` mentions / 25 executable literal Tier-1
+`call_contract` forms / 4 `match` expressions / entrypoint `RunSuccessSecond`.
+
+**Pressure routing preserved:** JR-P01..JR-P06 stay routed as above. No app
+source edits were made.
+
+**Closed surfaces preserved:** no Redis, queue, scheduler, worker daemon, real
+retry dispatch, managed-loop implementation, dynamic job dispatch, clock,
+ServiceLoop implementation, DB/SQL/ORM, or HTTP/Rack/socket server.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: `PROP-039` BudgetedLocalLoop Ruby parity, sealed outcome regression for `LANG-SUMTYPE-CONSTRUCT-MATCH`, typed contract registry / dynamic dispatch policy, and ServiceLoop/effect surfaces. No source edits. No new pressures. No regressions.

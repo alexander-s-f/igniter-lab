@@ -32,11 +32,13 @@ cargo run -- compile \
 | call_contract sites | 15 (Tier-1 literals — static dispatch) |
 | fold / filter / count | 1 / 2 / 2 |
 | entrypoint | `BalanceAsOfDay5` |
-| source_hash | `sha256:c422c82ce3c54433fd545ce74f6f12a2dbf24bea7fb0175f22efdcd604e3e9a7` |
+| source_hash | `sha256:6789a12ecae4d888c84519ac268c20fcd7e1b91ac277bc1c335e6ce3c1346022` |
 
 > NOTE (fleet-wide): verify Rust via the Open3/mktmpdir subprocess route; the CLI
 > package writer can surface a spurious "Internal compiler error: No such file" on
 > rapid/redirected invocations. Ruby uses `MultifileResolver.resolve` (not naive join).
+> This baseline freezes the absolute proof-runner source path hash; relative-path
+> invocations may produce a different deterministic hash while still compiling ok.
 
 ## Provenance (specimen → pure model)
 
@@ -88,3 +90,36 @@ dedup, or recorded-by authority — all are documented pressure, not implemented
 2. A `Decimal`/Money readiness card (AL-P02).
 3. `LANG-FOLD-STRUCT-ACCUMULATOR` for running-balance trajectories (AL-P03).
 4. Effect-surface authority/provenance for recorded-by (AL-P09).
+
+## Baseline Closure
+
+Closed: 2026-06-15
+Proof runner: `igniter-view-engine/proofs/verify_lab_audit_ledger_baseline_p1.rb`
+Result: **197/197 PASS**
+
+The baseline is frozen on the standard absolute Open3/mktmpdir route:
+
+`sha256:6789a12ecae4d888c84519ac268c20fcd7e1b91ac277bc1c335e6ce3c1346022`
+
+Validated shape:
+
+- Ruby `ok` / 0 diagnostics.
+- Rust `ok` / 0 diagnostics.
+- 4 source files, 4 types, 13 contracts.
+- 15 Tier-1 PascalCase literal `call_contract` sites.
+- 1 scalar `fold`, 2 `filter`, 2 `count`.
+- Entrypoint `BalanceAsOfDay5` reflected in manifest and SemanticIR.
+
+Interpretation: positive pure-data temporal/audit baseline and pressure source.
+It proves explicit Integer TT/VT axes, append-only corrections, fixed-point
+Integer cents, and as-of reconstruction through filter plus scalar fold.
+
+Closed surfaces remain closed: no `BiHistory[T]`, no runtime `as_of`, no clock or
+`now()`, no Decimal/Money implementation, no storage backend, no supersession
+dedup primitive, no effect-surface authority/provenance, and no app source edits.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: `PROP-022` History/BiHistory and temporal reads, Decimal/Money readiness, fold-to-struct trajectories, and effect-surface provenance. No source edits. No new pressures. No regressions.

@@ -139,3 +139,9 @@ Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 Integrated into the fleet via `LAB-AIR-COMBAT-BASELINE-P2` (`115/115 PASS`). `entrypoint RunDuel` remains present and clean. Stable baseline hash: `sha256:b3c2bdd046475442d1b78705fbcb9bfda55da09b070df93a3d36ff8f825b0c55`.
 
 Fold P3/P4 are landed, but this wave made no app source changes; existing pressure IDs remain routed as migration/design opportunities. No new pressures. No regressions.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+The 20-app fleet expansion and new companion intake had no diagnostic impact on this app. Existing pressure IDs remain routed as migration/design opportunities. No source edits. No new pressures. No regressions.

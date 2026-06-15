@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P12
 
-**Status:** OPEN  
+**Status:** CLOSED  
 **Route:** governance / fleet recheck / 20-app wave  
 **Date:** 2026-06-15  
 **Scope:** full fleet compile evidence and registry updates only
@@ -91,3 +91,39 @@ the fleet membership explicitly instead of guessing.
 
 Give this to **Sonnet 4.6** or **Gemini**. It is broad, mechanical, and evidence-heavy;
 save Opus for design-heavy cards.
+
+---
+
+## Closure Summary (2026-06-15)
+
+**Status:** CLOSED — PROVED.
+
+Wave P12 rechecked the full 20-app fleet with fresh Ruby and Rust compiles.
+Result: **19/20 DUAL-CLEAN**.
+
+| App group | Result |
+|---|---|
+| 15 clean apps from Wave P11 | unchanged DUAL-CLEAN |
+| `audit_ledger` | integrated DUAL-CLEAN |
+| `batch_importer` | integrated DUAL-CLEAN |
+| `job_runner` | integrated DUAL-CLEAN |
+| `web_router` | integrated DUAL-CLEAN |
+| `rule_engine` | unchanged BLOCKED oof/2 Ruby + oof/2 Rust |
+
+`rule_engine` remains the intentional fail-closed dynamic-dispatch boundary under
+`LAB-DYNAMIC-CONTRACT-DISPATCH-P2`.
+
+Fresh diagnostics:
+
+- Rust: `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`) + `OOF-TY1 Output type mismatch: expected RuleDecision, got Unknown` (node `decision`).
+- Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
+
+Deliverables:
+
+- Rollup doc: `.agents/docs/app-pressure-recheck-wave-p12-2026-06-15-v0.md`.
+- 20 app `PRESSURE_REGISTRY.md` files updated with Wave P12 summaries.
+- Portfolio index updated.
+
+Closed surfaces preserved: no app edits, no compiler/runtime edits, no migrations,
+no implementation, no IO/runtime work, no canon decisions, and no source formatting
+churn.

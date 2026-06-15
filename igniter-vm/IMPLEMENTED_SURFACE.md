@@ -58,13 +58,19 @@ Surfaced by running `igniter-apps/*` through `tools/igniter` (compile → run).
 | # | gap | evidence | apps blocked |
 |---|---|---|---|
 | ~~1~~ | ✅ **RESOLVED 2026-06-15** — VM stdlib collection ops. Was: `OP_CALL: unimplemented 'stdlib.collection.filter'`. Fix: `vm.rs` OP_CALL now aliases `stdlib.collection.{filter,map,fold,reduce,count,range,first,last,sum,take,zip,any,all,find}` → existing bare HOF handlers, + new `stdlib.integer.{lt,gt,lte,gte}` and `stdlib.collection.append`. | RUN-OK 1→6 | unblocked job_runner, reconciler, arch_patterns, decision_tree, neural_net |
-| 2 | **cross-contract dispatch** — `call_contract: no contract named X` / `call_contract expects exactly 2 operands; got 3` (arity). NOW THE TOP BLOCKER. | dsa, dataframes, lead_router | ~7 |
+| 2a | ✅ **DONE 2026-06-15** — `eval_ast` (tree-walker) lacked `stdlib.integer.{lt,gt,lte,gte}` that OP_CALL has. Added namespaced aliases to its comparison arms. | RUN-OK 6→7 | audit_ledger |
+| 2b | **call_contract in `eval_ast`** — the tree-walker can't dispatch cross-contract calls (no `dispatch_table` access; it's a free fn, not a `self` method). Manifests as `Unsupported operator: call_contract` / `expects 2 operands; got N`. | 5 apps | batch_importer, bloom_filter, dsa, dataframes, query_engine |
+| 2c | **call_contract callee not in igapp** — `no contract named X` (compiler emission / multifile, not VM) | call_router, lead_router | 2 |
 | 3 | **field access resolution** — `Field access not resolved` | air_combat | 1 |
-| 4 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029 run-profiles) | vector_math, igniter_parser, … | ~6 (UX/lang, not VM) |
-| 5 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
+| 4 | **reference symbol not resolved** | sim_framework, trade_robot | 2 |
+| 5 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029) | vector_math, igniter_parser, … | ~5 (UX/lang) |
+| 6 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
 
-Implemented stdlib (OP_CALL) now includes the collection HOF set above. **Next
-lever = #2 cross-contract dispatch** (`call_contract` callee resolution + arity).
+**Architecture note (3rd occurrence):** the VM has TWO dispatch implementations —
+bytecode `OP_CALL` and the `eval_ast` tree-walker — that keep diverging (text.* →
+collection.* → integer.*). #2b's real fix is to stop duplicating: either route
+contracts through bytecode (where call_contract works) or thread the contract
+registry into eval_ast + extract a shared stdlib-dispatch helper. **Decision pending.**
 
 ## Provenance
 

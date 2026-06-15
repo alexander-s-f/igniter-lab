@@ -150,3 +150,9 @@ Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 Integrated into the fleet via `LAB-LEAD-ROUTER-BASELINE-P1` (`175/175 PASS`). `entrypoint RunAccept` remains present and clean. Stable baseline hash: `sha256:3cca9ed52a593e60ed86fb59e359809d255425af5690ded364cd8329fab71e1b`.
 
 Fold P3/P4 are landed, but this wave made no app source changes; existing pressure IDs remain routed as migration/design opportunities. No new pressures. No regressions.
+
+## Wave P12 Recheck Summary (2026-06-15)
+
+Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
+
+The 20-app fleet expansion and new companion intake had no diagnostic impact on this app. Existing pressure IDs remain routed as migration/design opportunities. No source edits. No new pressures. No regressions.
