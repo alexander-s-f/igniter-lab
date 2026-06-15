@@ -92,3 +92,7 @@ clock/poll source, receipt persistence, or a running reconcile loop.
 2. `LANG-STDLIB-MAP` construction (RC-P05) — small, high-value ergonomics.
 3. `LANG-FOLD-STRUCT-ACCUMULATOR` + ServiceLoop/`PROP-037` for the reconcile loop (RC-P04).
 4. Effect surface + idempotency-as-capability (RC-P03/P08) once the IO membrane lands.
+
+## Wave P13 Appendix Check (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. Source files: 5. outside active fleet; appendix clean. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.

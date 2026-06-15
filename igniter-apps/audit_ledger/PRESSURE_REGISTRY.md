@@ -123,3 +123,8 @@ dedup primitive, no effect-surface authority/provenance, and no app source edits
 Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 
 Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: `PROP-022` History/BiHistory and temporal reads, Decimal/Money readiness, fold-to-struct trajectories, and effect-surface provenance. No source edits. No new pressures. No regressions.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:6789a12ecae4d888c84519ac268c20fcd7e1b91ac277bc1c335e6ce3c1346022`. Entrypoint: `BalanceAsOfDay5`. unchanged clean companion app.
+No source changes in this wave. No new pressures. No regressions.

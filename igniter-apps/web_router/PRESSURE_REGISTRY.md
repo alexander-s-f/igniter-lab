@@ -106,3 +106,8 @@ Closure facts:
 Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 
 Integrated into the 20-app fleet as a new companion app. Its pressure routes remain evidence-only: sealed variant/`match` response composition, `LANG-STDLIB-MAP` header construction, split/`Collection[String]` plus Option typing, and ServiceLoop/microservice envelope surfaces. No source edits. No new pressures. No regressions.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 3. Source hash: `sha256:15cc6c7d4ba22f29aa02878f58b8507ce4c7cbc53f3c39d1a228004f0b57c3ce`. Entrypoint: `RunArticle`. unchanged clean companion app.
+No source changes in this wave. No new pressures. No regressions.

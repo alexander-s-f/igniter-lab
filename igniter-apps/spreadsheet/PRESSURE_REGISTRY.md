@@ -83,3 +83,7 @@ Ruby remaining diagnostics (all in `RecalculateWorkbook`, `api.ig`):
 - `OOF-TY0: Type mismatch: expected Collection, got Unknown` — cascade from SS-P05
 
 No recursion-related diagnostics in either toolchain.
+
+## Wave P13 Appendix Check (2026-06-15)
+
+Ruby: oof/2. Rust: ok/0. Source files: 3. outside active fleet; Ruby call/function blocker remains. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.

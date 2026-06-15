@@ -156,3 +156,8 @@ Fold P3/P4 are landed, but this wave made no app source changes; existing pressu
 Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 
 The 20-app fleet expansion and new companion intake had no diagnostic impact on this app. Existing pressure IDs remain routed as migration/design opportunities. No source edits. No new pressures. No regressions.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:3cca9ed52a593e60ed86fb59e359809d255425af5690ded364cd8329fab71e1b`. Entrypoint: `RunAccept`. unchanged clean companion app.
+No source changes in this wave. No new pressures. No regressions.

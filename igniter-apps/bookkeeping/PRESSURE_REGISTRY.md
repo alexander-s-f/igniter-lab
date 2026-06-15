@@ -54,3 +54,7 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; c=IgniterLang::Comp
 - BK-P05 should not be solved by inventing local `ok`/`err`; route through Result/Option stdlib reconciliation.
 - BK-P06 belongs to typed-ref/forms composition work, not stdlib.
 - BK-P07 should be minimized before treated as a product-facing diagnostic issue.
+
+## Wave P13 Appendix Check (2026-06-15)
+
+Ruby: oof/6. Rust: oof/1. Source files: 3. outside active fleet; Decimal/sum/fold blockers remain. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.

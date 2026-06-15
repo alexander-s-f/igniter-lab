@@ -127,3 +127,13 @@ Diagnostics:
 - Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
 
 BLOCKED status remains intentional fail-closed evidence for Tier 2 dynamic contract dispatch. No source changes. No new pressures. No regressions.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: oof/2. Rust: oof/2. BLOCKED. Source files: 4. Source hash: `sha256:0cf7f61465246aedb46242c9c6c36add39f9d71956950461a7831e9bdc22486b`. Entrypoint: `none`. intentional fail-closed dynamic dispatch boundary.
+
+Diagnostics preserved:
+
+- Rust: `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`) + `OOF-TY1 Output type mismatch: expected RuleDecision, got Unknown` (node `decision`).
+- Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
+No source changes in this wave. No new pressures. No regressions.

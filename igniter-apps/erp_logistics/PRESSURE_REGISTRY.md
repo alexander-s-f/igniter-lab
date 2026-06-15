@@ -55,3 +55,7 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; c=IgniterLang::Comp
 - ERP-P05 aligns with bookkeeping/spreadsheet collection parity pressure.
 - ERP-P07 is tooling, not a reason to change import semantics.
 - ERP-P08 should be minimized separately from numeric/std-lib work.
+
+## Wave P13 Appendix Check (2026-06-15)
+
+Ruby: oof/4. Rust: ok/0. Source files: 4. outside active fleet; Ruby Float/operator blockers remain. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.

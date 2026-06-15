@@ -88,3 +88,7 @@ coercion.
 2. `LANG-STDLIB-COLLECTION-SORT` (QE-P05) — stable `sort_by` for `plan.order`.
 3. `LANG-FOLD-STRUCT-ACCUMULATOR` / nested iteration (QE-P04).
 4. Storage capability + effect surface (QE-P08) once the IO membrane lands.
+
+## Wave P13 Appendix Check (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. Source files: 4. outside active fleet; appendix clean. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.

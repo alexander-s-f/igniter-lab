@@ -164,3 +164,8 @@ Integrated into the 20-app fleet as a new companion app. Its pressure routes rem
 
 BI-P01 is resolved by `filter_map` app migration. Ruby and Rust are both ok/0.
 This is app-source evidence only; canon authority remains in `igniter-lang`.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 3. Source hash: `sha256:1cf7a0f1e5d874c418954b699e5145a3e8c7dfada40bd1c3f94f78093d91d0fa`. Entrypoint: `RunImport`. BI-P01 is RESOLVED by `filter_map`; source hash changed vs Wave P12 due to the authorized migration.
+No source changes in this wave. No new pressures. No regressions.

@@ -107,3 +107,8 @@ Companion baseline integration (`air_combat`, `lead_router`, `call_router`) and 
 Rust: ok / 0 diagnostics. Ruby: ok / 0 diagnostics. DUAL-TOOLCHAIN CLEAN.
 
 The 20-app fleet expansion and new companion intake (`audit_ledger`, `batch_importer`, `job_runner`, `web_router`) had no diagnostic impact on this app. No pressure ID changes. No new pressures. No regressions.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 5. Source hash: `sha256:1996496fed1c6a7f11b6dc3d0e809a3dec8c404fd891f3cdc9b186e43b29cb89`. Entrypoint: `none`. unchanged clean app.
+No source changes in this wave. No new pressures. No regressions.

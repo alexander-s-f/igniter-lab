@@ -123,3 +123,8 @@ undeclared body targets even when no `lead` binding exists.
 loop syntax. JR-P03 remains active as a semantics/modeling pressure: a faithful
 retry loop still needs fold-to-struct modeling or a future value-returning loop
 design, not a relaxation of body assignment rules.
+
+## Wave P13 Recheck Summary (2026-06-15)
+
+Ruby: ok/0. Rust: ok/0. DUAL-CLEAN. Source files: 4. Source hash: `sha256:546c30b56c9b79d4b8bf1fbc396bb2252aec0b6ae58ac85bd7e7708932c3b91c`. Entrypoint: `RunSuccessSecond`. Rust loop-body assignment tightening did not affect the app; no managed loop syntax is present.
+No source changes in this wave. No new pressures. No regressions.

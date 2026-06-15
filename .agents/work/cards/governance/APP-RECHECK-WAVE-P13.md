@@ -1,6 +1,6 @@
 # APP-RECHECK-WAVE-P13
 
-**Status:** OPEN — GOVERNANCE RECHECK  
+**Status:** CLOSED — 19/20 DUAL-CLEAN  
 **Route:** lab / app pressure / fleet recheck  
 **Date:** 2026-06-15  
 **Authority:** evidence-only fleet recheck; no compiler or app source changes
@@ -71,3 +71,35 @@ If only the Rust loop safety card landed, classify the wave as a safety-regressi
 ## Agent Recommendation
 
 Give this to **Codex GPT 5.5**. It benefits from reliable local scripting and exact registry updates.
+
+## Closure Summary (2026-06-15)
+
+**Status:** CLOSED — 19/20 DUAL-CLEAN.
+
+Wave P13 rechecked the P12 20-app active fleet with fresh Ruby and Rust compiles.
+Result: **19/20 DUAL-CLEAN**, unchanged from Wave P12.
+
+| App group | Result |
+|---|---|
+| 18 clean apps excluding `batch_importer` | unchanged DUAL-CLEAN |
+| `batch_importer` | DUAL-CLEAN; BI-P01 RESOLVED by `filter_map` migration |
+| `job_runner` | DUAL-CLEAN; Rust loop-body assignment tightening caused no regression |
+| `rule_engine` | unchanged BLOCKED oof/2 Ruby + oof/2 Rust |
+
+`rule_engine` remains the intentional fail-closed dynamic-dispatch boundary under
+`LAB-DYNAMIC-CONTRACT-DISPATCH-P2`.
+
+Fresh diagnostics:
+
+- Rust: `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`) + `OOF-TY1 Output type mismatch: expected RuleDecision, got Unknown` (node `decision`).
+- Ruby: `OOF-P1 Unresolved symbol: d` (node `active_decisions`) + `OOF-P1 Unresolved field: Unknown.action` (node `active_decisions`).
+
+Deliverables:
+
+- Rollup doc: `.agents/docs/app-pressure-recheck-wave-p13-2026-06-15-v0.md`.
+- 25 app `PRESSURE_REGISTRY.md` files updated: 20 active fleet summaries plus 5 appendix-check notes.
+- Portfolio index updated.
+
+Closed surfaces preserved: no app edits in this wave, no compiler/runtime edits,
+no migrations in this wave, no implementation, no IO/runtime work, no canon
+decisions, and no source formatting churn.
