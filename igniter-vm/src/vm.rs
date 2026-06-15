@@ -424,6 +424,27 @@ impl VM {
                     }
                     args.reverse();
                     
+                    // stdlib.collection.* namespaced aliases -> existing bare handlers.
+                    // The compiler emits namespaced names; the VM historically matched
+                    // bare names. (Same alignment the text.* ops already received.)
+                    let fn_name = match fn_name {
+                        "stdlib.collection.filter" => "filter",
+                        "stdlib.collection.map"    => "map",
+                        "stdlib.collection.fold"   => "fold",
+                        "stdlib.collection.reduce" => "reduce",
+                        "stdlib.collection.count"  => "count",
+                        "stdlib.collection.range"  => "range",
+                        "stdlib.collection.first"  => "first",
+                        "stdlib.collection.last"   => "last",
+                        "stdlib.collection.sum"    => "sum",
+                        "stdlib.collection.take"   => "take",
+                        "stdlib.collection.zip"    => "zip",
+                        "stdlib.collection.any"    => "any",
+                        "stdlib.collection.all"    => "all",
+                        "stdlib.collection.find"   => "find",
+                        other => other,
+                    };
+
                     let res = match fn_name {
                         "stdlib.IO.read_text" => {
                             if args.len() != 2 {
@@ -1168,6 +1189,32 @@ impl VM {
                                 (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
                                 _ => return Err(format!("Invalid operand types for add: {:?} + {:?}", args[0], args[1])),
                             }
+                        }
+                        "stdlib.integer.lt" | "stdlib.integer.gt" | "stdlib.integer.lte" | "stdlib.integer.gte" => {
+                            if args.len() != 2 {
+                                return Err(format!("{} expects exactly 2 arguments, got {}", fn_name, args.len()));
+                            }
+                            let a = args[0].as_integer()?;
+                            let b = args[1].as_integer()?;
+                            let r = match fn_name {
+                                "stdlib.integer.lt"  => a < b,
+                                "stdlib.integer.gt"  => a > b,
+                                "stdlib.integer.lte" => a <= b,
+                                _                    => a >= b,
+                            };
+                            Value::Bool(r)
+                        }
+                        "stdlib.collection.append" | "append" => {
+                            if args.len() != 2 {
+                                return Err(format!("append expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let mut list = match &args[0] {
+                                Value::Array(a) => (**a).clone(),
+                                Value::Nil => Vec::new(),
+                                _ => return Err("append first argument must be an array".to_string()),
+                            };
+                            list.push(args[1].clone());
+                            Value::Array(Arc::new(list))
                         }
                         "filter" => {
                             if args.len() != 2 {

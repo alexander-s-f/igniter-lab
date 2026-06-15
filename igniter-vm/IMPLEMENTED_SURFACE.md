@@ -57,13 +57,14 @@ Surfaced by running `igniter-apps/*` through `tools/igniter` (compile → run).
 
 | # | gap | evidence | apps blocked |
 |---|---|---|---|
-| 1 | **VM stdlib collection ops** — `OP_CALL: Unknown/unimplemented function 'stdlib.collection.filter'` (map/fold/count/sum likely same). Compiler emits + front-end typechecks them; VM `OP_CALL` handler lacks the builtins. | `dsa` RunArrayExample | most collection-using apps (dsa, dataframes, decision_tree, neural_net, query_engine, reconciler, …) |
-| 2 | **cross-contract callee not in igapp** — `call_contract: no contract named 'FindTrade'` / `OP_CALL: Unknown callee` | lead_router, audit_ledger, batch_importer, call_router, job_runner | ~7 |
+| ~~1~~ | ✅ **RESOLVED 2026-06-15** — VM stdlib collection ops. Was: `OP_CALL: unimplemented 'stdlib.collection.filter'`. Fix: `vm.rs` OP_CALL now aliases `stdlib.collection.{filter,map,fold,reduce,count,range,first,last,sum,take,zip,any,all,find}` → existing bare HOF handlers, + new `stdlib.integer.{lt,gt,lte,gte}` and `stdlib.collection.append`. | RUN-OK 1→6 | unblocked job_runner, reconciler, arch_patterns, decision_tree, neural_net |
+| 2 | **cross-contract dispatch** — `call_contract: no contract named X` / `call_contract expects exactly 2 operands; got 3` (arity). NOW THE TOP BLOCKER. | dsa, dataframes, lead_router | ~7 |
 | 3 | **field access resolution** — `Field access not resolved` | air_combat | 1 |
-| 4 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029 run-profiles); 13 apps compile but have no single entry | advanced_logistics, dsa, vector_math, … | 13 (UX/lang, not VM) |
+| 4 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029 run-profiles) | vector_math, igniter_parser, … | ~6 (UX/lang, not VM) |
 | 5 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
 
-**#1 (VM stdlib collection ops) is the highest-leverage lever for live app work.**
+Implemented stdlib (OP_CALL) now includes the collection HOF set above. **Next
+lever = #2 cross-contract dispatch** (`call_contract` callee resolution + arity).
 
 ## Provenance
 
