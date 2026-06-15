@@ -2,7 +2,7 @@
 
 **Card:** `LAB-BATCH-IMPORTER-BASELINE-P1`  
 **Date:** 2026-06-15  
-**Proof runner:** `igniter-lab/igniter-view-engine/proofs/verify_lab_batch_importer_baseline_p1.rb`  
+**Proof runner:** `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-view-engine/proofs/verify_lab_batch_importer_baseline_p1.rb`  
 **Status:** CLOSED — PROVED  
 **Authority:** lab evidence baseline only; no canon authority
 
@@ -42,9 +42,9 @@ while the executable expression count is one.
 
 | File | Module | Role |
 |---|---|---|
-| `types.ig` | `BatchImporterTypes` | `RawRow`, `ImportRecord`, `RowResult`, `ImportReceipt` |
-| `validate.ig` | `BatchImporterValidate` | row validation, `map`, match predicate, `filter`, `count`, receipt build |
-| `example.ig` | `BatchImporterExample` | four-row demo batch and `RunImport` entrypoint |
+| `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/batch_importer/types.ig` | `BatchImporterTypes` | `RawRow`, `ImportRecord`, `RowResult`, `ImportReceipt` |
+| `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/batch_importer/validate.ig` | `BatchImporterValidate` | row validation, `map`, match predicate, `filter`, `count`, receipt build |
+| `/Users/alex/dev/projects/igniter-workspace/igniter-lab/igniter-apps/batch_importer/example.ig` | `BatchImporterExample` | four-row demo batch and `RunImport` entrypoint |
 
 ## Proof Matrix
 
@@ -117,7 +117,7 @@ part of this baseline card.
 ## Evidence
 
 ```text
-ruby igniter-view-engine/proofs/verify_lab_batch_importer_baseline_p1.rb
+cd /Users/alex/dev/projects/igniter-workspace/igniter-lab && ruby igniter-view-engine/proofs/verify_lab_batch_importer_baseline_p1.rb
 Summary: 161/161 checks passed
 ```
 
