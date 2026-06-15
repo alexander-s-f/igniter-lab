@@ -176,11 +176,15 @@ check("F-03: Ruby did not crash (status oof, not EXC)") { RUBY["status"] == "oof
 check("F-04: residual = stdlib.collection.sum 1-arg form (BK-P04), OOF-COL1") do
   RUBY_RULES.include?("OOF-COL1") && RUBY_MSGS.any? { |m| m.include?("stdlib.collection.sum") }
 end
-check("F-05: residual = Ruby numeric parity, homogeneous Decimal+Decimal rejected (OOF-TY0)") do
-  RUBY_MSGS.any? { |m| m.include?("Decimal+Decimal") }
+# F-05/F-06: at migration time these pinned a LIVE Ruby `Decimal+Decimal` numeric-parity
+# residual. LANG-RUBY-NUMERIC-OPS-PARITY-P1 subsequently mirrored the Rust homogeneous
+# relaxation in the Ruby canon TC, so that residual is now RESOLVED. These checks assert
+# the resolved state (no `Decimal+Decimal` error remains) as a forward regression guard.
+check("F-05: Decimal+Decimal numeric-parity residual RESOLVED by NUMERIC-OPS-PARITY-P1") do
+  RUBY_MSGS.none? { |m| m.include?("Decimal+Decimal") }
 end
-check("F-06: residual Decimal+Decimal is in the fold node (total), not a decimal() failure") do
-  RUBY_DIAGS.any? { |d| d["message"].to_s.include?("Decimal+Decimal") && d["node"].to_s == "total" }
+check("F-06: no OOF-TY0 Decimal+Decimal error remains in the fold node (total)") do
+  RUBY_DIAGS.none? { |d| d["message"].to_s.include?("Decimal+Decimal") }
 end
 check("F-07: residuals do NOT include any Float->Decimal coercion error") { !ruby_has_float_to_decimal_mismatch? }
 check("F-08: Ruby residual count reduced vs pre-migration baseline (6 -> fewer)") { RUBY_DIAGS.size < 6 }
@@ -272,11 +276,11 @@ section("K  Ruby residual set is exactly the known out-of-authority gaps")
 check("K-01: Ruby residual rules are a subset of {OOF-COL1, OOF-P1, OOF-TY0, OOF-COL4}") do
   (RUBY_RULES - %w[OOF-COL1 OOF-P1 OOF-TY0 OOF-COL4]).empty?
 end
-check("K-02: residual includes the OOF-COL4 fold-accumulator cascade") { RUBY_RULES.include?("OOF-COL4") }
+check("K-02: OOF-COL4 fold-accumulator cascade RESOLVED (Decimal+Decimal now accepted, NUMERIC-OPS-PARITY-P1)") { !RUBY_RULES.include?("OOF-COL4") }
 check("K-03: residual includes the OOF-P1 unresolved-symbol cascade (from sum)") { RUBY_RULES.include?("OOF-P1") }
 check("K-04: NO OOF-TY1 remains in Ruby (the Float->Decimal mismatch is fully gone)") { !RUBY_RULES.include?("OOF-TY1") }
-check("K-05: every Ruby OOF-TY0 is the Decimal+Decimal parity gap (not a coercion error)") do
-  RUBY_DIAGS.select { |d| d["rule"] == "OOF-TY0" }.all? { |d| d["message"].to_s.include?("Decimal+Decimal") }
+check("K-05: NO OOF-TY0 remains in Ruby (the Decimal+Decimal parity gap is resolved)") do
+  RUBY_RULES.none? { |r| r == "OOF-TY0" }
 end
 check("K-06: OOF-COL1 residual appears exactly twice (debit + credit sums)") do
   RUBY_RULES.count("OOF-COL1") == 2

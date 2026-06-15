@@ -154,13 +154,17 @@ check("D-05: => a pure contract can now mint a Decimal constant, yet implicit Fl
 check("D-06: Decimal sources = typed input, Decimal arithmetic, or decimal() constructor") { clean?(RS[:decin]) && clean?(RS[:decctor]) }
 
 # ══════════════════════════════════════════════════════════════════════════════
-section("E  bookkeeping blocker live (dual)")
-check("E-01: Rust bookkeeping full → OOF-TY1") { has?(BK_RS, "OOF-TY1") }
-check("E-02: bookkeeping is NOT clean (blocker live)") { !clean?(BK_RS) }
-check("E-03: ledger ComputeAccountBalance seeds fold with Float 0.00") { read(BK / "ledger.ig").include?("fold(txs, 0.00") }
+# NOTE: section E originally pinned the *live* bookkeeping Float->Decimal blocker. The
+# follow-up LAB-BOOKKEEPING-DECIMAL-MIGRATION-P1 migrated the fold seed 0.00 -> decimal(0,2),
+# so Rust bookkeeping now compiles clean. These checks assert the RESOLVED state and act as
+# a forward regression guard; the historical live blocker is preserved in this card's doc.
+section("E  bookkeeping blocker resolved by decimal() migration")
+check("E-01: Rust bookkeeping full now clean (BK-P03 resolved by MIGRATION-P1)") { clean?(BK_RS) }
+check("E-02: bookkeeping Rust is clean (blocker resolved)") { clean?(BK_RS) }
+check("E-03: ledger ComputeAccountBalance seeds fold with decimal(0, 2) (migrated off Float)") { read(BK / "ledger.ig").include?("fold(txs, decimal(0, 2)") }
 check("E-04: output total annotated Decimal[2]") { read(BK / "ledger.ig").include?("output total : Decimal[2]") }
 check("E-05: Posting.amount is Decimal[2] (the money type)") { read(BK / "types.ig").include?("amount     : Decimal[2]") || read(BK / "types.ig").include?("amount") }
-check("E-06: this is heterogeneous Float→Decimal, not homogeneous numeric") { has?(BK_RS, "OOF-TY1") }
+check("E-06: the blocker was heterogeneous Float->Decimal — now off Float via decimal() (no bare 0.00)") { !read(BK / "ledger.ig").include?("0.00") }
 
 # ══════════════════════════════════════════════════════════════════════════════
 section("F  VM preserves scale")
@@ -195,7 +199,7 @@ check("I-01: readiness card stayed policy-only; decimal() implemented by CONSTRU
 check("I-02: no implicit coercion introduced (Float→Decimal still OOF-TY1)") { has?(RS[:fvar], "OOF-TY1") }
 check("I-03: no Money type") { read(DOC).include?("No `Money`") || read(DOC).include?("no `Money`") }
 check("I-04: no rounding-policy change") { read(DOC).include?("rounding-policy change") }
-check("I-05: no app source migration in this card") { read(BK / "ledger.ig").include?("fold(txs, 0.00") }
+check("I-05: this readiness card made no app source migration (the migration was a separate card)") { read(DOC).downcase.include?("no app source migration") }
 check("I-06: no canon spec change beyond this readiness proposal") { read(DOC).include?("no canon spec change beyond") }
 
 puts

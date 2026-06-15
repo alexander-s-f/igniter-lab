@@ -160,8 +160,8 @@ end
 check('HYP-COMPILE-02: Ruby TC ACCEPTS the full integer Kalman filter (predict+update) — dual-toolchain arithmetic') do
   tc_status('KalmanPredict') == 'accepted' && tc_status('KalmanUpdate') == 'accepted'
 end
-check('HYP-COMPILE-03: routers/guards blocked in Ruby TC by known ==/< divergence (documented, not hidden)') do
-  tc_status('TrackStepRouter') != 'accepted' && tc_status('ZemGuidance') != 'accepted'
+check('HYP-COMPILE-03: routers/guards now ACCEPTED in Ruby TC — ==/< numeric divergence resolved by LANG-RUBY-NUMERIC-OPS-PARITY-P1') do
+  tc_status('TrackStepRouter') == 'accepted' && tc_status('ZemGuidance') == 'accepted'
 end
 check('HYP-COMPILE-04: fixture declares no variants; KDR + pure contracts only') do
   (PG_TC[:parsed]&.fetch('variants', []) || []).empty?
@@ -190,19 +190,24 @@ DEC_SRC = <<~IG
   }
 IG
 
-check('HYP-MATHGAP-01: Float arithmetic is REJECTED by the Ruby TypeChecker') do
+# NOTE: HYP-MATHGAP-01..03 originally pinned the homogeneous numeric arithmetic GAP
+# (Float/Decimal rejected, with Rust↔Ruby divergence). That boundary is now CLOSED dual-
+# toolchain: the Rust homogeneous relaxation (LAB-COMPILER-NUMERIC-DISPATCH-UNKNOWN-P1) and
+# its Ruby mirror (LANG-RUBY-NUMERIC-OPS-PARITY-P1) both accept same-family homogeneous
+# numeric ops. These checks now assert the CONVERGED state.
+check('HYP-MATHGAP-01: Float arithmetic is now ACCEPTED by the Ruby TypeChecker (parity)') do
   r = ruby_tc(FLOAT_SRC)
   c = r[:typed]&.fetch('contracts', [])&.first
-  c && c['status'] != 'accepted'
+  c && c['status'] == 'accepted'
 end
-check('HYP-MATHGAP-02: Float arithmetic is REJECTED by the Rust compiler (OOF-TY0)') do
-  rep = rust_compile_src(FLOAT_SRC)
-  rep.fetch('diagnostics', []).any? { |d| d['message'].to_s.include?('Float') }
+check('HYP-MATHGAP-02: Float arithmetic is now ACCEPTED by the Rust compiler (homogeneous relaxation)') do
+  rust_compile_src(FLOAT_SRC).fetch('diagnostics', []).empty?
 end
-check('HYP-MATHGAP-03: Decimal arithmetic DIVERGES — Rust TC accepts, Ruby TC rejects (flagged, not resolved)') do
-  rust_ok = rust_compile_src(DEC_SRC).fetch('diagnostics', []).empty?
+check('HYP-MATHGAP-03: Decimal arithmetic CONVERGED — Rust and Ruby agree (same-scale * yields Decimal[A+B], so Dec3*Dec3->Dec3 is flagged by BOTH)') do
+  rust_rejects = !rust_compile_src(DEC_SRC).fetch('diagnostics', []).empty?
   ruby_c  = ruby_tc(DEC_SRC)[:typed]&.fetch('contracts', [])&.first
-  rust_ok && ruby_c && ruby_c['status'] != 'accepted'
+  ruby_rejects = ruby_c && ruby_c['status'] != 'accepted'
+  rust_rejects && ruby_rejects
 end
 check('HYP-MATHGAP-04: VM stdlib has no sqrt/sin/cos/atan — algorithms must be arithmetic-only') do
   vm_src = File.read(VM_SRC, encoding: 'UTF-8')

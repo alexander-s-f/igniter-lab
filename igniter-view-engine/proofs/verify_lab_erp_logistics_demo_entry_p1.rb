@@ -247,27 +247,27 @@ check("B-10: Rust contract set matches expected") { Array(rust1["contracts"]).so
 check("B-11: Rust compile wrote fresh igapp") { File.directory?(rust_out1) }
 check("B-12: Rust compile stdout parsed as JSON (flake retried)") { !rust1.key?("_parse_error") }
 
-section("C -- Ruby compilation: PINNED residual blocker (numeric parity)")
+# NOTE: section C originally pinned a LIVE Ruby numeric-parity residual (erp_logistics
+# rejected Float < Float / Float * Float in the production contracts). The follow-up
+# LANG-RUBY-NUMERIC-OPS-PARITY-P1 mirrored the Rust homogeneous numeric relaxation in the
+# Ruby canon TC, so erp_logistics is now FULLY dual-clean (Ruby ok/0). These checks assert
+# the resolved state; the historical residual is preserved in this card's doc + registry.
+section("C -- Ruby compilation: numeric-parity residual RESOLVED (Ruby clean)")
 check("C-01: Ruby wrapper status present") { !ruby1_raw["status"].nil? }
-check("C-02: Ruby inner status is oof (blocked, not green)") { ruby1["status"] == "oof" }
-check("C-03: Ruby reports exactly 4 diagnostics") { ruby_diags.size == 4 }
+check("C-02: Ruby inner status is ok (numeric parity resolved by NUMERIC-OPS-PARITY-P1)") { ruby1["status"] == "ok" }
+check("C-03: Ruby reports zero diagnostics (was 4 Float-operator blockers)") { ruby_diags.size == 0 }
 check("C-04: Ruby compile stdout parsed as JSON") { !ruby1_raw.key?("_parse_error") }
-check("C-05: all Ruby diagnostics are in PRODUCTION contracts, none in ErpExample") do
-  ruby_diag_paths.all? { |p| p.include?("CalculateBestRoute") || p.include?("CheckCapacity") } &&
-    ruby_diag_paths.none? { |p| p.include?("Make") || p.include?("Run") }
+check("C-05: no Ruby Float-operator over-restriction remains") do
+  ruby_diags.none? { |d| d["message"].to_s.include?("Float<Float") || d["message"].to_s.include?("Float*Float") }
 end
-check("C-06: Ruby blocker is Float operator over-restriction (Integer expected)") do
-  ruby_diags.any? { |d| d["message"].to_s.include?("Float<Float") } &&
-    ruby_diags.any? { |d| d["message"].to_s.include?("Float*Float") }
+check("C-06: erp_logistics is now dual-clean (Rust ok/0 + Ruby ok/0)") do
+  rust1["status"] == "ok" && ruby1["status"] == "ok"
 end
-check("C-07: CheckCapacity is_valid is a Ruby Float-comparison blocker") do
-  ruby_diag_paths.any? { |p| p.include?("CheckCapacity/node:is_valid") }
+check("C-07: Ruby and Rust agree (both clean) on the same source closure") do
+  Array(ruby1["diagnostics"]).empty? && Array(rust1["diagnostics"]).empty?
 end
-check("C-08: CalculateBestRoute best_cost/total_cost are Ruby Float blockers") do
-  ruby_diag_paths.any? { |p| p.include?("CalculateBestRoute/node:best_cost") } &&
-    ruby_diag_paths.any? { |p| p.include?("CalculateBestRoute/node:total_cost") }
-end
-check("C-09: demo entry adds ZERO new Ruby diagnostics vs production baseline") do
+check("C-08: Ruby + Rust source_hash agree") { ruby1["source_hash"] == rust1["source_hash"] }
+check("C-09: demo entry adds ZERO new Ruby diagnostics (and none remain anywhere)") do
   ruby_diag_paths.none? { |p| p.include?("RunBestRoute") || p.include?("RunCapacity") || p.include?("RunDispatchDemo") }
 end
 

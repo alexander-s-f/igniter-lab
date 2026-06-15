@@ -277,8 +277,8 @@ section("J  Closed surfaces / scope")
 check("J-01: no Money type introduced (card)") { read(CARD).downcase.include?("no `money` type") || read(CARD).include?("A `Money` type") }
 check("J-02: round_decimal deferred (not implemented here)") { !read(TC_RUST).include?("round_decimal") && !read(TC_RUBY).include?("round_decimal") }
 check("J-03: no Decimal literal syntax (0.00 stays Float -> still OOF-TY1)") { has?(RS[:bare_float], "OOF-TY1") }
-check("J-04: bookkeeping app source NOT migrated in this card") do
-  read(LAB_ROOT / "igniter-apps" / "bookkeeping" / "ledger.ig").include?("fold(txs, 0.00")
+check("J-04: CONSTRUCT-P1 card made no bookkeeping migration (a separate card did)") do
+  read(CARD).downcase.include?("no bookkeeping migration") || read(CARD).include?("No bookkeeping source change")
 end
 check("J-05: lab doc records evidence + dual-toolchain outcome") { read(LAB_DOC).include?("dual-toolchain") }
 check("J-06: lab doc records VM Value::Decimal result") { read(LAB_DOC).include?("Value::Decimal") }

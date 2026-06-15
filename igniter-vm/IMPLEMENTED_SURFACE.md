@@ -81,11 +81,16 @@ Current non-green apps:
 
 | class | apps | owner / next route |
 |---|---|---|
-| real runtime bug | spreadsheet | VM app-local function-call / `eval_expr` support |
+| function SIR/runtime substrate | spreadsheet | `LAB-FUNCTION-SIR-RUNTIME-P1` — compiler/emitter must materialize app-local `def` bodies before VM can run `eval_expr` |
 | governance-gated | rule_engine | `LAB-DYNAMIC-CONTRACT-DISPATCH` DEFER (ledger D-001) |
 
 `rule_engine` remains intentionally fail-closed. This recheck is evidence-only and
 does not relax dynamic dispatch.
+
+`LAB-VM-EVALAST-EVAL-EXPR-P1` reclassified `spreadsheet`: the VM sees
+`{kind:"call", fn:"eval_expr"}` inside a map lambda, but the `.igapp` has no
+`functions` table or function sidecar. No VM-only source patch was made; route is
+function SIR materialization plus VM static app-local function runtime.
 
 ## Provenance
 
