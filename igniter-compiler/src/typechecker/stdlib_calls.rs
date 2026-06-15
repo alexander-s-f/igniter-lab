@@ -568,8 +568,17 @@ impl TypeChecker {
                 if args.len() >= 2 {
                     if let Expr::Lambda { params, body } = &args[1] {
                         let mut local_symbols = symbol_types.clone();
+                        // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: and_then binds the lambda param to
+                        // T (the ok/inner type of the first arg), mirroring the Ruby canon.
+                        // flat_map keeps its prior Integer placeholder (untouched).
                         for p in params {
-                            local_symbols.insert(p.clone(), self.type_ir(&serde_json::Value::String("Integer".to_string())));
+                            let param_ty = if fn_name == "and_then" {
+                                self.get_param(&first_arg_type, 0)
+                                    .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                            } else {
+                                self.type_ir(&serde_json::Value::String("Integer".to_string()))
+                            };
+                            local_symbols.insert(p.clone(), param_ty);
                         }
                         let mut temp_errors = Vec::new();
                         lambda_return_type = match body.as_ref() {
@@ -611,9 +620,17 @@ impl TypeChecker {
                     opt.insert("params".to_string(), serde_json::Value::Array(vec![inner_u]));
                     resolved_type = serde_json::Value::Object(opt);
                 } else if first_arg_name == "Result" {
-                    let err_type = self.get_param(&lambda_return_type, 1)
-                        .or_else(|| self.get_param(&first_arg_type, 1))
-                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: and_then is fixed-error-family — the
+                    // result keeps the input's E. flat_map keeps its prior preference for the
+                    // lambda body's E.
+                    let err_type = if fn_name == "and_then" {
+                        self.get_param(&first_arg_type, 1)
+                            .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                    } else {
+                        self.get_param(&lambda_return_type, 1)
+                            .or_else(|| self.get_param(&first_arg_type, 1))
+                            .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                    };
                     let mut res = serde_json::Map::new();
                     res.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
                     res.insert("params".to_string(), serde_json::Value::Array(vec![inner_u, err_type]));
@@ -625,55 +642,9 @@ impl TypeChecker {
                     resolved_type = serde_json::Value::Object(col);
                 }
             }
-            "some" => {
-                is_resolved = true;
-                let inner_ty = if !typed_args.is_empty() {
-                    typed_args[0].resolved_type.clone()
-                } else {
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                };
-                let mut opt = serde_json::Map::new();
-                opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
-                opt.insert("params".to_string(), serde_json::Value::Array(vec![inner_ty]));
-                resolved_type = serde_json::Value::Object(opt);
-            }
-            "none" => {
-                is_resolved = true;
-                let mut opt = serde_json::Map::new();
-                opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
-                opt.insert("params".to_string(), serde_json::Value::Array(vec![self.type_ir(&serde_json::Value::String("Unknown".to_string()))]));
-                resolved_type = serde_json::Value::Object(opt);
-            }
-            "ok" => {
-                is_resolved = true;
-                let inner_ty = if !typed_args.is_empty() {
-                    typed_args[0].resolved_type.clone()
-                } else {
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                };
-                let mut res = serde_json::Map::new();
-                res.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
-                res.insert("params".to_string(), serde_json::Value::Array(vec![
-                    inner_ty,
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                ]));
-                resolved_type = serde_json::Value::Object(res);
-            }
-            "err" => {
-                is_resolved = true;
-                let inner_ty = if !typed_args.is_empty() {
-                    typed_args[0].resolved_type.clone()
-                } else {
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                };
-                let mut res = serde_json::Map::new();
-                res.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
-                res.insert("params".to_string(), serde_json::Value::Array(vec![
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string())),
-                    inner_ty
-                ]));
-                resolved_type = serde_json::Value::Object(res);
-            }
+            // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: some/none/ok/err are intercepted before
+            // the stdlib path (see infer_sealed_construct) and lowered to sealed
+            // variant_construct nodes, so they no longer resolve here.
             "is_some" | "is_none" | "some?" | "none?" | "is_ok" | "is_err" | "ok?" | "err?" => {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));

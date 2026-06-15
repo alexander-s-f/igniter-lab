@@ -273,6 +273,11 @@ pub struct TypeChecker {
     /// Built once in typecheck() from classified.variant_declarations; shared across all contracts.
     /// variant_name → arm_name → field_name → type_ir
     variant_shapes: std::cell::RefCell<VariantShapes>,
+    /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: expected-type hints for sealed constructors.
+    /// Reset per-contract; maps output/compute decl name → declared Option/Result
+    /// type_ir. Read by infer_sealed_construct (via node_name) to recover the param
+    /// none()/ok()/err() cannot infer from their arguments.
+    sealed_output_hints: std::cell::RefCell<HashMap<String, serde_json::Value>>,
 }
 
 impl TypeChecker {
@@ -281,7 +286,67 @@ impl TypeChecker {
             version: "typed-pass-executable-proof-v0".to_string(),
             t3_context: std::cell::RefCell::new(None),
             variant_shapes: std::cell::RefCell::new(HashMap::new()),
+            sealed_output_hints: std::cell::RefCell::new(HashMap::new()),
         }
+    }
+
+    /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: sealed built-in sumtype source constructors
+    /// (function-form only, v0). Lowered to sealed `variant_construct` SIR nodes.
+    fn is_sealed_constructor(name: &str) -> bool {
+        matches!(name, "some" | "none" | "ok" | "err")
+    }
+
+    /// Admission for sealed built-in sumtypes. User variants take precedence: a user
+    /// `variant Option {…}` shadows the built-in. Registration here IS the OOF-KIND4
+    /// relax — only Option/Result are admitted; arbitrary named types stay rejected.
+    fn sealed_builtin(&self, name: &str) -> bool {
+        !self.variant_shapes.borrow().contains_key(name) && matches!(name, "Option" | "Result")
+    }
+
+    /// Declared arms (arm→field→type) for a match subject: user shapes if present,
+    /// else the sealed built-in registry. Field types are Unknown placeholders for
+    /// sealed types; concrete binding types come from sealed_arm_field_types.
+    fn declared_arms_for(&self, name: &str) -> HashMap<String, HashMap<String, serde_json::Value>> {
+        if let Some(arms) = self.variant_shapes.borrow().get(name) {
+            return arms.clone();
+        }
+        let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        let mut arms: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+        match name {
+            "Option" => {
+                let mut some = HashMap::new();
+                some.insert("value".to_string(), unknown.clone());
+                arms.insert("Some".to_string(), some);
+                arms.insert("None".to_string(), HashMap::new());
+            }
+            "Result" => {
+                let mut ok = HashMap::new();
+                ok.insert("value".to_string(), unknown.clone());
+                arms.insert("Ok".to_string(), ok);
+                let mut err = HashMap::new();
+                err.insert("error".to_string(), unknown);
+                arms.insert("Err".to_string(), err);
+            }
+            _ => {}
+        }
+        arms
+    }
+
+    /// Concrete payload types for a sealed match arm, substituted from the subject's
+    /// type params: Option[P0] → Some{value:P0}; Result[P0,P1] → Ok{value:P0},
+    /// Err{error:P1}. Missing params degrade to Unknown.
+    fn sealed_arm_field_types(&self, subject_rt: &serde_json::Value, arm_name: &str) -> HashMap<String, serde_json::Value> {
+        let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        let p0 = self.get_param(subject_rt, 0).unwrap_or_else(|| unknown.clone());
+        let p1 = self.get_param(subject_rt, 1).unwrap_or_else(|| unknown.clone());
+        let mut m = HashMap::new();
+        match (self.type_name(subject_rt).as_str(), arm_name) {
+            ("Option", "Some") => { m.insert("value".to_string(), p0); }
+            ("Result", "Ok") => { m.insert("value".to_string(), p0); }
+            ("Result", "Err") => { m.insert("error".to_string(), p1); }
+            _ => {}
+        }
+        m
     }
 
     pub fn typecheck(&self, classified: &ClassifiedProgram, functions: &[crate::parser::FunctionDecl]) -> TypedProgram {
@@ -710,6 +775,25 @@ impl TypeChecker {
                 Some((d.name.clone(), elem))
             })
             .collect();
+
+        // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: per-contract expected-type hints for sealed
+        // constructors. Pre-scan output/compute decls annotated Option[...]/Result[...];
+        // keyed by name (an output and its producing compute share a name). Read by
+        // infer_sealed_construct (via node_name) to recover the param none()/ok()/err()
+        // cannot infer from arguments. Reset per-contract via the RefCell.
+        {
+            let mut sealed_hints: HashMap<String, serde_json::Value> = HashMap::new();
+            for d in &classified.declarations {
+                if d.kind != "output" && d.kind != "compute" { continue; }
+                let Some(ann) = d.type_annotation.as_ref() else { continue };
+                let ir = self.type_ir(ann);
+                let tn = self.type_name(&ir);
+                if tn == "Option" || tn == "Result" {
+                    sealed_hints.insert(d.name.clone(), ir);
+                }
+            }
+            *self.sealed_output_hints.borrow_mut() = sealed_hints;
+        }
 
         // LAB-TC-ARRAY-P2: pre-scan record-field positions for Collection[T] element
         // hints. When a compute node's expr is a RecordLiteral whose declared output
@@ -3001,6 +3085,13 @@ impl TypeChecker {
                     deps.sort();
                     deps.dedup();
 
+                    // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: sealed constructors some/none/ok/err
+                    // lower to sealed variant_construct nodes (precede user-fn/stdlib paths,
+                    // mirroring the Ruby canon dispatch).
+                    if Self::is_sealed_constructor(fn_name) {
+                        return self.infer_sealed_construct(fn_name, args, &typed_args, deps, type_errors, node_name);
+                    }
+
                     // Check user-defined functions
                     for f in functions {
                         if f.name == *fn_name {
@@ -3585,7 +3676,7 @@ impl TypeChecker {
     }
 
     fn variant_type_exists(&self, name: &str) -> bool {
-        self.variant_shapes.borrow().contains_key(name)
+        self.variant_shapes.borrow().contains_key(name) || self.sealed_builtin(name)
     }
 
     fn find_variant_for_arm(&self, arm_name: &str) -> Option<String> {
@@ -3604,6 +3695,103 @@ impl TypeChecker {
             m.insert("resolved_type".to_string(), resolved_type.clone());
         }
         v
+    }
+
+    /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: type-IR builders for sealed sumtypes.
+    fn make_option_ir(&self, inner: serde_json::Value) -> serde_json::Value {
+        let mut m = serde_json::Map::new();
+        m.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+        m.insert("params".to_string(), serde_json::Value::Array(vec![inner]));
+        serde_json::Value::Object(m)
+    }
+
+    fn make_result_ir(&self, ok_ty: serde_json::Value, err_ty: serde_json::Value) -> serde_json::Value {
+        let mut m = serde_json::Map::new();
+        m.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
+        m.insert("params".to_string(), serde_json::Value::Array(vec![ok_ty, err_ty]));
+        serde_json::Value::Object(m)
+    }
+
+    /// Recover param[idx] from the expected-type hint for `node_name` if it is of the
+    /// given family (Option/Result); else Unknown.
+    fn sealed_hint_param(&self, node_name: &str, family: &str, idx: usize) -> serde_json::Value {
+        let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        if let Some(hint) = self.sealed_output_hints.borrow().get(node_name) {
+            if self.type_name(hint) == family {
+                return self.get_param(hint, idx).unwrap_or(unknown);
+            }
+        }
+        unknown
+    }
+
+    /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: lower some/none/ok/err to a sealed
+    /// `variant_construct` node (SIR marker `sealed: true`), mirroring the Ruby canon.
+    /// Payload labels locked to value/error; missing params recovered from the
+    /// expected-type hint keyed on node_name.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_sealed_construct(
+        &self,
+        fn_name: &str,
+        args: &[Expr],
+        typed_args: &[TypedExpression],
+        deps: Vec<String>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+    ) -> TypedExpression {
+        let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        let expected_arity = if fn_name == "none" { 0 } else { 1 };
+        if args.len() != expected_arity {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-TY0".to_string(),
+                message: format!("{} requires {} argument{}", fn_name, expected_arity, if expected_arity == 1 { "" } else { "s" }),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return TypedExpression { resolved_type: unknown, deps: Vec::new(), annotated_expr: None };
+        }
+
+        let (arm, variant, resolved_type, fields): (&str, &str, serde_json::Value, serde_json::Map<String, serde_json::Value>) = match fn_name {
+            "some" => {
+                let inner = typed_args[0].resolved_type.clone();
+                let mut f = serde_json::Map::new();
+                f.insert("value".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                ("Some", "Option", self.make_option_ir(inner), f)
+            }
+            "none" => {
+                let inner = self.sealed_hint_param(node_name, "Option", 0);
+                ("None", "Option", self.make_option_ir(inner), serde_json::Map::new())
+            }
+            "ok" => {
+                let t = typed_args[0].resolved_type.clone();
+                let e = self.sealed_hint_param(node_name, "Result", 1);
+                let mut f = serde_json::Map::new();
+                f.insert("value".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                ("Ok", "Result", self.make_result_ir(t, e), f)
+            }
+            "err" => {
+                let e = typed_args[0].resolved_type.clone();
+                let t = self.sealed_hint_param(node_name, "Result", 0);
+                let mut f = serde_json::Map::new();
+                f.insert("error".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                ("Err", "Result", self.make_result_ir(t, e), f)
+            }
+            _ => unreachable!(),
+        };
+
+        let annotated = serde_json::json!({
+            "kind": "variant_construct",
+            "arm": arm,
+            "variant": variant,
+            "fields": serde_json::Value::Object(fields),
+            "resolved_type": resolved_type,
+            "sealed": true
+        });
+
+        TypedExpression {
+            resolved_type,
+            deps,
+            annotated_expr: Some(annotated),
+        }
     }
 
     /// PROP-044 P5: Infer a variant_construct expression.
@@ -3756,10 +3944,10 @@ impl TypeChecker {
             };
         }
 
-        let declared_arms: HashMap<String, HashMap<String, serde_json::Value>> = {
-            let vs = self.variant_shapes.borrow();
-            vs[&subject_type_name].clone()
-        };
+        // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: user shapes, else sealed built-in registry.
+        let declared_arms = self.declared_arms_for(&subject_type_name);
+        let sealed = self.sealed_builtin(&subject_type_name);
+        let subject_rt = subject_typed.resolved_type.clone();
 
         let mut covered_arms: HashMap<String, usize> = HashMap::new();
         let mut has_wildcard = false;
@@ -3814,10 +4002,19 @@ impl TypeChecker {
             }
 
             let arm_field_shapes = &declared_arms[arm_name.as_str()];
+            // Sealed built-ins substitute the concrete payload type from the subject's
+            // params; user variants use their declared field types directly.
+            let bind_types = if sealed {
+                self.sealed_arm_field_types(&subject_rt, arm_name.as_str())
+            } else {
+                arm_field_shapes.clone()
+            };
             let mut arm_scope = symbol_types.clone();
             for binding in &pattern.bindings {
-                if let Some(field_type) = arm_field_shapes.get(binding.as_str()) {
-                    arm_scope.insert(binding.clone(), field_type.clone());
+                if arm_field_shapes.contains_key(binding.as_str()) {
+                    let field_type = bind_types.get(binding.as_str()).cloned()
+                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    arm_scope.insert(binding.clone(), field_type);
                 } else {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-KIND2".to_string(),
@@ -3862,7 +4059,7 @@ impl TypeChecker {
         let annotated_subject = self.annotate_expr_with_type(subject, &subject_typed.resolved_type);
 
         let annotated = if type_errors.len() == errors_before {
-            Some(serde_json::json!({
+            let mut node = serde_json::json!({
                 "kind": "match_expr",
                 "subject": annotated_subject,
                 "subject_type": subject_type_name,
@@ -3870,7 +4067,12 @@ impl TypeChecker {
                 "exhaustive": exhaustive,
                 "has_wildcard": has_wildcard,
                 "resolved_type": result_type
-            }))
+            });
+            // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: sealed-only marker (Option/Result subjects).
+            if sealed {
+                node.as_object_mut().unwrap().insert("sealed".to_string(), serde_json::Value::Bool(true));
+            }
+            Some(node)
         } else {
             None
         };
