@@ -278,6 +278,11 @@ pub struct TypeChecker {
     /// type_ir. Read by infer_sealed_construct (via node_name) to recover the param
     /// none()/ok()/err() cannot infer from their arguments.
     sealed_output_hints: std::cell::RefCell<HashMap<String, serde_json::Value>>,
+    /// LANG-SUMTYPE-COLLECT-P3: expected element-type hints for filter_map output
+    /// context (fallback B2). Reset per-contract; maps output/compute decl name →
+    /// the element type U of a declared Collection[U]. Read by the filter_map arm to
+    /// recover U when a parametric `match` callback collapses to bare Option.
+    collection_elem_hints: std::cell::RefCell<HashMap<String, serde_json::Value>>,
 }
 
 impl TypeChecker {
@@ -287,6 +292,7 @@ impl TypeChecker {
             t3_context: std::cell::RefCell::new(None),
             variant_shapes: std::cell::RefCell::new(HashMap::new()),
             sealed_output_hints: std::cell::RefCell::new(HashMap::new()),
+            collection_elem_hints: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -793,6 +799,24 @@ impl TypeChecker {
                 }
             }
             *self.sealed_output_hints.borrow_mut() = sealed_hints;
+        }
+
+        // LANG-SUMTYPE-COLLECT-P3: per-contract element-type hints for filter_map
+        // (route B2). Pre-scan output/compute decls annotated Collection[U]; keyed by
+        // name. Read by the filter_map arm (via node_name) to recover U and to
+        // temp-install an Option[U] sealed hint while inferring the callback body.
+        {
+            let mut elem_hints: HashMap<String, serde_json::Value> = HashMap::new();
+            for d in &classified.declarations {
+                if d.kind != "output" && d.kind != "compute" { continue; }
+                let Some(ann) = d.type_annotation.as_ref() else { continue };
+                let ir = self.type_ir(ann);
+                if self.type_name(&ir) != "Collection" { continue; }
+                if let Some(elem) = self.get_param(&ir, 0) {
+                    elem_hints.insert(d.name.clone(), elem);
+                }
+            }
+            *self.collection_elem_hints.borrow_mut() = elem_hints;
         }
 
         // LAB-TC-ARRAY-P2: pre-scan record-field positions for Collection[T] element
@@ -3455,6 +3479,29 @@ impl TypeChecker {
             }
         }
 
+        // v0 homogeneous numeric relaxation: allow Float / Decimal (like Integer) when
+        // BOTH sides are the SAME numeric type. The VM binary opcodes (OP_ADD, OP_LT, …)
+        // already dispatch on value type, so no runtime change is needed. Heterogeneous
+        // numeric (e.g. Integer op Float) is deliberately deferred — separate research.
+        // Decimal +/-/* are handled above with scale rules; this covers Float (all ops),
+        // Decimal (/ and comparisons), Integer, and equality.
+        let is_numeric = |n: &str| matches!(n, "Integer" | "Float" | "Decimal");
+        if left_name == right_name && is_numeric(left_name.as_str()) {
+            let bool_ir = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+            match op {
+                "+"  => return ("stdlib.integer.add".to_string(), left.clone()),
+                "-"  => return ("stdlib.integer.sub".to_string(), left.clone()),
+                "*"  => return ("stdlib.integer.mul".to_string(), left.clone()),
+                "/"  => return ("stdlib.integer.div".to_string(), left.clone()),
+                "<"  => return ("stdlib.integer.lt".to_string(),  bool_ir),
+                "<=" => return ("stdlib.integer.lte".to_string(), bool_ir),
+                ">"  => return ("stdlib.integer.gt".to_string(),  bool_ir),
+                ">=" => return ("stdlib.integer.gte".to_string(), bool_ir),
+                "==" => return ("stdlib.primitive.eq".to_string(), bool_ir),
+                _ => {}
+            }
+        }
+
         match op {
             "+" => {
                 if left_name != "Integer" || right_name != "Integer" {
@@ -4091,27 +4138,76 @@ impl TypeChecker {
         if arm_types.is_empty() {
             return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
         }
-        let concrete: Vec<String> = arm_types.iter()
-            .map(|t| self.type_name(t))
-            .filter(|t| t != "Unknown")
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
+        // Top-level Unknown arms contribute nothing to the join (legacy behavior).
+        let present: Vec<&serde_json::Value> = arm_types.iter()
+            .filter(|t| self.type_name(t) != "Unknown")
             .collect();
-        if concrete.is_empty() {
+        if present.is_empty() {
             return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
         }
-        if concrete.len() == 1 {
-            return self.type_ir(&serde_json::Value::String(concrete[0].clone()));
+        let mut names: Vec<String> = present.iter().map(|t| self.type_name(t)).collect();
+        names.sort();
+        names.dedup();
+        if names.len() > 1 {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-KIND5".to_string(),
+                message: format!("match on '{}' has divergent arm result types: {}", subject_type, names.join(", ")),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
         }
-        let mut sorted = concrete.clone();
-        sorted.sort();
-        type_errors.push(ClassifierDiagnostic {
-            rule: "OOF-KIND5".to_string(),
-            message: format!("match on '{}' has divergent arm result types: {}", subject_type, sorted.join(", ")),
-            node: node_name.to_string(),
-            line: None,
-        });
-        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+        // LANG-MATCH-ARM-PARAM-UNIFICATION-P2 (route A): preserve type params when all
+        // arms share the parametric family, via a position-wise structural join.
+        // PURE precision widening — every case that previously dropped params still
+        // returns the byte-identical legacy `type_ir(name)`; params are preserved only
+        // when the join yields a non-empty, fully-resolved (not Unknown-bearing) result.
+        let name = names[0].clone();
+        let mut joined: Option<serde_json::Value> = Some(present[0].clone());
+        for t in present.iter().skip(1) {
+            joined = match joined {
+                Some(acc) => self.join_match_param_types(&acc, t),
+                None => None,
+            };
+        }
+        if let Some(j) = &joined {
+            let has_params = j.get("params").and_then(|p| p.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
+            if has_params && !self.unknown_or_unknown_bearing(j) {
+                return j.clone();
+            }
+        }
+        self.type_ir(&serde_json::Value::String(name))
+    }
+
+    /// Position-wise structural join of two arm result types. `Unknown` is the join
+    /// bottom: join(Unknown, X) = X. Identical structures are preserved as-is (keeps
+    /// any extra keys). Arity or concrete-name conflict at any depth returns None ⇒
+    /// the caller degrades to the legacy bare family result. No diagnostic is emitted
+    /// here (P2 reserves OOF-KIND7 for a future strictness card; OOF-KIND6 is already
+    /// taken by PROP-044-P9 reserved-field-name checks).
+    fn join_match_param_types(&self, a: &serde_json::Value, b: &serde_json::Value) -> Option<serde_json::Value> {
+        let na = self.type_name(a);
+        let nb = self.type_name(b);
+        if na == "Unknown" { return Some(b.clone()); }
+        if nb == "Unknown" { return Some(a.clone()); }
+        if na != nb { return None; }
+        if a == b { return Some(a.clone()); }   // identical — preserve all keys, zero change
+
+        let pa = a.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        let pb = b.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        if pa.len() != pb.len() { return None; }
+
+        let mut joined_params = Vec::with_capacity(pa.len());
+        for (x, y) in pa.iter().zip(pb.iter()) {
+            match self.join_match_param_types(&self.type_ir(x), &self.type_ir(y)) {
+                Some(jp) => joined_params.push(jp),
+                None => return None,
+            }
+        }
+        let mut obj = serde_json::Map::new();
+        obj.insert("name".to_string(), serde_json::Value::String(na));
+        obj.insert("params".to_string(), serde_json::Value::Array(joined_params));
+        Some(serde_json::Value::Object(obj))
     }
 
     fn dedupe_errors(&self, errors: &[ClassifierDiagnostic]) -> Vec<ClassifierDiagnostic> {

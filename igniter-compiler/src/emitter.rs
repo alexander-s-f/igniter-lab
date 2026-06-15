@@ -798,8 +798,9 @@ impl Emitter {
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
                             // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
                             const COLLECTION_HOF_OPS: &[(&str, &str)] = &[
-                                ("map",       "stdlib.collection.map"),
-                                ("filter",    "stdlib.collection.filter"),
+                                ("map",        "stdlib.collection.map"),
+                                ("filter_map", "stdlib.collection.filter_map"),
+                                ("filter",     "stdlib.collection.filter"),
                                 ("count",     "stdlib.collection.count"),
                                 ("append",    "stdlib.collection.append"),
                                 ("is_empty",  "stdlib.collection.is_empty"),
@@ -948,7 +949,7 @@ impl Emitter {
                             // bare names to semantic_expr for stdlib.collection.* qualification.
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
                             // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
-                            || matches!(fn_val, "map" | "filter" | "count" | "fold" | "append" | "is_empty" | "non_empty" | "range")
+                            || matches!(fn_val, "map" | "filter_map" | "filter" | "count" | "fold" | "append" | "is_empty" | "non_empty" | "range")
                             || fn_val == "stdlib.collection.fold"
                             // LANG-STDLIB-STRING-SURFACE-P3: delegate string stdlib to semantic_expr
                             // LANG-STDLIB-STRING-SUBSTRING-P2: substring added.

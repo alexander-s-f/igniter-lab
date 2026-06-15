@@ -38,6 +38,24 @@ access allowed, deferred to runtime).
 So **do NOT casually relax it**; it's governance-gated and tied to the epistemic
 unknown-state model (ledger D-001). Out of scope for this pass.
 
+## Cluster 1 — IMPLEMENTED 2026-06-15 (v0 homogeneous)
+
+`typechecker.rs`: added a pre-check before the `match op` — when **both sides are the
+SAME numeric type** (`Integer`/`Float`/`Decimal`), accept arithmetic (`+ - * /`),
+comparison (`< <= >= >`), and `==`, returning the operand type (arith) or `Bool`
+(cmp/==). ~20 lines; VM unchanged (binary opcodes already polymorphic — verified
+`OP_LT` handles Int/Float/Decimal). Build clean, no regression (RUN-OK 15).
+
+**Result:** erp_logistics + bookkeeping now compile past the numeric errors and execute
+numeric ops. Neither is fully green yet, due to **non-numeric** residuals:
+- **bookkeeping** → `Output type mismatch: expected Decimal[2], got Float` = **heterogeneous
+  Float→Decimal** assignment — the deliberately-deferred case (v0 scope: homogeneous only).
+- **erp_logistics** → contracts execute but need `routes`/`shipment` **inputs**; no zero-input
+  demo/orchestrator entry → entry/UX cluster, not numeric.
+
+So homogeneous numeric is done; the two apps need follow-ons (heterogeneous numeric;
+demo-entry/inputs) to flip green.
+
 ## Implementation plan
 
 | # | cluster | change | repo/file | risk |

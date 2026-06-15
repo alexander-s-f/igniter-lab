@@ -455,6 +455,131 @@ impl TypeChecker {
                     }
                 }
             }
+            "filter_map" => {
+                is_resolved = true;
+                // LANG-SUMTYPE-COLLECT-P3: filter_map(Collection[T], (T -> Option[U])) -> Collection[U].
+                // Keeps each Some(u) payload, drops every None. Mirrors `map`: OOF-COL1 arity,
+                // OOF-COL2 non-Collection first arg, OOF-COL3 callback must return Option. U is
+                // preferred from the callback's concrete Option param; when a parametric `match`
+                // callback collapses to bare Option (COLLECT-P1 sub-gap), U falls back to the
+                // Collection[U] output context (collection_elem_hints, route B2). The expected
+                // Option[U] is temp-installed as a sealed hint while inferring the callback body
+                // so none()/some() resolve against U.
+                if args.len() != 2 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL1".to_string(),
+                        message: format!(
+                            "stdlib.collection.filter_map: expected 2 arguments, got {}",
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else if !typed_args.is_empty() {
+                    let arg0_name = self.type_name(&typed_args[0].resolved_type);
+                    if arg0_name != "Collection" && arg0_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-COL2".to_string(),
+                            message: format!(
+                                "stdlib.collection.filter_map: first argument must be Collection[T], got {}",
+                                arg0_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+                let first_arg_type = if !typed_args.is_empty() {
+                    typed_args[0].resolved_type.clone()
+                } else {
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                };
+                let first_arg_name = self.type_name(&first_arg_type);
+
+                // Route B2: element-type hint U from the Collection[U] output context.
+                let ctx_u = self.collection_elem_hints.borrow().get(node_name).cloned();
+
+                let mut lambda_return_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                if args.len() >= 2 {
+                    if let Expr::Lambda { params, body } = &args[1] {
+                        let mut local_symbols = symbol_types.clone();
+                        let elem_ty = if first_arg_name == "Collection" {
+                            self.get_param(&first_arg_type, 0)
+                                .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                        } else {
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        };
+                        for p in params {
+                            local_symbols.insert(p.clone(), elem_ty.clone());
+                        }
+                        // Temp-install Option[U] sealed hint so none()/some() resolve vs U.
+                        let prev_hint = self.sealed_output_hints.borrow().get(node_name).cloned();
+                        if let Some(u) = &ctx_u {
+                            if self.type_name(u) != "Unknown" {
+                                let mut opt = serde_json::Map::new();
+                                opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+                                opt.insert("params".to_string(), serde_json::Value::Array(vec![u.clone()]));
+                                self.sealed_output_hints.borrow_mut().insert(node_name.to_string(), serde_json::Value::Object(opt));
+                            }
+                        }
+                        lambda_return_type = match body.as_ref() {
+                            ExprOrBlock::Expr(e) => {
+                                self.infer_expr(e, &local_symbols, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type
+                            }
+                            ExprOrBlock::Block(block) => {
+                                let mut last_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                let mut local_syms = local_symbols.clone();
+                                for stmt in &block.stmts {
+                                    match stmt {
+                                        Stmt::Let { name, expr } => {
+                                            let t = self.infer_expr(expr, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                            local_syms.insert(name.clone(), t.resolved_type.clone());
+                                            last_type = t.resolved_type;
+                                        }
+                                        Stmt::ExprStmt { expr } => {
+                                            last_type = self.infer_expr(expr, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type;
+                                        }
+                                    }
+                                }
+                                if let Some(re) = &block.return_expr {
+                                    last_type = self.infer_expr(re, &local_syms, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name).resolved_type;
+                                }
+                                last_type
+                            }
+                        };
+                        // Restore the prior sealed hint.
+                        match prev_hint {
+                            Some(p) => { self.sealed_output_hints.borrow_mut().insert(node_name.to_string(), p); }
+                            None => { self.sealed_output_hints.borrow_mut().remove(node_name); }
+                        }
+                    }
+                }
+
+                // OOF-COL3: callback must return Option[U].
+                let ret_name = self.type_name(&lambda_return_type);
+                if ret_name != "Option" && ret_name != "Unknown" {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL3".to_string(),
+                        message: format!(
+                            "stdlib.collection.filter_map: callback must return Option[U], got {}",
+                            ret_name
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                // U: callback's concrete Option param, else output context, else Unknown.
+                let u_type = self.get_param(&lambda_return_type, 0)
+                    .filter(|t| self.type_name(t) != "Unknown")
+                    .or_else(|| ctx_u.clone().filter(|t| self.type_name(t) != "Unknown"))
+                    .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+
+                let mut col = serde_json::Map::new();
+                col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                col.insert("params".to_string(), serde_json::Value::Array(vec![u_type]));
+                resolved_type = serde_json::Value::Object(col);
+            }
             "map" => {
                 is_resolved = true;
                 // LANG-STDLIB-COLLECTION-MAP-FILTER-PROP-P5: OOF-COL1 arity; OOF-COL2 non-Collection.
