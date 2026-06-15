@@ -58,15 +58,23 @@ impl ShardedFactLog {
         let k = (store.to_string(), key.to_string());
         let timeline = shard.by_key.get(&k)?;
         
-        if let Some(as_of) = as_of {
-            let pos = timeline.partition_point(|fact| fact.transaction_time <= as_of);
-            if pos > 0 {
-                Some(timeline[pos - 1].clone())
-            } else {
-                None
-            }
-        } else {
-            timeline.last().cloned()
+        // Pick the fact with the greatest transaction_time at or before `as_of`
+        // (or the greatest overall when `as_of` is None). A linear scan is correct
+        // regardless of insertion order — `push` appends in arrival order, which is
+        // not necessarily transaction_time order (backfills, corrections, replays),
+        // so partition_point (which assumes a sorted slice) would mis-resolve.
+        let cmp = |a: &&FactData, b: &&FactData| {
+            a.transaction_time
+                .partial_cmp(&b.transaction_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        };
+        match as_of {
+            Some(as_of) => timeline
+                .iter()
+                .filter(|fact| fact.transaction_time <= as_of)
+                .max_by(cmp)
+                .cloned(),
+            None => timeline.iter().max_by(cmp).cloned(),
         }
     }
 
@@ -79,18 +87,17 @@ impl ShardedFactLog {
             None => return Vec::new(),
         };
         
-        let start_idx = since.map_or(0, |s| {
-            timeline.partition_point(|fact| fact.transaction_time < s)
-        });
-        let end_idx = as_of.map_or(timeline.len(), |a| {
-            timeline.partition_point(|fact| fact.transaction_time <= a)
-        });
-        
-        if start_idx < end_idx {
-            timeline[start_idx..end_idx].to_vec()
-        } else {
-            Vec::new()
-        }
+        // Filter by transaction_time window [since, as_of] with a scan — order-independent
+        // (the timeline is in arrival order, not sorted by transaction_time). Callers that
+        // need ordering sort the result (e.g. backend `facts_for`).
+        timeline
+            .iter()
+            .filter(|fact| {
+                since.map_or(true, |s| fact.transaction_time >= s)
+                    && as_of.map_or(true, |a| fact.transaction_time <= a)
+            })
+            .cloned()
+            .collect()
     }
 
     pub fn facts_for_store(&self, store: &str, since: Option<f64>, as_of: Option<f64>) -> Vec<FactData> {

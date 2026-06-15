@@ -364,6 +364,20 @@ impl IgniterMachine {
         self.storage.read_as_of(store, key, as_of).await
     }
 
+    /// Bitemporal point query — `valid_at` (effective axis) + `known_at` (audit axis).
+    /// See `TBackend::read_bitemporal`. `read_fact`/`read_as_of` stay transaction-time only.
+    pub async fn read_bitemporal(
+        &self,
+        store: &str,
+        key: &str,
+        valid_at: Option<f64>,
+        known_at: Option<f64>,
+    ) -> Result<Option<Fact>, EngineError> {
+        self.storage
+            .read_bitemporal(store, key, valid_at, known_at)
+            .await
+    }
+
     pub fn checkpoint(&self, path: &Path) -> Result<(), EngineError> {
         let registry_contracts = self.registry.read().contracts.clone();
         let observations = self.observations.read().clone();

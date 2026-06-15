@@ -43,10 +43,52 @@ files) → dispatch `RunArticle` (cross-contract orchestrator) → `{body, statu
 identical to the CLI. **First try, no new gap** — `compile_units` + register-all compose
 cleanly. The machine can now run real multi-file fleet apps. **6/6 tests pass.**
 
-## Next pressure (cycle 3)
+## Cycle 3 DONE — machine-fleet sweep (full parity)
 
-- **Machine-fleet sweep** — run many fleet apps through `load_program` + dispatch to
-  catch any machine-specific divergence from the CLI (app-by-app, needs entry+inputs).
-- Time-travel / multi-version fact pressure (as-of boundaries).
+`test_machine_fleet_sweep`: every fleet app the CLI runs green at a zero-input
+entrypoint (13 apps: advanced_logistics, air_combat, audit_ledger, batch_importer,
+call_router, erp_logistics, igniter_parser, job_runner, lead_router, query_engine,
+reconciler, vector_editor, web_router) loaded via `load_program` + dispatched through
+the machine → **13/13 ok, zero machine↔CLI divergence**. (spreadsheet excluded — the
+CLI itself blocks on its app-local `eval_expr`.) **7/7 machine tests pass.**
+
+The machine is now a complete, faithful runtime for the whole app fleet: multifile +
+cross-contract + closures + match + HOF + the full VM wave, all through the embeddable
+kernel with persistence / checkpoint / resume.
+
+## Cycle 4 DONE — time-travel pressure (bitemporal correctness fix)
+
+`test_machine_time_travel_out_of_order`: wrote fact versions OUT of transaction_time
+order (300, 100, 200), then read as-of boundaries. **Gap found:** as-of 350 returned
+tt=200's value, not tt=300's.
+
+Root: `igniter-tbackend/src/timeline.rs::ShardedFactLog::latest_for` resolved as-of with
+`partition_point(tt <= as_of)` — which **assumes the timeline is sorted by
+transaction_time**. But `push` appends in **arrival order**, and real ingestion is
+out-of-order (backfills, corrections, replays). So as-of mis-resolved.
+
+Fix: `latest_for` now does a linear scan for the **max transaction_time ≤ as_of**
+(order-independent, correct). Applied to both `timeline.rs` (the machine's
+ShardedFactLog) and the `pure_core.rs` variant. Does NOT touch `push`/`by_id` index
+invariants (sorted-insert would have). **8/8 machine tests pass; tbackend clean.**
+
+This is the bitemporal core SparkCRM relies on (balances/audit "as-of day X" with
+historical corrections). as-of is now correct under out-of-order writes.
+
+**Sibling fix:** `facts_for_key` (the history/range query) had the same bug — it used
+`partition_point` on the not-sorted timeline for the since/as_of window. Now an
+order-independent filter scan (callers sort the result). Both as-of (`latest_for`) and
+history (`facts_for_key`) are order-correct.
+
+**Axis crystallized:** `read_as_of` = **transaction-time** axis only. `valid_time` is
+stored but never queried (the second bitemporal axis). Design captured in
+`LAB-MACHINE-BITEMPORAL-AXIS-P1` (do not implement valid-axis before that decision —
+prevents agents conflating the two axes).
+
+## Next pressure (cycle 5)
+
+- **valid_time-axis travel** — `read_as_of` filters transaction_time only; valid_time
+  is stored but never queried (the second bitemporal axis is unexercised).
+- RocksDB-backed fleet sweep + time-travel (current is in-memory).
 - Checkpoint/resume of a multi-file cross-contract program.
-- REPL / MCP live exercise (the `igniter-mcp` 11-tool surface).
+- REPL / MCP live exercise (`igniter-mcp` 11 tools — agent-drivable Igniter).

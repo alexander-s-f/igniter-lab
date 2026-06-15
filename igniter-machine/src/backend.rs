@@ -24,6 +24,47 @@ pub trait TBackend: Send + Sync {
         as_of: Option<f64>,
     ) -> Result<Vec<Fact>, EngineError>;
     async fn all_facts(&self) -> Result<Vec<Fact>, EngineError>;
+
+    /// Bitemporal point query (LAB-MACHINE-BITEMPORAL-AXIS-P1, route B).
+    /// `known_at`  filters `transaction_time` — "what we knew as of T" (audit axis).
+    /// `valid_at`  filters `valid_time`       — "the state true as of T" (effective axis).
+    /// Strict: facts with NO `valid_time` are EXCLUDED from valid-axis queries — no silent
+    /// `valid := transaction` inference (audit safety). When `valid_at` is None this reduces
+    /// to the transaction-time `read_as_of` semantics (latest knowledge ≤ known_at).
+    /// Default impl over `facts_for`, so every backend gets it for free.
+    async fn read_bitemporal(
+        &self,
+        store: &str,
+        key: &str,
+        valid_at: Option<f64>,
+        known_at: Option<f64>,
+    ) -> Result<Option<Fact>, EngineError> {
+        use std::cmp::Ordering;
+        let facts = self.facts_for(store, key, None, known_at).await?;
+        let pick = if let Some(va) = valid_at {
+            facts
+                .into_iter()
+                .filter(|f| matches!(f.valid_time, Some(vt) if vt <= va))
+                // version effective at valid_at = max valid_time, tie-break by latest knowledge
+                .max_by(|a, b| {
+                    a.valid_time
+                        .partial_cmp(&b.valid_time)
+                        .unwrap_or(Ordering::Equal)
+                        .then(
+                            a.transaction_time
+                                .partial_cmp(&b.transaction_time)
+                                .unwrap_or(Ordering::Equal),
+                        )
+                })
+        } else {
+            facts.into_iter().max_by(|a, b| {
+                a.transaction_time
+                    .partial_cmp(&b.transaction_time)
+                    .unwrap_or(Ordering::Equal)
+            })
+        };
+        Ok(pick)
+    }
 }
 
 // Helper conversions

@@ -189,3 +189,115 @@ async fn test_machine_loads_multifile_app() {
     let result = machine.dispatch("RunArticle", json!({})).await.unwrap();
     assert_eq!(result, json!({ "body": "article", "status": 200 }));
 }
+
+// Machine-fleet sweep: run every fleet app that the CLI runs green (zero-input
+// entrypoint) THROUGH THE MACHINE (load_program + dispatch). Proves machine↔CLI
+// parity and catches any machine-specific divergence.
+#[tokio::test]
+async fn test_machine_fleet_sweep() {
+    let apps: &[(&str, &str)] = &[
+        ("advanced_logistics", "RunDailyRoutesDemo"),
+        ("air_combat",         "RunDuel"),
+        ("audit_ledger",       "BalanceAsOfDay5"),
+        ("batch_importer",     "RunImport"),
+        ("call_router",        "RunConnectedMatched"),
+        ("erp_logistics",      "RunBestRoute"),
+        ("igniter_parser",     "RunParseDemo"),
+        ("job_runner",         "RunSuccessSecond"),
+        ("lead_router",        "RunAccept"),
+        ("query_engine",       "RunQuery"),
+        ("reconciler",         "RunReconcileLoop"),
+        ("vector_editor",      "RunCanvasClickDemo"),
+        ("web_router",         "RunArticle"),
+    ];
+    let apps_base = concat!(env!("CARGO_MANIFEST_DIR"), "/../igniter-apps");
+    let mut failures: Vec<String> = Vec::new();
+    let mut ok = 0;
+    for (app, entry) in apps {
+        let dir = format!("{}/{}", apps_base, app);
+        let paths: Vec<String> = std::fs::read_dir(&dir).unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("ig"))
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        let machine = IgniterMachine::new(None, "in_memory").unwrap();
+        if let Err(e) = machine.load_program(&paths, entry) {
+            failures.push(format!("{}: load: {:?}", app, e));
+            continue;
+        }
+        match machine.dispatch(entry, json!({})).await {
+            Ok(_) => ok += 1,
+            Err(e) => failures.push(format!("{}: dispatch: {:?}", app, e)),
+        }
+    }
+    println!("machine-fleet sweep: {}/{} ok", ok, apps.len());
+    assert!(failures.is_empty(), "machine↔CLI divergence:\n{}", failures.join("\n"));
+}
+
+// Time-travel pressure: write fact versions OUT of transaction_time order, then read
+// as-of various boundaries. `latest_for` uses partition_point (requires sorted
+// timeline); `push` appends in insertion order → out-of-order writes break as-of.
+#[tokio::test]
+async fn test_machine_time_travel_out_of_order() {
+    let machine = IgniterMachine::new(None, "in_memory").unwrap();
+    let mk = |tt: f64, bal: i64| Fact {
+        id: format!("f{}", tt as i64),
+        store: "acct".to_string(),
+        key: "a".to_string(),
+        value: json!({ "balance": bal }),
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: tt,
+        valid_time: Some(tt),
+        schema_version: 1,
+        producer: None,
+        derivation: None,
+    };
+    // Insertion order 300, 100, 200 (NOT sorted by transaction_time).
+    machine.write_fact(mk(300.0, 30)).await.unwrap();
+    machine.write_fact(mk(100.0, 10)).await.unwrap();
+    machine.write_fact(mk(200.0, 20)).await.unwrap();
+
+    let bal = |o: Option<Fact>| o.map(|f| f.value);
+    assert_eq!(bal(machine.read_fact("acct","a",50.0).await.unwrap()),  None,                       "as-of before first → None");
+    assert_eq!(bal(machine.read_fact("acct","a",150.0).await.unwrap()), Some(json!({"balance":10})), "as-of 150 → tt=100");
+    assert_eq!(bal(machine.read_fact("acct","a",250.0).await.unwrap()), Some(json!({"balance":20})), "as-of 250 → tt=200");
+    assert_eq!(bal(machine.read_fact("acct","a",350.0).await.unwrap()), Some(json!({"balance":30})), "as-of 350 → tt=300");
+}
+
+// Bitemporal valid-axis (LAB-MACHINE-BITEMPORAL-AXIS-P1 route B): a late CORRECTION —
+// same valid_time, later transaction_time. read_bitemporal(valid_at, known_at) must keep
+// the axes independent: what was true at valid_at, as best known by known_at.
+#[tokio::test]
+async fn test_machine_bitemporal_valid_axis() {
+    let machine = IgniterMachine::new(None, "in_memory").unwrap();
+    let mk = |id: &str, tt: f64, vt: f64, bal: i64| Fact {
+        id: id.to_string(),
+        store: "acct".to_string(),
+        key: "a".to_string(),
+        value: json!({ "balance": bal }),
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: tt,
+        valid_time: Some(vt),
+        schema_version: 1,
+        producer: None,
+        derivation: None,
+    };
+    machine.write_fact(mk("f1", 10.0, 10.0, 100)).await.unwrap(); // balance@10 = 100, recorded tt10
+    machine.write_fact(mk("f3", 20.0, 20.0, 200)).await.unwrap(); // balance@20 = 200, recorded tt20
+    machine.write_fact(mk("f2", 50.0, 10.0, 105)).await.unwrap(); // CORRECTION of balance@10 = 105, recorded tt50
+
+    let bal = |o: Option<Fact>| o.map(|f| f.value);
+    // valid@15 known@100: effective at 15 (vt=10), latest correction known by 100 → 105
+    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(15.0),Some(100.0)).await.unwrap()), Some(json!({"balance":105})), "valid@15 known@100");
+    // valid@15 known@30: correction (tt50) not yet known → original 100
+    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(15.0),Some(30.0)).await.unwrap()),  Some(json!({"balance":100})), "valid@15 known@30 (pre-correction)");
+    // valid@25 known@100: effective at 25 = max valid_time<=25 (vt=20) → 200
+    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(25.0),Some(100.0)).await.unwrap()), Some(json!({"balance":200})), "valid@25");
+    // valid@5: no version valid that early → None (strict, valid_time=None excluded too)
+    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(5.0),Some(100.0)).await.unwrap()),  None, "valid@5 → none");
+    // valid_at=None → transaction-time only = latest knowledge (tt50 → 105)
+    assert_eq!(bal(machine.read_bitemporal("acct","a",None,Some(100.0)).await.unwrap()),       Some(json!({"balance":105})), "valid_at=None → latest known");
+}

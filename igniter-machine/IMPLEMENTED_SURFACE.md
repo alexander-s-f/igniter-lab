@@ -17,7 +17,8 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | multi-file load | ✅ | `load_program(paths, name)` — `multifile::compile_units` merges modules+imports → single program → registers all (runs real fleet apps) |
 | diagnostics only | ✅ | `check_source(src)` → typed diagnostics (no register) |
 | dispatch (run) | ✅ | `dispatch(name, inputs)` → VM execute; **builds dispatch_table from the whole registry** so cross-contract `call_contract` resolves |
-| bitemporal facts | ✅ | `write_fact` / `read_fact(store, key, as_of)` via the TBackend adapter |
+| bitemporal facts | ✅ | `write_fact` / `read_fact(store, key, as_of)` (transaction-time axis) |
+| **bitemporal query** | ✅ | `read_bitemporal(store, key, valid_at, known_at)` — both axes explicit (`known_at`=transaction/audit, `valid_at`=valid/effective); `valid_time=None` strictly excluded. Default trait method → all backends. (LAB-MACHINE-BITEMPORAL-AXIS-P1) |
 | checkpoint | ✅ | `checkpoint(.igm)` — MessagePack `SemanticImage{contracts, facts, observations}` |
 | resume | ✅ | `resume(.igm, data_dir, backend)` — restores contracts + facts |
 | inherits the VM wave | ✅ | path-dep on `igniter_vm` → closures / match / HOF / dispatch-unification all run through `dispatch` |
@@ -44,13 +45,22 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 - `test_machine_loads_multifile_app` — **real fleet app `web_router` (3 files,
   modules+imports)** via `load_program` → dispatch `RunArticle` → `{body, status:200}`
   (identical to the CLI).
+- `test_machine_fleet_sweep` — **13 fleet apps** (advanced_logistics, air_combat,
+  audit_ledger, batch_importer, call_router, erp_logistics, igniter_parser, job_runner,
+  lead_router, query_engine, reconciler, vector_editor, web_router) loaded + dispatched
+  through the machine → **13/13 ok = full machine↔CLI parity**, no divergence.
+- `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
+  order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
+  350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
+  for max transaction_time ≤ as_of instead of `partition_point` on a not-necessarily-
+  sorted timeline — backfills/corrections no longer break as-of.)**
 
 ## Known gaps (pressure frontier)
 
 - REPL / MCP live exercise not yet done.
-- Time-travel / multi-version fact pressure not yet stressed.
-- Machine-fleet sweep (run many fleet apps through `load_program` + dispatch) — would
-  catch any machine-specific divergence from the CLI, app-by-app (needs per-app entry+inputs).
+- Persistent-backend (RocksDB) fleet sweep (current sweep is in-memory).
+- valid_time-axis travel (read_as_of filters transaction_time only; valid_time is stored
+  but not queried — the second bitemporal axis is unexercised).
 
 ## Boundary (per README)
 
