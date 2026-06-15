@@ -118,3 +118,58 @@ async fn test_machine_checkpoint_and_resume() {
 
     let _ = std::fs::remove_file(&checkpoint_file);
 }
+
+// Verify-by-running: prove the VM-runtime wave (HOF + closures capturing an enclosing
+// compute) executes *through the machine* (load_contract_source → dispatch), i.e. the
+// fused kernel runs the improved igniter_vm.
+#[tokio::test]
+async fn test_machine_runs_wave_hof_closures() {
+    let machine = IgniterMachine::new(None, "in_memory").unwrap();
+
+    let source = "
+    module Lang.Examples.Wave
+    contract Wave {
+      input  nums: Collection[Integer]
+      input  base: Integer
+      compute factor = base + 1
+      compute scaled = map(nums, n -> n * factor)
+      compute big    = filter(scaled, n -> n > base)
+      compute total  = count(big)
+      output total: Integer
+    }
+    ";
+
+    machine.load_contract_source(source, "Wave").unwrap();
+
+    // factor=2; scaled=[2,4,6]; big=filter(>1)=[2,4,6]; total=3
+    let inputs = json!({ "nums": [1, 2, 3], "base": 1 });
+    let result = machine.dispatch("Wave", inputs).await.unwrap();
+    assert_eq!(result, json!(3));
+}
+
+// Machine-pressure: cross-contract dispatch. An orchestrator calls a helper via
+// call_contract. Proves the gap: load registers only the named contract, and dispatch
+// builds an empty VM dispatch_table → call_contract can't resolve the callee.
+#[tokio::test]
+async fn test_machine_cross_contract_dispatch() {
+    let machine = IgniterMachine::new(None, "in_memory").unwrap();
+
+    let source = "
+    module Lang.Examples.Cross
+    pure contract Helper {
+      input  x: Integer
+      compute doubled = x * 2
+      output doubled: Integer
+    }
+    contract Orchestrator {
+      input  n: Integer
+      compute result = call_contract(\"Helper\", n)
+      output result: Integer
+    }
+    ";
+
+    machine.load_contract_source(source, "Orchestrator").unwrap();
+    let inputs = json!({ "n": 5 });
+    let result = machine.dispatch("Orchestrator", inputs).await.unwrap();
+    assert_eq!(result, json!(10)); // Helper(5) = 10
+}

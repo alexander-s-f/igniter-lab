@@ -143,26 +143,47 @@ impl IgniterMachine {
             .assemble(&emit_res, temp_dir.to_str().unwrap())
             .map_err(|e| EngineError::CompilationError(e.to_string()))?;
 
-        let contract_id = contract_name.to_string();
-        let contract_file_path = temp_dir
-            .join("contracts")
-            .join(format!("{}.json", contract_id));
-        if !contract_file_path.exists() {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(EngineError::CompilationError(format!(
-                "Compiled contract file not found for {}",
-                contract_id
-            )));
+        // Register EVERY contract compiled from this source (not just the named one),
+        // so cross-contract callees are available for dispatch's dispatch_table.
+        let contracts_dir = temp_dir.join("contracts");
+        let mut registered_named = false;
+        if let Ok(entries) = std::fs::read_dir(&contracts_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| EngineError::IOError(e.to_string()))?;
+                let contract_json: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| EngineError::SerializationError(e.to_string()))?;
+                // Register by the authoritative contract_name field (the file is
+                // snake_cased by the assembler, e.g. `add.json`, but call_contract and
+                // dispatch use the declared name, e.g. `Add`).
+                let key = contract_json
+                    .get("contract_name")
+                    .or_else(|| contract_json.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if key.is_empty() {
+                    continue;
+                }
+                if key == contract_name {
+                    registered_named = true;
+                }
+                self.registry.write().register(key, contract_json);
+            }
         }
-
-        let content = std::fs::read_to_string(&contract_file_path)
-            .map_err(|e| EngineError::IOError(e.to_string()))?;
-        let contract_json: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
 
         let _ = std::fs::remove_dir_all(&temp_dir);
 
-        self.registry.write().register(contract_id, contract_json);
+        if !registered_named {
+            return Err(EngineError::CompilationError(format!(
+                "Compiled contract file not found for {}",
+                contract_name
+            )));
+        }
         Ok(())
     }
 
@@ -261,7 +282,19 @@ impl IgniterMachine {
             self.storage.clone(),
             self.observations.clone(),
         ));
-        let vm = VM::new(Some(adapter));
+        let mut vm = VM::new(Some(adapter));
+
+        // Populate the VM dispatch table from all registered contracts so
+        // call_contract resolves cross-contract callees (mirrors the CLI's main.rs).
+        {
+            let registry_lock = self.registry.read();
+            let mut entry_compiler = VMCompiler::new();
+            for (name, cj) in registry_lock.all() {
+                if let Ok(entry) = entry_compiler.build_dispatch_entry(cj, name) {
+                    vm.dispatch_table.insert(name.clone(), entry);
+                }
+            }
+        }
 
         let mut vm_inputs = HashMap::new();
         if let Some(obj) = inputs.as_object() {
