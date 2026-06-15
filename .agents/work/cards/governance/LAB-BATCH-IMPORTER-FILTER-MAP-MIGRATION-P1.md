@@ -1,8 +1,9 @@
 # LAB-BATCH-IMPORTER-FILTER-MAP-MIGRATION-P1
 
-**Status:** OPEN — APP MIGRATION  
+**Status:** CLOSED — APP MIGRATION PROVED 107/107 PASS  
 **Route:** lab / app pressure / batch_importer / BI-P01  
 **Date:** 2026-06-15  
+**Date closed:** 2026-06-15  
 **Authority:** app-source migration after canon/lab stdlib support; no compiler changes
 
 ## Goal
@@ -62,6 +63,44 @@ Start after:
 - The migration actually uses `filter_map`; no hidden manual append/empty workaround remains for the same extraction.
 - Baseline counts/hash changes are documented.
 - No unrelated app refactor.
+
+## Closure Summary
+
+`batch_importer` BI-P01 is resolved by a minimal source migration in
+`validate.ig`. `CountAccepted` now extracts valid payloads with
+`filter_map(results, r -> match r { ... })` into
+`Collection[ImportRecord]` and counts those records.
+
+Proof:
+
+```text
+cd /Users/alex/dev/projects/igniter-workspace/igniter-lab
+ruby igniter-view-engine/proofs/verify_lab_batch_importer_filter_map_migration_p1.rb
+Summary: 107/107 checks passed
+```
+
+| Check | Value |
+|---|---|
+| Ruby | ok / 0 diagnostics |
+| Rust | ok / 0 diagnostics |
+| Ruby source_hash | `sha256:1cf7a0f1e5d874c418954b699e5145a3e8c7dfada40bd1c3f94f78093d91d0fa` |
+| Rust source_hash | `sha256:1cf7a0f1e5d874c418954b699e5145a3e8c7dfada40bd1c3f94f78093d91d0fa` |
+| validate.ig source_hash | `sha256:3d6137bb1a777a1b666ff79ed5c136110d0469c7257f4a81d33932d094958cb9` |
+
+Baseline delta: source files/types/variant/contracts/entrypoint unchanged;
+`call_contract` sites 11 -> 10; source match expressions 1 -> 2; match arms
+2 -> 4; executable `filter` sites 1 -> 0; executable `filter_map` sites 0 -> 1.
+`types.ig` and `example.ig` hashes are unchanged.
+
+Deliverables:
+
+| Artifact | Path |
+|---|---|
+| Source edit | `igniter-lab/igniter-apps/batch_importer/validate.ig` |
+| Proof runner | `igniter-lab/igniter-view-engine/proofs/verify_lab_batch_importer_filter_map_migration_p1.rb` |
+| Lab doc | `igniter-lab/lab-docs/governance/lab-batch-importer-filter-map-migration-p1-v0.md` |
+| Pressure registry | `igniter-lab/igniter-apps/batch_importer/PRESSURE_REGISTRY.md` |
+| Portfolio index | `igniter-lab/.agents/portfolio-index.md` |
 
 ## Closed Surfaces
 

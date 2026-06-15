@@ -536,6 +536,7 @@ impl VM {
                         "stdlib.collection.any"    => "any",
                         "stdlib.collection.all"    => "all",
                         "stdlib.collection.find"   => "find",
+                        "stdlib.collection.filter_map" => "filter_map",
                         // concat -> lenient bare handler (Array+Array merge, else string
                         // concat); the front-end sometimes types a string concat as
                         // collection.concat.
@@ -1516,6 +1517,34 @@ impl VM {
                                 err_map.insert("err".to_string(), err_val);
                                 Value::Record(Arc::new(err_map))
                             }
+                        }
+                        "filter_map" => {
+                            // map + drop None: keep non-Nil results (Some), drop Nil (None).
+                            if args.len() != 2 {
+                                return Err(format!("filter_map expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let array = match &args[0] {
+                                Value::Array(a) => a,
+                                Value::Nil => return Ok(Value::Nil),
+                                _ => return Err("filter_map first argument must be an array".to_string()),
+                            };
+                            let lambda_str = args[1].as_str()?;
+                            let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
+                                .map_err(|e| format!("Invalid lambda JSON in filter_map: {}", e))?;
+                            let param_name = lambda_ast.get("params").and_then(|p| p.as_array())
+                                .and_then(|p| p.first()).and_then(|p| p.as_str())
+                                .ok_or("Lambda must have at least one parameter")?;
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
+                            let mut out = Vec::new();
+                            for item in array.iter() {
+                                let mut local_env = HashMap::new();
+                                local_env.insert(param_name.to_string(), item.clone());
+                                let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                if !matches!(val, Value::Nil) {
+                                    out.push(val);
+                                }
+                            }
+                            Value::Array(Arc::new(out))
                         }
                         "map" => {
                             if args.len() != 2 {
@@ -2534,13 +2563,17 @@ fn eval_ast<'a>(
                 Ok(val)
             }
             "if_expr" => {
-                let cond_val = eval_ast(node.get("condition").ok_or_else(|| "Missing condition".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                // Accept both if_expr shapes: condition/then_branch/else_branch and cond/then/else.
+                let cond_val = eval_ast(node.get("condition").or_else(|| node.get("cond")).ok_or_else(|| "Missing condition".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 let cond = cond_val.as_bool()?;
-                if cond {
-                    eval_ast(node.get("then_branch").ok_or_else(|| "Missing then_branch".to_string())?, inputs, temporal_context, local_env, backend, vm).await
+                let branch = if cond {
+                    node.get("then_branch").or_else(|| node.get("then")).ok_or_else(|| "Missing then_branch".to_string())?
                 } else {
-                    eval_ast(node.get("else_branch").ok_or_else(|| "Missing else_branch".to_string())?, inputs, temporal_context, local_env, backend, vm).await
-                }
+                    node.get("else_branch").or_else(|| node.get("else")).ok_or_else(|| "Missing else_branch".to_string())?
+                };
+                // A branch may be a block { return_expr, stmts }; v0 uses return_expr.
+                let branch = if branch.get("kind").is_none() { branch.get("return_expr").unwrap_or(branch) } else { branch };
+                eval_ast(branch, inputs, temporal_context, local_env, backend, vm).await
             }
             "range" => {
                 let start_val = eval_ast(node.get("start").ok_or_else(|| "Missing start".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;

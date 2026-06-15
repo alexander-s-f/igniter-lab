@@ -1,6 +1,6 @@
 module BatchImporterValidate
 import BatchImporterTypes
-import stdlib.collection.{ map, filter, count }
+import stdlib.collection.{ map, filter_map, count }
 
 -- ============================================================
 -- Validation + batch summary (pure)
@@ -38,12 +38,9 @@ pure contract ValidateAll {
   output results : Collection[RowResult]
 }
 
--- ── Partition counts (match-as-predicate) ───────────────────
--- PRESSURE BI-P01: we can COUNT each arm with a match predicate, but we CANNOT
--- cleanly extract `Collection[ImportRecord]` of just the Valid rows — filtering
--- a `Collection[RowResult]` keeps the element type `RowResult`, and changing it
--- to `ImportRecord` needs a partial map / Option-collect (the `.filter(Ok).map(Ok.value)`
--- the specimen wants). That extraction is the sum-type gap.
+-- ── Partition counts (typed extraction) ─────────────────────
+-- BI-P01 RESOLVED: filter_map extracts `Collection[ImportRecord]` from the
+-- Valid arm while dropping Invalid rows via none().
 pure contract IsValid {
   input r : RowResult
   compute ok = match r {
@@ -55,8 +52,11 @@ pure contract IsValid {
 
 pure contract CountAccepted {
   input results : Collection[RowResult]
-  compute valids = filter(results, r -> call_contract("IsValid", r))
-  compute n = count(valids)
+  compute valid_records : Collection[ImportRecord] = filter_map(results, r -> match r {
+    Valid { record } => some(record)
+    Invalid { } => none()
+  })
+  compute n = count(valid_records)
   output n : Integer
 }
 

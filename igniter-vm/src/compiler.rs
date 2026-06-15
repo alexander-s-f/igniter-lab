@@ -347,9 +347,15 @@ impl Compiler {
             }
 
             "if_expr" => {
-                let cond = node.get("condition").ok_or("Missing if condition")?;
-                let then_b = node.get("then_branch").ok_or("Missing then branch")?;
-                let else_b = node.get("else_branch").ok_or("Missing else branch")?;
+                // The front-end emits two if_expr shapes: condition/then_branch/else_branch
+                // and cond/then/else. Accept both (LAB-VM-DISPATCH-IF-SHAPE).
+                let cond = node.get("condition").or_else(|| node.get("cond")).ok_or("Missing if condition")?;
+                let then_b = node.get("then_branch").or_else(|| node.get("then")).ok_or("Missing then branch")?;
+                let else_b = node.get("else_branch").or_else(|| node.get("else")).ok_or("Missing else branch")?;
+                // A cond/then/else branch may be a block { return_expr, stmts }; v0 uses
+                // return_expr (stmts are empty in practice — non-empty is a follow-up).
+                let then_b = if then_b.get("kind").is_none() { then_b.get("return_expr").unwrap_or(then_b) } else { then_b };
+                let else_b = if else_b.get("kind").is_none() { else_b.get("return_expr").unwrap_or(else_b) } else { else_b };
 
                 self.compile_expr(cond)?;
 
