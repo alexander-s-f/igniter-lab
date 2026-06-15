@@ -14,7 +14,7 @@ This registry is evidence routing, not implementation authority.
 |---|---|---|---|---|
 | BK-P01 | Multi-file import/type visibility | Rust single-file `ledger.ig` reports `Transaction.postings`; Rust full multi-file does not. | improved / monitor | Keep using multi-file compile for app-level checks. |
 | BK-P02 | Decimal equality | Rust full multi-file: `Type mismatch for ==: cannot compare Decimal with Decimal`. | active | `LAB-STDLIB-DECIMAL-P1` |
-| BK-P03 | Decimal literal typing | Rust full multi-file: `0.00` inferred as Float, output expects `Decimal[2]`. | active | `LAB-STDLIB-DECIMAL-P1` |
+| BK-P03 | Decimal literal typing | RESOLVED 2026-06-15: the `0.00` Float fold seed migrated to `decimal(0, 2)` (LAB-NUMERIC-DECIMAL-CONSTRUCT-P1 constructor); Rust full multi-file now ok/0, VM runs `ComputeAccountBalance` to a `Decimal[2]` value. | resolved | `LAB-BOOKKEEPING-DECIMAL-MIGRATION-P1` |
 | BK-P04 | Collection stdlib parity | Bookkeeping needs `filter`, `map`, `sum`, `fold`; Ruby reports unknown functions. | active | `LAB-STDLIB-COLLECTION-P1` |
 | BK-P05 | Result constructors | `ok(tx)` / `err(text)` unknown in Ruby; canonical Result constructor model unsettled. | active | `LAB-STDLIB-RESULT-P1` or `LAB-STDLIB-OPTION-P1` |
 | BK-P06 | Stringly composition | `call_contract("VerifyBalancing", tx)` is app composition pressure; typed refs/forms are better substrate. | design pressure | typed-ref/forms migration route |
@@ -58,3 +58,28 @@ ruby -Ilib -e 'require "igniter_lang/compiler_orchestrator"; c=IgniterLang::Comp
 ## Wave P13 Appendix Check (2026-06-15)
 
 Ruby: oof/6. Rust: oof/1. Source files: 3. outside active fleet; Decimal/sum/fold blockers remain. This directory has a pressure registry but remains outside the 20-app active fleet metric inherited from Wave P12, so it is not counted as a P13 regression or resolution.
+
+## Decimal Migration — LAB-BOOKKEEPING-DECIMAL-MIGRATION-P1 (2026-06-15)
+
+**Migrated source hash (dual, 3-file):** `sha256:025731179a24c15fda2109170ed69ae5231e3d3226beb0f58b815f0a1c6c830f`
+(Rust and Ruby agree on the closure hash; status differs.)
+
+`ComputeAccountBalance`'s fold seed/accumulator migrated `0.00` → `decimal(0, 2)`
+(LAB-NUMERIC-DECIMAL-CONSTRUCT-P1 constructor) so the money path stays entirely in
+`Decimal[2]`. App-only edit (`ledger.ig`); no compiler/VM change.
+
+**Outcome (honest, partial):**
+
+- **Rust ok/0** — BK-P03 RESOLVED; the `expected Decimal[2], got Float` mismatch is gone.
+  **VM runs `ComputeAccountBalance` → `{value:0, scale:2}`** (Decimal[2], scale preserved).
+- **Ruby oof/5** (was 6) — the Float→Decimal mismatch is gone, but two pre-existing,
+  **out-of-authority** residuals remain (no compiler change permitted here):
+  - **BK-P04**: `stdlib.collection.sum` 1-arg (scalar) form in `VerifyBalancing` →
+    `OOF-COL1` ×2 + `OOF-P1` cascade. Ruby wants `sum(collection, :field)`.
+  - **Ruby numeric parity**: homogeneous `Decimal + Decimal` rejected by the Ruby
+    typechecker (`OOF-TY0: expected Integer, got Decimal+Decimal @total`) + `OOF-COL4`
+    cascade. The numeric-dispatch relaxation was **Rust-only**; Ruby parity is a separate
+    routed gap (same pattern as erp_logistics). Not a `decimal()`-construction failure.
+
+**Proof:** `igniter-view-engine/proofs/verify_lab_bookkeeping_decimal_migration_p1.rb`.
+**Lab doc:** `lab-docs/governance/lab-bookkeeping-decimal-migration-p1-v0.md`.

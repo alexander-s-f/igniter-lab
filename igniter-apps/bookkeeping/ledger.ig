@@ -21,9 +21,11 @@ contract ComputeAccountBalance {
   input txs : Collection[Transaction]
   input target_account_id : Text
 
-  -- We need to flat_map transactions to postings, but flat_map on collection might not exist.
-  -- Or just fold over transactions.
-  compute total = fold(txs, 0.00, (acc, tx) -> acc + 0.00) -- DUMMY to see if closure parser fails
-  
+  -- Decimal money path: seed and accumulate with the explicit Decimal constructor
+  -- (LAB-NUMERIC-DECIMAL-CONSTRUCT-P1) so the fold stays entirely in Decimal[2] and
+  -- never touches Float. decimal(0, 2) is zero in exact minor units at scale two.
+  -- (Accumulator shape is the original placeholder fold; not a balance-logic rewrite.)
+  compute total = fold(txs, decimal(0, 2), (acc, tx) -> acc + decimal(0, 2))
+
   output total : Decimal[2]
 }
