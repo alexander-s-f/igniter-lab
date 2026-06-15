@@ -536,6 +536,10 @@ impl VM {
                         "stdlib.collection.any"    => "any",
                         "stdlib.collection.all"    => "all",
                         "stdlib.collection.find"   => "find",
+                        // concat -> lenient bare handler (Array+Array merge, else string
+                        // concat); the front-end sometimes types a string concat as
+                        // collection.concat.
+                        "stdlib.collection.concat" => "concat",
                         "stdlib.string.concat"     => "concat",
                         other => other,
                     };

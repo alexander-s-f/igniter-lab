@@ -1,7 +1,32 @@
 # Card: LAB-VM-HOF-CLOSURE-CONVERSION-P1 — closure conversion (decided: B)
 
-**Status: DESIGN LOCKED — approach B.** Supersedes the readiness card
-`LAB-VM-HOF-CLOSURE-CAPTURE-P1`. Implementation may proceed against this spec.
+**Status: IMPLEMENTED 2026-06-15 (B).** Mechanism proven, no regression (RUN-OK held
+at 13). Supersedes `LAB-VM-HOF-CLOSURE-CAPTURE-P1`.
+
+## Implementation (all in igniter-vm — no front-end change needed)
+
+- `compiler.rs` lambda lowering: compute the body's `ref` names (`collect_ref_names`),
+  intersect with `compute_node_registers`, emit `captures:[{name,reg}]` into the
+  serialized lambda. (Inputs already reach lambdas via the runtime `inputs` map, so
+  only compute bindings — held in registers by index — need capturing.)
+- `vm.rs` OP_CALL chokepoint: `collect_captures` recursively gathers every `captures`
+  entry from a lambda arg (incl. nested lambdas — all reference the executing
+  contract's registers), resolves each via the live `registers`, and exposes them by
+  augmenting `inputs` for the handler. One chokepoint covers every HOF arm + nested HOFs.
+
+**Proof of mechanism:** sim_framework now captures `new_tick` / `rule_names` and
+progresses past the closure error (then hits unrelated gaps below). Build clean; the
+13 previously-green apps unaffected.
+
+## Not-yet-green proof targets — blocked by a SEPARATE issue (not closures)
+
+sim_framework (`'populations'`) and trade_robot (`'closes'`) still fail — but the cause
+is **not** closure capture. Both are `compute X = map(...); compute Y = fold(X, …)`
+where `X` is the fold's **source argument** (not a lambda free var). The error is in
+`eval_ast` (not bytecode), so the `fold`/`map`-over-a-compute path is tree-walking the
+source `ref` without register access. → new card
+**`LAB-VM-AGGREGATE-SOURCE-REF-P1`** (fold/aggregate source resolution). Closures is
+done; this is the next blocker.
 
 ## Decision
 
