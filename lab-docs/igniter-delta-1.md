@@ -1,5 +1,22 @@
 
 
+> [!IMPORTANT]
+> **SUPERSEDED 2026-06-15 — do not use this file to learn the current delta.**
+> Live canon↔lab delta is now maintained in `igniter-gov/DELTA-LEDGER.md`.
+>
+> This file is retained as evidence only. Multiple claims below are **stale**:
+> - cat.1 (missing VM opcodes) — **aligned** (delta report 2026-06-09)
+> - cat.3 (compiler missing expression kinds) — **aligned**, verified against
+>   `igniter-vm/src/compiler.rs` 2026-06-15 → history row D-006
+> - cat.2 (TBackend binding) — now ledger row **D-003** (shadow-bound; canon
+>   production binding still deferred)
+>
+> Still-live items migrated to the ledger: D-004 (PROP-042 T3), D-005 (OOF-M1
+> enforcement). Lab-internal backlog (stdlib expansion, ICTS suite, acts-as-tbackend
+> hardening, `--entry`) belongs in `igniter-lab/lab-docs/STATUS.md`, not the ledger.
+
+---
+
 ## Полный Delta: что можно реализовать прямо сейчас
 
 ### Категория 1: VM — Missing Opcodes (чисто технические, ноль governance)

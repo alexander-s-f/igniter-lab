@@ -116,6 +116,12 @@ With boundaries:
 
 ## Delta History
 
+> [!NOTE]
+> **The live delta is now `igniter-gov/DELTA-LEDGER.md`.** This section is retained
+> as the *model's* worked examples + closed-pass evidence. Closed rows (D1–D5,
+> G1–G6, OOF-R3) are mirrored to `igniter-gov/delta-ledger-history.md`. Do not add
+> new open deltas here — add ledger rows instead.
+
 ### Sync pass: 2026-06-07 (PROP-039 gates 3/4/5 closed)
 
 | Delta | Before | After | Status |
