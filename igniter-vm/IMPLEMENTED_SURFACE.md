@@ -59,18 +59,20 @@ Surfaced by running `igniter-apps/*` through `tools/igniter` (compile → run).
 |---|---|---|---|
 | ~~1~~ | ✅ **RESOLVED 2026-06-15** — VM stdlib collection ops. Was: `OP_CALL: unimplemented 'stdlib.collection.filter'`. Fix: `vm.rs` OP_CALL now aliases `stdlib.collection.{filter,map,fold,reduce,count,range,first,last,sum,take,zip,any,all,find}` → existing bare HOF handlers, + new `stdlib.integer.{lt,gt,lte,gte}` and `stdlib.collection.append`. | RUN-OK 1→6 | unblocked job_runner, reconciler, arch_patterns, decision_tree, neural_net |
 | 2a | ✅ **DONE 2026-06-15** — `eval_ast` (tree-walker) lacked `stdlib.integer.{lt,gt,lte,gte}` that OP_CALL has. Added namespaced aliases to its comparison arms. | RUN-OK 6→7 | audit_ledger |
-| 2b | **call_contract in `eval_ast`** — the tree-walker can't dispatch cross-contract calls (no `dispatch_table` access; it's a free fn, not a `self` method). Manifests as `Unsupported operator: call_contract` / `expects 2 operands; got N`. | 5 apps | batch_importer, bloom_filter, dsa, dataframes, query_engine |
+| ~~2b~~ | ✅ **RESOLVED 2026-06-15 (unification)** — extracted `VM::call_contract_value` as the single dispatch source; threaded `&VM` into `eval_ast`/`eval_lambda` (48 call sites); added a `call_contract` arm to the tree-walker; refactored bytecode `OP_CALL` to call the same method. Cross-contract calls inside lambda/HOF bodies now work. | RUN-OK 7→12 | batch_importer, bloom_filter, dsa, dataframes, query_engine |
 | 2c | **call_contract callee not in igapp** — `no contract named X` (compiler emission / multifile, not VM) | call_router, lead_router | 2 |
-| 3 | **field access resolution** — `Field access not resolved` | air_combat | 1 |
-| 4 | **reference symbol not resolved** | sim_framework, trade_robot | 2 |
+| ~~3~~ | ✅ **RESOLVED 2026-06-15** — field access only handled `ref.field`; generalized to evaluate any object expr → Record field. Also bumped `MAX_CALL_DEPTH` 8→64 (legit deep call chains; cycles caught separately). | RUN-OK 12→13 | air_combat |
+| 4 | **closures — lambdas don't capture enclosing scope.** `map(xs, e -> call_contract(..., new_tick, ...))` where `new_tick` is an enclosing `compute` binding → `Symbol not found in env`. VM stores compute results in `registers: HashMap<i64,Value>` (by index, no name map); HOF handlers pass `{param: item}` only. Needs a real **closures feature** (runtime name→value capture OR compile-time closure conversion). | sim_framework (+likely others w/ free vars in lambdas) | feature, not a patch |
+| 4b | **`c1` ref not in inputs/temporal** (bytecode OP_LOAD_REF) — compute/input binding; needs separate diagnosis (compiler opcode vs missing input) | trade_robot | TBD |
 | 5 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029) | vector_math, igniter_parser, … | ~5 (UX/lang) |
 | 6 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
 
-**Architecture note (3rd occurrence):** the VM has TWO dispatch implementations —
-bytecode `OP_CALL` and the `eval_ast` tree-walker — that keep diverging (text.* →
-collection.* → integer.*). #2b's real fix is to stop duplicating: either route
-contracts through bytecode (where call_contract works) or thread the contract
-registry into eval_ast + extract a shared stdlib-dispatch helper. **Decision pending.**
+**Architecture note — dispatch divergence CLOSED 2026-06-15.** The VM had two
+dispatch paths (bytecode `OP_CALL` + `eval_ast` tree-walker) that diverged 3× (text.*
+→ collection.* → integer.* → call_contract). `call_contract` is now single-sourced
+via `VM::call_contract_value`. (stdlib value-ops are still matched in both places —
+a future cleanup could route those through one helper too, but they no longer
+functionally diverge after the alias passes.) **RUN-OK 1 → 12 this session.**
 
 ## Provenance
 

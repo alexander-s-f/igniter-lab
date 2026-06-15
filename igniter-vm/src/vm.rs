@@ -39,7 +39,7 @@ pub struct DispatchEntry {
 
 // LAB-RACK-P9: Maximum user-contract call depth.
 // Prevents stack overflow from deep or cyclic dispatch chains.
-pub const MAX_CALL_DEPTH: i64 = 8;
+pub const MAX_CALL_DEPTH: i64 = 64;
 
 pub struct VM {
     backend: Option<Arc<dyn TBackend>>,
@@ -67,6 +67,73 @@ impl VM {
             Some(c) => std::mem::take(&mut c.lock().unwrap()),
             None => Vec::new(),
         }
+    }
+
+    // Shared cross-contract call. Single source of dispatch truth used by BOTH the
+    // bytecode OP_CALL path and the eval_ast tree-walker (lambda / HOF bodies), so
+    // the two execution paths can no longer diverge on call_contract semantics.
+    pub async fn call_contract_value(
+        &self,
+        callee_name: &str,
+        positional_args: &[Value],
+        temporal_context: &HashMap<String, Value>,
+    ) -> Result<Value, String> {
+        let current_depth = temporal_context.get("__call_depth__")
+            .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
+            .unwrap_or(0);
+        if current_depth >= MAX_CALL_DEPTH {
+            return Err(format!(
+                "call_contract: max call depth ({}) exceeded; check for indirect recursion",
+                MAX_CALL_DEPTH
+            ));
+        }
+        let call_chain_str = temporal_context.get("__call_chain__")
+            .and_then(|v| if let Value::String(s) = v { Some(s.as_ref().to_string()) } else { None })
+            .unwrap_or_default();
+        let chain_names: Vec<&str> = call_chain_str.split(',').filter(|s| !s.is_empty()).collect();
+        if chain_names.contains(&callee_name) {
+            return Err(format!(
+                "call_contract: dispatch cycle detected ({} -> {}); self-recursion and cycles closed in v0",
+                if call_chain_str.is_empty() { "(root)".to_string() } else { call_chain_str.clone() },
+                callee_name
+            ));
+        }
+        let entry = self.dispatch_table.get(callee_name)
+            .ok_or_else(|| {
+                let mut av: Vec<&str> = self.dispatch_table.keys().map(|s| s.as_str()).collect();
+                av.sort();
+                format!(
+                    "call_contract: no contract named '{}' in igapp (available: [{}])",
+                    callee_name,
+                    if av.is_empty() { "none".to_string() } else { av.join(", ") }
+                )
+            })?
+            .clone();
+        if entry.modifier != "pure" {
+            return Err(format!(
+                "call_contract: callee '{}' is not pure (modifier: {}); cross-contract call requires pure callee in v0",
+                callee_name, entry.modifier
+            ));
+        }
+        if positional_args.len() != entry.input_names.len() {
+            return Err(format!(
+                "call_contract: contract '{}' expects {} input(s) [{}], got {}",
+                callee_name, entry.input_names.len(), entry.input_names.join(", "), positional_args.len()
+            ));
+        }
+        let callee_inputs: HashMap<String, Value> = entry.input_names.iter()
+            .zip(positional_args.iter())
+            .map(|(name, val)| (name.clone(), val.clone()))
+            .collect();
+        let new_chain = if call_chain_str.is_empty() {
+            callee_name.to_string()
+        } else {
+            format!("{},{}", call_chain_str, callee_name)
+        };
+        let mut callee_temporal = temporal_context.clone();
+        callee_temporal.insert("__call_depth__".to_string(), Value::Integer(current_depth + 1));
+        callee_temporal.insert("__call_chain__".to_string(), Value::String(Arc::from(new_chain.as_str())));
+        Box::pin(self.execute(&entry.bytecode, &callee_inputs, &callee_temporal)).await
     }
 
     pub async fn execute(
@@ -1241,7 +1308,7 @@ impl VM {
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 if cond_val.as_bool()? {
                                     filtered.push(item.clone());
                                 }
@@ -1272,7 +1339,7 @@ impl VM {
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 if cond_val.as_bool()? {
                                     found = item.clone();
                                     break;
@@ -1304,7 +1371,7 @@ impl VM {
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 if cond_val.as_bool()? {
                                     result = true;
                                     break;
@@ -1336,7 +1403,7 @@ impl VM {
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 if !cond_val.as_bool()? {
                                     result = false;
                                     break;
@@ -1368,7 +1435,7 @@ impl VM {
                                         .ok_or("Missing body in try_catch lambda")?;
                                     let mut local_env = HashMap::new();
                                     local_env.insert(param_name.to_string(), err_val);
-                                    eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?
+                                    eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?
                                 }
                                 _ => res.clone(),
                             }
@@ -1407,7 +1474,7 @@ impl VM {
                                 .ok_or("Missing body in validate lambda")?;
                             let mut local_env = HashMap::new();
                             local_env.insert(param_name.to_string(), val.clone());
-                            let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                            let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                             if cond.as_bool().unwrap_or(false) {
                                 let mut ok_map = std::collections::BTreeMap::new();
                                 ok_map.insert("ok".to_string(), val);
@@ -1441,7 +1508,7 @@ impl VM {
                                     for item in array.iter() {
                                         let mut local_env = HashMap::new();
                                         local_env.insert(param_name.to_string(), item.clone());
-                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                         mapped.push(val);
                                     }
                                     Value::Array(Arc::new(mapped))
@@ -1450,7 +1517,7 @@ impl VM {
                                 Value::Record(map) if map.contains_key("ok") => {
                                     let ok_val = map.get("ok").unwrap().clone();
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend).await?;
+                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend, self).await?;
                                     let mut new_map = std::collections::BTreeMap::new();
                                     new_map.insert("ok".to_string(), res);
                                     Value::Record(Arc::new(new_map))
@@ -1461,7 +1528,7 @@ impl VM {
                                 _ => {
                                     // Option Some represented as raw value
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend).await?;
+                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend, self).await?;
                                     res
                                 }
                             }
@@ -1489,7 +1556,7 @@ impl VM {
                                     for item in array.iter() {
                                         let mut local_env = HashMap::new();
                                         local_env.insert(param_name.to_string(), item.clone());
-                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                         match val {
                                             Value::Array(a) => flat_mapped.extend(a.iter().cloned()),
                                             v => flat_mapped.push(v),
@@ -1501,7 +1568,7 @@ impl VM {
                                 Value::Record(map) if map.contains_key("ok") => {
                                     let ok_val = map.get("ok").unwrap().clone();
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend).await?;
+                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend, self).await?;
                                     res
                                 }
                                 Value::Record(map) if map.contains_key("err") => {
@@ -1510,7 +1577,7 @@ impl VM {
                                 _ => {
                                     // Option Some represented as raw value
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend).await?;
+                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend, self).await?;
                                     res
                                 }
                             }
@@ -1544,7 +1611,7 @@ impl VM {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_acc.to_string(), acc.clone());
                                 local_env.insert(param_val.to_string(), item.clone());
-                                acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                             }
                             acc
                         }
@@ -1565,19 +1632,8 @@ impl VM {
                         //   __call_depth__: Integer (default 0)
                         //   __call_chain__: String (comma-separated contract names, default "")
                         "call_contract" => {
-                            // Extract current depth + chain from temporal_context
-                            let current_depth = temporal_context.get("__call_depth__")
-                                .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
-                                .unwrap_or(0);
-
-                            if current_depth >= MAX_CALL_DEPTH {
-                                return Err(format!(
-                                    "call_contract: max call depth ({}) exceeded; check for indirect recursion",
-                                    MAX_CALL_DEPTH
-                                ));
-                            }
-
-                            // First arg: callee contract name (must be String)
+                            // Unified dispatch — same VM::call_contract_value the eval_ast
+                            // tree-walker uses, so the two paths cannot diverge.
                             if args.is_empty() {
                                 return Err("call_contract: missing contract name argument (first arg must be String)".to_string());
                             }
@@ -1588,83 +1644,7 @@ impl VM {
                                     other
                                 )),
                             };
-
-                            // Cycle / self-recursion detection via __call_chain__
-                            let call_chain_str = temporal_context.get("__call_chain__")
-                                .and_then(|v| if let Value::String(s) = v { Some(s.as_ref().to_string()) } else { None })
-                                .unwrap_or_default();
-                            let chain_names: Vec<&str> = call_chain_str.split(',')
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            if chain_names.contains(&callee_name.as_str()) {
-                                return Err(format!(
-                                    "call_contract: dispatch cycle detected ({} -> {}); self-recursion and cycles closed in v0",
-                                    if call_chain_str.is_empty() { "(root)".to_string() } else { call_chain_str.clone() },
-                                    callee_name
-                                ));
-                            }
-
-                            // Lookup callee in dispatch table
-                            let entry = self.dispatch_table.get(&callee_name)
-                                .ok_or_else(|| {
-                                    let available: Vec<&str> = self.dispatch_table.keys()
-                                        .map(|s| s.as_str()).collect();
-                                    let mut av = available.clone();
-                                    av.sort();
-                                    format!(
-                                        "call_contract: no contract named '{}' in igapp (available: [{}])",
-                                        callee_name,
-                                        if av.is_empty() { "none".to_string() } else { av.join(", ") }
-                                    )
-                                })?
-                                .clone(); // clone so we can release the borrow on self.dispatch_table
-
-                            // Pure-only constraint
-                            if entry.modifier != "pure" {
-                                return Err(format!(
-                                    "call_contract: callee '{}' is not pure (modifier: {}); cross-contract call requires pure callee in v0",
-                                    callee_name, entry.modifier
-                                ));
-                            }
-
-                            // Positional arg count check (remaining args after the contract name)
-                            let positional_args = &args[1..];
-                            if positional_args.len() != entry.input_names.len() {
-                                return Err(format!(
-                                    "call_contract: contract '{}' expects {} input(s) [{}], got {}",
-                                    callee_name,
-                                    entry.input_names.len(),
-                                    entry.input_names.join(", "),
-                                    positional_args.len()
-                                ));
-                            }
-
-                            // Build callee inputs map (positional → name)
-                            let mut callee_inputs: HashMap<String, Value> = entry.input_names.iter()
-                                .zip(positional_args.iter())
-                                .map(|(name, val)| (name.clone(), val.clone()))
-                                .collect();
-                            // Make callee inputs visible to the VM's OP_LOAD_REF handler
-                            // (which reads from the `inputs` parameter, not temporal_context)
-                            let _ = &mut callee_inputs; // silence unused_mut warning
-
-                            // Build callee temporal_context with updated depth + chain
-                            let new_chain = if call_chain_str.is_empty() {
-                                callee_name.clone()
-                            } else {
-                                format!("{},{}", call_chain_str, callee_name)
-                            };
-                            let mut callee_temporal = temporal_context.clone();
-                            callee_temporal.insert("__call_depth__".to_string(), Value::Integer(current_depth + 1));
-                            callee_temporal.insert("__call_chain__".to_string(), Value::String(Arc::from(new_chain.as_str())));
-
-                            // Execute callee in isolated frame (new stack, new registers)
-                            // Use Box::pin for the recursive async call
-                            let callee_result = Box::pin(
-                                self.execute(&entry.bytecode, &callee_inputs, &callee_temporal)
-                            ).await?;
-
-                            callee_result
+                            self.call_contract_value(&callee_name, &args[1..], temporal_context).await?
                         }
                         // ── LAB-VM-MAP-P1: Map runtime operations ────────────────────────────
                         // Option representation: None = Value::Nil, Some(v) = raw v (no wrapper).
@@ -1869,7 +1849,7 @@ impl VM {
                         .as_array()
                         .ok_or("pipeline must be an array")?;
 
-                    let source_val = eval_ast(source, inputs, temporal_context, &HashMap::new(), &self.backend).await?;
+                    let source_val = eval_ast(source, inputs, temporal_context, &HashMap::new(), &self.backend, self).await?;
 
                     let mut items = Vec::new();
                     match &source_val {
@@ -1896,7 +1876,7 @@ impl VM {
 
                     if terminal_kind == "fold" {
                         let init_ast = terminal_step.get("init").ok_or("Missing init in fold")?;
-                        let init_val = eval_ast(init_ast, inputs, temporal_context, &HashMap::new(), &self.backend).await?;
+                        let init_val = eval_ast(init_ast, inputs, temporal_context, &HashMap::new(), &self.backend, self).await?;
                         fold_acc = Some(init_val);
                     }
 
@@ -1913,7 +1893,7 @@ impl VM {
                                     let mut local_env = HashMap::new();
                                     local_env.insert(param.to_string(), current_value.clone());
                                     
-                                    let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                    let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                     if !cond.as_bool()? {
                                         continue 'item_loop;
                                     }
@@ -1925,7 +1905,7 @@ impl VM {
                                     let mut local_env = HashMap::new();
                                     local_env.insert(param.to_string(), current_value.clone());
                                     
-                                    current_value = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                    current_value = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 }
                                 _ => return Err(format!("Unsupported intermediate pipeline step: {}", step_kind)),
                             }
@@ -2008,7 +1988,7 @@ impl VM {
                                 local_env.insert(param_acc.to_string(), fold_acc.as_ref().unwrap().clone());
                                 local_env.insert(param_val.to_string(), current_value);
 
-                                let next_acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend).await?;
+                                let next_acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
                                 fold_acc = Some(next_acc);
                             }
                             _ => return Err(format!("Unsupported terminal pipeline step: {}", terminal_kind)),
@@ -2162,6 +2142,7 @@ fn eval_ast<'a>(
     temporal_context: &'a HashMap<String, Value>,
     local_env: &'a HashMap<String, Value>,
     backend: &'a Option<Arc<dyn TBackend>>,
+    vm: &'a VM,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
         let kind = node.get("kind")
@@ -2225,11 +2206,19 @@ fn eval_ast<'a>(
                         return Ok(v.clone());
                     }
                 }
-                Err(format!("Field access not resolvable for field '{}'", field))
+                // General case: object is an arbitrary expression (nested field
+                // access, call result, indexed element, …) that yields a Record.
+                let obj_val = eval_ast(object, inputs, temporal_context, local_env, backend, vm).await?;
+                match obj_val {
+                    Value::Record(map) => map.get(field).cloned().ok_or_else(||
+                        format!("Field access: record has no field '{}'", field)),
+                    other => Err(format!(
+                        "Field access not resolvable for field '{}' on value {:?}", field, other)),
+                }
             }
             "binary_op" => {
-                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left".to_string())?, inputs, temporal_context, local_env, backend).await?;
-                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right".to_string())?, inputs, temporal_context, local_env, backend).await?;
+                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 let op = node.get("operator").or_else(|| node.get("op"))
                     .ok_or_else(|| "Missing operator".to_string())?
                     .as_str()
@@ -2402,7 +2391,7 @@ fn eval_ast<'a>(
                     .or_else(|| node.get("expr"))
                     .or_else(|| node.get("expression"))
                     .ok_or_else(|| "Missing unary operand".to_string())?;
-                let val = eval_ast(operand, inputs, temporal_context, local_env, backend).await?;
+                let val = eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
                 match op {
                     "!" => match val {
                         Value::Bool(b) => Ok(Value::Bool(!b)),
@@ -2421,7 +2410,7 @@ fn eval_ast<'a>(
                 let items = node.get("items").ok_or_else(|| "Missing items in array".to_string())?.as_array().ok_or_else(|| "items must be array".to_string())?;
                 let mut vals = Vec::with_capacity(items.len());
                 for item in items {
-                    vals.push(eval_ast(item, inputs, temporal_context, local_env, backend).await?);
+                    vals.push(eval_ast(item, inputs, temporal_context, local_env, backend, vm).await?);
                 }
                 Ok(Value::Array(Arc::new(vals)))
             }
@@ -2429,14 +2418,14 @@ fn eval_ast<'a>(
                 let fields = node.get("fields").ok_or_else(|| "Missing fields in record".to_string())?.as_object().ok_or_else(|| "fields must be object".to_string())?;
                 let mut map = std::collections::BTreeMap::new();
                 for (k, v) in fields {
-                    let val = eval_ast(v, inputs, temporal_context, local_env, backend).await?;
+                    let val = eval_ast(v, inputs, temporal_context, local_env, backend, vm).await?;
                     map.insert(k.clone(), val);
                 }
                 Ok(Value::Record(Arc::new(map)))
             }
             "concat" => {
-                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left in concat".to_string())?, inputs, temporal_context, local_env, backend).await?;
-                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right in concat".to_string())?, inputs, temporal_context, local_env, backend).await?;
+                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left in concat".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right in concat".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 match (&left_val, &right_val) {
                     (Value::String(av), Value::String(bv)) => {
                         let mut s = av.to_string();
@@ -2461,12 +2450,12 @@ fn eval_ast<'a>(
                     .or_else(|| node.get("expression"))
                     .ok_or_else(|| "Missing let value expression".to_string())?;
                 
-                let val = eval_ast(expr, inputs, temporal_context, local_env, backend).await?;
+                let val = eval_ast(expr, inputs, temporal_context, local_env, backend, vm).await?;
                 
                 if let Some(body) = node.get("body") {
                     let mut new_env = local_env.clone();
                     new_env.insert(name.to_string(), val);
-                    eval_ast(body, inputs, temporal_context, &new_env, backend).await
+                    eval_ast(body, inputs, temporal_context, &new_env, backend, vm).await
                 } else {
                     Ok(val)
                 }
@@ -2490,7 +2479,7 @@ fn eval_ast<'a>(
                     .ok_or_else(|| "observation_kind must be string".to_string())?;
                 let expr = node.get("expression").ok_or_else(|| "Missing expression in emit_observation".to_string())?;
                 
-                let val = eval_ast(expr, inputs, temporal_context, local_env, backend).await?;
+                let val = eval_ast(expr, inputs, temporal_context, local_env, backend, vm).await?;
                 
                 let raw_digest = format!("{}-{:?}", obs_kind, val);
                 let obs_id = format!("obs/eval/{}", sha256_hex(&raw_digest));
@@ -2508,17 +2497,17 @@ fn eval_ast<'a>(
                 Ok(val)
             }
             "if_expr" => {
-                let cond_val = eval_ast(node.get("condition").ok_or_else(|| "Missing condition".to_string())?, inputs, temporal_context, local_env, backend).await?;
+                let cond_val = eval_ast(node.get("condition").ok_or_else(|| "Missing condition".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 let cond = cond_val.as_bool()?;
                 if cond {
-                    eval_ast(node.get("then_branch").ok_or_else(|| "Missing then_branch".to_string())?, inputs, temporal_context, local_env, backend).await
+                    eval_ast(node.get("then_branch").ok_or_else(|| "Missing then_branch".to_string())?, inputs, temporal_context, local_env, backend, vm).await
                 } else {
-                    eval_ast(node.get("else_branch").ok_or_else(|| "Missing else_branch".to_string())?, inputs, temporal_context, local_env, backend).await
+                    eval_ast(node.get("else_branch").ok_or_else(|| "Missing else_branch".to_string())?, inputs, temporal_context, local_env, backend, vm).await
                 }
             }
             "range" => {
-                let start_val = eval_ast(node.get("start").ok_or_else(|| "Missing start".to_string())?, inputs, temporal_context, local_env, backend).await?;
-                let end_val = eval_ast(node.get("end").ok_or_else(|| "Missing end".to_string())?, inputs, temporal_context, local_env, backend).await?;
+                let start_val = eval_ast(node.get("start").ok_or_else(|| "Missing start".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let end_val = eval_ast(node.get("end").ok_or_else(|| "Missing end".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
                 let start = start_val.as_integer()?;
                 let end = end_val.as_integer()?;
                 let mut list = Vec::new();
@@ -2569,7 +2558,7 @@ fn eval_ast<'a>(
 
                 let mut evaluated_operands = Vec::new();
                 for operand in operands {
-                    let val = eval_ast(operand, inputs, temporal_context, local_env, backend).await?;
+                    let val = eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
                     evaluated_operands.push(val);
                 }
 
@@ -3030,7 +3019,7 @@ fn eval_ast<'a>(
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                             if cond_val.as_bool()? {
                                 filtered.push(item.clone());
                             }
@@ -3061,7 +3050,7 @@ fn eval_ast<'a>(
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                             if cond_val.as_bool()? {
                                 found = item.clone();
                                 break;
@@ -3093,7 +3082,7 @@ fn eval_ast<'a>(
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                             if cond_val.as_bool()? {
                                 result = true;
                                 break;
@@ -3125,7 +3114,7 @@ fn eval_ast<'a>(
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                             if !cond_val.as_bool()? {
                                 result = false;
                                 break;
@@ -3157,7 +3146,7 @@ fn eval_ast<'a>(
                                     .ok_or("Missing body in try_catch lambda")?;
                                 let mut inner_env = local_env.clone();
                                 inner_env.insert(param_name.to_string(), err_val);
-                                eval_ast(body, inputs, temporal_context, &inner_env, backend).await
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await
                             }
                             _ => Ok(res.clone()),
                         }
@@ -3196,7 +3185,7 @@ fn eval_ast<'a>(
                             .ok_or("Missing body in validate lambda")?;
                         let mut inner_env = local_env.clone();
                         inner_env.insert(param_name.to_string(), val.clone());
-                        let cond = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                        let cond = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                         if cond.as_bool().unwrap_or(false) {
                             let mut ok_map = std::collections::BTreeMap::new();
                             ok_map.insert("ok".to_string(), val);
@@ -3230,7 +3219,7 @@ fn eval_ast<'a>(
                                 for item in array.iter() {
                                     let mut inner_env = local_env.clone();
                                     inner_env.insert(param_name.to_string(), item.clone());
-                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                                     mapped.push(val);
                                 }
                                 Ok(Value::Array(Arc::new(mapped)))
@@ -3238,7 +3227,7 @@ fn eval_ast<'a>(
                             Value::Nil => Ok(Value::Nil),
                             Value::Record(map) if map.contains_key("ok") => {
                                 let ok_val = map.get("ok").unwrap().clone();
-                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend).await?;
+                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend, vm).await?;
                                 let mut new_map = std::collections::BTreeMap::new();
                                 new_map.insert("ok".to_string(), res);
                                 Ok(Value::Record(Arc::new(new_map)))
@@ -3248,7 +3237,7 @@ fn eval_ast<'a>(
                             }
                             _ => {
                                 // Option Some represented as raw value
-                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend).await?;
+                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend, vm).await?;
                                 Ok(res)
                             }
                         }
@@ -3276,7 +3265,7 @@ fn eval_ast<'a>(
                                 for item in array.iter() {
                                     let mut inner_env = local_env.clone();
                                     inner_env.insert(param_name.to_string(), item.clone());
-                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                                     match val {
                                         Value::Array(a) => flat_mapped.extend(a.iter().cloned()),
                                         v => flat_mapped.push(v),
@@ -3287,7 +3276,7 @@ fn eval_ast<'a>(
                             Value::Nil => Ok(Value::Nil),
                             Value::Record(map) if map.contains_key("ok") => {
                                 let ok_val = map.get("ok").unwrap().clone();
-                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend).await?;
+                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend, vm).await?;
                                 Ok(res)
                             }
                             Value::Record(map) if map.contains_key("err") => {
@@ -3295,7 +3284,7 @@ fn eval_ast<'a>(
                             }
                             _ => {
                                 // Option Some represented as raw value
-                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend).await?;
+                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend, vm).await?;
                                 Ok(res)
                             }
                         }
@@ -3329,9 +3318,23 @@ fn eval_ast<'a>(
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_acc.to_string(), acc.clone());
                             inner_env.insert(param_val.to_string(), item.clone());
-                            acc = eval_ast(body, inputs, temporal_context, &inner_env, backend).await?;
+                            acc = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
                         }
                         Ok(acc)
+                    }
+                    "call_contract" => {
+                        // Unified with the bytecode OP_CALL path via VM::call_contract_value.
+                        // Enables cross-contract calls inside lambda / HOF bodies (tree-walked).
+                        if evaluated_operands.is_empty() {
+                            return Err("call_contract: missing contract name (first operand)".to_string());
+                        }
+                        let callee_name = match &evaluated_operands[0] {
+                            Value::String(s) => s.to_string(),
+                            other => return Err(format!(
+                                "call_contract: first operand must be String (contract name), got {:?}", other
+                            )),
+                        };
+                        vm.call_contract_value(&callee_name, &evaluated_operands[1..], temporal_context).await
                     }
                     _ => {
                         if evaluated_operands.len() != 2 {
@@ -3511,6 +3514,7 @@ fn eval_lambda<'a>(
     temporal_context: &'a HashMap<String, Value>,
     local_env: &'a HashMap<String, Value>,
     backend: &'a Option<Arc<dyn TBackend>>,
+    vm: &'a VM,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
@@ -3525,7 +3529,7 @@ fn eval_lambda<'a>(
             .ok_or("Missing body in lambda")?;
         let mut inner_env = local_env.clone();
         inner_env.insert(param_name.to_string(), arg);
-        eval_ast(body, inputs, temporal_context, &inner_env, backend).await
+        eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await
     })
 }
 
