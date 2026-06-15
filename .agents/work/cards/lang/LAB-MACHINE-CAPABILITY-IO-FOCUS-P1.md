@@ -11,12 +11,16 @@ Keep the production IO track aligned:
 ```text
 P1 proved executor + receipt model                              [CLOSED 2026-06-15]
 P2 wires declared-effect host entrypoint through run_effect     [CLOSED 2026-06-15]
-P3 binds one real substrate, preferably local RocksDB/TBackend read   [NEXT]
+P3 binds one real substrate (read-only local RocksDB/TBackend)  [CLOSED 2026-06-15]
 ```
 
-> Progress: P1 (`capability.rs`, 13 tests) and P2 (`service_loop.rs`, 9 tests) are CLOSED —
-> see `LAB-MACHINE-CAPABILITY-IO-P1.md` / `-P2.md` and
-> `lab-docs/lang/lab-machine-capability-io-p{1,2}-*.md`. P3 is the next implementation card.
+> Progress: P1 (`capability.rs`, 13 tests), P2 (`service_loop.rs`, 9 tests), and P3
+> (`executors.rs`, 5 tests) are all CLOSED — see `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` and
+> `lab-docs/lang/lab-machine-capability-io-p{1,2,3}-*.md`. **The capability IO boundary is
+> proven end-to-end on a real substrate.** Portfolio batch entry filed
+> (`igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`).
+> Open: bounded follow-up cards (real clock / richer authority / retry scheduler / write
+> substrate / HTTP executor) — none started.
 
 The route must preserve the core boundary:
 

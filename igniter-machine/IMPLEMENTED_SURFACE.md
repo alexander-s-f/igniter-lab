@@ -25,6 +25,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | inherits the VM wave | ✅ | path-dep on `igniter_vm` → closures / match / HOF / dispatch-unification all run through `dispatch` |
 | **capability IO boundary** | ✅ (fake-executor proof) | `capability::{CapabilityExecutor, CapabilityExecutorRegistry, run_effect}` — ServiceLoop-like data-plane: preflight authority/idempotency → executor once → **receipt written as a bitemporal fact** (store `__receipts__`) → typed outcome. Idempotency = receipt lookup; replay = executor bypass; `unknown_external_state` kept epistemic (≠ failure); denial-as-data. `TBackend` = first proven capability family. **Fake executors only** (Echo/KvRead) — no real DB/HTTP. (LAB-MACHINE-CAPABILITY-IO-P1) |
 | **declared-effect host entrypoint** | ✅ (fake-executor proof) | `service_loop::{discover_effect_surface, run_service, EffectDescriptor, HostRequest}` — discovers a contract's declared effect surface from its **already-emitted IR** (`modifier`/`capabilities[{name,type}]`/`effects[{name,capability_ref}]`), resolves effect→capability→executor, routes through `run_effect` with `machine.storage` as the receipt store. Proven on the **real** `ExecuteQuery` effect contract. **Contract body does no IO** (dispatch has no executor registry by construction — call-count 0 after dispatch, 1 after host entrypoint). Not an MCP path. (LAB-MACHINE-CAPABILITY-IO-P2) |
+| **real substrate executor** | ✅ (first real, read-only) | `executors::TBackendReadExecutor` — read-only `CapabilityExecutor` over a real `Arc<dyn TBackend>` (RocksDB on disk / remote-TCP). `run_service` + receipts UNCHANGED; only the executor is real. Outcome mapping: found→Succeeded, none→PermanentFailure, backend Err→UnknownExternalState (unavailable=epistemic). Proven on real RocksDB read + real RemoteTcp dead-port unavailability. Read-only — no writes/HTTP/scheduler. (LAB-MACHINE-CAPABILITY-IO-P3) |
 
 ## Surfaces
 
@@ -61,6 +62,10 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   while the contract body does none (executor untouched by `dispatch`); idempotency + replay
   through `run_service`; preflight refuses pure/undeclared-effect/unregistered-capability/missing-
   authority with no receipt; in-process data-plane (no MCP). Fake executors only.
+- `tests/capability_io_real_tests.rs` (5) — **first real substrate**: `TBackendReadExecutor` over
+  a real on-disk `RocksDBBackend` (read succeeds + receipt; idempotency replays without re-reading;
+  missing record → permanent_failure, no panic) and a real `RemoteTcpBackend` → dead port
+  (unavailable → unknown_external_state). Contract body still does no IO. Read-only.
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -76,8 +81,8 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
   (multifile) — multifile apps not yet loadable via MCP.
 - Interval valid_time (v0 = point); `valid_policy` fallback.
 
-(`machine_tests.rs` 12 + `capability_io_tests.rs` 13 + `capability_io_host_tests.rs` 9 pass —
-the header count is the historical baseline.)
+(`machine_tests.rs` 12 + `capability_io_tests.rs` 13 + `capability_io_host_tests.rs` 9 +
+`capability_io_real_tests.rs` 5 pass — the header count is the historical baseline.)
 
 ## Boundary (per README)
 

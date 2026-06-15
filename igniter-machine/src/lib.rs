@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod capability;
 pub mod capsule;
 pub mod errors;
+pub mod executors;
 pub mod fact;
 pub mod machine;
 pub mod registry;
