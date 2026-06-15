@@ -1,5 +1,7 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-P3 — first real substrate (read-only local TBackend)
 
+> **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) — read the milestone card first for the whole P1–P6b picture; this is one slice of it.
+
 **Status: CLOSED 2026-06-15 — first real executor implemented + proven.**
 Route: `LAB-MACHINE-CAPABILITY-IO-FOCUS-P1`. Builds on P1 (executor+receipt) and P2
 (host entrypoint). 5 machine tests (`igniter-machine/tests/capability_io_real_tests.rs`);

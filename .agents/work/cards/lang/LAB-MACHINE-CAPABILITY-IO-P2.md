@@ -1,5 +1,7 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-P2 — declared-effect host entrypoint
 
+> **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) — read the milestone card first for the whole P1–P6b picture; this is one slice of it.
+
 **Status: CLOSED 2026-06-15 — host-entrypoint path implemented + proven.**
 Route: `LAB-MACHINE-CAPABILITY-IO-FOCUS-P1`. Builds on the P1 executor + receipt model.
 9 machine tests (`igniter-machine/tests/capability_io_host_tests.rs`); full machine suite

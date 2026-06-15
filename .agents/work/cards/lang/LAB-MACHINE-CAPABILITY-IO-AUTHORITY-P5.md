@@ -1,5 +1,7 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-AUTHORITY-P5 — typed capability passport
 
+> **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) — read the milestone card first for the whole P1–P6b picture; this is one slice of it.
+
 **Status: CLOSED 2026-06-15 — typed caller authority implemented + proven.**
 Route: `LAB-MACHINE-CAPABILITY-IO-FOCUS-P1`, branch A (harden the boundary before write IO).
 9 machine tests (`igniter-machine/tests/capability_io_authority_tests.rs`); full machine suite

@@ -1,5 +1,7 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-FOCUS-P1 — meta focus for real IO data-plane
 
+> **Front door:** read [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) first — it crystallizes the whole P1–P6b track (CLOSED). This FOCUS card is the routing/sequence view.
+
 **Status: READY — META FOCUS / ROUTING CARD.** This card coordinates the next IO
 wave after `LAB-MACHINE-CAPABILITY-IO-P1` proved the fake-executor model. It is
 not an implementation card by itself.
@@ -16,18 +18,24 @@ P3 binds one real substrate (read-only local RocksDB/TBackend)  [CLOSED 2026-06-
 P4 host clock capability (receipt tt from injected provider)    [CLOSED 2026-06-15]
 P5 typed capability passport (vs presence-only authority_ref)   [CLOSED 2026-06-15]
 P6a receipt-gated write lifecycle (fake write executor)         [CLOSED 2026-06-15]
-P6b real local TBackend write executor (same protocol)          [NEXT]
+P6b real local TBackend write executor (same protocol)          [CLOSED 2026-06-15]
 ```
 
-> Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs`, 5), P4
-> (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9) all CLOSED — see
+**MILESTONE (P6b):** igniter-machine has real **read + write** local capability IO with
+receipts, idempotency, typed-passport authority, and a host clock — the full minimal production
+data-plane on a real substrate. Portfolio milestone entry:
+`igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-read-write-milestone-v0.md`.
+
+> Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
+> (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`
+> write, 8) all CLOSED — **70 machine/capability tests green**. See
 > `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md` + `-CLOCK-P4.md` + `-AUTHORITY-P5.md` + `-WRITE-P6.md`
-> and `lab-docs/lang/lab-machine-capability-io-*`. **IO boundary proven end-to-end on a real
-> read substrate; both base invariants set (time P4 + caller authority P5); write lifecycle
-> proven on a fake executor (P6a).** Portfolio batch (P1–P3):
-> `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-p1-p3-real-substrate-v0.md`
-> (P4/P5/P6a fold into the same track). P6b = real local TBackend write behind the SAME
-> protocol (leaf change). Then reconciliation / compensation / retry.
+> and `lab-docs/lang/lab-machine-capability-io-*`. **Real read + write local capability IO with
+> receipts, idempotency, typed-passport authority, host clock — full minimal production
+> data-plane on a real substrate.** Portfolio: batch (P1–P3)
+> `…-p1-p3-real-substrate-v0.md` + milestone `…-read-write-milestone-v0.md`. Next candidates
+> (each its own card, none started): reconciliation of `unknown_external_state`, compensation
+> (`aborted`), `retryable` + bounded retry, then HTTP/SparkCRM executor.
 
 The route must preserve the core boundary:
 

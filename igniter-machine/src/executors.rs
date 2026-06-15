@@ -8,7 +8,10 @@
 
 use crate::backend::TBackend;
 use crate::capability::{CapabilityExecutor, EffectOutcome, EffectRequest};
+use crate::clock::ClockProvider;
+use crate::fact::Fact;
 use async_trait::async_trait;
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -63,6 +66,79 @@ impl CapabilityExecutor for TBackendReadExecutor {
             Ok(Some(fact)) => EffectOutcome::succeeded(fact.value),
             Ok(None) => EffectOutcome::permanent("record not found"),
             Err(e) => EffectOutcome::unknown(&format!("backend unavailable: {}", e)),
+        }
+    }
+}
+
+/// Writes a fact into a real local `TBackend` (LAB-MACHINE-CAPABILITY-IO-WRITE-P6b). Used as
+/// the executor INSIDE the P6a receipt-gated write protocol (`write::run_write_effect`), which
+/// already provides the prepare gate, idempotency, authority, and no-blind-retry. This executor
+/// only performs the mutation. The fact's `transaction_time` comes from the injected clock.
+///
+/// Outcome mapping: write ok → `Succeeded`; backend error (or injected failure) →
+/// `UnknownExternalState` (we cannot claim the mutation did/did not land — epistemic, and the
+/// protocol then refuses to blindly retry). Read-only callers use `TBackendReadExecutor`.
+pub struct TBackendWriteExecutor {
+    capability_id: String,
+    backend: Arc<dyn TBackend>,
+    clock: Arc<dyn ClockProvider>,
+    fail: bool,
+    writes: AtomicU64,
+}
+
+impl TBackendWriteExecutor {
+    pub fn new(capability_id: &str, backend: Arc<dyn TBackend>, clock: Arc<dyn ClockProvider>) -> Self {
+        Self { capability_id: capability_id.to_string(), backend, clock, fail: false, writes: AtomicU64::new(0) }
+    }
+
+    /// A variant that always fails the backend write — to prove the
+    /// `unknown_external_state` + no-blind-retry path on a real executor.
+    pub fn failing(capability_id: &str, backend: Arc<dyn TBackend>, clock: Arc<dyn ClockProvider>) -> Self {
+        Self { capability_id: capability_id.to_string(), backend, clock, fail: true, writes: AtomicU64::new(0) }
+    }
+
+    /// How many times the backend write was actually attempted (a replay must not increment it).
+    pub fn write_count(&self) -> u64 {
+        self.writes.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl CapabilityExecutor for TBackendWriteExecutor {
+    fn capability_id(&self) -> &str {
+        &self.capability_id
+    }
+
+    async fn execute(&self, req: &EffectRequest) -> EffectOutcome {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        if self.fail {
+            return EffectOutcome::unknown("backend write failed — mutation status unknown");
+        }
+        // req.args is the FactWrite payload: { store, key, value, valid_time }.
+        let store = req.args.get("store").and_then(|v| v.as_str()).unwrap_or("");
+        let key = req.args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        if store.is_empty() || key.is_empty() {
+            return EffectOutcome::permanent("malformed write request: missing store/key");
+        }
+        let value = req.args.get("value").cloned().unwrap_or(serde_json::Value::Null);
+        let valid_time = req.args.get("valid_time").and_then(|v| v.as_f64());
+
+        let fact = Fact {
+            id: format!("w:{}:{}:{}", store, key, uuid::Uuid::new_v4()),
+            store: store.to_string(),
+            key: key.to_string(),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time,
+            schema_version: 1,
+            producer: Some(json!("write-executor")),
+            derivation: None,
+        };
+        match self.backend.write_fact(fact).await {
+            Ok(()) => EffectOutcome::succeeded(json!({ "store": store, "key": key, "written": true })),
+            Err(e) => EffectOutcome::unknown(&format!("backend write failed: {}", e)),
         }
     }
 }

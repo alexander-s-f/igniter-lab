@@ -107,6 +107,29 @@ pub fn payload_digest(payload: &Value) -> String {
     blake3::hash(s.as_bytes()).to_hex().to_string()
 }
 
+/// A typed local-fact write target. The payload — and therefore the idempotency `payload_digest`
+/// — is FORCED to include the full fact identity: `store + key + value + valid_time`. So two
+/// writes to *different* keys (or different valid_time) with the same value never collide under
+/// one `(capability, idempotency_key)` envelope; a reused idempotency key with a different target
+/// is caught as a payload conflict (P6a #4).
+pub struct FactWrite {
+    pub store: String,
+    pub key: String,
+    pub value: Value,
+    pub valid_time: Option<f64>,
+}
+
+impl FactWrite {
+    pub fn to_payload(&self) -> Value {
+        json!({
+            "store": self.store,
+            "key": self.key,
+            "value": self.value,
+            "valid_time": self.valid_time,
+        })
+    }
+}
+
 fn receipt_key(req: &WriteRequest) -> String {
     format!("{}:{}", req.capability_id, req.idempotency_key)
 }

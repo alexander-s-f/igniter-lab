@@ -1,11 +1,25 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-WRITE-P6 — receipt-gated write substrate
 
-**Status: P6a CLOSED 2026-06-15 — readiness/design + lifecycle proven on a fake write
-executor. P6b (real local TBackend write) = NEXT.** Route:
-`LAB-MACHINE-CAPABILITY-IO-FOCUS-P1`, branch A. 9 machine tests
-(`igniter-machine/tests/capability_io_write_tests.rs`); full suite green
-(`cargo test --no-default-features`: 9 + 5 + 9 + 5 + 13 + 9 + 12 = 62). Design doc:
-`lab-docs/lang/lab-machine-capability-io-write-p6a-v0.md`.
+> **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) — read the milestone card first for the whole P1–P6b picture; this is one slice of it.
+
+**Status: P6a + P6b CLOSED 2026-06-15 — lifecycle (fake) + real local TBackend write both
+proven.** Route: `LAB-MACHINE-CAPABILITY-IO-FOCUS-P1`, branch A. 9 (P6a) + 8 (P6b) machine
+tests; full suite green (`cargo test --no-default-features`: **70 passed total**). Design docs:
+`lab-docs/lang/lab-machine-capability-io-write-p6a-v0.md`, `…-write-p6b-v0.md`.
+
+## P6b closure — real local TBackend write executor
+
+`executors::TBackendWriteExecutor` (over on-disk `RocksDBBackend`) + `write::FactWrite` behind
+the UNCHANGED P6a protocol (leaf change, like P3 for reads). Forced-identity decision honored:
+`payload_digest` covers store+key+value+valid_time (`FactWrite::to_payload`). Outcome: write
+ok→committed (fact read-back); backend error/injected failure→`unknown_external_state` (no
+blind retry). 8 tests (`tests/capability_io_write_real_tests.rs`): success+read-back,
+duplicate-same-payload (one backend write), duplicate-different-payload refused,
+missing-authority no-write, injected-failure→unknown+no-retry, replay no-write,
+contract-body-cannot-write, payload-digest-includes-identity.
+
+**Milestone:** igniter-machine now has real read + write local capability IO with receipts,
+idempotency, typed-passport authority, and a host clock. (Design doc has the full diagram.)
 
 ## The asymmetry P6 exists for
 
@@ -49,10 +63,10 @@ finalize; reuses `verify_passport` + `ClockProvider`), `FakeWriteExecutor`
 Fake executor only. No real substrate/DB/HTTP/queue. No retry scheduler. No compensation engine
 (`aborted` reserved). No language change. No contract-body IO. No MCP hot path.
 
-## Next — P6b
+## Next (after P6b — each its own bounded card; none started)
 
-`LAB-MACHINE-CAPABILITY-IO-WRITE-P6b` — local TBackend write executor behind this exact
-protocol (no HTTP/queue, no retry scheduler). Protocol unchanged; a real write
-`CapabilityExecutor` replaces the fake (the P3-shape leaf change). Then: reconciliation of
-`unknown_external_state`, compensation (`aborted`), `retryable` + bounded retry, the
-write-succeeded-but-receipt-failed window.
+- reconciliation of `unknown_external_state` (read-back / verify after an unknown write);
+- compensation (`aborted`) for explicit host rollback after prepare;
+- `retryable` + bounded retry (safe only with reconciliation);
+- the write-succeeded-but-receipt-failed window (executor-side idempotency / two-way handshake);
+- HTTP / SparkCRM API executor — only after retry + reconciliation are mature.

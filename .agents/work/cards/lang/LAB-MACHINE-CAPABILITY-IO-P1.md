@@ -1,5 +1,7 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-P1 — production capability IO boundary
 
+> **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md) — read the milestone card first for the whole P1–P6b picture; this is one slice of it.
+
 **Status: CLOSED 2026-06-15 — readiness/design + fake-executor proof DONE.**
 13 machine tests (`igniter-machine/tests/capability_io_tests.rs`), full machine suite
 green (`cargo test --no-default-features`). Design doc:
