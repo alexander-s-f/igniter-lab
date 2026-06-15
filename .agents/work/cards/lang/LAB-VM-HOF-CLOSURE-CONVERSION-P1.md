@@ -18,15 +18,12 @@ at 13). Supersedes `LAB-VM-HOF-CLOSURE-CAPTURE-P1`.
 progresses past the closure error (then hits unrelated gaps below). Build clean; the
 13 previously-green apps unaffected.
 
-## Not-yet-green proof targets — blocked by a SEPARATE issue (not closures)
+## Proof targets — GREEN 2026-06-15
 
-sim_framework (`'populations'`) and trade_robot (`'closes'`) still fail — but the cause
-is **not** closure capture. Both are `compute X = map(...); compute Y = fold(X, …)`
-where `X` is the fold's **source argument** (not a lambda free var). The error is in
-`eval_ast` (not bytecode), so the `fold`/`map`-over-a-compute path is tree-walking the
-source `ref` without register access. → new card
-**`LAB-VM-AGGREGATE-SOURCE-REF-P1`** (fold/aggregate source resolution). Closures is
-done; this is the next blocker.
+sim_framework (`RunEcosystemSim`) and trade_robot (`RunTradingBot`) now run end-to-end
+(after the adjacent `LAB-VM-AGGREGATE-SOURCE-REF-P1` fix, which reused this card's
+capture machinery for aggregate source/pipeline refs). air_combat regression intact.
+**Fleet RUN-OK 13 → 15.**
 
 ## Decision
 

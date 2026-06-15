@@ -1874,14 +1874,19 @@ impl VM {
                     
                     let node: serde_json::Value = serde_json::from_str(serialized)
                         .map_err(|e| format!("Invalid map_reduce JSON: {}", e))?;
-                    
+
+                    // Resolve the aggregate's captured compute bindings (source +
+                    // pipeline refs) from registers, so eval_ast can see them.
+                    let mut agg_env: HashMap<String, Value> = HashMap::new();
+                    collect_captures(&node, &registers, &mut agg_env);
+
                     let source = node.get("source").ok_or("Missing source in map_reduce_aggregate")?;
                     let pipeline = node.get("pipeline")
                         .ok_or("Missing pipeline in map_reduce_aggregate")?
                         .as_array()
                         .ok_or("pipeline must be an array")?;
 
-                    let source_val = eval_ast(source, inputs, temporal_context, &HashMap::new(), &self.backend, self).await?;
+                    let source_val = eval_ast(source, inputs, temporal_context, &agg_env, &self.backend, self).await?;
 
                     let mut items = Vec::new();
                     match &source_val {
@@ -1908,7 +1913,7 @@ impl VM {
 
                     if terminal_kind == "fold" {
                         let init_ast = terminal_step.get("init").ok_or("Missing init in fold")?;
-                        let init_val = eval_ast(init_ast, inputs, temporal_context, &HashMap::new(), &self.backend, self).await?;
+                        let init_val = eval_ast(init_ast, inputs, temporal_context, &agg_env, &self.backend, self).await?;
                         fold_acc = Some(init_val);
                     }
 
@@ -1922,7 +1927,7 @@ impl VM {
                                     let param = step.get("param").ok_or("Missing param in filter")?.as_str().ok_or("param must be string")?;
                                     let body = step.get("body").ok_or("Missing body in filter")?;
                                     
-                                    let mut local_env = HashMap::new();
+                                    let mut local_env = agg_env.clone();
                                     local_env.insert(param.to_string(), current_value.clone());
                                     
                                     let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
@@ -1934,7 +1939,7 @@ impl VM {
                                     let param = step.get("param").ok_or("Missing param in map")?.as_str().ok_or("param must be string")?;
                                     let body = step.get("body").ok_or("Missing body in map")?;
                                     
-                                    let mut local_env = HashMap::new();
+                                    let mut local_env = agg_env.clone();
                                     local_env.insert(param.to_string(), current_value.clone());
                                     
                                     current_value = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
@@ -2016,7 +2021,7 @@ impl VM {
                                 let param_val = terminal_step.get("param_val").ok_or("Missing param_val")?.as_str().ok_or("param_val must be string")?;
                                 let body = terminal_step.get("body").ok_or("Missing body in fold")?;
 
-                                let mut local_env = HashMap::new();
+                                let mut local_env = agg_env.clone();
                                 local_env.insert(param_acc.to_string(), fold_acc.as_ref().unwrap().clone());
                                 local_env.insert(param_val.to_string(), current_value);
 

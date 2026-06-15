@@ -444,7 +444,20 @@ impl Compiler {
             }
 
             "map_reduce_aggregate" => {
-                let serialized = serde_json::to_string(node)
+                // The aggregate node is serialized + tree-walked by the VM, so its
+                // source / pipeline refs to enclosing `compute` bindings need the same
+                // capture list lambdas get (LAB-VM-AGGREGATE-SOURCE-REF-P1).
+                let mut n = node.clone();
+                let mut refs = std::collections::BTreeSet::new();
+                collect_ref_names(&n, &mut refs);
+                let captures: Vec<serde_json::Value> = refs.iter()
+                    .filter_map(|name| self.compute_node_registers.get(name)
+                        .map(|&reg| serde_json::json!({ "name": name, "reg": reg })))
+                    .collect();
+                if let Some(obj) = n.as_object_mut() {
+                    obj.insert("captures".to_string(), serde_json::Value::Array(captures));
+                }
+                let serialized = serde_json::to_string(&n)
                     .map_err(|e| format!("Failed to serialize map_reduce_aggregate: {}", e))?;
                 self.emit(OP_MAP_REDUCE, vec![Value::String(Arc::from(serialized))]);
             }

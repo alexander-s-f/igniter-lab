@@ -1,7 +1,22 @@
 # Card: LAB-VM-AGGREGATE-SOURCE-REF-P1 — fold/aggregate source ref resolution
 
-**Status: DIAGNOSED 2026-06-15 — needs implementation.** Surfaced while validating
-closures; it is a *separate* bug (not closure capture).
+**Status: DONE 2026-06-15.** Both proof targets green; RUN-OK 13 → 15. Surfaced while
+validating closures; it was a *separate* bug (not closure capture).
+
+## Fix (reused the closures machinery)
+
+- `compiler.rs` `map_reduce_aggregate` lowering: attach `captures:[{name,reg}]`
+  (free refs of the aggregate node ∩ `compute_node_registers`) — same as the lambda arm.
+- `vm.rs` `OP_MAP_REDUCE`: build `agg_env` via `collect_captures(&node, &registers)`,
+  pass it as the eval scope for the **source**, **init**, and every **pipeline lambda**
+  body (was `&HashMap::new()`). The source `ref` to a compute binding now resolves.
+
+Proof: `sim_framework` (`'populations'`) and `trade_robot` (`'closes'`) now run end-to-end.
+Build clean, no regression.
+
+---
+
+(original diagnosis retained below)
 
 ## Symptom
 
