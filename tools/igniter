@@ -105,9 +105,9 @@ fi
 # target (a root, not an inner helper). Use it only if exactly one such root.
 if [ -z "$ENTRY" ]; then
   cands="$(grep -hoE '^[[:space:]]*contract[[:space:]]+(Run|Main|Demo)[A-Za-z0-9_]*' \
-           "${SRCS[@]}" 2>/dev/null | awk '{print $NF}' | sort -u)"
+           "${SRCS[@]}" 2>/dev/null | awk '{print $NF}' | sort -u || true)"
   called="$(grep -hoE 'call_contract\("[A-Za-z0-9_]+"' "${SRCS[@]}" 2>/dev/null \
-           | sed -E 's/.*"([^"]+)".*/\1/' | sort -u)"
+           | sed -E 's/.*"([^"]+)".*/\1/' | sort -u || true)"
   roots="$(comm -23 <(printf '%s\n' "$cands") <(printf '%s\n' "$called") 2>/dev/null | grep -c . || true)"
   if [ "$roots" = "1" ]; then
     ENTRY="$(comm -23 <(printf '%s\n' "$cands") <(printf '%s\n' "$called"))"

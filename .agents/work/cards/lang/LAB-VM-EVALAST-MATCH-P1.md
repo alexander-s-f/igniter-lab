@@ -1,7 +1,22 @@
 # Card: LAB-VM-EVALAST-MATCH-P1 — match_expr in the tree-walker
 
-**Status: DIAGNOSED 2026-06-15 — needs implementation.** Surfaced by the
-dispatch-completeness fix (LAB-COMPILER-NUMERIC-DISPATCH-UNKNOWN-P1, cluster 2).
+**Status: DONE 2026-06-15.** batch_importer GREEN (runs real validation); RUN-OK 16→17;
+no regression (lead_router, call_router, air_combat, sim_framework unchanged).
+
+## Implemented
+
+Added a `"match_node" | "match_expr"` arm to `eval_ast` (vm.rs), mirroring the bytecode
+path: eval `subject` → read its `__arm` discriminant from the `Value::Record`; for each
+arm, match `pattern.arm` (or `wildcard`) against `__arm`; bind `pattern.bindings` payload
+fields into a child env; eval the arm body. Fail-closed `Err` on no match. Sealed
+Option/Result + user variants share the `__arm` SIR shape, so one arm covers all.
+
+(original diagnosis below)
+
+---
+
+**Was: DIAGNOSED 2026-06-15.** Surfaced by the dispatch-completeness fix
+(LAB-COMPILER-NUMERIC-DISPATCH-UNKNOWN-P1, cluster 2).
 
 ## Symptom
 

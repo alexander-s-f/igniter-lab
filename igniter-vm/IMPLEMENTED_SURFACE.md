@@ -50,28 +50,31 @@ SemanticIR `.igapp`; `igniter-vm` runs it. Proof: `Add(a=2,b=3)` →
 | recursive self-call / TCO | ⛔ v0 hold | `call_contract` dispatches with depth-guard; self-recursion/cycles closed in v0 (ledger D-007) |
 | single `source → run` command / REPL | ❌ missing | two-step (compile then run); the main DX gap for "live" |
 
-## Known runtime gaps — fleet pressure 2026-06-15
+## Runtime wave — CLOSED 2026-06-15 (RUN-OK 1 → 18)
 
-Surfaced by running `igniter-apps/*` through `tools/igniter` (compile → run).
-27 apps; 1 ran clean (`web_router`), the rest hit these gaps (priority order):
+Full arc + per-fix detail: `.agents/work/cards/lang/LAB-VM-RUNTIME-WAVE-CHECKPOINT-P1.md`.
 
-| # | gap | evidence | apps blocked |
-|---|---|---|---|
-| ~~1~~ | ✅ **RESOLVED 2026-06-15** — VM stdlib collection ops. Was: `OP_CALL: unimplemented 'stdlib.collection.filter'`. Fix: `vm.rs` OP_CALL now aliases `stdlib.collection.{filter,map,fold,reduce,count,range,first,last,sum,take,zip,any,all,find}` → existing bare HOF handlers, + new `stdlib.integer.{lt,gt,lte,gte}` and `stdlib.collection.append`. | RUN-OK 1→6 | unblocked job_runner, reconciler, arch_patterns, decision_tree, neural_net |
-| 2a | ✅ **DONE 2026-06-15** — `eval_ast` (tree-walker) lacked `stdlib.integer.{lt,gt,lte,gte}` that OP_CALL has. Added namespaced aliases to its comparison arms. | RUN-OK 6→7 | audit_ledger |
-| ~~2b~~ | ✅ **RESOLVED 2026-06-15 (unification)** — extracted `VM::call_contract_value` as the single dispatch source; threaded `&VM` into `eval_ast`/`eval_lambda` (48 call sites); added a `call_contract` arm to the tree-walker; refactored bytecode `OP_CALL` to call the same method. Cross-contract calls inside lambda/HOF bodies now work. | RUN-OK 7→12 | batch_importer, bloom_filter, dsa, dataframes, query_engine |
-| 2c | **call_contract callee not in igapp** — `no contract named X` (compiler emission / multifile, not VM) | call_router, lead_router | 2 |
-| ~~3~~ | ✅ **RESOLVED 2026-06-15** — field access only handled `ref.field`; generalized to evaluate any object expr → Record field. Also bumped `MAX_CALL_DEPTH` 8→64 (legit deep call chains; cycles caught separately). | RUN-OK 12→13 | air_combat |
-| ~~4~~ | ✅ **RESOLVED 2026-06-15 — closures (B) + aggregate-source-ref.** Compiler emits `captures:[{name,reg}]` on lambdas AND `map_reduce_aggregate` nodes (free refs ∩ `compute_node_registers`); VM resolves them from `registers` (closures: OP_CALL chokepoint augments `inputs`; aggregate: `agg_env` for source/init/pipeline). Lambdas now capture enclosing computes; fold/map-over-a-compute resolves its source. | RUN-OK 13→15 | sim_framework, trade_robot (+air_combat) |
-| 5 | **multi-contract entry / run-profile** — only one bare `entrypoint` expressible (PROP-029) | vector_math, igniter_parser, … | ~5 (UX/lang) |
-| 6 | front-end type errors (compiler, not VM) | bookkeeping, erp_logistics, rule_engine | 3 |
+Resolved this wave (all in `igniter-vm`, + one typechecker relax): stdlib collection
+ops (namespaced→bare HOF aliases); `integer.{lt,gt,lte,gte}` + `collection.append` +
+`string.concat`/lenient `collection.concat`; **dispatch unification** (`VM::call_contract_value`
+single-sourced; `&VM` threaded into `eval_ast`/`eval_lambda`); field_access generalized;
+`MAX_CALL_DEPTH` 8→64; **closures (B)** + aggregate-source-ref; `if_expr` dual-shape +
+dispatch-table completeness + `filter_map`; **`match_expr` in `eval_ast`**; homogeneous
+numeric relax (typechecker).
 
-**Architecture note — dispatch divergence CLOSED 2026-06-15.** The VM had two
-dispatch paths (bytecode `OP_CALL` + `eval_ast` tree-walker) that diverged 3× (text.*
-→ collection.* → integer.* → call_contract). `call_contract` is now single-sourced
-via `VM::call_contract_value`. (stdlib value-ops are still matched in both places —
-a future cleanup could route those through one helper too, but they no longer
-functionally diverge after the alias passes.) **RUN-OK 1 → 12 this session.**
+**Cross-cutting root, now CLOSED:** nearly every gap was `eval_ast` (the tree-walker
+for lambda/HOF bodies) lagging the bytecode path on a node kind — `call_contract`,
+`if_expr`, `stdlib.*`, `match`. The two paths are now near-parity. Future
+"X not found in eval_ast" is a *known class*, not a new mystery.
+
+### Remaining non-green — by owner (NOT a shared VM bug)
+
+| class | apps | owner |
+|---|---|---|
+| needs-inputs / demo-entry | advanced_logistics, spreadsheet, vector_editor, erp_logistics, igniter_parser | `LAB-APP-DEMO-ENTRY-WAVE-P1` (app-side) |
+| Decimal policy → construct | bookkeeping | `LAB-NUMERIC-DECIMAL-BOUNDARY-P1` → `LAB-NUMERIC-DECIMAL-CONSTRUCT-P1` |
+| governance-gated | rule_engine | `LAB-DYNAMIC-CONTRACT-DISPATCH` DEFER (ledger D-001) |
+| tiny stdlib tail | igniter_parser | `LAB-STDLIB-STRING-CHAR-AT-VM-P1` |
 
 ## Provenance
 
