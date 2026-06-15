@@ -138,13 +138,14 @@ fn tools_list() -> Value {
         },
         {
             "name": "igniter_time_travel",
-            "description": "Reconstruct the exact state of an entity at a specific moment in the past. Returns what the system knew about store/key at transaction_time=as_of.",
+            "description": "Reconstruct an entity's state. `as_of` = known_at (audit/transaction-time): what we knew as of T. Optional `valid_at` = effective/valid-time: the state true as of that domain time, as best known by `as_of`. Both axes are explicit; facts without a valid_time are excluded from valid_at queries.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "store": { "type": "string" },
                     "key":   { "type": "string" },
-                    "as_of": { "type": "number", "description": "Unix timestamp to travel to" }
+                    "as_of": { "type": "number", "description": "known_at: transaction-time to travel to (what we knew at T)" },
+                    "valid_at": { "type": "number", "description": "Optional valid-time: the domain time the state was true at (effective axis)" }
                 },
                 "required": ["store", "key", "as_of"]
             }
@@ -504,7 +505,13 @@ fn handle_time_travel(
         .unwrap_or_else(|| format!("{:.0}", as_of));
 
     let m = machine.lock().unwrap();
-    match futures::executor::block_on(m.read_fact(store, key, as_of)) {
+    // `as_of` is the audit axis (known_at / transaction_time). Optional `valid_at` adds
+    // the effective axis → full bitemporal query (LAB-MACHINE-BITEMPORAL-AXIS-P1).
+    let result = match args["valid_at"].as_f64() {
+        Some(va) => futures::executor::block_on(m.read_bitemporal(store, key, Some(va), Some(as_of))),
+        None => futures::executor::block_on(m.read_fact(store, key, as_of)),
+    };
+    match result {
         Ok(Some(fact)) => {
             let vt = fact.valid_time.map(|v| format!("\n- **Valid time:** `{:.0}`", v)).unwrap_or_default();
             tool_ok(out, id, format!(

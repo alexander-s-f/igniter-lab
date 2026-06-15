@@ -83,8 +83,14 @@ generalizes the current behavior as a special case and reads unambiguously, whil
   (correction known), valid@15/known@30→100 (pre-correction), valid@25→200, valid@5→None,
   valid_at=None→105. **9/9 machine tests pass.**
 
+### MCP wired 2026-06-15 (during MCP-live)
+
+`igniter_time_travel` now takes an optional `valid_at`: with it → `read_bitemporal(valid_at,
+known_at=as_of)`; without → transaction-time `read_fact`. Driven live through the MCP
+server: write valid_time=10/20 → time_travel `valid_at=15`→bal100, `valid_at=25`→bal200,
+no `valid_at`→latest. **Both bitemporal axes are agent-drivable.**
+
 ### Deferred (later cards)
 
 - Interval valid_time (v0 is a point); `valid_policy: declared_only | fallback_to_tx`.
-- MCP `time_travel` / `query_facts` tool params should mirror `valid_at` / `known_at`
-  (do when MCP-live is exercised).
+- `igniter_query_facts` valid-axis variant (history filtered by valid_time).

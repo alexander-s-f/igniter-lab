@@ -1,6 +1,6 @@
 # LAB-VM-RUN-OK-RECHECK-P2
 
-**Status:** OPEN - RUNTIME RECHECK
+**Status:** CLOSED - RUNTIME RECHECK (2026-06-15)
 **Route:** lab / VM / RUN-OK fleet recheck
 **Date:** 2026-06-15
 **Authority:** evidence-only runtime recheck; no source changes
@@ -66,3 +66,33 @@ Start after at least one of:
 ## Agent Recommendation
 
 Give this to **Codex GPT 5.5** after one or more implementation cards in this wave close.
+
+---
+
+## Closure Summary — CLOSED 2026-06-15
+
+Fresh registry-backed runtime fleet recheck completed with
+`igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p2.rb`.
+
+### Result
+
+- Active runtime fleet: **25** apps.
+- RUN-OK 23/25.
+- Delta vs P1: **0** / no count change.
+- No source edits.
+
+`LAB-VM-EVALAST-EVAL-EXPR-P1` closed as a routed spike rather than a VM implementation,
+so `spreadsheet` remains runtime-not-ok. Its owner class is now sharper:
+function SIR/runtime substrate, routed to `LAB-FUNCTION-SIR-RUNTIME-P1`.
+
+### Current Non-Green
+
+| app | status | owner class | next route |
+|---|---|---|---|
+| `spreadsheet` | RUN-NOT-OK | function SIR/runtime substrate | `LAB-FUNCTION-SIR-RUNTIME-P1` |
+| `rule_engine` | COMPILE-NOT-OK | governance-gated | `LAB-DYNAMIC-CONTRACT-DISPATCH` / ledger D-001 |
+
+### Artifacts
+
+- Rollup: `.agents/docs/vm-run-ok-recheck-p2-2026-06-15-v0.md`
+- Proof: `igniter-view-engine/proofs/verify_lab_vm_run_ok_recheck_p2.rb`

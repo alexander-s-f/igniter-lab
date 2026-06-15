@@ -30,7 +30,7 @@ Last verified: **2026-06-15** (5/5 tests pass, `cargo test --no-default-features
 | Rust lib | ✅ kernel API above |
 | Ruby FFI (magnus, `Igniter::Machine`) | ✅ new/resume/load_contract/dispatch/checkpoint/write_fact/read_fact (`ffi` feature) |
 | REPL `igniter-repl` | present (`repl` feature) — not yet verified live here |
-| MCP server `igniter-mcp` | present — 11 tools (compile/load/dispatch/list/get_ir/write_fact/query_facts/time_travel/checkpoint/status) — not yet verified live here |
+| MCP server `igniter-mcp` | ✅ **verified live** — JSON-RPC 2.0 over stdio (`initialize`/`tools/list`/`tools/call`); 11 tools. Drove a full agent session: load `Add` → dispatch →`42`, write_fact, status, time_travel. `igniter_time_travel` now takes optional `valid_at` → routes to `read_bitemporal` (both bitemporal axes agent-drivable). |
 | backends | ✅ in-memory, RocksDB (persistent), remote-TCP |
 
 ## Proven by tests (`tests/machine_tests.rs`)
