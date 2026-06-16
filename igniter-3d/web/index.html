@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-3d · spinning cube over igniter-frame (LAB-FRAME-3D-POC-REHOME-P7)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:360px; height:360px; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 18px; font-size:12px; }
+  .row { display:flex; gap:10px; padding:4px 0; }
+  .k { color:var(--dim); min-width:120px; }
+  .v.frm { color:var(--acc); } .v.inp { color:#58a6ff; } .v.eff { color:#d29922; }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .strip { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.6; }
+  #verify { color:var(--acc); font-size:12px; margin-top:10px; }
+  code { color:var(--acc); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene">loading wasm…</div>
+      <div class="strip">
+        <button id="play">Pause</button>
+        <button id="step">Tick</button>
+        <button id="reset">Reset</button>
+        <button id="verify-btn">Verify replay</button>
+      </div>
+      <div id="verify"></div>
+    </div>
+    <div id="panel">
+      <h1>igniter-3d — spinning cube over igniter-frame</h1>
+      <p class="sub">A deterministic 3D world (8 vertex facts) ticks through the SAME <code>FrameRuntime</code> as the 2D UI. Rotation + perspective + wireframe all run in Rust (WASM); JS only calls <code>rt.tick()</code> and draws <code>rt.render_svg()</code>. Projection-heavy rendering goes through the same <code>RenderHost</code> boundary.</p>
+      <div class="card">
+        <div class="row"><span class="k">frame_index</span><span class="v frm" id="frame_index">—</span></div>
+        <div class="row"><span class="k">render_digest</span><span class="v" id="digest">—</span></div>
+      </div>
+      <div class="card">
+        <div class="row"><span class="k">input_receipt</span><span class="v inp" id="inp">—</span></div>
+        <div class="row"><span class="k">effect_receipt</span><span class="v eff" id="eff">—</span></div>
+        <div class="row"><span class="k">frame_receipt</span><span class="v frm" id="frm">—</span></div>
+      </div>
+      <p class="hint">Boundary: <code>igniter_3d_bg.wasm</code> has no <code>igniter-machine</code> symbols (depends on <code>igniter-frame</code> with <code>default-features=false</code>). No GPU, no window, localhost only.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmCube3d } from './igniter_3d.js';
+
+    async function main() {
+      await init();
+      const rt = new WasmCube3d();
+      const scene = document.getElementById('scene');
+      let playing = true;
+
+      const render = () => {
+        scene.innerHTML = rt.render_svg();           // wireframe SVG from Rust
+        document.getElementById('frame_index').textContent = rt.frame_index();
+        document.getElementById('digest').textContent = rt.render_digest();
+        const lin = JSON.parse(rt.lineage_json());
+        document.getElementById('inp').textContent = lin.input_receipt_id ?? '—';
+        document.getElementById('eff').textContent = lin.effect_receipt_id ?? '—';
+        document.getElementById('frm').textContent = 'frame:' + lin.frame_index;
+      };
+
+      const loop = () => {
+        if (playing) { rt.tick(); render(); }        // tick is Rust; JS just calls it
+        setTimeout(loop, 80);
+      };
+
+      document.getElementById('play').addEventListener('click', (e) => {
+        playing = !playing; e.target.textContent = playing ? 'Pause' : 'Play';
+      });
+      document.getElementById('step').addEventListener('click', () => { rt.tick(); render(); });
+      document.getElementById('reset').addEventListener('click', () => { rt.reset(); render(); });
+
+      // In-browser determinism: replay 30 ticks twice, compare digest streams.
+      document.getElementById('verify-btn').addEventListener('click', () => {
+        const run = () => { rt.reset(); const s=[rt.render_digest()]; for (let i=0;i<30;i++){ rt.tick(); s.push(rt.render_digest()); } return s; };
+        const a = run(), b = run();
+        const ok = JSON.stringify(a) === JSON.stringify(b);
+        document.getElementById('verify').textContent = ok
+          ? '✓ replay byte-identical over 30 ticks (' + new Set(a).size + ' distinct frames)'
+          : '✗ replay diverged';
+        rt.reset(); render();
+        window.__verify = { ok, distinct: new Set(a).size, first: a[0], last: a[a.length-1] };
+      });
+
+      window.__rt = rt;
+      render();
+      loop();
+    }
+    main();
+  </script>
+</body>
+</html>

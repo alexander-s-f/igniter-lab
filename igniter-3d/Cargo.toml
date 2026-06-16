@@ -1,0 +1,24 @@
+[package]
+name = "igniter_3d"
+version = "0.1.0"
+edition = "2021"
+
+# Re-home of the deterministic 3D POC over igniter-frame (LAB-FRAME-3D-POC-REHOME-P7).
+# The 3D world IS igniter-frame world facts; the tick is an IntentReducer driven by FrameRuntime;
+# projection is igniter-frame's Camera; rendering is a WireframeRenderHost (igniter-frame RenderHost
+# trait). It depends on igniter_frame with `default-features = false` → NO igniter-machine in the
+# core browser path.
+
+[dependencies]
+igniter_frame = { path = "../igniter-frame", default-features = false }
+serde = "1.0"
+serde_json = "1.0"
+blake3 = "1.5"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+# Browser/WASM: compiles the 3D runtime to wasm32 with #[wasm_bindgen] exports. No machine.
+wasm = ["dep:wasm-bindgen"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

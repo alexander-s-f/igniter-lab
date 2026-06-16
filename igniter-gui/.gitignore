@@ -1,0 +1,6 @@
+/target
+Cargo.lock
+
+# wasm-bindgen generated glue (rebuild with web/build.sh)
+/web/igniter_gui.js
+/web/igniter_gui_bg.wasm

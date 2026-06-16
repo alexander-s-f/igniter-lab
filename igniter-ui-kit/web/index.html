@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-ui-kit · Lead Intake form over igniter-frame (LAB-FRAME-UI-KIT-FORMS-P9)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:340px; height:391px; border:1px solid var(--line); border-radius:10px; overflow:hidden; cursor:pointer; outline:none; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 18px; font-size:12px; }
+  .row { display:flex; gap:10px; padding:4px 0; }
+  .k { color:var(--dim); min-width:120px; }
+  .v.frm { color:var(--acc); } .v.inp { color:#58a6ff; } .v.eff { color:#d29922; }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .strip { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.6; }
+  pre { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:12px; color:#9da7b3; overflow:auto; margin-top:14px; }
+  #verify { color:var(--acc); font-size:12px; margin-top:10px; }
+  code { color:var(--acc); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene" tabindex="0">loading wasm…</div>
+      <div class="strip">
+        <button id="reset">Reset</button>
+        <button id="verify-btn">Verify replay</button>
+      </div>
+      <div id="verify"></div>
+    </div>
+    <div id="panel">
+      <h1>igniter-ui-kit — Lead Intake form</h1>
+      <p class="sub">Click a field to focus, type to fill it, click the select to cycle, the checkbox to toggle, Submit to validate. The host catches DOM pointer + key events but only ROUTES them — layout, hit-test, field state, and validation all run in Rust (WASM) over the SAME <code>FrameRuntime</code>.</p>
+      <pre>Form::lead_intake() = Stack[
+  Label("New Lead"),
+  Text("name",  required),
+  Text("phone", required),
+  Select("source", [web, referral, ad], required),
+  Checkbox("qualified"),
+  Button("submit"),
+]</pre>
+      <div class="card">
+        <div class="row"><span class="k">frame_index</span><span class="v frm" id="frame_index">—</span></div>
+        <div class="row"><span class="k">render_digest</span><span class="v" id="digest">—</span></div>
+      </div>
+      <div class="card">
+        <div class="row"><span class="k">input_receipt</span><span class="v inp" id="inp">—</span></div>
+        <div class="row"><span class="k">effect_receipt</span><span class="v eff" id="eff">—</span></div>
+        <div class="row"><span class="k">frame_receipt</span><span class="v frm" id="frm">—</span></div>
+      </div>
+      <p class="hint">Boundary: <code>igniter_ui_kit_bg.wasm</code> has no <code>igniter-machine</code> symbols. No UI framework, localhost only.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmForm } from './igniter_ui_kit.js';
+    const CSS_W = 400, CSS_H = 460;
+
+    async function main() {
+      await init();
+      const rt = new WasmForm();
+      const scene = document.getElementById('scene');
+
+      const render = () => {
+        scene.innerHTML = rt.render_svg();
+        document.getElementById('frame_index').textContent = rt.frame_index();
+        document.getElementById('digest').textContent = rt.render_digest();
+        const lin = JSON.parse(rt.lineage_json());
+        document.getElementById('inp').textContent = lin.input_receipt_id ?? '—';
+        document.getElementById('eff').textContent = lin.effect_receipt_id ?? '— (no intent)';
+        document.getElementById('frm').textContent = 'frame:' + lin.frame_index;
+      };
+
+      scene.addEventListener('pointerdown', (ev) => {
+        scene.focus();
+        const r = scene.getBoundingClientRect();
+        rt.click((ev.clientX - r.left) / r.width * CSS_W, (ev.clientY - r.top) / r.height * CSS_H);
+        render();
+      });
+
+      // host CATCHES keyboard, but only ROUTES it — the reducer owns the field value
+      scene.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Backspace') { rt.backspace(); render(); ev.preventDefault(); return; }
+        if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { rt.key(ev.key); render(); ev.preventDefault(); }
+      });
+
+      document.getElementById('reset').addEventListener('click', () => { rt.reset(); render(); document.getElementById('verify').textContent=''; });
+
+      document.getElementById('verify-btn').addEventListener('click', () => {
+        // a form event log (clicks + keys) replayed twice
+        const log = [['c',200,81],['k','A'],['k','d'],['k','a'],['c',200,250],['c',200,197],['c',200,300]];
+        const run = () => { rt.reset(); const s=[rt.render_digest()];
+          for (const e of log) { if (e[0]==='c') rt.click(e[1],e[2]); else rt.key(e[1]); s.push(rt.render_digest()); } return s; };
+        const a = run(), b = run();
+        const ok = JSON.stringify(a) === JSON.stringify(b);
+        document.getElementById('verify').textContent = ok ? '✓ replay byte-identical over ' + log.length + ' form events' : '✗ replay diverged';
+        rt.reset(); render();
+        window.__verify = { ok, frames: a.length };
+      });
+
+      window.__rt = rt; window.__CSS = [CSS_W, CSS_H];
+      render(); scene.focus();
+    }
+    main();
+  </script>
+</body>
+</html>

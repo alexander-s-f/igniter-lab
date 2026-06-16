@@ -1,0 +1,22 @@
+[package]
+name = "igniter_ui_kit"
+version = "0.1.0"
+edition = "2021"
+
+# Proto UI-components kit (forms) over igniter-frame (LAB-FRAME-UI-KIT-FORMS-P9). A small component
+# vocabulary (Form/Label/Text/Select/Checkbox/Button) compiles/projects into frame nodes; input
+# events route to component intents; field state changes through an IntentReducer (never the host).
+# Depends on igniter_frame with `default-features = false` → NO igniter-machine in the core path.
+
+[dependencies]
+igniter_frame = { path = "../igniter-frame", default-features = false }
+serde = "1.0"
+serde_json = "1.0"
+blake3 = "1.5"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

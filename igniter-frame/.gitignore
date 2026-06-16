@@ -1,2 +1,6 @@
 /target
 Cargo.lock
+
+# wasm-bindgen generated glue (rebuild with: wasm-bindgen --target web --out-dir web <release.wasm>)
+/web/igniter_frame.js
+/web/igniter_frame_bg.wasm

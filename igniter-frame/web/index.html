@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · live WASM loop (LAB-FRAME-WASM-BROWSER-P6)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:360px; height:360px; border:1px solid var(--line); border-radius:10px; overflow:hidden; cursor:crosshair; touch-action:none; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 18px; font-size:12px; }
+  .row { display:flex; gap:10px; padding:4px 0; }
+  .k { color:var(--dim); min-width:120px; }
+  .v { color:var(--fg); }
+  .v.eff { color:#d29922; } .v.inp { color:#58a6ff; } .v.frm { color:var(--acc); }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .strip { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chip { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:3px 6px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.6; }
+  code { color:var(--acc); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene">loading wasm…</div>
+      <div class="strip">
+        <button id="replay">Replay click log</button>
+        <button id="reset">Reset</button>
+      </div>
+      <div id="digests" class="strip"></div>
+    </div>
+    <div id="panel">
+      <h1>igniter-frame — live WASM loop</h1>
+      <p class="sub">The Rust runtime runs in your browser. Click the dot — JS only maps the pointer and calls <code>rt.click()</code>; the hit-test → intent → state → next frame all happen in Rust (WASM).</p>
+      <div class="card">
+        <div class="row"><span class="k">frame_index</span><span class="v frm" id="frame_index">—</span></div>
+        <div class="row"><span class="k">render_digest</span><span class="v" id="digest">—</span></div>
+      </div>
+      <div class="card">
+        <div class="row"><span class="k">input_receipt</span><span class="v inp" id="inp">—</span></div>
+        <div class="row"><span class="k">effect_receipt</span><span class="v eff" id="eff">—</span></div>
+        <div class="row"><span class="k">frame_receipt</span><span class="v frm" id="frm">—</span></div>
+      </div>
+      <p class="hint">Boundary check: <code>igniter_frame_bg.wasm</code> contains no <code>igniter-machine</code> / <code>TBackend</code> / <code>rocksdb</code> symbols. No network beyond localhost. No UI framework.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmRuntime } from './igniter_frame.js';
+
+    // The runtime's Viewport CSS space (matches FrameRuntime::demo: 800×800 → frame 400×400).
+    const CSS = 800;
+
+    async function main() {
+      await init(); // loads igniter_frame_bg.wasm
+      const rt = new WasmRuntime();
+      const scene = document.getElementById('scene');
+
+      const render = () => {
+        scene.innerHTML = rt.render_svg();              // SVG comes from Rust
+        document.getElementById('frame_index').textContent = rt.frame_index();
+        document.getElementById('digest').textContent = rt.render_digest();
+        const lin = JSON.parse(rt.lineage_json());
+        document.getElementById('inp').textContent = lin.input_receipt_id ?? '—';
+        document.getElementById('eff').textContent = lin.effect_receipt_id ?? '— (no intent)';
+        document.getElementById('frm').textContent = 'frame:' + lin.frame_index;
+      };
+
+      // Pointer → CSS coords → forward to Rust. JS computes NO intent.
+      scene.addEventListener('pointerdown', (ev) => {
+        const r = scene.getBoundingClientRect();
+        const cssX = (ev.clientX - r.left) / r.width * CSS;
+        const cssY = (ev.clientY - r.top) / r.height * CSS;
+        rt.click(cssX, cssY);   // hit-test/intent/state/next-frame all in Rust
+        render();
+      });
+
+      // Replay a captured click log → show the digest sequence (deterministic).
+      const LOG = [[300,400],[400,400],[500,400]]; // marches e1 150→200→250→300
+      document.getElementById('replay').addEventListener('click', () => {
+        rt.reset();
+        const digests = [rt.render_digest()];
+        for (const [x,y] of LOG) { rt.click(x,y); digests.push(rt.render_digest()); }
+        render();
+        const strip = document.getElementById('digests');
+        strip.innerHTML = '';
+        digests.forEach((d,i) => {
+          const c = document.createElement('span');
+          c.className = 'chip';
+          c.textContent = 'f' + i + ' ' + d.replace('sha256:','').slice(0,8) + '…';
+          strip.appendChild(c);
+        });
+        window.__lastReplayDigests = digests; // for headless verification
+      });
+
+      document.getElementById('reset').addEventListener('click', () => { rt.reset(); render(); document.getElementById('digests').innerHTML=''; });
+
+      window.__rt = rt; // for headless verification
+      render();
+    }
+    main();
+  </script>
+</body>
+</html>
