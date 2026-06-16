@@ -43,9 +43,10 @@ until the atomic gate is in.**
 5. **Observability** (operational, MED) — metrics + dead-letter inbox projected from facts. **→
    `LAB-MACHINE-CAPABILITY-IO-OBSERVABILITY-P23` (CLOSED 2026-06-16, 6 tests).**
 6. **Load test 2–5k rpm** (operational) — exercise the gate + durability under the real target
-   throughput (depends on #1, #2).
+   throughput. **→ `LAB-MACHINE-CAPABILITY-IO-LOAD-P24` (CLOSED 2026-06-16, 3 tests; exactly-one
+   held at 2000-way concurrency; ~40–50k effects/s ≫ target).**
 
-Then, and only then, the human-gated step:
+**ALL IN-LAB HARDENING (#1–#6) CLOSED.** Only the human-gated step remains:
 
 7. **`P16-live`** — allowlisted staging/prod HTTPS smoke. Real endpoint + vaulted credential +
    explicit human authorization. NOT a continuation of this wave.
