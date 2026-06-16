@@ -10,6 +10,7 @@ pub mod errors;
 pub mod executors;
 pub mod fact;
 pub mod http;
+pub mod ingress;
 pub mod machine;
 pub mod reconcile;
 pub mod registry;

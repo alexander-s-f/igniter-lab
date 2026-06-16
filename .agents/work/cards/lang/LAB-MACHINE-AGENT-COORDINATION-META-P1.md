@@ -145,8 +145,16 @@ vendor/runtime passport `invoke`s via REAL capsule activation (resume+dispatch, 
 audited. Homogeneous content-addressed replicas. Proven end-to-end on a real `Add` capsule (→ 5,
 42), including the full transfer→accept→sign→invoke handoff. The original vision (agents build →
 developer signs/deploys → dumb production serves webhooks) is realized on one audited substrate.
-Next: a real **HTTP ingress front door** (vendor webhook → passport → `invoke`, reusing P10/P11
-HTTP as inbound edge); or P-votes (deferred social layer); later federation.
+**P6 HTTP ingress front door CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-HTTP-INGRESS-P6.md`
+(impl `igniter-machine/src/ingress.rs` + `coordination::audit_ingress`, 9 tests incl. a real
+`127.0.0.1` HTTP/1.1 round-trip, `lab-docs/lang/lab-machine-service-http-ingress-p6-v0.md`). The
+INBOUND edge: vendor webhook → validate passport (before activation) → route → production pool →
+`hub.invoke` (real capsule activation) → HTTP response → audit (correlation+idempotency). First
+"dumb production mode" proof: `HTTP webhook → production capsule service → response` over a real
+loopback socket → `200 OK` + `42`. Loopback only; no public internet / outbound effect /
+messenger hot path. **Full serving line: capsule → recipe → production pool → HTTP ingress.**
+Next: `pool_sizing`/`activate_many` replica fanout; ingress idempotency dedup; SparkCRM-shaped
+ingress behind human-approved staging; P-votes (deferred); later federation.
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

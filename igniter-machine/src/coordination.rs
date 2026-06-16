@@ -1375,3 +1375,42 @@ impl CoordinationHub {
         Ok(result)
     }
 }
+
+impl CoordinationHub {
+    /// Record an HTTP ingress event (accepted or denied) as a bitemporal audit fact, carrying
+    /// the correlation id + idempotency key. Used by the `ingress` front door for events the
+    /// inner `invoke` audit does not cover (e.g. missing passport / no route). (P6)
+    pub async fn audit_ingress(
+        &self,
+        actor: &str,
+        path: &str,
+        outcome: &str,
+        reason: Option<&str>,
+        correlation_id: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<(), EngineError> {
+        let value = json!({
+            "actor": actor,
+            "operation": "ingress",
+            "path": path,
+            "outcome": outcome,
+            "reason": reason,
+            "correlation_id": correlation_id,
+            "idempotency_key": idempotency_key,
+        });
+        let fact = Fact {
+            id: format!("ingress:{}:{}", correlation_id, uuid::Uuid::new_v4()),
+            store: COORD_AUDIT_STORE.to_string(),
+            key: format!("ingress:{}", correlation_id),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("ingress")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+}
