@@ -1,0 +1,23 @@
+[package]
+name = "igniter_frame"
+version = "0.1.0"
+edition = "2021"
+
+# Derived projection runtime over the igniter-machine substrate (LAB-FRAME-PROJECTION-EXTRACT-P2).
+# The CORE (FrameSource/FrameSink/RenderHost ports + Frame/Camera/projection) is machine-agnostic:
+# it builds with `--no-default-features` and has ZERO dependency on igniter-machine. The `machine`
+# feature adds a thin adapter binding the ports to `igniter_machine::backend::TBackend`.
+
+[dependencies]
+serde = "1.0"
+serde_json = "1.0"
+blake3 = "1.5"
+async-trait = "0.1"
+igniter_machine = { path = "../igniter-machine", default-features = false, optional = true }
+
+[features]
+default = ["machine"]
+machine = ["dep:igniter_machine"]
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
