@@ -67,6 +67,28 @@ events; the form runs in Rust (WASM). "Verify replay" replays a form event log t
 byte-identical frames. The generated `web/igniter_ui_kit.js` + `igniter_ui_kit_bg.wasm` are build
 artifacts (gitignored); `index.html` + `build.sh` are sources.
 
+## Composition (P10): the Lead Review workbench
+
+`composition.rs` proves screen composition over the same runtime — a nested `Workbench` of three
+panels:
+
+```rust
+Workbench::lead_review()
+//  sidebar   List[Ada, Grace, Linus]   (selectable)
+//  main      Form[priority, stage, hot, Submit]   (the selected lead's form)
+//  inspector KeyValuePanel             (derived from the selected lead's state)
+```
+
+`WorkbenchProjector` lays out the three columns (panel backgrounds + per-region widget stacks);
+`hit_test` (innermost-box) routes clicks to nested children; ids encode nesting
+(`lead:Ada`, `fld:Ada:stage`, `act:submit`). Component ids are **stable** (per-lead state persists
+across selection), validation is **scoped** per lead (`err:<lead>`, not a global string), **focus**
+is a `__focus__` fact that clears when its field leaves on a selection change, and the inspector is
+**derived from selection**. `cargo test` runs 8 composition tests; the P9 form tests stay green.
+
+Live: `web/build.sh` then open `http://127.0.0.1:8734/workbench.html` (the form demo is at
+`/index.html`). Select a lead, edit its fields, Submit; the host only maps DOM events.
+
 ## Boundary / status
 
 Lab-only. No window, no GPU, no network beyond localhost, no UI framework. Not Igniter Lang canon.

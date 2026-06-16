@@ -3,7 +3,23 @@
 > New layer over `igniter-ui-kit` + `igniter-frame`: prove screen/panel composition and DX
 > before building `igniter-ide`. Builds on `LAB-FRAME-UI-KIT-FORMS-P9`.
 
-**Status: OPEN — implementation/proof card.**
+**Status: CLOSED 2026-06-16 — proven (native + live browser).** Implemented as
+`igniter-ui-kit/src/composition.rs` (`Workbench`/`WorkbenchProjector`/`workbench_reducer`/
+`WorkbenchRenderHost`/`WorkbenchRuntime`) + `Workbench::lead_review()`. All 12 acceptance points met.
+8 native tests (`tests/workbench_tests.rs`) + P9's 9 form tests stay green; WASM build 248 KB
+no-machine; live browser `web/workbench.html`. One domain-neutral runtime change: `hit_test` now
+returns the innermost (smallest-area) containing box (nesting). Design doc:
+`lab-docs/lang/lab-frame-ui-kit-composition-p10-v0.md`.
+
+## Result vs. acceptance
+
+1 nested tree → frame nodes ✅ (`WorkbenchProjector`) · 2 sidebar/main/inspector layout ✅ · 3 stable
+ids `fld:<lead>:<field>` (per-lead persistence across selection) ✅ · 4 focus survives within a lead,
+clears when its field leaves on selection (keystroke then no-ops) ✅ · 5 nested routing listitem/
+field/button/kv ✅ · 6 scoped validation `err:<lead>` (Grace `errors:0` vs Ada `errors:2`) ✅ · 7
+selection drives the inspector ✅ · 8 text/checkbox/select/button via reducer ✅ · 9 deterministic
+replay of a multi-panel log (native + in-browser, 8 events) ✅ · 10 live browser, host maps events
+only ✅ · 11 no machine/TBackend/RocksDB in the wasm ✅ · 12 P9 tests green, P10 adds tests ✅.
 
 ## Goal
 
