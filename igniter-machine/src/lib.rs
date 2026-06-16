@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod bridge;
+pub mod bridge_effect;
 pub mod capability;
 pub mod capsule;
 pub mod clock;

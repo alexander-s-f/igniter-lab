@@ -1169,6 +1169,31 @@ impl CoordinationHub {
 
 /// Signed service recipes live in their own store, keyed by the production pool id.
 pub const RECIPES_STORE: &str = "__recipes__";
+/// Ingress duplicate-tracking facts, keyed by `route:duplicate_key`.
+pub const INGRESS_DEDUP_STORE: &str = "__ingress_dedup__";
+
+/// A **business** ingress duplicate-handling strategy (LAB-MACHINE-SERVICE-INGRESS-DUPLICATE-
+/// POLICY-P7). NOT a canon language/VM behavior — it lives on the `ServiceRecipe`/route. The
+/// safety envelope (idempotency identity = duplicate_key + payload_digest) is always enforced;
+/// the *duplicate policy* decides what a repeat MEANS for this service.
+///
+/// `mode`: `"dedup_strict"` (repeat → recorded response, no re-activation),
+/// `"treat_as_fresh"` (repeat re-activates, audit-linked), `"bounded_fresh"` (first `max_fresh`
+/// repeats re-activate, then `after_limit`), `"off"` (no tracking, every request fresh).
+/// `after_limit`: `"dedup_last"` | `"deny"`. `seed_field`: the input field the deterministic
+/// `attempt_index` is injected into (so a service can mint a distinct code per duplicate, e.g.
+/// the vendor-auction case). `variant_payload=false` (default) → same key + different payload =
+/// conflict (the safety invariant). `require_key`: a missing duplicate key is rejected vs allowed.
+#[derive(Clone, Debug)]
+pub struct DuplicatePolicy {
+    pub mode: String,
+    pub key_header: String,
+    pub max_fresh: u32,
+    pub after_limit: String,
+    pub seed_field: String,
+    pub variant_payload: bool,
+    pub require_key: bool,
+}
 
 /// The deploy descriptor a developer signs to turn a candidate capsule into a service. The
 /// capsule is the immutable image; the recipe is "how to run it".
@@ -1186,6 +1211,8 @@ pub struct ServiceRecipe {
     pub created_by: String,
     pub accepted_by: Option<String>,
     pub accepted_at: Option<f64>,
+    /// Configurable business duplicate strategy (None = no dedup; every request is fresh).
+    pub duplicate_policy: Option<DuplicatePolicy>,
 }
 
 impl CoordinationHub {
@@ -1203,6 +1230,15 @@ impl CoordinationHub {
             "created_by": recipe.created_by,
             "accepted_by": recipe.accepted_by,
             "accepted_at": recipe.accepted_at,
+            "duplicate_policy": recipe.duplicate_policy.as_ref().map(|p| json!({
+                "mode": p.mode,
+                "key_header": p.key_header,
+                "max_fresh": p.max_fresh,
+                "after_limit": p.after_limit,
+                "seed_field": p.seed_field,
+                "variant_payload": p.variant_payload,
+                "require_key": p.require_key,
+            })),
         });
         let fact = Fact {
             id: format!("recipe:{}:{}", pool_id, recipe.recipe_id),
@@ -1240,7 +1276,71 @@ impl CoordinationHub {
             created_by: v["created_by"].as_str().unwrap_or("").to_string(),
             accepted_by: v["accepted_by"].as_str().map(String::from),
             accepted_at: v["accepted_at"].as_f64(),
+            duplicate_policy: {
+                let p = &v["duplicate_policy"];
+                if p.is_object() {
+                    Some(DuplicatePolicy {
+                        mode: p["mode"].as_str().unwrap_or("off").to_string(),
+                        key_header: p["key_header"].as_str().unwrap_or("").to_string(),
+                        max_fresh: p["max_fresh"].as_u64().unwrap_or(0) as u32,
+                        after_limit: p["after_limit"].as_str().unwrap_or("dedup_last").to_string(),
+                        seed_field: p["seed_field"].as_str().unwrap_or("attempt").to_string(),
+                        variant_payload: p["variant_payload"].as_bool().unwrap_or(false),
+                        require_key: p["require_key"].as_bool().unwrap_or(false),
+                    })
+                } else {
+                    None
+                }
+            },
         })
+    }
+
+    /// Append a duplicate-tracking fact for an ingress request. Keyed by `route:duplicate_key`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_ingress_dedup(
+        &self,
+        route: &str,
+        duplicate_key: &str,
+        payload_digest: &str,
+        attempt_index: u32,
+        status: u16,
+        response: &Value,
+        decision: &str,
+        correlation_id: &str,
+    ) -> Result<(), EngineError> {
+        let key = format!("{}:{}", route, duplicate_key);
+        let value = json!({
+            "route": route,
+            "duplicate_key": duplicate_key,
+            "payload_digest": payload_digest,
+            "attempt_index": attempt_index,
+            "status": status,
+            "response": response,
+            "decision": decision,
+            "correlation_id": correlation_id,
+        });
+        let fact = Fact {
+            id: format!("dedup:{}:{}", key, uuid::Uuid::new_v4()),
+            store: INGRESS_DEDUP_STORE.to_string(),
+            key,
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("ingress-dedup")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
+    /// All duplicate-tracking facts for a `(route, duplicate_key)`, oldest first.
+    pub async fn ingress_dedup_history(&self, route: &str, duplicate_key: &str) -> Vec<Value> {
+        let key = format!("{}:{}", route, duplicate_key);
+        let mut facts = self.audit.facts_for(INGRESS_DEDUP_STORE, &key, None, None).await.unwrap_or_default();
+        facts.sort_by(|a, b| a.transaction_time.partial_cmp(&b.transaction_time).unwrap_or(std::cmp::Ordering::Equal));
+        facts.into_iter().map(|f| f.value).collect()
     }
 
     /// The developer (root-of-trust) signs a recipe and promotes the pool to production.

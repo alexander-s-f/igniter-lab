@@ -55,7 +55,7 @@ fn recipe(digest: &str) -> ServiceRecipe {
         recipe_id: "r1".into(), capsule_digest: digest.into(), entry_contract: "Add".into(),
         input_schema_digest: None, capability_bindings: vec![], required_scopes: vec!["invoke".into()],
         receipt_policy: "audit".into(), retry_policy_ref: None, pool_sizing: 1,
-        created_by: "alice".into(), accepted_by: None, accepted_at: None,
+        created_by: "alice".into(), accepted_by: None, accepted_at: None, duplicate_policy: None,
     }
 }
 

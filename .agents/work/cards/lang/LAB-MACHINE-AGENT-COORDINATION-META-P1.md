@@ -153,8 +153,16 @@ INBOUND edge: vendor webhook → validate passport (before activation) → route
 "dumb production mode" proof: `HTTP webhook → production capsule service → response` over a real
 loopback socket → `200 OK` + `42`. Loopback only; no public internet / outbound effect /
 messenger hot path. **Full serving line: capsule → recipe → production pool → HTTP ingress.**
-Next: `pool_sizing`/`activate_many` replica fanout; ingress idempotency dedup; SparkCRM-shaped
-ingress behind human-approved staging; P-votes (deferred); later federation.
+**P7 ingress duplicate policy CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-INGRESS-DUPLICATE-POLICY-P7.md`
+(impl `coordination.rs` `DuplicatePolicy` on ServiceRecipe + `ingress.rs` decide/apply, 8 tests,
+`lab-docs/lang/lab-machine-service-ingress-duplicate-policy-p7-v0.md`). Duplicate handling is a
+CONFIGURABLE BUSINESS strategy on the recipe, NOT a canon default: `idempotency=safety envelope`
+(same key+different payload→409) always on; policy decides repeats (`dedup_strict`/`treat_as_fresh`/
+`bounded_fresh(n)`/off). Proves Alex's auction lever: same input → distinct generated code per
+attempt (1000/1001/1002 via injected attempt_index). All audited; policy lives on the recipe, not
+the VM. Next: P8 `pool_sizing`/`activate_many` replica fanout (throughput over the now
+correctness-protected serving path); then SparkCRM-shaped ingress behind human-approved staging;
+P-votes (deferred); later federation + distributed dedup.
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

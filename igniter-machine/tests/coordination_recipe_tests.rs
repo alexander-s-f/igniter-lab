@@ -71,6 +71,7 @@ fn recipe(digest: &str, created_by: &str) -> ServiceRecipe {
         created_by: created_by.into(),
         accepted_by: None,
         accepted_at: None,
+        duplicate_policy: None,
     }
 }
 
