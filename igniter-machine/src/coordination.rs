@@ -1656,6 +1656,84 @@ impl CoordinationHub {
 }
 
 impl CoordinationHub {
+    /// Record a serve-time replica selection (P9): strategy + seed digest + which replica of how
+    /// many handled the request. Structured audit for hot-path serving.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn audit_serve(
+        &self,
+        actor: &str,
+        pool: &str,
+        strategy: &str,
+        seed_digest: &str,
+        replica_index: usize,
+        replica_count: usize,
+        correlation_id: &str,
+    ) -> Result<(), EngineError> {
+        let value = json!({
+            "actor": actor,
+            "operation": "serve",
+            "target_pool": pool,
+            "strategy": strategy,
+            "seed_digest": seed_digest,
+            "replica_index": replica_index,
+            "replica_count": replica_count,
+            "correlation_id": correlation_id,
+        });
+        let fact = Fact {
+            id: format!("serve:{}:{}", correlation_id, uuid::Uuid::new_v4()),
+            store: COORD_AUDIT_STORE.to_string(),
+            key: format!("serve:{}", correlation_id),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("ingress-serve")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
+    /// Record a service→effect bridge event (P10): links one served request to the one effect it
+    /// performed — correlation + attempt + selected replica + the effect receipt id + state.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn audit_bridge(
+        &self,
+        actor: &str,
+        pool: &str,
+        correlation_id: &str,
+        attempt_index: u32,
+        replica_index: usize,
+        effect_receipt_id: &str,
+        effect_state: &str,
+    ) -> Result<(), EngineError> {
+        let value = json!({
+            "actor": actor,
+            "operation": "bridge_effect",
+            "target_pool": pool,
+            "correlation_id": correlation_id,
+            "attempt_index": attempt_index,
+            "replica_index": replica_index,
+            "effect_receipt_id": effect_receipt_id,
+            "effect_state": effect_state,
+        });
+        let fact = Fact {
+            id: format!("bridge:{}:{}", correlation_id, uuid::Uuid::new_v4()),
+            store: COORD_AUDIT_STORE.to_string(),
+            key: format!("bridge:{}", correlation_id),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("bridge-effect")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
     /// Record an HTTP ingress event (accepted or denied) as a bitemporal audit fact, carrying
     /// the correlation id + idempotency key. Used by the `ingress` front door for events the
     /// inner `invoke` audit does not cover (e.g. missing passport / no route). (P6)

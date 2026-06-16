@@ -166,10 +166,24 @@ the VM. **P8 homogeneous pool fanout CLOSED 2026-06-16** — `LAB-MACHINE-SERVIC
 hypothesis: production pool = homogeneous stateless replica set over an immutable content-addressed
 image (N refs = ONE stored byte image, no copy; non-matching digest excluded). Deterministic
 selection (round-robin/hash-by-key, no random); `invoke_replica` output-invariant; `invoke_fanout`
-= identical output across all + per-replica failure isolation; non-production can't fanout. Next:
-wire invoke_replica into ingress hot path (thin); fanout × neighbour's `bridge_effect.rs`
-(effectful fanned-out service); SparkCRM-shaped ingress behind human-approved staging; P-votes;
-later federation.
+= identical output across all + per-replica failure isolation; non-production can't fanout. **P9 replica selection in ingress hot path CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-INGRESS-REPLICA-P9.md`
+(impl `ingress.rs` serve_one + route strategy + `coordination::audit_serve`, 7 tests,
+`lab-docs/lang/lab-machine-service-ingress-replica-p9-v0.md`). webhook → passport → dup policy →
+ONE replica (select_replica: hash_key/hash_key_attempt/round_robin, no random) → activation →
+audit(replica_index/count/strategy/seed_digest). **GUARDRAIL: single replica, NEVER fanout** (so
+scaling compute can't multiply downstream effects). Output-invariant; dup policy before selection.
+**P10 selected-replica × bridge_effect CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-BRIDGE-REPLICA-P10.md`
+(impl `ingress.rs` EffectBridgeConfig/handle_effect + `coordination::audit_bridge`, 6 tests,
+`lab-docs/lang/lab-machine-service-bridge-replica-p10-v0.md`). The COMBAT LOOP (glass box):
+webhook→dup policy→ONE replica→capsule intent→`run_write_effect` (host effect passport)=ONE effect→
+receipt→HTTP. **Safety hinge: effect idem key = `duplicate_key:attempt_index`** → dedup_strict=one
+effect ever (repeat replays, no 2nd effect); bounded_fresh(n)=up to n distinct-keyed effects (auction
+leads). Single replica→≤1 effect; fanout never effects; unknown→202+correlation; audit links
+correlation/attempt/replica/effect_receipt. Two authorities (vendor serving vs host effect). Fake
+executor only — no live SparkCRM. Next: SparkCRM-shaped integration (swap fake→neighbour's P15
+SparkCRM executor over local TLS, human-approved staging only); real loopback HTTP front door driving
+handle_effect; invoke_fanout×bridge diagnostic dry-run only; later federation. **The full serving
+line capsule→recipe→pool→ingress→dup-policy→replica→effect is now one proven contour.**
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

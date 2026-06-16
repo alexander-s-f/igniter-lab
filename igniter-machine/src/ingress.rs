@@ -18,10 +18,15 @@
 //! agent messenger in the hot path (the ingress holds `&CoordinationHub` and only calls
 //! `invoke` + `audit_ingress`).
 
-use crate::capability::CapabilityPassport;
-use crate::coordination::{CoordinationHub, DuplicatePolicy, PoolRefusal};
+use crate::backend::TBackend;
+use crate::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode};
+use crate::clock::ClockProvider;
+use crate::coordination::{select_replica, CoordinationHub, DuplicatePolicy, PoolRefusal};
+use crate::write::{run_write_effect, WriteRequest, WriteState};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -57,6 +62,46 @@ pub struct IngressResponse {
 pub struct IngressRouter {
     routes: HashMap<String, String>,
     tokens: HashMap<String, CapabilityPassport>,
+    /// path → replica selection strategy (`"hash_key"` default | `"hash_key_attempt"` |
+    /// `"round_robin"`). Hot-path serving selects ONE replica (P8 `select_replica`).
+    strategies: HashMap<String, String>,
+    /// round-robin sequence counter (interior mutable; deterministic + auditable).
+    seq: AtomicU64,
+}
+
+/// What replica handled a served request — recorded by `audit_serve`.
+struct ReplicaAudit {
+    strategy: String,
+    index: usize,
+    count: usize,
+    seed_digest: String,
+}
+
+/// The capability-IO effect side of the service→effect bridge (P10). The selected replica's
+/// output becomes the effect payload; `run_write_effect` performs exactly ONE effect under the
+/// HOST's `effect_passport` (distinct from the serving/vendor passport). The effect idempotency
+/// key is `duplicate_key:attempt_index`, so the duplicate policy decides how many effects happen:
+/// `dedup_strict` → one effect ever; `bounded_fresh(n)` → up to n distinct-keyed effects.
+pub struct EffectBridgeConfig<'a> {
+    pub registry: &'a CapabilityExecutorRegistry,
+    pub receipts: &'a Arc<dyn TBackend>,
+    pub effect_clock: &'a Arc<dyn ClockProvider>,
+    pub effect_passport: &'a CapabilityPassport,
+    pub capability_id: String,
+    pub operation: String,
+    pub scope: String,
+}
+
+fn map_effect_outcome(state: WriteState, result: &Value, detail: &Option<String>, correlation: &str) -> (u16, Value) {
+    match state {
+        WriteState::Committed => (200, json!({ "status": "committed", "result": result })),
+        // accepted but external fate unknown → 202; resolve later via reconcile (P7/P13).
+        WriteState::UnknownExternalState => (202, json!({ "status": "accepted_unknown", "correlation_id": correlation })),
+        WriteState::Denied => (403, json!({ "status": "denied", "detail": detail })),
+        WriteState::Retryable => (503, json!({ "status": "retry_later" })),
+        WriteState::PermanentFailure => (502, json!({ "status": "failed", "detail": detail })),
+        other => (500, json!({ "status": format!("{other:?}") })),
+    }
 }
 
 impl IngressRouter {
@@ -66,8 +111,60 @@ impl IngressRouter {
     pub fn route(&mut self, path: &str, pool_id: &str) {
         self.routes.insert(path.to_string(), pool_id.to_string());
     }
+    /// Route with an explicit replica selection strategy.
+    pub fn route_with_strategy(&mut self, path: &str, pool_id: &str, strategy: &str) {
+        self.routes.insert(path.to_string(), pool_id.to_string());
+        self.strategies.insert(path.to_string(), strategy.to_string());
+    }
+    fn strategy(&self, path: &str) -> String {
+        self.strategies.get(path).cloned().unwrap_or_else(|| "hash_key".to_string())
+    }
     pub fn token(&mut self, token: &str, passport: CapabilityPassport) {
         self.tokens.insert(token.to_string(), passport);
+    }
+
+    /// Hot-path serving: select ONE replica deterministically (P8) and activate it. The seed is
+    /// the duplicate key (stable routing), optionally with the attempt index, or a round-robin
+    /// sequence — never random, never fanout (that stays a separate diagnostic API).
+    async fn select_and_activate(
+        &self,
+        hub: &CoordinationHub,
+        passport: &CapabilityPassport,
+        route: &str,
+        pool_id: &str,
+        inputs: Value,
+        dkey: &str,
+        attempt: u32,
+    ) -> (Result<Value, PoolRefusal>, ReplicaAudit) {
+        let count = hub.replica_count(pool_id).await;
+        let strategy = self.strategy(route);
+        let seed = match strategy.as_str() {
+            "round_robin" => self.seq.fetch_add(1, Ordering::SeqCst).to_string(),
+            "hash_key_attempt" => format!("{}:{}", dkey, attempt),
+            _ => dkey.to_string(), // hash_key (stable: same key → same replica)
+        };
+        let index = if count == 0 { 0 } else { select_replica(&strategy, count, &seed) };
+        let result = hub.invoke_replica(passport, pool_id, inputs, index).await;
+        let seed_digest = blake3::hash(seed.as_bytes()).to_hex().to_string();
+        (result, ReplicaAudit { strategy, index, count, seed_digest })
+    }
+
+    async fn serve_one(
+        &self,
+        hub: &CoordinationHub,
+        passport: &CapabilityPassport,
+        route: &str,
+        pool_id: &str,
+        inputs: Value,
+        dkey: &str,
+        attempt: u32,
+    ) -> (u16, Value, ReplicaAudit) {
+        let (result, ra) = self.select_and_activate(hub, passport, route, pool_id, inputs, dkey, attempt).await;
+        let (status, body) = match result {
+            Ok(r) => (200, r),
+            Err(e) => map_refusal(&e),
+        };
+        (status, body, ra)
     }
 
     /// Handle one inbound request: passport → route → invoke → HTTP response + audit.
@@ -132,13 +229,136 @@ impl IngressRouter {
             }
         }
 
-        // 5. plain invoke (no policy, or duplicate key not required and absent) = P6 path.
-        let (status, body) = invoke_map(hub, passport, &pool_id, req.body.clone()).await;
+        // 5. plain serve (no policy, or duplicate key not required and absent): select ONE
+        //    replica deterministically (seed = correlation id) and activate it.
+        let (status, body, ra) = self
+            .serve_one(hub, passport, &req.path, &pool_id, req.body.clone(), &correlation_id, 0)
+            .await;
+        let _ = hub
+            .audit_serve(&passport.subject, &pool_id, &ra.strategy, &ra.seed_digest, ra.index, ra.count, &correlation_id)
+            .await;
         let outcome = if status < 400 { "allowed" } else { "denied" };
         let _ = hub
             .audit_ingress(&passport.subject, &req.path, outcome, None, &correlation_id, idempotency)
             .await;
         IngressResponse { status, body, correlation_id }
+    }
+
+    /// Service→effect bridge with duplicate policy + single-replica selection (P10). Combines
+    /// P7 (duplicate policy) + P9 (one replica) + the capability-IO effect: the selected replica's
+    /// output is performed as ONE declared effect (`run_write_effect`) under the host's effect
+    /// passport. The effect idempotency key = `duplicate_key:attempt_index`, so the duplicate
+    /// policy controls effect count: `dedup_strict` replays (NO second effect); `bounded_fresh(n)`
+    /// makes up to n distinct-keyed effects. Fanout is never on this path.
+    pub async fn handle_effect(
+        &self,
+        hub: &CoordinationHub,
+        req: &IngressRequest,
+        cfg: &EffectBridgeConfig<'_>,
+    ) -> IngressResponse {
+        let correlation_id = req.header("x-correlation-id").map(String::from).unwrap_or_else(|| "cid-none".to_string());
+        let idem = req.header("idempotency-key");
+
+        let passport = match req.bearer().and_then(|t| self.tokens.get(t)) {
+            Some(p) => p,
+            None => {
+                let _ = hub.audit_ingress("anonymous", &req.path, "denied", Some("missing/invalid passport"), &correlation_id, idem).await;
+                return IngressResponse { status: 401, body: json!({"error": "unauthorized"}), correlation_id };
+            }
+        };
+        let pool_id = match self.routes.get(&req.path) {
+            Some(p) => p.clone(),
+            None => {
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("no route"), &correlation_id, idem).await;
+                return IngressResponse { status: 404, body: json!({"error": "no route"}), correlation_id };
+            }
+        };
+        let recipe = match hub.read_recipe(&pool_id).await {
+            Some(r) => r,
+            None => {
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("no recipe"), &correlation_id, idem).await;
+                return IngressResponse { status: 404, body: json!({"error": "not found"}), correlation_id };
+            }
+        };
+        // an effect bridge REQUIRES a duplicate policy + key — the key is the effect idempotency base.
+        let policy = match recipe.duplicate_policy.clone() {
+            Some(p) => p,
+            None => {
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("effect bridge needs a duplicate policy"), &correlation_id, idem).await;
+                return IngressResponse { status: 400, body: json!({"error": "no duplicate policy"}), correlation_id };
+            }
+        };
+        let dkey = match req.header(&policy.key_header).map(String::from) {
+            Some(k) => k,
+            None => {
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("missing duplicate key"), &correlation_id, idem).await;
+                return IngressResponse { status: 400, body: json!({"error": "missing duplicate key"}), correlation_id };
+            }
+        };
+
+        let payload_digest = body_digest(&req.body);
+        let history = hub.ingress_dedup_history(&req.path, &dkey).await;
+        match decide_duplicate(&policy, &history, &payload_digest) {
+            DuplicateDecision::Conflict => {
+                let _ = hub.record_ingress_dedup(&req.path, &dkey, &payload_digest, 0, 409, &json!({"error": "conflict"}), "conflict", &correlation_id).await;
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("conflict"), &correlation_id, idem).await;
+                IngressResponse { status: 409, body: json!({"error": "conflict"}), correlation_id }
+            }
+            DuplicateDecision::Denied => {
+                let _ = hub.record_ingress_dedup(&req.path, &dkey, &payload_digest, 0, 429, &json!({"error": "duplicate limit reached"}), "denied", &correlation_id).await;
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("duplicate_limit"), &correlation_id, idem).await;
+                IngressResponse { status: 429, body: json!({"error": "duplicate limit reached"}), correlation_id }
+            }
+            DuplicateDecision::Replay { status, response } => {
+                // dedup replay → NO second effect.
+                let _ = hub.record_ingress_dedup(&req.path, &dkey, &payload_digest, 0, status, &response, "replayed", &correlation_id).await;
+                let _ = hub.audit_ingress(&passport.subject, &req.path, "replayed", Some("replayed_no_effect"), &correlation_id, idem).await;
+                IngressResponse { status, body: response, correlation_id }
+            }
+            DuplicateDecision::Fresh { attempt_index } => {
+                // 1. inject attempt, select ONE replica, activate → the effect INTENT.
+                let mut inputs = req.body.clone();
+                if let Some(obj) = inputs.as_object_mut() {
+                    obj.insert(policy.seed_field.clone(), json!(attempt_index));
+                }
+                let (intent_res, ra) = self.select_and_activate(hub, passport, &req.path, &pool_id, inputs, &dkey, attempt_index).await;
+                let _ = hub.audit_serve(&passport.subject, &pool_id, &ra.strategy, &ra.seed_digest, ra.index, ra.count, &correlation_id).await;
+                let intent = match intent_res {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let (status, body) = map_refusal(&e);
+                        let _ = hub.record_ingress_dedup(&req.path, &dkey, &payload_digest, attempt_index, status, &body, "denied", &correlation_id).await;
+                        let _ = hub.audit_ingress(&passport.subject, &req.path, "denied", Some("activation refused"), &correlation_id, idem).await;
+                        return IngressResponse { status, body, correlation_id };
+                    }
+                };
+
+                // 2. perform EXACTLY ONE effect: idem key = duplicate_key:attempt → distinct per attempt.
+                let effect_idem = format!("{}:{}", dkey, attempt_index);
+                let write_req = WriteRequest {
+                    capability_id: cfg.capability_id.clone(),
+                    operation: cfg.operation.clone(),
+                    idempotency_key: effect_idem.clone(),
+                    payload: json!({ "intent": intent, "correlation_id": correlation_id }),
+                };
+                let (status, body, state_str) = match run_write_effect(cfg.registry, cfg.receipts, cfg.effect_clock, cfg.effect_passport, &cfg.scope, &write_req, RunMode::Live).await {
+                    Ok(o) => {
+                        let (s, b) = map_effect_outcome(o.state, &o.result, &o.detail, &correlation_id);
+                        (s, b, format!("{:?}", o.state))
+                    }
+                    Err(_) => (500, json!({"error": "effect error"}), "Error".to_string()),
+                };
+
+                // 3. link correlation + attempt + replica + effect receipt id; record the response.
+                let effect_receipt_id = format!("{}:{}", cfg.capability_id, effect_idem);
+                let _ = hub.audit_bridge(&passport.subject, &pool_id, &correlation_id, attempt_index, ra.index, &effect_receipt_id, &state_str).await;
+                let decision_str = if attempt_index == 0 { "accepted" } else { "fresh_duplicate" };
+                let _ = hub.record_ingress_dedup(&req.path, &dkey, &payload_digest, attempt_index, status, &body, decision_str, &correlation_id).await;
+                let outcome = if status < 400 { "allowed" } else { "denied" };
+                let _ = hub.audit_ingress(&passport.subject, &req.path, outcome, Some(&format!("bridge:{}", state_str)), &correlation_id, idem).await;
+                IngressResponse { status, body, correlation_id }
+            }
+        }
     }
 
     /// Apply a resolved duplicate `decision`: replay/conflict/deny without activation, or a fresh
@@ -177,12 +397,14 @@ impl IngressRouter {
                 IngressResponse { status, body: response, correlation_id: correlation_id.to_string() }
             }
             DuplicateDecision::Fresh { attempt_index } => {
-                // inject the deterministic attempt index into the invoke inputs.
+                // inject the deterministic attempt index into the invoke inputs, then serve ONE
+                // replica (seed = duplicate key, optionally + attempt per the route strategy).
                 let mut inputs = body.clone();
                 if let Some(obj) = inputs.as_object_mut() {
                     obj.insert(policy.seed_field.clone(), json!(attempt_index));
                 }
-                let (status, resp) = invoke_map(hub, passport, pool_id, inputs).await;
+                let (status, resp, ra) = self.serve_one(hub, passport, route, pool_id, inputs, dkey, attempt_index).await;
+                let _ = hub.audit_serve(&passport.subject, pool_id, &ra.strategy, &ra.seed_digest, ra.index, ra.count, correlation_id).await;
                 let decision_str = if attempt_index == 0 { "accepted" } else { "fresh_duplicate" };
                 let _ = hub.record_ingress_dedup(route, dkey, payload_digest, attempt_index, status, &resp, decision_str, correlation_id).await;
                 let outcome = if status < 400 { "allowed" } else { "denied" };
@@ -190,13 +412,6 @@ impl IngressRouter {
                 IngressResponse { status, body: resp, correlation_id: correlation_id.to_string() }
             }
         }
-    }
-}
-
-async fn invoke_map(hub: &CoordinationHub, passport: &CapabilityPassport, pool_id: &str, inputs: Value) -> (u16, Value) {
-    match hub.invoke(passport, pool_id, inputs).await {
-        Ok(result) => (200, result),
-        Err(e) => map_refusal(&e),
     }
 }
 
