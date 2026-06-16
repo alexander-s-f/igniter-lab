@@ -28,14 +28,16 @@ use crate::fact::Fact;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Lifecycle state of a write receipt. `PermanentFailure` is a terminal reached only by
-/// reconciliation (P7) — a write that resolved as definitively not landed.
+/// Lifecycle state of a write receipt. `PermanentFailure` is reached by reconciliation (P7,
+/// "did not land") or a hard executor reject. `Retryable` is a transient executor failure that
+/// is KNOWN not to have mutated (P8) — safe to retry under a new idempotency key.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WriteState {
     Prepared,
     Committed,
     Denied,
     UnknownExternalState,
+    Retryable,
     PermanentFailure,
     Aborted,
 }
@@ -47,6 +49,7 @@ impl WriteState {
             WriteState::Committed => "committed",
             WriteState::Denied => "denied",
             WriteState::UnknownExternalState => "unknown_external_state",
+            WriteState::Retryable => "retryable",
             WriteState::PermanentFailure => "permanent_failure",
             WriteState::Aborted => "aborted",
         }
@@ -56,6 +59,7 @@ impl WriteState {
             "prepared" => WriteState::Prepared,
             "committed" => WriteState::Committed,
             "denied" => WriteState::Denied,
+            "retryable" => WriteState::Retryable,
             "permanent_failure" => WriteState::PermanentFailure,
             "aborted" => WriteState::Aborted,
             _ => WriteState::UnknownExternalState,
@@ -240,9 +244,13 @@ pub async fn run_write_effect(
         }
         // same key + same payload → resolve by state.
         match state {
-            WriteState::Committed | WriteState::Denied | WriteState::PermanentFailure => {
-                // terminal receipt (including a reconciled permanent_failure): replay it. To
-                // actually retry a permanent_failure the caller must use a NEW idempotency key.
+            WriteState::Committed
+            | WriteState::Denied
+            | WriteState::PermanentFailure
+            | WriteState::Retryable => {
+                // terminal receipt for this key (including reconciled permanent_failure and a
+                // transient retryable): replay it. To actually retry, the caller / scheduler
+                // uses a NEW idempotency key.
                 return Ok(WriteResult::from_receipt(v));
             }
             WriteState::Prepared | WriteState::UnknownExternalState | WriteState::Aborted => {
@@ -295,12 +303,11 @@ pub async fn run_write_effect(
     let state = match outcome.kind {
         OutcomeKind::Succeeded => WriteState::Committed,
         OutcomeKind::Denied => WriteState::Denied,
-        // timeout / transient / permanent → the external mutation status is not knowably
-        // "done"; record unknown rather than guessing. (Splitting permanent/ retryable is a
-        // later slice.)
-        OutcomeKind::UnknownExternalState | OutcomeKind::Retryable | OutcomeKind::PermanentFailure => {
-            WriteState::UnknownExternalState
-        }
+        // The executor's failure taxonomy carries through (executors must only assert
+        // retryable/permanent when no-mutation is KNOWN; ambiguous → unknown):
+        OutcomeKind::Retryable => WriteState::Retryable, // transient, did not mutate (P8)
+        OutcomeKind::PermanentFailure => WriteState::PermanentFailure, // hard reject, retry won't help
+        OutcomeKind::UnknownExternalState => WriteState::UnknownExternalState, // status unknown
     };
     let finalized_at = clock.now();
     write_receipt(

@@ -76,6 +76,12 @@ impl EffectOutcome {
     pub fn permanent(reason: &str) -> Self {
         Self { kind: OutcomeKind::PermanentFailure, result: Value::Null, failure_kind: Some(reason.to_string()) }
     }
+    /// A transient failure where the executor KNOWS no mutation occurred (e.g. it failed
+    /// before sending the write). Distinct from `unknown` — safe to retry. Executors must only
+    /// return this when no-mutation is guaranteed; otherwise return `unknown`.
+    pub fn retryable(reason: &str) -> Self {
+        Self { kind: OutcomeKind::Retryable, result: Value::Null, failure_kind: Some(reason.to_string()) }
+    }
 }
 
 /// A request to perform an external effect. Carries the four things the boundary always

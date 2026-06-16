@@ -32,10 +32,13 @@ contract declares effect/capability        (IR: modifier / capabilities / effect
 | P5 | typed capability passport (`CapabilityPassport`, `verify_passport`; expiry via clock; authority_digest; replay scope match) | `capability.rs` | 9 |
 | P6a | receipt-gated write lifecycle (`run_write_effect`, two-phase `prepared`→terminal; fake executor) | `write.rs` | 9 |
 | P6b | real local write (`TBackendWriteExecutor`, RocksDB; forced-identity payload digest) | `executors.rs` | 8 |
+| P7 | unknown-write reconciliation (`reconcile_unknown_write`; read-back → committed/permanent_failure/unknown; no retry) | `reconcile.rs` | 6 |
+| P8 | bounded reconcile-gated retry (`run_write_with_retry`; transient/permanent split; fresh key/attempt) | `retry.rs` | 7 |
 | — | regression: capsules / bitemporal / fleet unchanged | `machine_tests.rs` | 12 |
 
-Total **70 green**. Per-card detail: `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md`, `-CLOCK-P4.md`,
-`-AUTHORITY-P5.md`, `-WRITE-P6.md`; design docs `lab-docs/lang/lab-machine-capability-io-*`.
+Total **83 green**. Per-card detail: `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md`, `-CLOCK-P4.md`,
+`-AUTHORITY-P5.md`, `-WRITE-P6.md`, `-RECONCILIATION-P7.md`, `-RETRY-P8.md`; design docs
+`lab-docs/lang/lab-machine-capability-io-*`.
 
 ## This is machine host IO, NOT language IO (structural guarantees)
 
@@ -63,13 +66,16 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
 1. ~~**P7 reconciliation** — read-back after an unknown write; resolve `unknown_external_state`
    → `committed` / `permanent_failure` / still-unknown. No blind retry.~~ **CLOSED 2026-06-15**
    (`LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7`, `reconcile.rs`, 6 tests).
-2. **retryable + bounded retry scheduler** — NEXT, now unblocked: a reconciled
-   `permanent_failure` is the safe re-issue signal (new idempotency key). Transient/permanent
-   split lives here. (none started)
-3. compensation (`aborted`) — explicit host rollback after prepare. (none started)
-4. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
-5. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
-6. HTTP / SparkCRM API executor — ONLY after retry is mature (reconciliation now in place).
+2. ~~**retryable + bounded retry** — reconcile-gated; fresh key per attempt; never retry an
+   unknown blindly.~~ **CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-IO-RETRY-P8`, `retry.rs`,
+   7 tests). Transient/permanent split landed (`WriteState::Retryable`). Attempt-count bound
+   only — time-based backoff / durable queue still open.
+3. time-based backoff + durable retry queue — the scheduler-over-time beyond P8's safe logic.
+4. compensation (`aborted`) — explicit host rollback after prepare. (none started)
+5. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
+6. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
+7. HTTP / SparkCRM API executor — both prerequisites (reconciliation + safe retry) now in place;
+   the next real-substrate expansion when chosen. (none started)
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

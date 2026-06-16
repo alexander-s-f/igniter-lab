@@ -34,6 +34,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **typed capability authority** | ✅ | `capability::{CapabilityPassport, verify_passport, AuthRefusal, run_effect_with_passport}` + `service_loop::run_service_with_passport` — verifiable passport (subject/capability/scopes/expiry/revoked/evidence) checked at the host boundary before the executor; expiry uses the injected clock; refusals (wrong-cap/missing-scope/revoked/expired) write NO receipt; executor denial stays denial-as-data; receipt records `authority_digest`; replay requires the same digest. Shared `run_effect_core` (zero churn to P1–P4). No OAuth/JWT/roles. (LAB-MACHINE-CAPABILITY-IO-AUTHORITY-P5) |
 | **receipt-gated write** | ✅ (lifecycle + real local write) | `write::{run_write_effect, WriteState, WriteRequest, WriteResult, FactWrite, payload_digest, FakeWriteExecutor}` + `executors::TBackendWriteExecutor` — two-phase receipt: `prepared` (gate, before executor) → `committed`/`denied`/`unknown_external_state` (`aborted` reserved). Idempotency binds capability+operation+authority+`payload_digest` (payload_digest FORCED to include store+key+value+valid_time): same payload→replay, different payload→refuse-no-write; timeout/failure→unknown with NO blind retry; prepare-receipt failure → executor not called. **P6b: real `TBackendWriteExecutor` over on-disk RocksDB** behind the same protocol (write→committed+read-back; failure→unknown). Reuses P4 clock + P5 passport. (LAB-MACHINE-CAPABILITY-IO-WRITE-P6 a+b) |
 | **unknown-write reconciliation** | ✅ | `reconcile::{reconcile_unknown_write, ReconcileResult}` — resolves an `unknown_external_state` write receipt by READING the target back (`facts_for` history scan; never re-writes/retries): our value present→`committed`, absent→`permanent_failure` (new `WriteState`), substrate error→still-unknown. Receipt records `target_store`/`target_key`/`value_digest` for read-back; reconciled receipt upgrades the unknown one; idempotent on terminals. Prerequisite for a retry scheduler. (LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7) |
+| **bounded reconcile-gated retry** | ✅ | `retry::{run_write_with_retry, RetryPolicy, RetryOutcome}` — retries a write safely: fresh idempotency key per attempt (`base:a{n}`); transient/permanent split via `WriteState::Retryable` + `EffectOutcome::retryable` (executor asserts no-mutation); on `unknown` it RECONCILES (P7) and continues only on a proven not-landed; bails `Unresolved` on still-unknown (no double-write); denial/hard-permanent not retried; bounded by attempt count. NO timer/backoff/durable queue (later slice). (LAB-MACHINE-CAPABILITY-IO-RETRY-P8) |
 
 ## Surfaces
 
@@ -93,6 +94,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   resolves unknown→committed (value landed) / →permanent_failure (absent) / →still-unknown
   (substrate unavailable); no substrate write (no blind retry); idempotent on terminals;
   reconciled-committed then replays without re-exec.
+- `tests/capability_io_retry_tests.rs` (7) — **bounded reconcile-gated retry**: transient retries
+  then commits; persistent transient exhausts; unknown→reconcile-not-landed→retry→commit (one
+  version); unknown-but-landed→reconcile committed (no retry, one version); unknown+unreconcilable
+  →bail Unresolved; denial + hard-permanent not retried. Scripted outcome-sequence executor.
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -111,7 +116,8 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 (`machine_tests.rs` 12 + `capability_io_tests.rs` 13 + `capability_io_host_tests.rs` 9 +
 `capability_io_real_tests.rs` 5 + `capability_io_clock_tests.rs` 5 + `capability_io_authority_tests.rs` 9
 + `capability_io_write_tests.rs` 9 + `capability_io_write_real_tests.rs` 8 +
-`capability_io_reconcile_tests.rs` 6 = 76 pass — the header count is the historical baseline.)
+`capability_io_reconcile_tests.rs` 6 + `capability_io_retry_tests.rs` 7 = 83 pass — the header
+count is the historical baseline.)
 
 ## Boundary (per README)
 
