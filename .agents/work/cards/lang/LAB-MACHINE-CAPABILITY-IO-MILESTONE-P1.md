@@ -58,15 +58,18 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
 - **Leaf-change property**: binding a real read (P3) and a real write (P6b) each changed only one
   `CapabilityExecutor` impl — the runners were untouched. The boundary shape is correct.
 
-## Remaining tail — IN ORDER (each its own bounded card; none started)
+## Remaining tail — IN ORDER (each its own bounded card)
 
-1. **P7 reconciliation** (`LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7`) — read-back after an
-   unknown write; resolve `unknown_external_state` → `committed` / `permanent_failure` /
-   still-unknown. No blind retry. **Prerequisite for any retry.**
-2. compensation (`aborted`) — explicit host rollback after prepare.
-3. `retryable` + bounded retry scheduler — safe ONLY after reconciliation (1).
-4. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
-5. HTTP / SparkCRM API executor — ONLY after retry + reconciliation are mature.
+1. ~~**P7 reconciliation** — read-back after an unknown write; resolve `unknown_external_state`
+   → `committed` / `permanent_failure` / still-unknown. No blind retry.~~ **CLOSED 2026-06-15**
+   (`LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7`, `reconcile.rs`, 6 tests).
+2. **retryable + bounded retry scheduler** — NEXT, now unblocked: a reconciled
+   `permanent_failure` is the safe re-issue signal (new idempotency key). Transient/permanent
+   split lives here. (none started)
+3. compensation (`aborted`) — explicit host rollback after prepare. (none started)
+4. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
+5. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
+6. HTTP / SparkCRM API executor — ONLY after retry is mature (reconciliation now in place).
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

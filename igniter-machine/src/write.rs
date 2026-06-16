@@ -28,13 +28,15 @@ use crate::fact::Fact;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Lifecycle state of a write receipt.
+/// Lifecycle state of a write receipt. `PermanentFailure` is a terminal reached only by
+/// reconciliation (P7) — a write that resolved as definitively not landed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WriteState {
     Prepared,
     Committed,
     Denied,
     UnknownExternalState,
+    PermanentFailure,
     Aborted,
 }
 
@@ -45,6 +47,7 @@ impl WriteState {
             WriteState::Committed => "committed",
             WriteState::Denied => "denied",
             WriteState::UnknownExternalState => "unknown_external_state",
+            WriteState::PermanentFailure => "permanent_failure",
             WriteState::Aborted => "aborted",
         }
     }
@@ -53,6 +56,7 @@ impl WriteState {
             "prepared" => WriteState::Prepared,
             "committed" => WriteState::Committed,
             "denied" => WriteState::Denied,
+            "permanent_failure" => WriteState::PermanentFailure,
             "aborted" => WriteState::Aborted,
             _ => WriteState::UnknownExternalState,
         }
@@ -107,6 +111,13 @@ pub fn payload_digest(payload: &Value) -> String {
     blake3::hash(s.as_bytes()).to_hex().to_string()
 }
 
+/// Deterministic digest of a single value — recorded in the write receipt so reconciliation
+/// (P7) can read the target back and compare WITHOUT the receipt holding the raw value.
+pub fn value_digest(value: &Value) -> String {
+    let s = serde_json::to_string(value).unwrap_or_default();
+    blake3::hash(s.as_bytes()).to_hex().to_string()
+}
+
 /// A typed local-fact write target. The payload — and therefore the idempotency `payload_digest`
 /// — is FORCED to include the full fact identity: `store + key + value + valid_time`. So two
 /// writes to *different* keys (or different valid_time) with the same value never collide under
@@ -146,12 +157,20 @@ async fn write_receipt(
     result: &Value,
     detail: Option<&str>,
 ) -> Result<(), EngineError> {
+    // Target addressing (store/key) + a value DIGEST (not the raw value) so reconciliation
+    // (P7) can read the target back. Present when the payload is a FactWrite; null otherwise.
+    let target_store = req.payload.get("store").and_then(|v| v.as_str());
+    let target_key = req.payload.get("key").and_then(|v| v.as_str());
+    let target_value_digest = req.payload.get("value").map(value_digest);
     let value = json!({
         "capability_id": req.capability_id,
         "operation": req.operation,
         "idempotency_key": req.idempotency_key,
         "authority_digest": authority_digest,
         "payload_digest": payload_digest,
+        "target_store": target_store,
+        "target_key": target_key,
+        "value_digest": target_value_digest,
         "state": state.as_str(),
         "result": result,
         "detail": detail,
@@ -221,8 +240,10 @@ pub async fn run_write_effect(
         }
         // same key + same payload → resolve by state.
         match state {
-            WriteState::Committed | WriteState::Denied => {
-                return Ok(WriteResult::from_receipt(v)); // replay terminal receipt
+            WriteState::Committed | WriteState::Denied | WriteState::PermanentFailure => {
+                // terminal receipt (including a reconciled permanent_failure): replay it. To
+                // actually retry a permanent_failure the caller must use a NEW idempotency key.
+                return Ok(WriteResult::from_receipt(v));
             }
             WriteState::Prepared | WriteState::UnknownExternalState | WriteState::Aborted => {
                 // a dangling prepare (crash mid-write) or a known-unknown: the mutation status

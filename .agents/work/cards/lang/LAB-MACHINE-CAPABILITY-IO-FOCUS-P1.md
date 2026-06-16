@@ -26,6 +26,11 @@ receipts, idempotency, typed-passport authority, and a host clock — the full m
 data-plane on a real substrate. Portfolio milestone entry:
 `igniter-gov/portfolio/governance/2026-06-15-lab-machine-capability-io-read-write-milestone-v0.md`.
 
+**P7 reconciliation CLOSED 2026-06-15** (`reconcile.rs`, 6 tests; milestone tail #1) — unknown
+writes resolve by read-back → committed/permanent_failure/still-unknown, no blind retry. Next
+tail item: **retryable + bounded retry scheduler** (now unblocked). See the milestone card's
+ordered tail; do not jump to HTTP/network before retry is mature.
+
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`
 > write, 8) all CLOSED — **70 machine/capability tests green**. See

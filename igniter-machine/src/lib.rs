@@ -7,6 +7,7 @@ pub mod errors;
 pub mod executors;
 pub mod fact;
 pub mod machine;
+pub mod reconcile;
 pub mod registry;
 pub mod service_loop;
 pub mod write;
