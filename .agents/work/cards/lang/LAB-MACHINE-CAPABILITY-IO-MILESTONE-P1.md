@@ -1,8 +1,14 @@
 # Card: LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1 — read/write IO milestone (FRONT DOOR)
 
 **Status: MILESTONE / WAVE CREST — the single front door for the capability IO track.**
-P1–P6b are CLOSED. Read this card first; do NOT pull P2/P4/P6a out of context individually.
-2026-06-15. 70 machine/capability tests green (`cargo test --no-default-features`).
+P1–P15 are CLOSED. Read this card first; do NOT pull P2/P4/P6a/P12/P14 out of context individually.
+Updated 2026-06-16. Default suite green (`cargo test --no-default-features`: 171) + TLS suite
+green (`--features tls`: 186).
+
+> **WAVE STOPPED at P15 (capstone).** The implementation wave is COMPLETE and intentionally
+> stopped before any LIVE external network. See
+> [`LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT`](LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT.md)
+> — local/fake/staged proof complete; **live external smoke is human-gated, NOT a continuation.**
 
 > **One truth:** igniter-machine has **real local read + write capability IO** — as a
 > **machine host / data-plane**, NOT as a language/VM feature. The contract *declares* effects;
