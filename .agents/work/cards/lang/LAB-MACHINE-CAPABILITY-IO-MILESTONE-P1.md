@@ -98,8 +98,14 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
    refuse-before-DNS; redaction/replay/correlation/auditable-errors preserved. **P14-impl real TLS
    CLOSED 2026-06-16** (`LAB-MACHINE-CAPABILITY-HTTP-TLS-P14-IMPL`, `http.rs` `TlsLoopbackHttpTransport`,
    7 tests behind opt-in `tls` feature): real rustls handshake vs a LOCAL self-signed CA-chain server;
-   `InvalidCertificate`→permanent vs transient→retryable; deps offline-cached (precheck passed). NEXT:
-   P15 SparkCRM executor on the real TLS substrate; host-driven reconcile-then-compensate loop.
+   `InvalidCertificate`→permanent vs transient→retryable; deps offline-cached (precheck passed).
+9. **P15 SparkCRM domain executor CLOSED 2026-06-16** (`LAB-MACHINE-CAPABILITY-SPARKCRM-EXECUTOR-P15`,
+   `sparkcrm.rs`, 8 tests, feature `tls`): the CAPSTONE — one `SparkCrmExecutor` implements forward
+   (`CapabilityExecutor`→POST /leads), lookup (`CorrelationResolver`→GET /status), and compensate
+   (`CompensatableExecutor`→POST cancel) over the real TLS transport, tying P6/P7/P10/P12/P13/P14
+   together with NO new primitives. Proven vs a LOCAL fake SparkCRM HTTPS upstream. **The boundary
+   design composes.** NEXT (optional, human-gated): P16 staging/prod HTTPS smoke; host-driven
+   reconcile-then-compensate orchestration.
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

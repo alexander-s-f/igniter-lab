@@ -45,9 +45,11 @@ unknown by `correlation_id`; closes P7 same-value caveat; read-only, never re-se
 external profile = vetted allowlist + https-only + read-only; cert-invalid→permanent vs
 transient→retryable; redirects not followed; refuse-before-DNS.
 **P14-impl real TLS CLOSED 2026-06-16** (`http.rs` `TlsLoopbackHttpTransport`, 7 tests behind opt-in
-`tls` feature) — real rustls handshake vs LOCAL self-signed CA-chain server; offline-cached deps
-(precheck passed); `InvalidCertificate`→permanent vs transient→retryable. Next: P15 SparkCRM
-executor on the real TLS substrate. See the milestone card's ordered tail.
+`tls` feature) — real rustls handshake vs LOCAL self-signed CA-chain server; offline-cached deps.
+**P15 SparkCRM domain executor CLOSED 2026-06-16** (`sparkcrm.rs`, 8 tests, feature `tls`) — the
+CAPSTONE: one executor = forward(POST /leads)+lookup(GET /status)+compensate(POST cancel) over real
+TLS, tying P6/P7/P10/P12/P13/P14 with no new primitives; vs a local fake SparkCRM upstream. The
+boundary composes. Next (optional, human-gated): P16 staging/prod HTTPS smoke. See milestone tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`
