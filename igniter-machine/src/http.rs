@@ -542,3 +542,104 @@ impl HttpTransport for LoopbackHttpTransport {
         parse_response(&buf).ok_or(HttpTransportError::Timeout)
     }
 }
+
+// ── Real TLS transport (LAB-MACHINE-CAPABILITY-HTTP-TLS-P14-IMPL, feature = "tls") ──
+
+/// Build the HTTP/1.1 request bytes (shared by loopback + TLS transports).
+fn serialize_request(req: &HttpRequest, host: &str, path: &str) -> Vec<u8> {
+    let mut head = format!(
+        "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+        req.method.as_str(),
+        path,
+        host
+    );
+    if !req.correlation_id.is_empty() {
+        head.push_str(&format!("X-Correlation-Id: {}\r\n", req.correlation_id));
+    }
+    for (k, v) in &req.headers {
+        head.push_str(&format!("{k}: {v}\r\n"));
+    }
+    head.push_str(&format!("Content-Length: {}\r\n\r\n", req.body.len()));
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(req.body.as_bytes());
+    bytes
+}
+
+/// A REAL HTTPS/1.1 transport over rustls. Used only against a local TLS server in P14-impl (the
+/// executor's host allowlist + https-only profile fences it). Cert-validation failures map to
+/// `CertInvalid` (→ permanent), other handshake failures to `Tls` (→ retryable) — exactly the
+/// P14 policy, now on a real handshake.
+#[cfg(feature = "tls")]
+pub struct TlsLoopbackHttpTransport {
+    config: std::sync::Arc<tokio_rustls::rustls::ClientConfig>,
+}
+
+#[cfg(feature = "tls")]
+impl TlsLoopbackHttpTransport {
+    /// Trust ONLY the given PEM cert(s) — a local self-signed test CA. Any other server cert →
+    /// `CertInvalid`.
+    pub fn trusting_pem(ca_pem: &[u8]) -> Self {
+        use tokio_rustls::rustls::{Certificate, ClientConfig, RootCertStore};
+        let mut roots = RootCertStore::empty();
+        if let Ok(certs) = rustls_pemfile::certs(&mut &ca_pem[..]) {
+            for c in certs {
+                let _ = roots.add(&Certificate(c));
+            }
+        }
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Self { config: std::sync::Arc::new(config) }
+    }
+
+    /// Trust nothing extra (empty roots) — a self-signed server cert → `CertInvalid`
+    /// (UnknownIssuer). Proves the invalid-cert path on a real handshake.
+    pub fn untrusting() -> Self {
+        use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
+        Self { config: std::sync::Arc::new(config) }
+    }
+}
+
+#[cfg(feature = "tls")]
+fn classify_tls_io_error(e: &std::io::Error) -> HttpTransportError {
+    if let Some(inner) = e.get_ref() {
+        if let Some(rustls_err) = inner.downcast_ref::<tokio_rustls::rustls::Error>() {
+            if matches!(rustls_err, tokio_rustls::rustls::Error::InvalidCertificate(_)) {
+                return HttpTransportError::CertInvalid;
+            }
+        }
+    }
+    HttpTransportError::Tls
+}
+
+#[cfg(feature = "tls")]
+#[async_trait]
+impl HttpTransport for TlsLoopbackHttpTransport {
+    async fn send(&self, req: &HttpRequest) -> Result<HttpResponse, HttpTransportError> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+        use tokio_rustls::{rustls::ServerName, TlsConnector};
+
+        let (host, port, path) = parse_url(&req.url).ok_or(HttpTransportError::Dns)?;
+        let tcp = TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|_| HttpTransportError::Connect)?;
+        let server_name = ServerName::try_from(host.as_str()).map_err(|_| HttpTransportError::Tls)?;
+        let connector = TlsConnector::from(self.config.clone());
+        let mut stream = match connector.connect(server_name, tcp).await {
+            Ok(s) => s,
+            Err(e) => return Err(classify_tls_io_error(&e)), // cert vs transient handshake
+        };
+
+        let bytes = serialize_request(req, &host, &path);
+        stream.write_all(&bytes).await.map_err(|_| HttpTransportError::Tls)?;
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.map_err(|_| HttpTransportError::Timeout)?;
+        parse_response(&buf).ok_or(HttpTransportError::Timeout)
+    }
+}

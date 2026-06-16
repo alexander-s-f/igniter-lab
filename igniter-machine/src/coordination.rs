@@ -25,7 +25,8 @@ use crate::capability::{verify_passport, AuthRefusal, CapabilityPassport};
 use crate::clock::ClockProvider;
 use crate::errors::EngineError;
 use crate::fact::Fact;
-use serde_json::json;
+use crate::machine::IgniterMachine;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1146,5 +1147,231 @@ impl CoordinationHub {
         let _ = self.write_transfer(&next).await;
         let _ = self.write_audit(&actor, op, None, None, &digest, "allowed", None).await;
         Ok(target)
+    }
+}
+
+// ── ServiceRecipe: dev→prod handoff + agentless serving (LAB-MACHINE-SERVICE-RECIPE-P5) ──
+//
+// The bridge from agent-built candidate to a running, agentless production service:
+//
+// ```text
+// agent-built candidate capsule  (P2 pool + P4 transfer carried a recipe_digest)
+//   -> developer SIGNS a ServiceRecipe (capsule_digest + entry_contract + scopes)  (root-of-trust)
+//   -> the pool becomes `production`, owned by the developer/system
+//   -> a vendor/runtime-actor passport INVOKES the entry contract
+//   -> invocation = real capsule ACTIVATION (resume bytes + dispatch), NOT messenger
+//   -> an audit/receipt fact is written
+// ```
+//
+// A production pool of N capsule refs sharing one `content_digest` is a homogeneous service
+// replica set. Invocation is an in-process host call — no external HTTP server, no MCP hot path,
+// and the dispatched contract body still does no IO (the VM path has no executor registry).
+
+/// Signed service recipes live in their own store, keyed by the production pool id.
+pub const RECIPES_STORE: &str = "__recipes__";
+
+/// The deploy descriptor a developer signs to turn a candidate capsule into a service. The
+/// capsule is the immutable image; the recipe is "how to run it".
+#[derive(Clone, Debug)]
+pub struct ServiceRecipe {
+    pub recipe_id: String,
+    pub capsule_digest: String,
+    pub entry_contract: String,
+    pub input_schema_digest: Option<String>,
+    pub capability_bindings: Vec<String>,
+    pub required_scopes: Vec<String>,
+    pub receipt_policy: String,
+    pub retry_policy_ref: Option<String>,
+    pub pool_sizing: u32,
+    pub created_by: String,
+    pub accepted_by: Option<String>,
+    pub accepted_at: Option<f64>,
+}
+
+impl CoordinationHub {
+    async fn write_recipe(&self, pool_id: &str, recipe: &ServiceRecipe) -> Result<(), EngineError> {
+        let value = json!({
+            "recipe_id": recipe.recipe_id,
+            "capsule_digest": recipe.capsule_digest,
+            "entry_contract": recipe.entry_contract,
+            "input_schema_digest": recipe.input_schema_digest,
+            "capability_bindings": recipe.capability_bindings,
+            "required_scopes": recipe.required_scopes,
+            "receipt_policy": recipe.receipt_policy,
+            "retry_policy_ref": recipe.retry_policy_ref,
+            "pool_sizing": recipe.pool_sizing,
+            "created_by": recipe.created_by,
+            "accepted_by": recipe.accepted_by,
+            "accepted_at": recipe.accepted_at,
+        });
+        let fact = Fact {
+            id: format!("recipe:{}:{}", pool_id, recipe.recipe_id),
+            store: RECIPES_STORE.to_string(),
+            key: pool_id.to_string(),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("service-recipe")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
+    /// The accepted recipe bound to a production pool (latest fact), if any.
+    pub async fn read_recipe(&self, pool_id: &str) -> Option<ServiceRecipe> {
+        let fact = self.audit.read_as_of(RECIPES_STORE, pool_id, f64::MAX).await.ok().flatten()?;
+        let v = &fact.value;
+        let str_vec = |k: &str| -> Vec<String> {
+            v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+        };
+        Some(ServiceRecipe {
+            recipe_id: v["recipe_id"].as_str().unwrap_or("").to_string(),
+            capsule_digest: v["capsule_digest"].as_str().unwrap_or("").to_string(),
+            entry_contract: v["entry_contract"].as_str().unwrap_or("").to_string(),
+            input_schema_digest: v["input_schema_digest"].as_str().map(String::from),
+            capability_bindings: str_vec("capability_bindings"),
+            required_scopes: str_vec("required_scopes"),
+            receipt_policy: v["receipt_policy"].as_str().unwrap_or("").to_string(),
+            retry_policy_ref: v["retry_policy_ref"].as_str().map(String::from),
+            pool_sizing: v["pool_sizing"].as_u64().unwrap_or(1) as u32,
+            created_by: v["created_by"].as_str().unwrap_or("").to_string(),
+            accepted_by: v["accepted_by"].as_str().map(String::from),
+            accepted_at: v["accepted_at"].as_f64(),
+        })
+    }
+
+    /// The developer (root-of-trust) signs a recipe and promotes the pool to production.
+    /// The recipe's `capsule_digest` must match a capsule actually in the pool. The pool becomes
+    /// `Production` and is owned by the signing developer. Audited.
+    pub async fn accept_recipe(
+        &mut self,
+        passport: &CapabilityPassport,
+        pool_id: &str,
+        mut recipe: ServiceRecipe,
+    ) -> Result<(), PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "accept_recipe") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "accept_recipe", "", &e).await;
+                return Err(e);
+            }
+        };
+        // only the developer-conductor (root-of-trust) signs a production recipe.
+        if !is_dev {
+            let e = PoolRefusal::NotGranted;
+            self.deny_msg(&actor, "accept_recipe", &digest, &e).await;
+            return Err(e);
+        }
+        let present = self
+            .pools
+            .get(pool_id)
+            .map(|p| p.capsule_refs.iter().any(|r| r.content_digest == recipe.capsule_digest))
+            .unwrap_or(false);
+        if !present {
+            let e = PoolRefusal::Invalid("recipe capsule_digest not present in pool".to_string());
+            self.deny_msg(&actor, "accept_recipe", &digest, &e).await;
+            return Err(e);
+        }
+        recipe.accepted_by = Some(actor.clone());
+        recipe.accepted_at = Some(self.clock.now());
+        if let Some(p) = self.pools.get_mut(pool_id) {
+            p.visibility = PoolVisibility::Production;
+            p.owner_agent_id = actor.clone(); // production owned by developer/system
+        }
+        let _ = self.write_recipe(pool_id, &recipe).await;
+        let _ = self
+            .write_audit(&actor, "accept_recipe", Some(pool_id), None, &digest, "allowed", None)
+            .await;
+        Ok(())
+    }
+
+    /// Invoke a production service: a runtime/vendor passport activates the pool's capsule and
+    /// runs the recipe's entry contract. The invocation is a real capsule ACTIVATION (resume +
+    /// dispatch), NOT a message. Writes an audit/receipt fact and returns the typed result.
+    pub async fn invoke(
+        &self,
+        passport: &CapabilityPassport,
+        pool_id: &str,
+        inputs: Value,
+    ) -> Result<Value, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "invoke") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "invoke", "", &e).await;
+                return Err(e);
+            }
+        };
+        // there must be a signed recipe and the pool must be in production.
+        let recipe = match self.read_recipe(pool_id).await {
+            Some(r) if r.accepted_by.is_some() => r,
+            _ => {
+                let e = PoolRefusal::Invalid("no accepted recipe for pool".to_string());
+                self.deny_msg(&actor, "invoke", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let production = self.pools.get(pool_id).map(|p| p.visibility == PoolVisibility::Production).unwrap_or(false);
+        if !production {
+            let e = PoolRefusal::Invalid("pool is not in production".to_string());
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        // the caller's passport must carry the recipe's required scopes.
+        if !recipe.required_scopes.iter().all(|s| passport.scopes.iter().any(|p| p == s)) {
+            let e = PoolRefusal::Invalid("missing required invoke scope".to_string());
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        // the caller needs an invoke grant (ActivateCapsule) on the production pool.
+        if let Err(e) = self.pool_authorized(&actor, is_dev, pool_id, PoolRight::ActivateCapsule) {
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        // the pool's capsule digest must match the signed recipe (homogeneous service image).
+        let matches = self
+            .pools
+            .get(pool_id)
+            .map(|p| p.capsule_refs.iter().any(|r| r.content_digest == recipe.capsule_digest))
+            .unwrap_or(false);
+        if !matches {
+            let e = PoolRefusal::Invalid("capsule digest mismatch".to_string());
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        // ACTIVATE: resume the capsule bytes and dispatch the entry contract (real activation,
+        // content-addressed → any replica is identical; pick by digest).
+        let bytes = match self.content.get(&recipe.capsule_digest) {
+            Some(b) => b.clone(),
+            None => {
+                let e = PoolRefusal::Invalid("capsule bytes missing".to_string());
+                self.deny_msg(&actor, "invoke", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let machine = match IgniterMachine::resume_bytes(&bytes, None, "in_memory").await {
+            Ok(m) => m,
+            Err(_) => {
+                let e = PoolRefusal::Invalid("capsule activation failed (resume)".to_string());
+                self.deny_msg(&actor, "invoke", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let result = match machine.dispatch(&recipe.entry_contract, inputs).await {
+            Ok(r) => r,
+            Err(_) => {
+                let e = PoolRefusal::Invalid("capsule activation failed (dispatch)".to_string());
+                self.deny_msg(&actor, "invoke", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let _ = self
+            .write_audit(&actor, "invoke", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&recipe.entry_contract))
+            .await;
+        Ok(result)
     }
 }

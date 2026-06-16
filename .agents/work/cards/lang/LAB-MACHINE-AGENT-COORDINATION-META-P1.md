@@ -136,9 +136,17 @@ grants, every op audited — "facts + audit + ACL, not hidden chat".
 two-phase `proposed→accepted/rejected/revoked` (pattern reuse of P6, not the write module);
 content-addressed ref import, immutable source, idempotent accept, declared-rights-only,
 developer override, carries optional `recipe_digest`. **Coordination track P2→P3→P4 complete:
-rights → communication → transfer.** Next: **P5 votes/coordination as messages**, or
-**ServiceRecipe + agentless production serving** (all parts now exist — `transfer_ownership` P2 +
-`recipe_digest` P4).
+rights → communication → transfer.**
+
+**P5 ServiceRecipe + agentless serving CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-RECIPE-P5.md`
+(impl in `coordination.rs`, 7 tests, `lab-docs/lang/lab-machine-service-recipe-p5-v0.md`). **THE
+BRIDGE is built**: developer signs a `ServiceRecipe` → pool becomes dev-owned `Production` → a
+vendor/runtime passport `invoke`s via REAL capsule activation (resume+dispatch, not messenger) →
+audited. Homogeneous content-addressed replicas. Proven end-to-end on a real `Add` capsule (→ 5,
+42), including the full transfer→accept→sign→invoke handoff. The original vision (agents build →
+developer signs/deploys → dumb production serves webhooks) is realized on one audited substrate.
+Next: a real **HTTP ingress front door** (vendor webhook → passport → `invoke`, reusing P10/P11
+HTTP as inbound edge); or P-votes (deferred social layer); later federation.
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

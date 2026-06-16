@@ -28,10 +28,18 @@ crc32fast = "1"
 ratatui   = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 
+# Real TLS transport (LAB-MACHINE-CAPABILITY-HTTP-TLS-P14-IMPL) — opt-in via the `tls` feature so
+# the default build stays dep-light. Exact offline-cached versions (precheck verified ring builds
+# offline on darwin): rustls 0.21 (ring backend, no separate provider) + tokio-rustls 0.24.
+rustls         = { version = "=0.21.12", optional = true }
+tokio-rustls   = { version = "=0.24.1", optional = true }
+rustls-pemfile = { version = "=1.0.4", optional = true }
+
 [features]
 default = ["ffi"]
 ffi  = ["dep:magnus"]
 repl = ["dep:ratatui", "dep:crossterm"]
+tls  = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 
 [[bin]]
 name    = "igniter-repl"

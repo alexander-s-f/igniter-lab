@@ -95,9 +95,11 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
 8. external host + TLS — **P14 policy CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-HTTP-EXTERNAL-P14`,
    `http.rs`, 10 tests, FAKE TLS-aware transport): external profile = vetted allowlist + https-only +
    read-only; cert-invalid→permanent vs transient-TLS/DNS/connect→retryable; redirects not followed;
-   refuse-before-DNS; redaction/replay/correlation/auditable-errors preserved. **Real rustls transport
-   = deferred P14-impl** (local self-signed TLS server; public GET = optional smoke). NEXT: P15
-   SparkCRM executor; host-driven reconcile-then-compensate loop.
+   refuse-before-DNS; redaction/replay/correlation/auditable-errors preserved. **P14-impl real TLS
+   CLOSED 2026-06-16** (`LAB-MACHINE-CAPABILITY-HTTP-TLS-P14-IMPL`, `http.rs` `TlsLoopbackHttpTransport`,
+   7 tests behind opt-in `tls` feature): real rustls handshake vs a LOCAL self-signed CA-chain server;
+   `InvalidCertificate`→permanent vs transient→retryable; deps offline-cached (precheck passed). NEXT:
+   P15 SparkCRM executor on the real TLS substrate; host-driven reconcile-then-compensate loop.
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

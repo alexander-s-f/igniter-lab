@@ -41,11 +41,13 @@ mapped onto `EffectOutcome`.
 committed effect → aborted; distinct from retry/reconcile.
 **P13 correlation reconcile CLOSED 2026-06-15** (`correlation.rs`, 8 tests; tail #5) — reconcile an
 unknown by `correlation_id`; closes P7 same-value caveat; read-only, never re-sends.
-**P14 external HTTP policy CLOSED 2026-06-15** (`http.rs` external_profile, 10 tests; fake TLS
-transport) — external profile = vetted allowlist + https-only + read-only; cert-invalid→permanent
-vs transient-TLS→retryable; redirects not followed; refuse-before-DNS. **User chose policy+fake
-transport; real rustls = deferred P14-impl** (local self-signed TLS server). Next: P14-impl (real
-TLS), P15 SparkCRM. See the milestone card's ordered tail.
+**P14 external HTTP policy CLOSED 2026-06-15** (`http.rs` external_profile, 10 tests; fake TLS) —
+external profile = vetted allowlist + https-only + read-only; cert-invalid→permanent vs
+transient→retryable; redirects not followed; refuse-before-DNS.
+**P14-impl real TLS CLOSED 2026-06-16** (`http.rs` `TlsLoopbackHttpTransport`, 7 tests behind opt-in
+`tls` feature) — real rustls handshake vs LOCAL self-signed CA-chain server; offline-cached deps
+(precheck passed); `InvalidCertificate`→permanent vs transient→retryable. Next: P15 SparkCRM
+executor on the real TLS substrate. See the milestone card's ordered tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`
