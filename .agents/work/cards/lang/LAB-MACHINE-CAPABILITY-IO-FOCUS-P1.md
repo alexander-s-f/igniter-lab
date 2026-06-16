@@ -38,10 +38,11 @@ mapped onto `EffectOutcome`.
 — policy proven against a real `127.0.0.1` HTTP/1.1 server; loopback-only allowlist;
 `correlation_id` first-class. **First real network substrate, glass box.**
 **P12 compensation/`aborted` CLOSED 2026-06-15** (`compensation.rs`, 7 tests; tail #4) — reverse a
-committed effect → aborted (committed fact preserved/auditable); authority-gated; irreversible
-refuses; compensation-unknown does not abort; replay idempotent; distinct from retry/reconcile.
-Next: P13 external allowlist+TLS, P14 SparkCRM, reconcile-by-correlation_id. See the milestone
-card's ordered tail.
+committed effect → aborted; distinct from retry/reconcile.
+**P13 correlation reconcile CLOSED 2026-06-15** (`correlation.rs`, 8 tests; tail #5) — reconcile an
+unknown by `correlation_id`; closes P7 same-value caveat (same value + different correlation no
+false-match); read-only, never re-sends. Reconciliation now precise (value AND correlation). Next:
+**P14 external allowlist+TLS**, P15 SparkCRM. See the milestone card's ordered tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`

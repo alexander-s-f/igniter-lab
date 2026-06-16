@@ -166,6 +166,14 @@ async fn write_receipt(
     let target_store = req.payload.get("store").and_then(|v| v.as_str());
     let target_key = req.payload.get("key").and_then(|v| v.as_str());
     let target_value_digest = req.payload.get("value").map(value_digest);
+    // correlation id: prefer the executor's result, else the request payload (so an `unknown`
+    // write — whose result is null — still carries the correlation trail for P13 reconcile).
+    let correlation_id = result
+        .get("correlation_id")
+        .cloned()
+        .filter(|v| !v.is_null())
+        .or_else(|| req.payload.get("correlation_id").cloned().filter(|v| !v.is_null()))
+        .unwrap_or(Value::Null);
     let value = json!({
         "capability_id": req.capability_id,
         "operation": req.operation,
@@ -175,9 +183,8 @@ async fn write_receipt(
         "target_store": target_store,
         "target_key": target_key,
         "value_digest": target_value_digest,
-        // first-class correlation id (promoted in P11): pulled from the outcome result when the
-        // executor supplies one (e.g. HTTP). Links receipt ↔ request for audit/reconciliation.
-        "correlation_id": result.get("correlation_id").cloned().unwrap_or(Value::Null),
+        // first-class correlation id (P11); from executor result or request payload (P13).
+        "correlation_id": correlation_id,
         "state": state.as_str(),
         "result": result,
         "detail": detail,

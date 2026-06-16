@@ -5,6 +5,7 @@ pub mod capsule;
 pub mod clock;
 pub mod compensation;
 pub mod coordination;
+pub mod correlation;
 pub mod errors;
 pub mod executors;
 pub mod fact;

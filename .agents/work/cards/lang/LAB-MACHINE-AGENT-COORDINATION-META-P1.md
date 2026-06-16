@@ -124,8 +124,13 @@ The P2 card below is now written AND **CLOSED 2026-06-16** —
 `LAB-MACHINE-AGENT-POOLS-P2.md` (impl `igniter-machine/src/coordination.rs`, 9 tests,
 `lab-docs/lang/lab-machine-agent-pools-p2-v0.md`). Foundation proven: AgentRegistry +
 CapsulePoolRegistry + PoolGrant ACL + AuditEvent + `verify_passport` reuse + content-addressed
-CapsuleRef + audited ownership transfer; production-mode kept reachable, not served. Next: **P3
-MessengerBus**.
+CapsuleRef + audited ownership transfer; production-mode kept reachable, not served.
+
+**P3 MessengerBus CLOSED 2026-06-16** — `LAB-MACHINE-AGENT-MESSENGER-P3.md` (impl in
+`coordination.rs`, 9 tests, `lab-docs/lang/lab-machine-agent-messenger-p3-v0.md`). Append-only
+messages as facts (note/request+ack/escalation), participant visibility, capsule-refs-aren't-
+grants, every op audited — "facts + audit + ACL, not hidden chat". Next: **P4
+CapsuleTransferEnvelope** (proposed→accepted ≅ receipt-gated write).
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

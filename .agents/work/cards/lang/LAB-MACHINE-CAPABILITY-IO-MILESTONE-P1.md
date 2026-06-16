@@ -79,7 +79,11 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
    (`LAB-MACHINE-CAPABILITY-IO-COMPENSATION-P12`, `compensation.rs`, 7 tests): committed→aborted
    (committed fact preserved, auditable); authority-gated; irreversible refuses; compensation-
    unknown does not abort; replay idempotent. Distinct from retry/reconcile.
-5. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
+5. ~~fact↔receipt correlation id — close the reconciliation same-value caveat.~~ **CLOSED
+   2026-06-15** (`LAB-MACHINE-CAPABILITY-IO-CORRELATION-RECONCILE-P13`, `correlation.rs`, 8 tests):
+   reconcile an unknown by `correlation_id` (precise per-request identity); same-value/different-
+   correlation no longer false-matches; read-only, never re-sends; missing correlation → explicit
+   fall-back signal. Reconciliation is now precise (value AND correlation).
 6. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
 7. HTTP executor — **P10 readiness/design + P11 real loopback CLOSED 2026-06-15**
    (`LAB-MACHINE-CAPABILITY-HTTP-P10`/`-P11`, `http.rs`, 12+9 tests). P10 fixed the policy

@@ -145,7 +145,7 @@ pub struct PoolGrant {
     pub granted_at: f64,
 }
 
-/// Why a pool operation was refused (all → audited deny, no state change).
+/// Why a pool/message operation was refused (all → audited deny, no state change).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolRefusal {
     Unauthenticated(AuthRefusal),
@@ -153,6 +153,9 @@ pub enum PoolRefusal {
     AgentNotActive,
     NoSuchPool,
     NotGranted,
+    /// Messenger-specific input/visibility refusal (P3): unknown recipient, not a thread
+    /// participant, request not found / not ackable, etc.
+    Invalid(String),
 }
 
 impl PoolRefusal {
@@ -163,6 +166,7 @@ impl PoolRefusal {
             PoolRefusal::AgentNotActive => "agent not active".to_string(),
             PoolRefusal::NoSuchPool => "no such pool".to_string(),
             PoolRefusal::NotGranted => "operation not granted on this pool".to_string(),
+            PoolRefusal::Invalid(m) => m.clone(),
         }
     }
 }
@@ -456,5 +460,326 @@ impl CoordinationHub {
             }
         }
         Ok(())
+    }
+}
+
+// ── Messenger bus (LAB-MACHINE-AGENT-MESSENGER-P3) ──────────────────────────────
+//
+// Messages are append-only FACTS in `__messenger__`, NOT a mutable inbox. "List my inbox" is
+// a QUERY over message facts filtered by recipient + visibility. A request that `requires_ack`
+// stays pending until an `Ack` fact links back to it (`in_reply_to`). Developer escalation is a
+// message addressed to `"developer"`. Carrying a `CapsuleRef` in a message does NOT grant
+// access — pool ACL (P2) still governs. Every message op writes an audit fact.
+
+/// Messages live in their own bitemporal store namespace.
+pub const MESSENGER_STORE: &str = "__messenger__";
+/// The reserved recipient for developer-conductor escalations.
+pub const DEVELOPER_RECIPIENT: &str = "developer";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MessageKind {
+    Note,
+    Request,
+    Ack,
+    Escalation,
+    Decision,
+}
+
+impl MessageKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MessageKind::Note => "note",
+            MessageKind::Request => "request",
+            MessageKind::Ack => "ack",
+            MessageKind::Escalation => "escalation",
+            MessageKind::Decision => "decision",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "request" => MessageKind::Request,
+            "ack" => MessageKind::Ack,
+            "escalation" => MessageKind::Escalation,
+            "decision" => MessageKind::Decision,
+            _ => MessageKind::Note,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Message {
+    pub message_id: String,
+    pub thread_id: String,
+    pub from_agent: String,
+    pub to: String,
+    pub kind: MessageKind,
+    pub body_digest: String,
+    pub capsule_refs: Vec<String>,
+    pub requires_ack: bool,
+    pub in_reply_to: Option<String>,
+    pub created_at: f64,
+}
+
+impl CoordinationHub {
+    fn is_active_agent(&self, id: &str) -> bool {
+        self.agents.get(id).map(|a| a.status == AgentStatus::Active).unwrap_or(false)
+    }
+
+    /// Authenticate a subject for a message op (no audit, no IO): passport (P5) + registered +
+    /// active. Returns `(authority_digest, is_developer)`. The caller writes the single audit.
+    fn authed(
+        &self,
+        passport: &CapabilityPassport,
+        operation: &str,
+    ) -> Result<(String, bool), PoolRefusal> {
+        let digest = verify_passport(passport, COORDINATION_CAPABILITY, operation, &self.clock)
+            .map_err(PoolRefusal::Unauthenticated)?;
+        let agent = self.agents.get(&passport.subject).ok_or(PoolRefusal::UnknownAgent)?;
+        if agent.status != AgentStatus::Active {
+            return Err(PoolRefusal::AgentNotActive);
+        }
+        Ok((digest, agent.kind == AgentKind::Developer))
+    }
+
+    async fn deny_msg(&self, actor: &str, op: &str, digest: &str, err: &PoolRefusal) {
+        let _ = self
+            .write_audit(actor, op, None, None, digest, "denied", Some(&err.reason()))
+            .await;
+    }
+
+    async fn write_message(&self, m: &Message) -> Result<(), EngineError> {
+        let value = json!({
+            "message_id": m.message_id,
+            "thread_id": m.thread_id,
+            "from_agent": m.from_agent,
+            "to": m.to,
+            "kind": m.kind.as_str(),
+            "body_digest": m.body_digest,
+            "capsule_refs": m.capsule_refs,
+            "requires_ack": m.requires_ack,
+            "in_reply_to": m.in_reply_to,
+            "created_at": m.created_at,
+        });
+        let fact = Fact {
+            id: m.message_id.clone(),
+            store: MESSENGER_STORE.to_string(),
+            key: m.message_id.clone(),
+            value,
+            value_hash: String::new(),
+            causation: m.in_reply_to.clone(),
+            transaction_time: m.created_at,
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("messenger")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
+    /// Read all message facts (proof-local scan; a real host indexes by recipient/thread).
+    async fn all_messages(&self) -> Vec<Message> {
+        self.audit
+            .all_facts()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| f.store == MESSENGER_STORE)
+            .map(|f| {
+                let v = &f.value;
+                Message {
+                    message_id: v["message_id"].as_str().unwrap_or("").to_string(),
+                    thread_id: v["thread_id"].as_str().unwrap_or("").to_string(),
+                    from_agent: v["from_agent"].as_str().unwrap_or("").to_string(),
+                    to: v["to"].as_str().unwrap_or("").to_string(),
+                    kind: MessageKind::from_str(v["kind"].as_str().unwrap_or("note")),
+                    body_digest: v["body_digest"].as_str().unwrap_or("").to_string(),
+                    capsule_refs: v["capsule_refs"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                        .unwrap_or_default(),
+                    requires_ack: v["requires_ack"].as_bool().unwrap_or(false),
+                    in_reply_to: v["in_reply_to"].as_str().map(String::from),
+                    created_at: v["created_at"].as_f64().unwrap_or(0.0),
+                }
+            })
+            .collect()
+    }
+
+    /// Send a message from the authenticated subject to a registered agent (or `"developer"`).
+    /// `kind` `Request` with `requires_ack` stays pending until acked. Returns the message id.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_message(
+        &self,
+        passport: &CapabilityPassport,
+        to: &str,
+        thread_id: &str,
+        kind: MessageKind,
+        body: &[u8],
+        capsule_refs: Vec<String>,
+        requires_ack: bool,
+    ) -> Result<String, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, _) = match self.authed(passport, "send_message") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "send_message", "", &e).await;
+                return Err(e);
+            }
+        };
+        // recipient must be a registered active agent, or the developer-conductor mailbox.
+        if to != DEVELOPER_RECIPIENT && !self.is_active_agent(to) {
+            let e = PoolRefusal::Invalid("unknown or inactive recipient".to_string());
+            self.deny_msg(&actor, "send_message", &digest, &e).await;
+            return Err(e);
+        }
+        let message_id = format!("msg:{}", uuid::Uuid::new_v4());
+        let m = Message {
+            message_id: message_id.clone(),
+            thread_id: thread_id.to_string(),
+            from_agent: actor.clone(),
+            to: to.to_string(),
+            kind,
+            body_digest: digest_bytes(body),
+            capsule_refs,
+            requires_ack,
+            in_reply_to: None,
+            created_at: self.clock.now(),
+        };
+        let _ = self.write_message(&m).await;
+        let _ = self
+            .write_audit(&actor, "send_message", None, None, &digest, "allowed", Some(kind.as_str()))
+            .await;
+        Ok(message_id)
+    }
+
+    /// Escalate to the developer-conductor (a message addressed to `"developer"`). Audited.
+    pub async fn escalate(
+        &self,
+        passport: &CapabilityPassport,
+        thread_id: &str,
+        body: &[u8],
+        capsule_refs: Vec<String>,
+    ) -> Result<String, PoolRefusal> {
+        self.send_message(passport, DEVELOPER_RECIPIENT, thread_id, MessageKind::Escalation, body, capsule_refs, true)
+            .await
+    }
+
+    /// Acknowledge a request addressed to the subject. Links the ack to the request via
+    /// `in_reply_to` and routes it back to the requester. Audited.
+    pub async fn ack(
+        &self,
+        passport: &CapabilityPassport,
+        request_id: &str,
+    ) -> Result<String, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, _) = match self.authed(passport, "send_message") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "ack", "", &e).await;
+                return Err(e);
+            }
+        };
+        let msgs = self.all_messages().await;
+        let request = msgs.iter().find(|m| m.message_id == request_id);
+        let request = match request {
+            Some(r) if r.kind == MessageKind::Request && r.requires_ack && r.to == actor => r,
+            _ => {
+                let e = PoolRefusal::Invalid("request not found, not ackable, or not addressed to you".to_string());
+                self.deny_msg(&actor, "ack", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let message_id = format!("msg:{}", uuid::Uuid::new_v4());
+        let m = Message {
+            message_id: message_id.clone(),
+            thread_id: request.thread_id.clone(),
+            from_agent: actor.clone(),
+            to: request.from_agent.clone(),
+            kind: MessageKind::Ack,
+            body_digest: String::new(),
+            capsule_refs: Vec::new(),
+            requires_ack: false,
+            in_reply_to: Some(request_id.to_string()),
+            created_at: self.clock.now(),
+        };
+        let _ = self.write_message(&m).await;
+        let _ = self
+            .write_audit(&actor, "ack", None, Some(request_id), &digest, "allowed", None)
+            .await;
+        Ok(message_id)
+    }
+
+    /// List messages addressed to `agent_id`. Only the agent itself or a developer may read an
+    /// inbox. (A query over facts — no mutable inbox.) Audited.
+    pub async fn list_inbox(
+        &self,
+        passport: &CapabilityPassport,
+        agent_id: &str,
+    ) -> Result<Vec<Message>, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "read_message") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "read_message", "", &e).await;
+                return Err(e);
+            }
+        };
+        if actor != agent_id && !is_dev {
+            let e = PoolRefusal::NotGranted;
+            self.deny_msg(&actor, "read_message", &digest, &e).await;
+            return Err(e);
+        }
+        let inbox: Vec<Message> = self.all_messages().await.into_iter().filter(|m| m.to == agent_id).collect();
+        let _ = self
+            .write_audit(&actor, "read_message", None, None, &digest, "allowed", None)
+            .await;
+        Ok(inbox)
+    }
+
+    /// Read a thread. Only a participant (sender or recipient of any message in the thread) or a
+    /// developer may read it. Audited.
+    pub async fn read_thread(
+        &self,
+        passport: &CapabilityPassport,
+        thread_id: &str,
+    ) -> Result<Vec<Message>, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "read_message") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "read_message", "", &e).await;
+                return Err(e);
+            }
+        };
+        let thread: Vec<Message> = self.all_messages().await.into_iter().filter(|m| m.thread_id == thread_id).collect();
+        let participant = thread.iter().any(|m| m.from_agent == actor || m.to == actor);
+        if !participant && !is_dev {
+            let e = PoolRefusal::NotGranted;
+            self.deny_msg(&actor, "read_message", &digest, &e).await;
+            return Err(e);
+        }
+        let _ = self
+            .write_audit(&actor, "read_message", Some(thread_id), None, &digest, "allowed", None)
+            .await;
+        Ok(thread)
+    }
+
+    /// Requests addressed to `agent_id` that require an ack and have none yet (computed from
+    /// facts: requests minus their acks). Read-only — not audited.
+    pub async fn pending_requests(&self, agent_id: &str) -> Vec<Message> {
+        let msgs = self.all_messages().await;
+        let acked: std::collections::HashSet<String> = msgs
+            .iter()
+            .filter(|m| m.kind == MessageKind::Ack)
+            .filter_map(|m| m.in_reply_to.clone())
+            .collect();
+        msgs.into_iter()
+            .filter(|m| {
+                m.kind == MessageKind::Request
+                    && m.requires_ack
+                    && m.to == agent_id
+                    && !acked.contains(&m.message_id)
+            })
+            .collect()
     }
 }
