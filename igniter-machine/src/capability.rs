@@ -221,6 +221,8 @@ async fn write_receipt(
         "idempotency_key": req.idempotency_key,
         "authority_ref": req.authority_ref,
         "authority_digest": authority_digest,
+        // first-class correlation id (P11): pulled from the outcome result when present (e.g. HTTP).
+        "correlation_id": outcome.result.get("correlation_id").cloned().unwrap_or(Value::Null),
         "outcome_kind": outcome.kind.as_str(),
         "result": outcome.result,
         "failure_kind": outcome.failure_kind,

@@ -107,6 +107,21 @@ side-channel.
 - This meta-card.
 - No implementation.
 
+## Discussion addendum (2026-06-16)
+
+The meta-doc now carries a locked **discussion addendum**
+(`lab-docs/lang/lab-machine-agent-coordination-meta-p1-v0.md`): concurrency model (one machine,
+no thread-per-agent), 6 locked decisions (passport≠ACL, AuditEvent-first, developer=local
+root-of-trust, transfer≈receipt-gated-write, content-addressed CapsuleRef), and — added by the
+developer-conductor — the **production mode**: agentless pool-as-service (a pool of homogeneous
+capsules = a stateless replica set over an immutable image, state in the fact log; SparkCRM
+webhooks at 2–5k rpm on ONE instance), and the **dev→prod handoff** (N agents → candidate
+capsule + `ServiceRecipe` → TransferEnvelope → developer signs/mints prod passport/takes
+ownership → agentless serving; audit trail = deployment provenance). The substrate **degrades
+gracefully** to plain serving — coordination is a dev-time layer only.
+
+The P2 card below is now written: `LAB-MACHINE-AGENT-POOLS-P2.md`.
+
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 
 Implement/prove local single-machine registry only:

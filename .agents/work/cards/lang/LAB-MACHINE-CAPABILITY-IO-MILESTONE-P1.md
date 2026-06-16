@@ -78,12 +78,13 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
 4. compensation (`aborted`) — explicit host rollback after prepare. (none started)
 5. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
 6. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
-7. HTTP executor — **readiness/design CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-HTTP-P10`,
-   `http.rs`, 12 tests, FAKE transport): status taxonomy, idempotency, redaction, injected
-   credentials, rate limits, body limits, transport-error classification, replay-never-resends,
-   correlation id — all decided + proven, mapped onto the existing `EffectOutcome` taxonomy.
-   **NEXT: P11** real LOCAL loopback transport behind the same policy (no external internet);
-   then external allowlisted host / SparkCRM API / streaming.
+7. HTTP executor — **P10 readiness/design + P11 real loopback CLOSED 2026-06-15**
+   (`LAB-MACHINE-CAPABILITY-HTTP-P10`/`-P11`, `http.rs`, 12+9 tests). P10 fixed the policy
+   (status taxonomy, idempotency, redaction, injected credentials, rate limits, body limits,
+   replay-never-resends, correlation id) on a FAKE transport; P11 proved it transfers to a REAL
+   loopback transport (HTTP/1.1 over tokio TCP → `127.0.0.1` test server, loopback-only allowlist,
+   `correlation_id` now a first-class receipt field). **First real network substrate, in a glass
+   box.** NEXT: P12 compensation/`aborted`, P13 external allowlist+TLS, P14 SparkCRM.
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

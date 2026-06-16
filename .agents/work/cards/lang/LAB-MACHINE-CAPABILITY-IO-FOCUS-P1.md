@@ -32,11 +32,13 @@ resolve by read-back → committed/permanent_failure/still-unknown, no blind ret
 retry; never retries an unknown blindly.
 **P9 durable retry queue CLOSED 2026-06-15** (`retry_queue.rs`, 8 tests; tail #3) — retry over
 time: intents as facts, explicit `drain_due_retries`, reconcile-gated, auditable; no worker/timer.
-**P10 HTTP readiness/design CLOSED 2026-06-15** (`http.rs`, 12 tests; tail #7, FAKE transport) —
-status/timeout taxonomy, idempotency, redaction, injected credentials, rate limits, body limits,
-replay-never-resends, correlation id; all mapped onto `EffectOutcome`. Next: **P11 real LOCAL
-loopback HTTP** behind the same policy (no external internet); then external host/SparkCRM.
-See the milestone card's ordered tail.
+**P10 HTTP readiness/design CLOSED 2026-06-15** (`http.rs`, 12 tests; FAKE transport) — policy
+mapped onto `EffectOutcome`.
+**P11 real loopback HTTP CLOSED 2026-06-15** (`http.rs` `LoopbackHttpTransport`, 9 tests; tail #7)
+— policy proven against a real `127.0.0.1` HTTP/1.1 server; loopback-only allowlist;
+`correlation_id` now a first-class receipt field. **First real network substrate, glass box.**
+Next: P12 compensation/`aborted`, P13 external allowlist+TLS, P14 SparkCRM. See the milestone
+card's ordered tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`

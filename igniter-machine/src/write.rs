@@ -175,6 +175,9 @@ async fn write_receipt(
         "target_store": target_store,
         "target_key": target_key,
         "value_digest": target_value_digest,
+        // first-class correlation id (promoted in P11): pulled from the outcome result when the
+        // executor supplies one (e.g. HTTP). Links receipt ↔ request for audit/reconciliation.
+        "correlation_id": result.get("correlation_id").cloned().unwrap_or(Value::Null),
         "state": state.as_str(),
         "result": result,
         "detail": detail,

@@ -36,7 +36,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **unknown-write reconciliation** | ✅ | `reconcile::{reconcile_unknown_write, ReconcileResult}` — resolves an `unknown_external_state` write receipt by READING the target back (`facts_for` history scan; never re-writes/retries): our value present→`committed`, absent→`permanent_failure` (new `WriteState`), substrate error→still-unknown. Receipt records `target_store`/`target_key`/`value_digest` for read-back; reconciled receipt upgrades the unknown one; idempotent on terminals. Prerequisite for a retry scheduler. (LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7) |
 | **bounded reconcile-gated retry** | ✅ | `retry::{run_write_with_retry, RetryPolicy, RetryOutcome}` — retries a write safely: fresh idempotency key per attempt (`base:a{n}`); transient/permanent split via `WriteState::Retryable` + `EffectOutcome::retryable` (executor asserts no-mutation); on `unknown` it RECONCILES (P7) and continues only on a proven not-landed; bails `Unresolved` on still-unknown (no double-write); denial/hard-permanent not retried; bounded by attempt count. In-call only. (LAB-MACHINE-CAPABILITY-IO-RETRY-P8) |
 | **durable retry queue** | ✅ | `retry_queue::{RetryIntent, IntentState, enqueue_retry, drain_due_retries, backoff_due}` — retry over TIME: intents are facts in `__retry_queue__` (key=base idempotency key, latest fact=live state) with `due_at = now + base_delay*2^attempt`. Explicit `drain_due_retries(clock, passport)` runs DUE pending intents (authority-digest-gated) via `run_write_effect`, same reconcile-gating as P8; transitions pending→done/exhausted/abandoned/blocked, all auditable facts. NO background worker / wall-clock timer (host calls drain). (LAB-MACHINE-CAPABILITY-IO-RETRY-QUEUE-P9) |
-| **HTTP executor (P10, fake transport)** | ✅ (policy proof, FAKE transport) | `http::{HttpCapabilityExecutor, HttpTransport, SecretProvider, http_request_digest, HttpMethod, HttpTransportError}` + fakes `FakeHttpTransport`/`MapSecretProvider`. Maps HTTP→`EffectOutcome` taxonomy: 2xx→Succeeded, 4xx→Permanent, 429→Retryable(+retry_after), 5xx idempotent→Retryable/POST→Unknown, timeout idempotent→Retryable/POST→Unknown, connect/DNS/TLS→Retryable. Non-idempotent requires idempotency key; forced request-identity digest (method+url+body+non-redacted headers); secret headers redacted from receipts; injected `SecretProvider` for `{{secret:NAME}}` refs (missing→refuse before send); body-size cap; replay never re-sends; correlation id recorded. **FAKE transport only** — no real network (P11). (LAB-MACHINE-CAPABILITY-HTTP-P10) |
+| **HTTP executor** | ✅ (policy P10 + real loopback P11) | `http::{HttpCapabilityExecutor, HttpTransport, SecretProvider, LoopbackHttpTransport, http_request_digest, HttpMethod, HttpTransportError, url_host}` + fakes. Maps HTTP→`EffectOutcome`: 2xx→Succeeded, 4xx→Permanent, 429→Retryable(+retry_after), 5xx idempotent→Retryable/POST→Unknown, timeout idempotent→Retryable/POST→Unknown, connect/DNS/TLS→Retryable. Non-idempotent requires key; forced request-identity digest; secret headers redacted; injected `SecretProvider` (`{{secret:NAME}}`, missing→refuse before send); body cap; replay never re-sends; **`correlation_id` first-class receipt field**. **P11: real `LoopbackHttpTransport`** (HTTP/1.1 over tokio TCP) proven against a `127.0.0.1` test server; `loopback_only()`/`with_allowed_hosts` allowlist (non-loopback refused before send). No external internet / TLS / SparkCRM (P12+). (LAB-MACHINE-CAPABILITY-HTTP-P10/P11) |
 
 ## Surfaces
 
@@ -107,6 +107,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 - `tests/capability_io_http_tests.rs` (12) — **HTTP executor policy** (fake transport): full
   status/timeout taxonomy; idempotency-key policy; secret resolution + redaction (secret never in
   result/receipt); forced request-identity digest; body-size cap; replay never re-sends.
+- `tests/capability_io_http_loopback_tests.rs` (9) — **real loopback HTTP** (HTTP/1.1 over tokio
+  TCP → 127.0.0.1 test server): GET 200+receipt; 404→permanent / 429→retryable; POST lost-response
+  →unknown; missing-secret + keyless-POST + non-loopback-URL all refused before send; Authorization
+  redacted from receipt; replay sends exactly once; correlation id sent + first-class receipt field.
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -126,8 +130,8 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 `capability_io_real_tests.rs` 5 + `capability_io_clock_tests.rs` 5 + `capability_io_authority_tests.rs` 9
 + `capability_io_write_tests.rs` 9 + `capability_io_write_real_tests.rs` 8 +
 `capability_io_reconcile_tests.rs` 6 + `capability_io_retry_tests.rs` 7 +
-`capability_io_retry_queue_tests.rs` 8 + `capability_io_http_tests.rs` 12 = 103 pass — the header
-count is the historical baseline.)
+`capability_io_retry_queue_tests.rs` 8 + `capability_io_http_tests.rs` 12 +
+`capability_io_http_loopback_tests.rs` 9 = 112 pass — the header count is the historical baseline.)
 
 ## Boundary (per README)
 

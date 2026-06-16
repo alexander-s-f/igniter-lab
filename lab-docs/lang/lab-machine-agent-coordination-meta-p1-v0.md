@@ -287,7 +287,139 @@ Only after local model is proven:
 - No VM changes.
 - No production authority.
 
+## Discussion addendum (2026-06-16) — concurrency, decisions, production mode
+
+> Locked in discussion with the developer-conductor and Meta-Architect. Recorded here so the
+> next agents do not re-open these. The coordination substrate is **Capability IO (P1–P9,
+> +P10 HTTP readiness) applied to a new domain**, not a separate "agent chat platform".
+
+### Reframe: same boundary, new domain
+
+```text
+agent/vendor action
+  -> CapabilityPassport authenticates the SUBJECT (who)        (P5, already built)
+  -> Pool ACL authorizes the OPERATION on the RESOURCE (what)  (new, P2)
+  -> operation writes an AuditEvent fact                       (receipt principle, P1)
+  -> capsule/message/transfer stays replayable + inspectable   (bitemporal TBackend)
+```
+
+~70% of the substrate already exists: passport = rights, receipt = audit, bitemporal store =
+journal, capsule = immutable frame, `ShardedFactLog` = concurrency, reconcile/retry/queue =
+durable effect semantics. The genuinely new layer is **identity + pool partitioning + ACL +
+one audit schema**.
+
+### Concurrency model (v0) — answers "многопоточность?"
+
+Two different meanings must not be conflated:
+
+1. **Concurrent agents on ONE machine — already safe, no thread-per-agent.** Capsules are
+   immutable (fork = new frame); `activate_many` already runs concurrently via `join_all` with
+   no data races; the only contended resource (the fact log: membership, ACL, messages) is a
+   `ShardedFactLog` with per-shard `RwLock`, so appends serialize per shard. v0 multi-agent
+   needs **no** extra instances and **no** OS-thread-per-agent.
+2. **Multiple `igniter-machine` INSTANCES** (a network of machines) is the
+   federation/consensus axis — deferred (P6). That is distribution, NOT "multithreading".
+
+→ v0 = one instance, one fact log, sharded locking. Concurrency is solved by the immutable
+model itself.
+
+### Locked design decisions
+
+1. **Passport ≠ ACL.** Passport = *who you are* (subject authenticated at the boundary, P5).
+   Pool ACL = *what you may do on this pool* (grants stored as facts). Do not stuff per-pool
+   grants into passport scopes (scope explosion). The host checks both.
+2. **AuditEvent is the FIRST brick (P2), before messenger/transfer.** Everything downstream
+   writes audit events, so fix the schema first:
+   `{ actor, operation, target_pool, target_capsule, authority_digest, outcome, reason,
+   transaction_time }`. It reuses the receipt *principle*, but is its own fact shape — NOT the
+   write `EffectReceipt` schema.
+3. **DeveloperConductor = local root-of-trust**, not a "privileged chat user". In v0 the
+   developer is the **issuer/approver of passports and grants** and the **production sign-off**.
+   Every conductor action is itself an audited fact — visible in the trail, not an invisible
+   root side-channel.
+4. **CapsuleTransferEnvelope ≈ receipt-gated write (P6).** `proposed → accepted/rejected/
+   revoked` is isomorphic to `prepared → committed/denied`: a transfer is a "write" whose gate
+   is the recipient's acceptance. P4 reuses the two-phase receipt machinery directly.
+5. **CapsuleRef is content-addressed.** A pool stores `CapsuleRef(content_digest)`, never a
+   per-pool byte copy. Dedup by digest, or a shared mesh bloats fast.
+6. **Concurrency v0 = one machine** (see above).
+
+### Production mode — agentless pool-as-service
+
+The substrate must **degrade gracefully** to a plain service runtime with no agents (e.g. a
+SparkCRM pool serving vendor webhooks at 2–5k rpm). Two actor classes, ONE boundary:
+
+- **dev-time actors** (agents + developer): build and coordinate (pools, messenger, transfer);
+- **runtime actors** (external callers / webhooks): invoke a deployed service pool.
+
+A vendor presents a passport exactly like an agent (`subject="vendor:acme"`, scope
+`invoke:pool:X`); the activation writes an audit/receipt fact. So agentless production is the
+**same** pool + passport + audit + activation + capability-IO — just with the
+messenger/transfer (dev-time) layer absent at runtime. **Coordination is a dev-time layer; the
+runtime is plain serving.**
+
+### "Pool of homogeneous capsules = server architecture?" — YES, precisely
+
+A **stateless replica set over an immutable image**, with state in the fact log, not the
+capsules:
+
+- replicas are **provably identical** (same `content_digest`) — not "hopefully the same";
+- the single bitemporal fact log is the single source of truth + audit;
+- closer to **event-sourced stateless workers** than stateful app servers — and webhooks **are
+  events** (arrive → append → done);
+- `activate_many` already gives the horizontal compute parallelism.
+
+At 2–5k rpm (~30–80 writes/sec): activations are lock-free parallel (immutability), writes
+serialize per-shard in `ShardedFactLog` but are **not** the bottleneck at that rate. One
+instance suffices; sharding pools across instances is a later throughput lever (federation),
+not a correctness need.
+
+### Dev → prod handoff (developer-owned production pool)
+
+The lifecycle bridge, built from existing primitives — **no new mechanism**:
+
+```text
+[dev]      N agents build in their pools → converge on a CANDIDATE capsule (immutable image)
+           + a ServiceRecipe (how to run it)
+[handoff]  package as a CapsuleTransferEnvelope to the developer (proposed)
+[sign-off] developer REVIEWS the candidate's audit trail + recipe + passport scopes →
+           ACCEPT + SIGN: mints a production passport (P5; conductor = root-of-trust),
+           promotes pool visibility → production, takes ownership (audited ACL transfer)
+[prod]     the pool is now developer-owned, agentless, serving webhooks under the prod passport
+```
+
+The audit trail IS the **deployment provenance**: "who authored this production service, who
+approved it" is answerable from facts — directly useful for SparkCRM compliance.
+
+### New object: `ServiceRecipe` (deployment descriptor)
+
+The candidate capsule is the immutable image; the recipe is the deploy descriptor the developer
+signs:
+
+```text
+recipe_id, candidate_capsule_id, candidate_digest, entry_contract,
+capability_bindings: [{ capability_id -> executor_binding }],
+required_scopes: [String], pool_sizing: Int, signed_by: agent_id (developer), signed_at: f64
+```
+
+Immutable, digest-addressed; the developer's acceptance is the "signature" (a fact). Analogous
+to an image + deployment manifest. This is the missing link between "a capsule" and "a running
+service".
+
+### Implication for the P2 foundation (do not preclude production mode)
+
+P2 stays the pure foundation (registry + ACL + audit, no messenger), but must not box out
+production mode:
+
+- `CapsulePool.visibility` must be extensible to include `production`;
+- pool ownership must be transferable (later) to the developer;
+- `AuditEvent` must be able to record runtime invocations, not only dev-time ops.
+
+These are P2 **design constraints**, not P2 implementation.
+
 ## Next card
 
-`LAB-MACHINE-AGENT-POOLS-P2` — local AgentRegistry + CapsulePoolRegistry + strict ACL
-proof over existing capsules, with all operations audited as facts.
+`LAB-MACHINE-AGENT-POOLS-P2` — local AgentRegistry + CapsulePoolRegistry + strict PoolGrant ACL
++ AuditEvent schema + CapabilityPassport reuse + content-addressed CapsuleRef, all operations
+audited as facts. No messenger (P3), no transfer (P4), no federation. See the addendum's design
+constraints so the foundation keeps production-mode and the dev→prod handoff reachable.

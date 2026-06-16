@@ -153,6 +153,19 @@ fn resolve_secrets(
     Ok(out)
 }
 
+/// Extract the host from a URL (`scheme://[user@]host[:port]/path`), lowercased identity.
+pub fn url_host(url: &str) -> Option<String> {
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let authority = after_scheme.split('/').next().unwrap_or("");
+    let authority = authority.rsplit('@').next().unwrap_or(authority); // strip userinfo
+    let host = authority.split(':').next().unwrap_or(authority); // strip port
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
 /// An HTTP capability executor over an injected transport + secret provider.
 pub struct HttpCapabilityExecutor {
     capability_id: String,
@@ -160,6 +173,8 @@ pub struct HttpCapabilityExecutor {
     secrets: std::sync::Arc<dyn SecretProvider>,
     redact: Vec<String>,
     max_body_bytes: usize,
+    /// `None` = any host allowed (P10). `Some` = only these hosts (P11 loopback / P13 allowlist).
+    allowed_hosts: Option<Vec<String>>,
     sends: AtomicU64,
 }
 
@@ -175,12 +190,23 @@ impl HttpCapabilityExecutor {
             secrets,
             redact: default_redaction(),
             max_body_bytes: 1 << 20, // 1 MiB
+            allowed_hosts: None,
             sends: AtomicU64::new(0),
         }
     }
     pub fn with_max_body(mut self, n: usize) -> Self {
         self.max_body_bytes = n;
         self
+    }
+    /// Restrict to an explicit host allowlist (refused before send otherwise). P11 uses
+    /// loopback-only; P13 will widen to a vetted external allowlist.
+    pub fn with_allowed_hosts(mut self, hosts: &[&str]) -> Self {
+        self.allowed_hosts = Some(hosts.iter().map(|h| h.to_string()).collect());
+        self
+    }
+    /// Loopback-only convenience (P11): `127.0.0.1` / `localhost` / `::1`.
+    pub fn loopback_only(self) -> Self {
+        self.with_allowed_hosts(&["127.0.0.1", "localhost", "::1"])
     }
     /// How many times the transport was actually invoked (a replay must not increment this).
     pub fn sends(&self) -> u64 {
@@ -306,6 +332,14 @@ impl CapabilityExecutor for HttpCapabilityExecutor {
             .unwrap_or("")
             .to_string();
 
+        // POLICY: host allowlist (P11 loopback-only) — refused BEFORE any send.
+        if let Some(allow) = &self.allowed_hosts {
+            let host = url_host(&url).unwrap_or_default();
+            if !allow.iter().any(|h| h.eq_ignore_ascii_case(&host)) {
+                return EffectOutcome::permanent(&format!("host not allowed by policy: {host}"));
+            }
+        }
+
         // POLICY: non-idempotent methods require an idempotency key.
         if !method.idempotent() && req.idempotency_key.is_empty() {
             return EffectOutcome::permanent("non-idempotent method requires an idempotency key");
@@ -382,5 +416,87 @@ impl MapSecretProvider {
 impl SecretProvider for MapSecretProvider {
     fn resolve(&self, name: &str) -> Option<String> {
         self.map.get(name).cloned()
+    }
+}
+
+// ── Real loopback transport (LAB-MACHINE-CAPABILITY-HTTP-P11) ───────────────────
+
+fn parse_url(url: &str) -> Option<(String, u16, String)> {
+    let after = url.split("://").nth(1)?;
+    let (authority, path) = match after.find('/') {
+        Some(i) => (&after[..i], after[i..].to_string()),
+        None => (after, "/".to_string()),
+    };
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) => (h.to_string(), p.parse().ok()?),
+        None => (authority.to_string(), 80u16),
+    };
+    Some((host, port, path))
+}
+
+fn parse_response(buf: &[u8]) -> Option<HttpResponse> {
+    if buf.is_empty() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(buf);
+    let split = text.find("\r\n\r\n")?;
+    let head = &text[..split];
+    let body = text[split + 4..].to_string();
+    let mut lines = head.split("\r\n");
+    let status_line = lines.next()?;
+    let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
+    let headers = lines
+        .filter_map(|l| l.split_once(": ").map(|(k, v)| (k.to_string(), v.to_string())))
+        .collect();
+    Some(HttpResponse { status, headers, body })
+}
+
+/// A REAL HTTP/1.1 transport over a TCP socket — used only against a loopback test server in
+/// P11 (the executor's host allowlist enforces loopback). Minimal by design: no TLS, no
+/// keep-alive, no chunked encoding. This proves the P10 policy transfers to a real transport
+/// boundary. The `correlation_id` is sent as an `X-Correlation-Id` header.
+#[derive(Default)]
+pub struct LoopbackHttpTransport;
+
+impl LoopbackHttpTransport {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl HttpTransport for LoopbackHttpTransport {
+    async fn send(&self, req: &HttpRequest) -> Result<HttpResponse, HttpTransportError> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+
+        let (host, port, path) = parse_url(&req.url).ok_or(HttpTransportError::Dns)?;
+        let mut stream = TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|_| HttpTransportError::Connect)?;
+
+        let mut head = format!(
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+            req.method.as_str(),
+            path,
+            host
+        );
+        if !req.correlation_id.is_empty() {
+            head.push_str(&format!("X-Correlation-Id: {}\r\n", req.correlation_id));
+        }
+        for (k, v) in &req.headers {
+            head.push_str(&format!("{k}: {v}\r\n"));
+        }
+        head.push_str(&format!("Content-Length: {}\r\n\r\n", req.body.len()));
+
+        stream.write_all(head.as_bytes()).await.map_err(|_| HttpTransportError::Connect)?;
+        stream.write_all(req.body.as_bytes()).await.map_err(|_| HttpTransportError::Connect)?;
+
+        let mut buf = Vec::new();
+        // server closes the connection after responding (Connection: close); an empty read =
+        // no response (lost response) → Timeout.
+        stream.read_to_end(&mut buf).await.map_err(|_| HttpTransportError::Timeout)?;
+        parse_response(&buf).ok_or(HttpTransportError::Timeout)
     }
 }
