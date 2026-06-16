@@ -34,9 +34,11 @@ until the atomic gate is in.**
 3. **Host-driven orchestrator + tick** (engineering, MED) — drive the existing pieces:
    boot recovery (P19) + drain (P9) + dead-letter, explicit loop, no hidden worker. **→
    `LAB-MACHINE-CAPABILITY-IO-ORCHESTRATOR-P20` (CLOSED 2026-06-16, 6 tests).**
-4. **Real authority verification** (security, MED) — verify a signed passport / token; today
-   `evidence_digest` is opaque (NOT verified). Plus a real `SecretProvider` (vault/env), not the
-   in-process map.
+4. **Real authority + secrets** (security, MED) — split in two:
+   - 4a signed passport — verify the `evidence_digest` signature. **→
+     `LAB-MACHINE-CAPABILITY-IO-SIGNED-PASSPORT-P21` (CLOSED 2026-06-16, 5 tests).**
+   - 4b real `SecretProvider` (env/file/vault, not the in-process map). **→
+     `LAB-MACHINE-CAPABILITY-IO-SECRET-PROVIDER-P22` (NEXT).**
 5. **Observability** (operational, MED) — metrics/tracing on top of the audit facts; a
    dead-letter path for `blocked`/`exhausted` intents (a stuck `unknown` must be escalable).
 6. **Load test 2–5k rpm** (operational) — exercise the gate + durability under the real target

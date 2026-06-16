@@ -166,6 +166,8 @@ pub enum AuthRefusal {
     MissingScope,
     Revoked,
     Expired,
+    /// The passport is not authentically signed by a trusted issuer (P21).
+    Untrusted,
 }
 
 /// Verify a passport at the host boundary. Expiry uses the injected clock. Returns the
@@ -191,6 +193,74 @@ pub fn verify_passport(
         return Err(AuthRefusal::MissingScope);
     }
     Ok(passport.authority_digest())
+}
+
+// ── Signed passports (LAB-MACHINE-CAPABILITY-IO-SIGNED-PASSPORT-P21) ────────────
+
+/// The canonical signed material of a passport: identity + validity window. NOT the `revoked`
+/// flag (that is host-side revocation state, not issued) and NOT the signature itself. Binding
+/// the scopes means a passport's scope set cannot be widened after signing.
+fn passport_material(p: &CapabilityPassport) -> String {
+    let mut scopes = p.scopes.clone();
+    scopes.sort();
+    let exp = match p.expires_at {
+        Some(t) => t.to_string(),
+        None => "none".to_string(),
+    };
+    format!("{}|{}|{}|{}|{}", p.subject, p.capability_id, scopes.join(","), p.issued_at, exp)
+}
+
+/// Sign a passport's evidence with an issuer key — a local keyed-hash MAC (blake3), NOT
+/// asymmetric PKI / OAuth / JWT (those are later slices). The returned hex goes in
+/// `CapabilityPassport.evidence_digest`.
+pub fn sign_passport(issuer_key: &[u8; 32], passport: &CapabilityPassport) -> String {
+    blake3::keyed_hash(issuer_key, passport_material(passport).as_bytes()).to_hex().to_string()
+}
+
+/// A set of trusted issuer keys. A passport is authentic iff its `evidence_digest` is a valid
+/// keyed-hash signature over its material under SOME trusted key. The host can no longer simply
+/// fabricate a passport — it must be signed by a trusted issuer.
+#[derive(Default)]
+pub struct PassportVerifier {
+    trusted_keys: Vec<[u8; 32]>,
+}
+
+impl PassportVerifier {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn trust(mut self, key: [u8; 32]) -> Self {
+        self.trusted_keys.push(key);
+        self
+    }
+    /// Constant-time over the hash compare (blake3 `Hash` Eq is constant-time). An invalid-hex
+    /// or absent signature → not authentic.
+    pub fn is_authentic(&self, passport: &CapabilityPassport) -> bool {
+        let expected = match blake3::Hash::from_hex(passport.evidence_digest.as_bytes()) {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        let material = passport_material(passport);
+        self.trusted_keys
+            .iter()
+            .any(|k| blake3::keyed_hash(k, material.as_bytes()) == expected)
+    }
+}
+
+/// Verify a SIGNED passport: authentic (trusted issuer signature) AND valid (capability / scope
+/// / expiry / revoked — the P5 checks). Returns the authority digest. Pure (no IO). A tampered
+/// passport (e.g. an added scope) fails authentication before any validity check.
+pub fn verify_passport_signed(
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    capability_id: &str,
+    required_scope: &str,
+    clock: &Arc<dyn ClockProvider>,
+) -> Result<String, AuthRefusal> {
+    if !verifier.is_authentic(passport) {
+        return Err(AuthRefusal::Untrusted);
+    }
+    verify_passport(passport, capability_id, required_scope, clock)
 }
 
 /// Receipts are bitemporal facts in a dedicated TBackend store namespace.
@@ -325,6 +395,31 @@ pub async fn run_effect_with_passport(
     mode: RunMode,
 ) -> Result<EffectOutcome, EngineError> {
     let digest = match verify_passport(passport, &req.capability_id, required_scope, clock) {
+        Ok(d) => d,
+        Err(reason) => {
+            return Ok(EffectOutcome::denied(&format!(
+                "preflight: authority refused ({:?})",
+                reason
+            )))
+        }
+    };
+    run_effect_core(registry, receipts, clock, req, &digest, mode).await
+}
+
+/// Like `run_effect_with_passport` but the passport must be authentically SIGNED by a trusted
+/// issuer (P21) — the host can no longer fabricate authority. Authentication happens before the
+/// executor; an untrusted/tampered/expired/revoked/wrong-scope passport refuses with no receipt.
+pub async fn run_effect_with_verified_passport(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &EffectRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let digest = match verify_passport_signed(verifier, passport, &req.capability_id, required_scope, clock) {
         Ok(d) => d,
         Err(reason) => {
             return Ok(EffectOutcome::denied(&format!(
