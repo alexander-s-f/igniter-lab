@@ -321,16 +321,12 @@ impl Classifier {
         // Pass 2: Process and validate effects
         for node in &contract.body {
             if let BodyDecl::Effect { name, capability_ref } = node {
-                if name != "read_file" && name != "read_json" && name != "read" &&
-                   name != "write_file" && name != "write_json" && name != "write" {
-                    diagnostics.push(ClassifierDiagnostic {
-                        rule: "E-IO-EFFECT-UNKNOWN".to_string(),
-                        message: format!("Unknown effect name '{}'; must be a recognized standard effect.", name),
-                        node: contract.name.clone(),
-                        line: None,
-                    });
-                }
-                
+                // LANG-EFFECT-NAME-PARITY-P2: effect names are LABELS/verbs, NOT authority
+                // selectors. The host keys execution by the capability TYPE + passport, never by
+                // the effect verb. So ANY well-formed effect name is accepted (matching Ruby) — a
+                // malformed name already fails at parse. Authority lives in the capability binding
+                // validated just below (E-IO-CAP-UNKNOWN). (Was: a hardcoded read/write allowlist
+                // emitting E-IO-EFFECT-UNKNOWN, stricter than the host's authority model.)
                 if !capabilities.contains_key(capability_ref) {
                     diagnostics.push(ClassifierDiagnostic {
                         rule: "E-IO-CAP-UNKNOWN".to_string(),
