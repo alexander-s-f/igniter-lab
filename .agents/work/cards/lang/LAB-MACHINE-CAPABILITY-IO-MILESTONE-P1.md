@@ -5,10 +5,11 @@ P1–P15 are CLOSED. Read this card first; do NOT pull P2/P4/P6a/P12/P14 out of 
 Updated 2026-06-16. Default suite green (`cargo test --no-default-features`: 171) + TLS suite
 green (`--features tls`: 186).
 
-> **WAVE STOPPED at P15 (capstone).** The implementation wave is COMPLETE and intentionally
-> stopped before any LIVE external network. See
-> [`LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT`](LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT.md)
-> — local/fake/staged proof complete; **live external smoke is human-gated, NOT a continuation.**
+> **TWO WAVES STOPPED (both human-gate live):**
+> (1) correctness model P1–P15 → [`…-CAPSTONE-P15-CHECKPOINT`](LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT.md);
+> (2) in-lab production hardening P18–P24 → [`…-HARDENING-CAPSTONE-P25`](LAB-MACHINE-CAPABILITY-IO-HARDENING-CAPSTONE-P25.md)
+> (atomic gate / durable recovery / orchestrator / signed authority / secrets / observability /
+> load). **In-lab production hardening: CLOSED. Live external smoke: human-gated, NOT a continuation.**
 
 > **One truth:** igniter-machine has **real local read + write capability IO** — as a
 > **machine host / data-plane**, NOT as a language/VM feature. The contract *declares* effects;

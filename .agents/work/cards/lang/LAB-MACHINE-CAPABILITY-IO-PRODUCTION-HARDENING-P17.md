@@ -3,10 +3,12 @@
 > **Front door:** [`LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1`](LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md)
 > (the P1–P15 substrate) + [`…-CAPSTONE-P15-CHECKPOINT`](LAB-MACHINE-CAPABILITY-IO-CAPSTONE-P15-CHECKPOINT.md).
 
-**Status: META FOCUS — production-readiness gap audit.** Not an implementation card. Coordinates
-the hardening blockers between the proven correctness model (P1–P15 + bridge) and a real
-production runtime. **Authority: no live external network, no SparkCRM staging, no real
-credentials — every blocker below is provable in the glass box.**
+**Status: META FOCUS — gap audit. ALL IN-LAB BLOCKERS #1–#6 CLOSED (P18–P24); wave stopped at the
+hardening capstone [`…-HARDENING-CAPSTONE-P25`](LAB-MACHINE-CAPABILITY-IO-HARDENING-CAPSTONE-P25.md).
+Only #7 human-gated live remains.** Not an implementation card. Coordinated the hardening blockers
+between the proven correctness model (P1–P15 + bridge) and a real production runtime. **Authority:
+no live external network, no SparkCRM staging, no real credentials — every blocker was provable in
+the glass box.**
 
 ## The honest state
 
