@@ -32,8 +32,8 @@ until the atomic gate is in.**
    boot); close the write-succeeded-but-receipt-failed window. **→
    `LAB-MACHINE-CAPABILITY-IO-DURABLE-RECOVERY-P19` (CLOSED 2026-06-16, 7 tests).**
 3. **Host-driven orchestrator + tick** (engineering, MED) — drive the existing pieces:
-   `unknown → reconcile (P7/P13) → commit | re-issue (P9) | compensate (P12)`. A real
-   drain/tick loop (still explicit, no hidden worker) + durable queue across restarts.
+   boot recovery (P19) + drain (P9) + dead-letter, explicit loop, no hidden worker. **→
+   `LAB-MACHINE-CAPABILITY-IO-ORCHESTRATOR-P20` (CLOSED 2026-06-16, 6 tests).**
 4. **Real authority verification** (security, MED) — verify a signed passport / token; today
    `evidence_digest` is opaque (NOT verified). Plus a real `SecretProvider` (vault/env), not the
    in-process map.
