@@ -3,6 +3,8 @@ pub mod bridge;
 pub mod capability;
 pub mod capsule;
 pub mod clock;
+pub mod compensation;
+pub mod coordination;
 pub mod errors;
 pub mod executors;
 pub mod fact;

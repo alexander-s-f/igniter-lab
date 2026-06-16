@@ -120,7 +120,12 @@ capsule + `ServiceRecipe` → TransferEnvelope → developer signs/mints prod pa
 ownership → agentless serving; audit trail = deployment provenance). The substrate **degrades
 gracefully** to plain serving — coordination is a dev-time layer only.
 
-The P2 card below is now written: `LAB-MACHINE-AGENT-POOLS-P2.md`.
+The P2 card below is now written AND **CLOSED 2026-06-16** —
+`LAB-MACHINE-AGENT-POOLS-P2.md` (impl `igniter-machine/src/coordination.rs`, 9 tests,
+`lab-docs/lang/lab-machine-agent-pools-p2-v0.md`). Foundation proven: AgentRegistry +
+CapsulePoolRegistry + PoolGrant ACL + AuditEvent + `verify_passport` reuse + content-addressed
+CapsuleRef + audited ownership transfer; production-mode kept reachable, not served. Next: **P3
+MessengerBus**.
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 

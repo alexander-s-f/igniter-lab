@@ -2,9 +2,23 @@
 
 > **Front door:** [`LAB-MACHINE-AGENT-COORDINATION-META-P1`](LAB-MACHINE-AGENT-COORDINATION-META-P1.md) (+ its 2026-06-16 discussion addendum) — read the meta-focus first. This is the first foundation brick of that direction.
 
-**Status: READY — foundation implementation card.** First concrete slice after the
-coordination meta-focus. Local single-machine only: identities, pools, strict ACL, and a single
-audit-event schema. **No messenger (P3), no transfer envelope (P4), no federation/consensus.**
+**Status: CLOSED 2026-06-16 — foundation implemented + proven.** 9 machine tests
+(`igniter-machine/tests/coordination_pools_tests.rs`); full suite green. Code:
+`igniter-machine/src/coordination.rs`. Design doc:
+`lab-docs/lang/lab-machine-agent-pools-p2-v0.md`. Local single-machine only: identities, pools,
+strict ACL, single audit-event schema. **No messenger (P3), no transfer envelope (P4), no
+federation/consensus.**
+
+## Closure summary
+
+`coordination.rs`: `CoordinationHub` (in-memory registries + content-addressed capsule store +
+audit `TBackend`) with one `guard()` boundary = P5 `verify_passport` (WHO + op-class) → pool ACL
+(`owner || developer || PoolGrant`, WHAT-on-WHICH) → AuditEvent fact (allowed AND denied) in
+`__coord_audit__`. Ops: register/create_pool/add_capsule/list_capsules/check_right/grant/
+transfer_ownership. Honored all 6 locked decisions + the 3 strengthened acceptances (audited
+ownership transfer; `PoolVisibility::Private|Shared|Production`; `AgentKind::RuntimeActor` +
+free `vendor:*` actor subject). Content-addressed dedup proven (`content_count==1` for identical
+bytes). VM untouched. 9/9 tests. **Production mode kept reachable, not implemented.**
 
 ## Goal
 

@@ -36,8 +36,11 @@ time: intents as facts, explicit `drain_due_retries`, reconcile-gated, auditable
 mapped onto `EffectOutcome`.
 **P11 real loopback HTTP CLOSED 2026-06-15** (`http.rs` `LoopbackHttpTransport`, 9 tests; tail #7)
 — policy proven against a real `127.0.0.1` HTTP/1.1 server; loopback-only allowlist;
-`correlation_id` now a first-class receipt field. **First real network substrate, glass box.**
-Next: P12 compensation/`aborted`, P13 external allowlist+TLS, P14 SparkCRM. See the milestone
+`correlation_id` first-class. **First real network substrate, glass box.**
+**P12 compensation/`aborted` CLOSED 2026-06-15** (`compensation.rs`, 7 tests; tail #4) — reverse a
+committed effect → aborted (committed fact preserved/auditable); authority-gated; irreversible
+refuses; compensation-unknown does not abort; replay idempotent; distinct from retry/reconcile.
+Next: P13 external allowlist+TLS, P14 SparkCRM, reconcile-by-correlation_id. See the milestone
 card's ordered tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
