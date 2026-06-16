@@ -1476,6 +1476,185 @@ impl CoordinationHub {
     }
 }
 
+// ── Replica fanout: homogeneous production pool serving (LAB-MACHINE-SERVICE-POOL-FANOUT-P8) ──
+//
+// A production pool of N capsule refs sharing one `content_digest` is a homogeneous stateless
+// replica set over an immutable service image (state/receipts in the fact log). Normal serving
+// picks ONE replica deterministically (hash-by-key or round-robin — no random). A diagnostic
+// `invoke_fanout` runs the SAME request across ALL replicas to PROVE identical output, with
+// per-replica failure isolation. Replicas are content-addressed, so "selection" is for load
+// distribution + audit, not correctness; a ref whose digest ≠ the recipe is EXCLUDED.
+
+/// Deterministic replica selection (no random). `"round_robin"` uses `seed` as a sequence
+/// number; anything else hashes `seed` (e.g. the duplicate key) → index. Pure.
+pub fn select_replica(strategy: &str, n: usize, seed: &str) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    match strategy {
+        "round_robin" => seed.parse::<usize>().unwrap_or(0) % n,
+        _ => {
+            let h = blake3::hash(seed.as_bytes());
+            let b = h.as_bytes();
+            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
+            (v % n as u64) as usize
+        }
+    }
+}
+
+impl CoordinationHub {
+    /// Shared invoke authorization: passport + accepted-recipe + production + required-scopes +
+    /// `ActivateCapsule` grant. Returns `(authority_digest, recipe)`. (Used by the replica/
+    /// fanout serving paths; the original `invoke` keeps its inline form.)
+    async fn authorize_invoke(
+        &self,
+        passport: &CapabilityPassport,
+        pool_id: &str,
+        op: &str,
+    ) -> Result<(String, ServiceRecipe), PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, op) {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, op, "", &e).await;
+                return Err(e);
+            }
+        };
+        let recipe = match self.read_recipe(pool_id).await {
+            Some(r) if r.accepted_by.is_some() => r,
+            _ => {
+                let e = PoolRefusal::Invalid("no accepted recipe for pool".to_string());
+                self.deny_msg(&actor, op, &digest, &e).await;
+                return Err(e);
+            }
+        };
+        let production = self.pools.get(pool_id).map(|p| p.visibility == PoolVisibility::Production).unwrap_or(false);
+        if !production {
+            let e = PoolRefusal::Invalid("pool is not in production".to_string());
+            self.deny_msg(&actor, op, &digest, &e).await;
+            return Err(e);
+        }
+        if !recipe.required_scopes.iter().all(|s| passport.scopes.iter().any(|p| p == s)) {
+            let e = PoolRefusal::Invalid("missing required invoke scope".to_string());
+            self.deny_msg(&actor, op, &digest, &e).await;
+            return Err(e);
+        }
+        if let Err(e) = self.pool_authorized(&actor, is_dev, pool_id, PoolRight::ActivateCapsule) {
+            self.deny_msg(&actor, op, &digest, &e).await;
+            return Err(e);
+        }
+        Ok((digest, recipe))
+    }
+
+    /// Activate a content-addressed capsule image: resume bytes + dispatch the entry contract.
+    async fn activate_digest(
+        &self,
+        capsule_digest: &str,
+        entry_contract: &str,
+        inputs: Value,
+    ) -> Result<Value, PoolRefusal> {
+        let bytes = self
+            .content
+            .get(capsule_digest)
+            .ok_or_else(|| PoolRefusal::Invalid("capsule bytes missing".to_string()))?
+            .clone();
+        let m = IgniterMachine::resume_bytes(&bytes, None, "in_memory")
+            .await
+            .map_err(|_| PoolRefusal::Invalid("capsule activation failed (resume)".to_string()))?;
+        m.dispatch(entry_contract, inputs)
+            .await
+            .map_err(|_| PoolRefusal::Invalid("capsule activation failed (dispatch)".to_string()))
+    }
+
+    /// The replica set of a production pool = capsule refs whose digest matches the signed
+    /// recipe (the homogeneous service image; other refs are excluded).
+    pub async fn replica_count(&self, pool_id: &str) -> usize {
+        match self.read_recipe(pool_id).await {
+            Some(r) => self
+                .pools
+                .get(pool_id)
+                .map(|p| p.capsule_refs.iter().filter(|c| c.content_digest == r.capsule_digest).count())
+                .unwrap_or(0),
+            None => 0,
+        }
+    }
+
+    fn replica_refs(&self, pool_id: &str, digest: &str) -> Vec<CapsuleRef> {
+        self.pools
+            .get(pool_id)
+            .map(|p| p.capsule_refs.iter().filter(|c| c.content_digest == digest).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Normal serving: select ONE replica (by `replica_index`, computed via `select_replica`)
+    /// and activate it. Content-addressed → the chosen replica is identical to the rest; the
+    /// index is for load distribution + audit. Records the selected replica.
+    pub async fn invoke_replica(
+        &self,
+        passport: &CapabilityPassport,
+        pool_id: &str,
+        inputs: Value,
+        replica_index: usize,
+    ) -> Result<Value, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, recipe) = self.authorize_invoke(passport, pool_id, "invoke").await?;
+        let replicas = self.replica_refs(pool_id, &recipe.capsule_digest);
+        if replicas.is_empty() {
+            let e = PoolRefusal::Invalid("no replicas (capsule digest mismatch)".to_string());
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        let idx = replica_index % replicas.len();
+        match self.activate_digest(&recipe.capsule_digest, &recipe.entry_contract, inputs).await {
+            Ok(result) => {
+                let _ = self
+                    .write_audit(&actor, "invoke", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&format!("replica:{}/{}", idx, replicas.len())))
+                    .await;
+                Ok(result)
+            }
+            Err(e) => {
+                self.deny_msg(&actor, "invoke", &digest, &e).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Diagnostic fanout: run the SAME request across ALL replicas and return a per-replica
+    /// result (`(index, Ok(output) | Err(reason))`). Homogeneous replicas give identical output;
+    /// a replica labelled `"disabled"` (or a failing activation) is isolated and reported, not
+    /// fatal to the others. Records the fanout set.
+    pub async fn invoke_fanout(
+        &self,
+        passport: &CapabilityPassport,
+        pool_id: &str,
+        inputs: Value,
+    ) -> Result<Vec<(usize, Result<Value, String>)>, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, recipe) = self.authorize_invoke(passport, pool_id, "invoke").await?;
+        let replicas = self.replica_refs(pool_id, &recipe.capsule_digest);
+        if replicas.is_empty() {
+            let e = PoolRefusal::Invalid("no replicas (capsule digest mismatch)".to_string());
+            self.deny_msg(&actor, "invoke", &digest, &e).await;
+            return Err(e);
+        }
+        let mut out = Vec::with_capacity(replicas.len());
+        for (i, r) in replicas.iter().enumerate() {
+            if r.labels.iter().any(|l| l == "disabled") {
+                out.push((i, Err("replica disabled".to_string())));
+                continue;
+            }
+            match self.activate_digest(&recipe.capsule_digest, &recipe.entry_contract, inputs.clone()).await {
+                Ok(v) => out.push((i, Ok(v))),
+                Err(e) => out.push((i, Err(e.reason()))),
+            }
+        }
+        let _ = self
+            .write_audit(&actor, "invoke_fanout", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&format!("fanout:{}", replicas.len())))
+            .await;
+        Ok(out)
+    }
+}
+
 impl CoordinationHub {
     /// Record an HTTP ingress event (accepted or denied) as a bitemporal audit fact, carrying
     /// the correlation id + idempotency key. Used by the `ingress` front door for events the

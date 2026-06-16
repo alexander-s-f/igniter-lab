@@ -160,9 +160,16 @@ CONFIGURABLE BUSINESS strategy on the recipe, NOT a canon default: `idempotency=
 (same key+different payload→409) always on; policy decides repeats (`dedup_strict`/`treat_as_fresh`/
 `bounded_fresh(n)`/off). Proves Alex's auction lever: same input → distinct generated code per
 attempt (1000/1001/1002 via injected attempt_index). All audited; policy lives on the recipe, not
-the VM. Next: P8 `pool_sizing`/`activate_many` replica fanout (throughput over the now
-correctness-protected serving path); then SparkCRM-shaped ingress behind human-approved staging;
-P-votes (deferred); later federation + distributed dedup.
+the VM. **P8 homogeneous pool fanout CLOSED 2026-06-16** — `LAB-MACHINE-SERVICE-POOL-FANOUT-P8.md`
+(impl `coordination.rs` select_replica/invoke_replica/invoke_fanout, 8 tests,
+`lab-docs/lang/lab-machine-service-pool-fanout-p8-v0.md`). PROVES the server-architecture
+hypothesis: production pool = homogeneous stateless replica set over an immutable content-addressed
+image (N refs = ONE stored byte image, no copy; non-matching digest excluded). Deterministic
+selection (round-robin/hash-by-key, no random); `invoke_replica` output-invariant; `invoke_fanout`
+= identical output across all + per-replica failure isolation; non-production can't fanout. Next:
+wire invoke_replica into ingress hot path (thin); fanout × neighbour's `bridge_effect.rs`
+(effectful fanned-out service); SparkCRM-shaped ingress behind human-approved staging; P-votes;
+later federation.
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 
