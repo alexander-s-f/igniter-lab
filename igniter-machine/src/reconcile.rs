@@ -84,8 +84,9 @@ pub async fn reconcile_unknown_write(
     let v = &fact.value;
     let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
 
-    // Only an unknown receipt is reconcilable; a terminal receipt is returned as-is (idempotent).
-    if state != WriteState::UnknownExternalState {
+    // An `unknown` receipt — or a DANGLING `prepared` (a crash between prepare and the terminal
+    // receipt, P19) — is reconcilable; a terminal receipt is returned as-is (idempotent).
+    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
         return Ok(ReconcileResult::NotApplicable(state));
     }
 

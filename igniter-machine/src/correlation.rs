@@ -100,7 +100,8 @@ pub async fn reconcile_unknown_by_correlation(
     };
     let v = &fact.value;
     let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
-    if state != WriteState::UnknownExternalState {
+    // `unknown` OR a dangling `prepared` (crash before the terminal receipt, P19) is reconcilable.
+    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
         return Ok(CorrelationReconcileResult::NotApplicable(state));
     }
 

@@ -28,8 +28,9 @@ until the atomic gate is in.**
    `lookup→prepare→execute` is atomic per key. **→ `LAB-MACHINE-CAPABILITY-IO-ATOMIC-GATE-P18`
    (CLOSED 2026-06-16).**
 2. **Durable receipt/queue store + crash-recovery** (technical, HIGH) — receipts/retry-queue/dedup
-   on a durable backend (RocksDB) in the production path; restart-recovery sweep (dangling
-   `prepared` → reconcile on boot); close the write-succeeded-but-receipt-failed window.
+   on a durable backend (RocksDB); restart-recovery sweep (dangling `prepared` → reconcile on
+   boot); close the write-succeeded-but-receipt-failed window. **→
+   `LAB-MACHINE-CAPABILITY-IO-DURABLE-RECOVERY-P19` (CLOSED 2026-06-16, 7 tests).**
 3. **Host-driven orchestrator + tick** (engineering, MED) — drive the existing pieces:
    `unknown → reconcile (P7/P13) → commit | re-issue (P9) | compensate (P12)`. A real
    drain/tick loop (still explicit, no hidden worker) + durable queue across restarts.

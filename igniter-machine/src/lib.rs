@@ -14,6 +14,7 @@ pub mod http;
 pub mod ingress;
 pub mod machine;
 pub mod reconcile;
+pub mod recovery;
 pub mod registry;
 pub mod retry;
 pub mod retry_queue;
