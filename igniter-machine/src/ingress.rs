@@ -531,24 +531,21 @@ fn parse_request(buf: &[u8]) -> IngressRequest {
 fn status_text(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        202 => "Accepted",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         409 => "Conflict",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
         _ => "Status",
     }
 }
 
-/// Serve exactly ONE inbound connection on `listener` (local loopback). Parses HTTP/1.1, runs
-/// the router, writes the HTTP/1.1 response. Returns after one request — the host loops over
-/// this in a real serving cadence (P6 keeps it explicit, no background worker).
-pub async fn serve_once(
-    listener: &TcpListener,
-    router: &IngressRouter,
-    hub: &CoordinationHub,
-) -> std::io::Result<()> {
-    let (mut stream, _) = listener.accept().await?;
+async fn read_one_request(stream: &mut tokio::net::TcpStream) -> std::io::Result<IngressRequest> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {
@@ -569,8 +566,10 @@ pub async fn serve_once(
             break;
         }
     }
-    let req = parse_request(&buf);
-    let resp = router.handle(hub, &req).await;
+    Ok(parse_request(&buf))
+}
+
+async fn write_one_response(stream: &mut tokio::net::TcpStream, resp: &IngressResponse) -> std::io::Result<()> {
     let body = serde_json::to_vec(&resp.body).unwrap_or_default();
     let head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nX-Correlation-Id: {}\r\nContent-Length: {}\r\n\r\n",
@@ -581,6 +580,33 @@ pub async fn serve_once(
     );
     stream.write_all(head.as_bytes()).await?;
     stream.write_all(&body).await?;
-    stream.flush().await?;
-    Ok(())
+    stream.flush().await
+}
+
+/// Serve exactly ONE inbound connection on `listener` (local loopback). Parses HTTP/1.1, runs
+/// the router (plain serving, P6/P9), writes the HTTP/1.1 response. No background worker.
+pub async fn serve_once(
+    listener: &TcpListener,
+    router: &IngressRouter,
+    hub: &CoordinationHub,
+) -> std::io::Result<()> {
+    let (mut stream, _) = listener.accept().await?;
+    let req = read_one_request(&mut stream).await?;
+    let resp = router.handle(hub, &req).await;
+    write_one_response(&mut stream, &resp).await
+}
+
+/// Serve exactly ONE inbound connection through the service→effect bridge (P11): the full wire →
+/// duplicate policy → replica selection → capsule intent → ONE effect → receipt → HTTP response.
+/// Local loopback only; the effect executor in `cfg.registry` is fake/TBackend (no live SparkCRM).
+pub async fn serve_once_effect(
+    listener: &TcpListener,
+    router: &IngressRouter,
+    hub: &CoordinationHub,
+    cfg: &EffectBridgeConfig<'_>,
+) -> std::io::Result<()> {
+    let (mut stream, _) = listener.accept().await?;
+    let req = read_one_request(&mut stream).await?;
+    let resp = router.handle_effect(hub, &req, cfg).await;
+    write_one_response(&mut stream, &resp).await
 }

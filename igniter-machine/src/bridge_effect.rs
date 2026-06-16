@@ -23,7 +23,8 @@ use crate::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode}
 use crate::clock::ClockProvider;
 use crate::coordination::CoordinationHub;
 use crate::ingress::{map_refusal, IngressRequest};
-use crate::write::{run_write_effect, WriteRequest, WriteState};
+use crate::single_flight::{run_write_effect_atomic, SingleFlight};
+use crate::write::{WriteRequest, WriteState};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -43,6 +44,9 @@ pub struct ServiceEffectBridge<'a> {
     pub clock: &'a Arc<dyn ClockProvider>,
     /// The HOST's authority to perform the downstream effect (distinct from the vendor passport).
     pub effect_passport: &'a CapabilityPassport,
+    /// Per-key atomic gate (P18): concurrent webhooks with the same idempotency key serialize so
+    /// the effect runs exactly once. Shared across all `serve` calls on this bridge.
+    pub single_flight: &'a SingleFlight,
     pub capability_id: String,
     pub operation: String,
     pub scope: String,
@@ -86,7 +90,8 @@ impl ServiceEffectBridge<'_> {
             idempotency_key: idem,
             payload: json!({ "intent": intent, "correlation_id": correlation }),
         };
-        let outcome = match run_write_effect(
+        let outcome = match run_write_effect_atomic(
+            self.single_flight,
             self.registry,
             self.receipts,
             self.clock,

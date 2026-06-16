@@ -185,6 +185,17 @@ SparkCRM executor over local TLS, human-approved staging only); real loopback HT
 handle_effect; invoke_fanout×bridge diagnostic dry-run only; later federation. **The full serving
 line capsule→recipe→pool→ingress→dup-policy→replica→effect is now one proven contour.**
 
+**P11 wire-to-effect CLOSED 2026-06-16 — MAJOR MILESTONE** — `LAB-MACHINE-SERVICE-WIRE-EFFECT-P11.md`
++ checkpoint `LAB-MACHINE-SERVICE-WIRE-EFFECT-MILESTONE.md` (impl `ingress.rs` `serve_once_effect`,
+5 tests over real `127.0.0.1`, `lab-docs/lang/lab-machine-service-wire-effect-p11-v0.md`). A REAL
+HTTP POST drives the full contour: parser→passport→dup policy→ONE replica→capsule intent→ONE
+effect→receipt→real HTTP response; all P10 invariants hold over real transport. **"wire-to-effect
+production contour proven in lab"** — the point where the machine looks like a server platform.
+Coordination serving line P2–P11 = 77 tests; full machine suite 219 green. **Honest staging gate:
+local wire-proven → SparkCRM executor over local TLS (neighbour P15) → human-approved staging (live
+is GATED, not a continuation).** Next non-live: serving loop over many connections; invoke_fanout×
+bridge diagnostic dry-run only; federation; P-votes.
+
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 
 Implement/prove local single-machine registry only:

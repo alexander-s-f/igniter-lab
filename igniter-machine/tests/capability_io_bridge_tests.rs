@@ -5,10 +5,13 @@
 //! is performed as a declared effect through the capability-IO substrate (receipt + idempotency +
 //! correlation + outcome taxonomy). No live external network — fake effect executor.
 
+use async_trait::async_trait;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::bridge_effect::ServiceEffectBridge;
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::capability::{
-    CapabilityExecutorRegistry, CapabilityPassport, EchoCapabilityExecutor, RECEIPTS_STORE,
+    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EchoCapabilityExecutor,
+    EffectOutcome, EffectRequest, RECEIPTS_STORE,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
@@ -124,8 +127,9 @@ fn webhook_activates_capsule_and_performs_effect() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(echo.clone());
         let ep = effect_passport();
+        let sf = SingleFlight::new();
         let bridge = ServiceEffectBridge {
-            registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep,
+            registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf,
             capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into(),
         };
 
@@ -156,7 +160,8 @@ fn replay_webhook_performs_effect_once() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(echo.clone());
         let ep = effect_passport();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
 
         let wh = webhook("corr-2", Some("idem-2"), json!({"a": 1, "b": 2}));
         let a = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &wh).await;
@@ -178,7 +183,8 @@ fn missing_idempotency_key_fails_closed() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(echo.clone());
         let ep = effect_passport();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
 
         let out = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &webhook("corr-3", None, json!({"a": 1, "b": 1}))).await;
         assert_eq!(out.status, 400);
@@ -198,7 +204,8 @@ fn unknown_effect_is_accepted_unknown() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let ep = effect_passport();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
 
         let out = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &webhook("corr-4", Some("idem-4"), json!({"a": 5, "b": 5}))).await;
         assert_eq!(out.status, 202);
@@ -219,12 +226,62 @@ fn serving_refusal_performs_no_effect() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(echo.clone());
         let ep = effect_passport();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
 
         // mallory is registered but NOT granted ActivateCapsule on the pool
         let out = bridge.serve(&hub, &coord_passport("mallory"), "svc", &webhook("corr-5", Some("idem-5"), json!({"a": 1, "b": 1}))).await;
         assert_eq!(out.status, 403, "serving refusal → 403, before any effect");
         assert_eq!(out.write_state, None);
         assert_eq!(echo.call_count(), 0);
+    });
+}
+
+// ── P18: concurrent webhooks with the same idempotency key → effect ONCE ───────
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// An effect executor that yields mid-flight (so concurrent calls genuinely overlap) and counts
+/// invocations — to prove the bridge's per-key atomic gate serializes same-key webhooks.
+struct SlowEcho {
+    cap: String,
+    calls: AtomicU64,
+}
+#[async_trait]
+impl CapabilityExecutor for SlowEcho {
+    fn capability_id(&self) -> &str {
+        &self.cap
+    }
+    async fn execute(&self, req: &EffectRequest) -> EffectOutcome {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        EffectOutcome::succeeded(req.args.clone())
+    }
+}
+
+#[test]
+fn concurrent_same_webhook_performs_effect_once() {
+    rt().block_on(async {
+        let hub = served_hub().await;
+        let receipts = receipts();
+        let exec = Arc::new(SlowEcho { cap: EFFECT_CAP.into(), calls: AtomicU64::new(0) });
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec.clone());
+        let ep = effect_passport();
+        let sf = SingleFlight::new();
+        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+
+        // two concurrent webhooks carrying the SAME idempotency key
+        let wh = webhook("corr-cc", Some("idem-cc"), json!({"a": 3, "b": 4}));
+        let vendor = coord_passport("vendor:acme");
+        let f1 = bridge.serve(&hub, &vendor, "svc", &wh);
+        let f2 = bridge.serve(&hub, &vendor, "svc", &wh);
+        let (a, b) = tokio::join!(f1, f2);
+
+        assert_eq!(a.status, 200);
+        assert_eq!(b.status, 200);
+        assert_eq!(exec.calls.load(Ordering::SeqCst), 1, "the effect runs once for two concurrent same-key webhooks");
     });
 }
