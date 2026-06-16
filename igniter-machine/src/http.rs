@@ -78,8 +78,11 @@ pub enum HttpTransportError {
     Dns,
     /// TCP connect failed — request never sent.
     Connect,
-    /// TLS handshake failed — request never sent.
+    /// TLS handshake failed transiently — request never sent.
     Tls,
+    /// Certificate validation failed (untrusted/expired/wrong host) — a security policy failure,
+    /// not transient. (P14.)
+    CertInvalid,
     /// Sent, but no response within the deadline — mutation status unknown.
     Timeout,
 }
@@ -173,8 +176,12 @@ pub struct HttpCapabilityExecutor {
     secrets: std::sync::Arc<dyn SecretProvider>,
     redact: Vec<String>,
     max_body_bytes: usize,
-    /// `None` = any host allowed (P10). `Some` = only these hosts (P11 loopback / P13 allowlist).
+    /// `None` = any host allowed (P10). `Some` = only these hosts (P11 loopback / P14 allowlist).
     allowed_hosts: Option<Vec<String>>,
+    /// P14 external profile: require `https://` (refuse plain http before send).
+    require_https: bool,
+    /// P14 external profile: refuse non-idempotent methods (no external mutation) before send.
+    forbid_mutations: bool,
     sends: AtomicU64,
 }
 
@@ -191,6 +198,8 @@ impl HttpCapabilityExecutor {
             redact: default_redaction(),
             max_body_bytes: 1 << 20, // 1 MiB
             allowed_hosts: None,
+            require_https: false,
+            forbid_mutations: false,
             sends: AtomicU64::new(0),
         }
     }
@@ -199,7 +208,7 @@ impl HttpCapabilityExecutor {
         self
     }
     /// Restrict to an explicit host allowlist (refused before send otherwise). P11 uses
-    /// loopback-only; P13 will widen to a vetted external allowlist.
+    /// loopback-only; P14 widens to a vetted external allowlist.
     pub fn with_allowed_hosts(mut self, hosts: &[&str]) -> Self {
         self.allowed_hosts = Some(hosts.iter().map(|h| h.to_string()).collect());
         self
@@ -207,6 +216,19 @@ impl HttpCapabilityExecutor {
     /// Loopback-only convenience (P11): `127.0.0.1` / `localhost` / `::1`.
     pub fn loopback_only(self) -> Self {
         self.with_allowed_hosts(&["127.0.0.1", "localhost", "::1"])
+    }
+    pub fn require_https(mut self) -> Self {
+        self.require_https = true;
+        self
+    }
+    pub fn forbid_mutations(mut self) -> Self {
+        self.forbid_mutations = true;
+        self
+    }
+    /// P14 external-substrate profile: a vetted host allowlist + https-only + read-only (no
+    /// external mutation). The constrained first step past the loopback glass box.
+    pub fn external_profile(self, hosts: &[&str]) -> Self {
+        self.with_allowed_hosts(hosts).require_https().forbid_mutations()
     }
     /// How many times the transport was actually invoked (a replay must not increment this).
     pub fn sends(&self) -> u64 {
@@ -247,6 +269,12 @@ impl HttpCapabilityExecutor {
         };
         match resp.status {
             200..=299 => EffectOutcome::succeeded(with(json!({ "body": resp.body }))),
+            // P14: redirects are NOT auto-followed (could escape the allowlist or leak creds).
+            300..=399 => {
+                let mut o = EffectOutcome::permanent("redirect not followed (auto-follow disabled)");
+                o.result = base;
+                o
+            }
             429 => {
                 let retry_after = header_get(&resp.headers, "retry-after").map(|s| s.to_string());
                 let mut o = EffectOutcome::retryable("rate limited (429)");
@@ -283,6 +311,10 @@ impl HttpCapabilityExecutor {
             // never reached the server → no mutation → safe to retry for any method
             HttpTransportError::Dns | HttpTransportError::Connect | HttpTransportError::Tls => {
                 EffectOutcome::retryable(&format!("{err:?}: request did not reach the server"))
+            }
+            // a bad certificate is a security policy failure, not transient → do not retry
+            HttpTransportError::CertInvalid => {
+                EffectOutcome::permanent("certificate validation failed")
             }
             // sent but no response → idempotent can retry, otherwise the mutation is unknown
             HttpTransportError::Timeout => {
@@ -332,12 +364,22 @@ impl CapabilityExecutor for HttpCapabilityExecutor {
             .unwrap_or("")
             .to_string();
 
-        // POLICY: host allowlist (P11 loopback-only) — refused BEFORE any send.
+        // POLICY: host allowlist (P11 loopback / P14 external) — refused BEFORE DNS/connect/send.
         if let Some(allow) = &self.allowed_hosts {
             let host = url_host(&url).unwrap_or_default();
             if !allow.iter().any(|h| h.eq_ignore_ascii_case(&host)) {
                 return EffectOutcome::permanent(&format!("host not allowed by policy: {host}"));
             }
+        }
+
+        // P14 external profile: https-only — refused before send.
+        if self.require_https && !url.to_ascii_lowercase().starts_with("https://") {
+            return EffectOutcome::permanent("external profile requires https");
+        }
+
+        // P14 external profile: no external mutation — non-idempotent methods refused before send.
+        if self.forbid_mutations && !method.idempotent() {
+            return EffectOutcome::permanent("external mutation not permitted by policy");
         }
 
         // POLICY: non-idempotent methods require an idempotency key.

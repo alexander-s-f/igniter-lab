@@ -111,6 +111,20 @@ impl PoolRight {
             PoolRight::AdminPool => "admin_pool",
         }
     }
+    pub fn from_str(s: &str) -> Option<PoolRight> {
+        Some(match s {
+            "read_pool" => PoolRight::ReadPool,
+            "list_capsules" => PoolRight::ListCapsules,
+            "activate_capsule" => PoolRight::ActivateCapsule,
+            "fork_capsule" => PoolRight::ForkCapsule,
+            "import_capsule" => PoolRight::ImportCapsule,
+            "export_capsule" => PoolRight::ExportCapsule,
+            "drop_capsule" => PoolRight::DropCapsule,
+            "grant_access" => PoolRight::GrantAccess,
+            "admin_pool" => PoolRight::AdminPool,
+            _ => return None,
+        })
+    }
 }
 
 /// A content-addressed reference to an immutable capsule frame. Pools hold refs; capsule bytes
@@ -249,6 +263,28 @@ impl CoordinationHub {
         self.audit.write_fact(fact).await
     }
 
+    /// The ACL decision (no audit, no IO): owner of the pool, or developer-conductor, or an
+    /// explicit `PoolGrant` for `(agent, pool, right)`. Reused by `guard` and transfer ops.
+    fn pool_authorized(
+        &self,
+        actor: &str,
+        is_developer: bool,
+        pool_id: &str,
+        right: PoolRight,
+    ) -> Result<(), PoolRefusal> {
+        let pool = self.pools.get(pool_id).ok_or(PoolRefusal::NoSuchPool)?;
+        let owner = pool.owner_agent_id == actor;
+        let granted = self
+            .grants
+            .iter()
+            .any(|g| g.pool_id == pool_id && g.agent_id == actor && g.right == right);
+        if owner || is_developer || granted {
+            Ok(())
+        } else {
+            Err(PoolRefusal::NotGranted)
+        }
+    }
+
     /// The host boundary for every pool operation. Authenticates the subject (P5), authorizes
     /// the operation on the pool (ACL), and writes an audit fact for BOTH allowed and denied.
     /// `operation` is also the required passport scope (the op-class the subject is cleared for).
@@ -297,24 +333,7 @@ impl CoordinationHub {
 
         // 3. authorize WHAT on WHICH pool (ACL), when the op targets a pool.
         if let (Some(pid), Some(req_right)) = (pool_id, right) {
-            let pool = match self.pools.get(pid) {
-                Some(p) => p,
-                None => {
-                    let r = PoolRefusal::NoSuchPool;
-                    let _ = self
-                        .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "denied", Some(&r.reason()))
-                        .await;
-                    return Err(r);
-                }
-            };
-            let owner = pool.owner_agent_id == actor;
-            let granted = self
-                .grants
-                .iter()
-                .any(|g| g.pool_id == pid && g.agent_id == actor && g.right == req_right);
-            // owner has all rights; developer-conductor is privileged (but audited); else need a grant.
-            if !(owner || is_developer || granted) {
-                let r = PoolRefusal::NotGranted;
+            if let Err(r) = self.pool_authorized(&actor, is_developer, pid, req_right) {
                 let _ = self
                     .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "denied", Some(&r.reason()))
                     .await;
@@ -781,5 +800,351 @@ impl CoordinationHub {
                     && !acked.contains(&m.message_id)
             })
             .collect()
+    }
+}
+
+// ── Capsule transfer envelopes (LAB-MACHINE-AGENT-TRANSFER-P4) ──────────────────
+//
+// An audited TWO-PHASE handoff of a capsule ref between agents/pools. Pattern (not module)
+// reuse of the P6 write lifecycle: `proposed ≈ prepared`, `accepted ≈ committed`,
+// `rejected`/`revoked ≈ denied/aborted`. Idempotent (re-accept is a replay, no second import),
+// the source capsule/ref is immutable (accept ADDS a content-addressed ref to the target pool,
+// it does not copy bytes or remove the source), and every state transition is an audit fact.
+// `expired` is a reserved design-only state (the host clock exists, P4 does not produce it).
+
+/// Transfer envelopes live in their own bitemporal store namespace.
+pub const TRANSFERS_STORE: &str = "__transfers__";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TransferState {
+    Proposed,
+    Accepted,
+    Rejected,
+    Revoked,
+    /// Reserved design-only (clock exists); P4 never produces it.
+    Expired,
+}
+
+impl TransferState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TransferState::Proposed => "proposed",
+            TransferState::Accepted => "accepted",
+            TransferState::Rejected => "rejected",
+            TransferState::Revoked => "revoked",
+            TransferState::Expired => "expired",
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "accepted" => TransferState::Accepted,
+            "rejected" => TransferState::Rejected,
+            "revoked" => TransferState::Revoked,
+            "expired" => TransferState::Expired,
+            _ => TransferState::Proposed,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TransferEnvelope {
+    pub transfer_id: String,
+    pub from_agent: String,
+    pub to_agent: String,
+    pub from_pool: String,
+    pub to_pool: String,
+    pub capsule_id: String,
+    pub capsule_digest: String,
+    pub rights_granted: Vec<PoolRight>,
+    pub reason: String,
+    pub state: TransferState,
+    /// Optional forward-looking field for the dev→prod handoff; P4 does NOT serve / deploy.
+    pub recipe_digest: Option<String>,
+    pub created_at: f64,
+}
+
+impl CoordinationHub {
+    async fn write_transfer(&self, env: &TransferEnvelope) -> Result<(), EngineError> {
+        let rights: Vec<&str> = env.rights_granted.iter().map(|r| r.as_str()).collect();
+        let value = json!({
+            "transfer_id": env.transfer_id,
+            "from_agent": env.from_agent,
+            "to_agent": env.to_agent,
+            "from_pool": env.from_pool,
+            "to_pool": env.to_pool,
+            "capsule_id": env.capsule_id,
+            "capsule_digest": env.capsule_digest,
+            "rights_granted": rights,
+            "reason": env.reason,
+            "state": env.state.as_str(),
+            "recipe_digest": env.recipe_digest,
+            "created_at": env.created_at,
+        });
+        let fact = Fact {
+            // state in the id → distinct facts on one transfer_id timeline; latest tx wins.
+            id: format!("transfer:{}:{}", env.transfer_id, env.state.as_str()),
+            store: TRANSFERS_STORE.to_string(),
+            key: env.transfer_id.clone(),
+            value,
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: self.clock.now(),
+            valid_time: None,
+            schema_version: 1,
+            producer: Some(json!("transfer")),
+            derivation: None,
+        };
+        self.audit.write_fact(fact).await
+    }
+
+    /// Read the latest state of a transfer envelope (`read_as_of` MAX = latest fact).
+    pub async fn read_transfer(&self, transfer_id: &str) -> Option<TransferEnvelope> {
+        let fact = self
+            .audit
+            .read_as_of(TRANSFERS_STORE, transfer_id, f64::MAX)
+            .await
+            .ok()
+            .flatten()?;
+        let v = &fact.value;
+        let rights = v["rights_granted"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().and_then(PoolRight::from_str)).collect())
+            .unwrap_or_default();
+        Some(TransferEnvelope {
+            transfer_id: v["transfer_id"].as_str().unwrap_or("").to_string(),
+            from_agent: v["from_agent"].as_str().unwrap_or("").to_string(),
+            to_agent: v["to_agent"].as_str().unwrap_or("").to_string(),
+            from_pool: v["from_pool"].as_str().unwrap_or("").to_string(),
+            to_pool: v["to_pool"].as_str().unwrap_or("").to_string(),
+            capsule_id: v["capsule_id"].as_str().unwrap_or("").to_string(),
+            capsule_digest: v["capsule_digest"].as_str().unwrap_or("").to_string(),
+            rights_granted: rights,
+            reason: v["reason"].as_str().unwrap_or("").to_string(),
+            state: TransferState::from_str(v["state"].as_str().unwrap_or("proposed")),
+            recipe_digest: v["recipe_digest"].as_str().map(String::from),
+            created_at: v["created_at"].as_f64().unwrap_or(0.0),
+        })
+    }
+
+    /// Propose a transfer of a capsule (must be in `from_pool`) to `to_agent`/`to_pool`.
+    /// Requires `ExportCapsule` on `from_pool`. Returns the transfer id.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn propose_transfer(
+        &self,
+        passport: &CapabilityPassport,
+        to_agent: &str,
+        from_pool: &str,
+        to_pool: &str,
+        capsule_id: &str,
+        rights_granted: Vec<PoolRight>,
+        reason: &str,
+        recipe_digest: Option<String>,
+    ) -> Result<String, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "propose_transfer") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "propose_transfer", "", &e).await;
+                return Err(e);
+            }
+        };
+        if let Err(e) = self.pool_authorized(&actor, is_dev, from_pool, PoolRight::ExportCapsule) {
+            self.deny_msg(&actor, "propose_transfer", &digest, &e).await;
+            return Err(e);
+        }
+        // the capsule must actually be in the source pool.
+        let cref = self
+            .pools
+            .get(from_pool)
+            .and_then(|p| p.capsule_refs.iter().find(|r| r.capsule_id == capsule_id).cloned());
+        let cref = match cref {
+            Some(c) => c,
+            None => {
+                let e = PoolRefusal::Invalid("capsule not in source pool".to_string());
+                self.deny_msg(&actor, "propose_transfer", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        if !self.is_active_agent(to_agent) {
+            let e = PoolRefusal::Invalid("unknown or inactive recipient".to_string());
+            self.deny_msg(&actor, "propose_transfer", &digest, &e).await;
+            return Err(e);
+        }
+        let transfer_id = format!("xfer:{}", uuid::Uuid::new_v4());
+        let env = TransferEnvelope {
+            transfer_id: transfer_id.clone(),
+            from_agent: actor.clone(),
+            to_agent: to_agent.to_string(),
+            from_pool: from_pool.to_string(),
+            to_pool: to_pool.to_string(),
+            capsule_id: capsule_id.to_string(),
+            capsule_digest: cref.content_digest,
+            rights_granted,
+            reason: reason.to_string(),
+            state: TransferState::Proposed,
+            recipe_digest,
+            created_at: self.clock.now(),
+        };
+        let _ = self.write_transfer(&env).await;
+        let _ = self
+            .write_audit(&actor, "propose_transfer", Some(from_pool), Some(capsule_id), &digest, "allowed", None)
+            .await;
+        Ok(transfer_id)
+    }
+
+    /// Accept a proposed transfer (recipient or developer). Imports a content-addressed ref into
+    /// the target pool and grants the declared rights. Idempotent on an already-accepted
+    /// transfer; the source pool/ref is untouched. Requires `ImportCapsule` on `to_pool`.
+    pub async fn accept_transfer(
+        &mut self,
+        passport: &CapabilityPassport,
+        transfer_id: &str,
+    ) -> Result<TransferState, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, "accept_transfer") {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, "accept_transfer", "", &e).await;
+                return Err(e);
+            }
+        };
+        let env = match self.read_transfer(transfer_id).await {
+            Some(e) => e,
+            None => {
+                let e = PoolRefusal::Invalid("no such transfer".to_string());
+                self.deny_msg(&actor, "accept_transfer", &digest, &e).await;
+                return Err(e);
+            }
+        };
+        if env.to_agent != actor && !is_dev {
+            let e = PoolRefusal::NotGranted;
+            self.deny_msg(&actor, "accept_transfer", &digest, &e).await;
+            return Err(e);
+        }
+        match env.state {
+            // idempotent: re-accepting a committed transfer is a replay, no second import.
+            TransferState::Accepted => {
+                let _ = self
+                    .write_audit(&actor, "accept_transfer", Some(&env.to_pool), Some(&env.capsule_id), &digest, "allowed", Some("idempotent"))
+                    .await;
+                return Ok(TransferState::Accepted);
+            }
+            TransferState::Rejected | TransferState::Revoked | TransferState::Expired => {
+                let e = PoolRefusal::Invalid(format!("transfer is {}", env.state.as_str()));
+                self.deny_msg(&actor, "accept_transfer", &digest, &e).await;
+                return Err(e);
+            }
+            TransferState::Proposed => {}
+        }
+        // ACL: the acceptor must be able to import into the target pool.
+        if let Err(e) = self.pool_authorized(&actor, is_dev, &env.to_pool, PoolRight::ImportCapsule) {
+            self.deny_msg(&actor, "accept_transfer", &digest, &e).await;
+            return Err(e);
+        }
+
+        // import a content-addressed ref into the target pool (bytes already deduped in the
+        // content store; the source ref is NOT removed → immutable source).
+        let now = self.clock.now();
+        if let Some(pool) = self.pools.get_mut(&env.to_pool) {
+            pool.capsule_refs.push(CapsuleRef {
+                capsule_id: env.capsule_id.clone(),
+                content_digest: env.capsule_digest.clone(),
+                created_by: env.from_agent.clone(),
+                source_pool: env.from_pool.clone(),
+                created_at: now,
+                labels: vec!["transferred".to_string()],
+            });
+        }
+        // grant the recipient ONLY the declared rights on the target pool.
+        for right in &env.rights_granted {
+            self.grants.push(PoolGrant {
+                pool_id: env.to_pool.clone(),
+                agent_id: env.to_agent.clone(),
+                right: *right,
+                granted_by: env.from_agent.clone(),
+                granted_at: now,
+            });
+        }
+        let mut committed = env.clone();
+        committed.state = TransferState::Accepted;
+        let _ = self.write_transfer(&committed).await;
+        let _ = self
+            .write_audit(&actor, "accept_transfer", Some(&env.to_pool), Some(&env.capsule_id), &digest, "allowed", None)
+            .await;
+        Ok(TransferState::Accepted)
+    }
+
+    /// Reject a proposed transfer (recipient or developer). No import. Idempotent on rejected.
+    pub async fn reject_transfer(
+        &self,
+        passport: &CapabilityPassport,
+        transfer_id: &str,
+    ) -> Result<TransferState, PoolRefusal> {
+        self.terminalize(passport, transfer_id, TransferState::Rejected, "reject_transfer").await
+    }
+
+    /// Revoke a proposed transfer (proposer or developer) → prevents any future accept.
+    /// Cannot revoke an already-accepted transfer. Idempotent on revoked.
+    pub async fn revoke_transfer(
+        &self,
+        passport: &CapabilityPassport,
+        transfer_id: &str,
+    ) -> Result<TransferState, PoolRefusal> {
+        self.terminalize(passport, transfer_id, TransferState::Revoked, "revoke_transfer").await
+    }
+
+    /// Shared terminal transition for reject/revoke (no import; just a state fact). `reject` is
+    /// authorized for the recipient, `revoke` for the proposer; developer may do either.
+    async fn terminalize(
+        &self,
+        passport: &CapabilityPassport,
+        transfer_id: &str,
+        target: TransferState,
+        op: &str,
+    ) -> Result<TransferState, PoolRefusal> {
+        let actor = passport.subject.clone();
+        let (digest, is_dev) = match self.authed(passport, op) {
+            Ok(x) => x,
+            Err(e) => {
+                self.deny_msg(&actor, op, "", &e).await;
+                return Err(e);
+            }
+        };
+        let env = match self.read_transfer(transfer_id).await {
+            Some(e) => e,
+            None => {
+                let e = PoolRefusal::Invalid("no such transfer".to_string());
+                self.deny_msg(&actor, op, &digest, &e).await;
+                return Err(e);
+            }
+        };
+        // reject → recipient; revoke → proposer; developer may do either.
+        let allowed_actor = match target {
+            TransferState::Rejected => env.to_agent == actor,
+            TransferState::Revoked => env.from_agent == actor,
+            _ => false,
+        };
+        if !allowed_actor && !is_dev {
+            let e = PoolRefusal::NotGranted;
+            self.deny_msg(&actor, op, &digest, &e).await;
+            return Err(e);
+        }
+        match env.state {
+            s if s == target => {
+                let _ = self.write_audit(&actor, op, None, None, &digest, "allowed", Some("idempotent")).await;
+                return Ok(target);
+            }
+            TransferState::Proposed => {}
+            other => {
+                let e = PoolRefusal::Invalid(format!("transfer is {}", other.as_str()));
+                self.deny_msg(&actor, op, &digest, &e).await;
+                return Err(e);
+            }
+        }
+        let mut next = env.clone();
+        next.state = target;
+        let _ = self.write_transfer(&next).await;
+        let _ = self.write_audit(&actor, op, None, None, &digest, "allowed", None).await;
+        Ok(target)
     }
 }

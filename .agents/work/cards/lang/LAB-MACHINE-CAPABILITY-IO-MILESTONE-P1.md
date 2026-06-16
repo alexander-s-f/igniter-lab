@@ -91,7 +91,13 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
    replay-never-resends, correlation id) on a FAKE transport; P11 proved it transfers to a REAL
    loopback transport (HTTP/1.1 over tokio TCP → `127.0.0.1` test server, loopback-only allowlist,
    `correlation_id` now a first-class receipt field). **First real network substrate, in a glass
-   box.** NEXT: P12 compensation/`aborted`, P13 external allowlist+TLS, P14 SparkCRM.
+   box.**
+8. external host + TLS — **P14 policy CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-HTTP-EXTERNAL-P14`,
+   `http.rs`, 10 tests, FAKE TLS-aware transport): external profile = vetted allowlist + https-only +
+   read-only; cert-invalid→permanent vs transient-TLS/DNS/connect→retryable; redirects not followed;
+   refuse-before-DNS; redaction/replay/correlation/auditable-errors preserved. **Real rustls transport
+   = deferred P14-impl** (local self-signed TLS server; public GET = optional smoke). NEXT: P15
+   SparkCRM executor; host-driven reconcile-then-compensate loop.
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

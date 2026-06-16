@@ -38,9 +38,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **durable retry queue** | ✅ | `retry_queue::{RetryIntent, IntentState, enqueue_retry, drain_due_retries, backoff_due}` — retry over TIME: intents are facts in `__retry_queue__` (key=base idempotency key, latest fact=live state) with `due_at = now + base_delay*2^attempt`. Explicit `drain_due_retries(clock, passport)` runs DUE pending intents (authority-digest-gated) via `run_write_effect`, same reconcile-gating as P8; transitions pending→done/exhausted/abandoned/blocked, all auditable facts. NO background worker / wall-clock timer (host calls drain). (LAB-MACHINE-CAPABILITY-IO-RETRY-QUEUE-P9) |
 | **HTTP executor** | ✅ (policy P10 + real loopback P11) | `http::{HttpCapabilityExecutor, HttpTransport, SecretProvider, LoopbackHttpTransport, http_request_digest, HttpMethod, HttpTransportError, url_host}` + fakes. Maps HTTP→`EffectOutcome`: 2xx→Succeeded, 4xx→Permanent, 429→Retryable(+retry_after), 5xx idempotent→Retryable/POST→Unknown, timeout idempotent→Retryable/POST→Unknown, connect/DNS/TLS→Retryable. Non-idempotent requires key; forced request-identity digest; secret headers redacted; injected `SecretProvider` (`{{secret:NAME}}`, missing→refuse before send); body cap; replay never re-sends; **`correlation_id` first-class receipt field**. **P11: real `LoopbackHttpTransport`** (HTTP/1.1 over tokio TCP) proven against a `127.0.0.1` test server; `loopback_only()`/`with_allowed_hosts` allowlist (non-loopback refused before send). No external internet / TLS / SparkCRM (P12+). (LAB-MACHINE-CAPABILITY-HTTP-P10/P11) |
 | **correlation reconciliation** | ✅ | `correlation::{CorrelationResolver, CorrelationLookup, reconcile_unknown_by_correlation, CorrelationReconcileResult, MapCorrelationResolver}` — resolves an `unknown_external_state` write by its `correlation_id` (first-class P11) via a READ-ONLY resolver (Landed→committed / NotFound→permanent_failure / Unavailable→still-unknown). Precise per-request identity → closes P7's same-value caveat (same value + different correlation no longer false-matches); missing correlation → explicit `MissingCorrelation` (fall back to P7). Never re-sends (no executor param). `write_receipt` now pulls correlation from result OR payload/args. (LAB-MACHINE-CAPABILITY-IO-CORRELATION-RECONCILE-P13) |
+| **external HTTP profile (P14, fake TLS)** | ✅ (policy proof, fake transport) | `http::HttpCapabilityExecutor::{external_profile, require_https, forbid_mutations}` + `HttpTransportError::CertInvalid` — first step past loopback: vetted host allowlist (refused before DNS/connect), https-only, read-only (no external POST). Cert-invalid→`permanent` (security failure) vs transient TLS/DNS/connect→`retryable`; redirects (3xx) NOT followed→permanent; secrets redacted; replay no re-send; correlation recorded; transport errors are auditable receipts. **Fake TLS-aware transport** — real rustls transport is a deferred P14-impl. (LAB-MACHINE-CAPABILITY-HTTP-EXTERNAL-P14) |
 | **effect compensation (`aborted`)** | ✅ (design + fake-executor proof) | `compensation::{CompensatableExecutor, run_compensation, CompensationResult, FakeCompensatableExecutor}` — REVERSE a committed effect (distinct from retry=re-attempt-failed / reconcile=read-back-unknown). `committed` → successful compensation → `aborted` (terminal update; the committed fact is preserved → auditable). Authority-continuity gated (compensator digest must match original); irreversible effects (`is_compensatable()==false`) refused, compensator never runs; compensation `unknown` does NOT abort (no blind reversal); replay = idempotent `AlreadyAborted`. Linked by `compensation_correlation_id`. NO external HTTP / SparkCRM / saga scheduler / auto-policy / contract-body. (LAB-MACHINE-CAPABILITY-IO-COMPENSATION-P12) |
 | **agent coordination foundation** | ✅ (P2) | `coordination::{CoordinationHub, AgentIdentity/AgentKind/AgentStatus, CapsulePool/PoolVisibility, PoolRight, CapsuleRef, PoolGrant, PoolRefusal}` — coordination = **Capability IO applied to a new domain**: one `guard()` boundary = P5 `verify_passport` (WHO + op-class scope) → pool ACL (`owner ‖ developer ‖ explicit PoolGrant`, WHAT-on-WHICH) → `AuditEvent` fact (allowed AND denied) in `__coord_audit__`. Ops: register/create_pool/add_capsule/list_capsules/check_right/grant/transfer_ownership. **CapsuleRef content-addressed** (dedup by blake3 digest). Developer = local root-of-trust (privileged but audited). Schema keeps production-mode reachable (visibility `Production`, transferable ownership, `RuntimeActor`/`vendor:*` actor) but does NOT serve. VM untouched. (LAB-MACHINE-AGENT-POOLS-P2) |
 | **agent messenger bus** | ✅ (P3) | `coordination::{Message, MessageKind, send_message, escalate, ack, list_inbox, read_thread, pending_requests}` — append-only messages as FACTS in `__messenger__` (NOT a mutable inbox; list=query, pending=requests-minus-acks via `in_reply_to`). Direct note / request+ack / developer escalation (reserved `"developer"` mailbox); participant-only thread/inbox visibility; carrying a `CapsuleRef` does NOT grant access (pool ACL still governs); revoked agent can't send/read; every op audited. Shared `authed()` (P5 verify_passport). No delivery worker / federation / voting. (LAB-MACHINE-AGENT-MESSENGER-P3) |
+| **capsule transfer envelopes** | ✅ (P4) | `coordination::{TransferEnvelope, TransferState, propose_transfer, accept_transfer, reject_transfer, revoke_transfer}` — audited TWO-PHASE handoff (`proposed→accepted/rejected/revoked`, `expired` reserved) as facts in `__transfers__` (state-in-id, latest tx wins). PATTERN reuse of P6 write lifecycle (proposed≈prepared, accepted≈committed), not the write module. Propose=`ExportCapsule` on source (capsule must be in pool); accept=`ImportCapsule` on target → imports a **content-addressed ref** (no byte copy, source immutable) + grants ONLY `rights_granted`; idempotent accept; reject/revoke terminal; developer override; `recipe_digest` carried-but-inert (future handoff). Every transition audited. ACL via shared `pool_authorized`. (LAB-MACHINE-AGENT-TRANSFER-P4) |
 
 ## Surfaces
 
@@ -115,6 +117,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   TCP → 127.0.0.1 test server): GET 200+receipt; 404→permanent / 429→retryable; POST lost-response
   →unknown; missing-secret + keyless-POST + non-loopback-URL all refused before send; Authorization
   redacted from receipt; replay sends exactly once; correlation id sent + first-class receipt field.
+- `tests/capability_io_http_external_tests.rs` (10) — **external HTTP policy** (fake TLS transport):
+  non-allowlisted host refused before send; allowlisted HTTPS GET succeeds+receipt+correlation;
+  cert-invalid→permanent vs TLS/DNS/connect→retryable; timeout→retryable; redirect→permanent; secrets
+  redacted; replay no re-send; transport error auditable; no external POST; plain-http refused.
 - `tests/capability_io_correlation_tests.rs` (8) — **reconcile by correlation id**: unknown→committed
   (landed) / →permanent_failure (not-found); **same value + different correlation → no false match**;
   missing correlation → MissingCorrelation (fall back to P7); unavailable → still-unknown; never
@@ -133,6 +139,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   lists/reads; third party denied thread/inbox; request pending until ack; ack linked to request +
   routed to requester; developer escalation → developer mailbox, audited; capsule ref in message
   does NOT grant pool access; revoked agent can't send/read; all message ops audited (allowed+denied).
+- `tests/coordination_transfer_tests.rs` (9) — **transfer envelopes** (P4): propose→accept imports a
+  content-addressed ref, source pool/ref immutable (no byte copy); recipient without import denied;
+  rejected/revoked don't import (revoke prevents future accept); duplicate accept idempotent (one
+  ref); grants only declared rights; developer override audited; all transitions audited; carries
+  optional ServiceRecipe digest (not served).
 - `test_machine_time_travel_out_of_order` — write fact versions OUT of transaction_time
   order (300, 100, 200) → read as-of boundaries (50→None, 150→tt100, 250→tt200,
   350→tt300) all correct. **(Fix: `igniter-tbackend/timeline.rs::latest_for` now scans
@@ -153,7 +164,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 + `capability_io_write_tests.rs` 9 + `capability_io_write_real_tests.rs` 8 +
 `capability_io_reconcile_tests.rs` 6 + `capability_io_retry_tests.rs` 7 +
 `capability_io_retry_queue_tests.rs` 8 + `capability_io_http_tests.rs` 12 +
-`capability_io_http_loopback_tests.rs` 9 = 112 pass — the header count is the historical baseline.)
+`capability_io_http_loopback_tests.rs` 9 + `capability_io_correlation_tests.rs` 8 +
+`capability_io_compensation_tests.rs` 7 + `capability_io_http_external_tests.rs` 10 = 137
+capability+machine; full `cargo test --no-default-features` = 164 incl. the parallel coordination
+track. The header count is the historical baseline.)
 
 ## Boundary (per README)
 

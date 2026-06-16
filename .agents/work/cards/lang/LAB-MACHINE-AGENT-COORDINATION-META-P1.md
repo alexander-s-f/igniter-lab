@@ -129,8 +129,16 @@ CapsuleRef + audited ownership transfer; production-mode kept reachable, not ser
 **P3 MessengerBus CLOSED 2026-06-16** — `LAB-MACHINE-AGENT-MESSENGER-P3.md` (impl in
 `coordination.rs`, 9 tests, `lab-docs/lang/lab-machine-agent-messenger-p3-v0.md`). Append-only
 messages as facts (note/request+ack/escalation), participant visibility, capsule-refs-aren't-
-grants, every op audited — "facts + audit + ACL, not hidden chat". Next: **P4
-CapsuleTransferEnvelope** (proposed→accepted ≅ receipt-gated write).
+grants, every op audited — "facts + audit + ACL, not hidden chat".
+
+**P4 CapsuleTransferEnvelope CLOSED 2026-06-16** — `LAB-MACHINE-AGENT-TRANSFER-P4.md` (impl in
+`coordination.rs`, 9 tests, `lab-docs/lang/lab-machine-agent-transfer-p4-v0.md`). Audited
+two-phase `proposed→accepted/rejected/revoked` (pattern reuse of P6, not the write module);
+content-addressed ref import, immutable source, idempotent accept, declared-rights-only,
+developer override, carries optional `recipe_digest`. **Coordination track P2→P3→P4 complete:
+rights → communication → transfer.** Next: **P5 votes/coordination as messages**, or
+**ServiceRecipe + agentless production serving** (all parts now exist — `transfer_ownership` P2 +
+`recipe_digest` P4).
 
 ## Recommended next card: LAB-MACHINE-AGENT-POOLS-P2
 
