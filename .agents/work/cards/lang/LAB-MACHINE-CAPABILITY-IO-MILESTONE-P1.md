@@ -78,10 +78,12 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
 4. compensation (`aborted`) — explicit host rollback after prepare. (none started)
 5. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
 6. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
-7. HTTP / SparkCRM API executor — now genuinely unblocked (receipts + idempotency + authority +
-   clock + reconciliation + in-call retry + durable retry-over-time all in place); the next
-   real-substrate expansion when chosen — brings TLS/DNS/status-mapping/timeouts/redaction/creds.
-   (none started)
+7. HTTP executor — **readiness/design CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-HTTP-P10`,
+   `http.rs`, 12 tests, FAKE transport): status taxonomy, idempotency, redaction, injected
+   credentials, rate limits, body limits, transport-error classification, replay-never-resends,
+   correlation id — all decided + proven, mapped onto the existing `EffectOutcome` taxonomy.
+   **NEXT: P11** real LOCAL loopback transport behind the same policy (no external internet);
+   then external allowlisted host / SparkCRM API / streaming.
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

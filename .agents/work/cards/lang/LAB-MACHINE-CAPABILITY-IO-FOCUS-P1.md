@@ -31,10 +31,12 @@ resolve by read-back → committed/permanent_failure/still-unknown, no blind ret
 **P8 bounded retry CLOSED 2026-06-15** (`retry.rs`, 7 tests; tail #2) — reconcile-gated in-call
 retry; never retries an unknown blindly.
 **P9 durable retry queue CLOSED 2026-06-15** (`retry_queue.rs`, 8 tests; tail #3) — retry over
-time: intents as facts with due_at backoff, explicit `drain_due_retries`, reconcile-gated,
-auditable; no background worker/timer. Next tail: host drain-tick, compensation, fact↔receipt
-correlation id, then **HTTP/SparkCRM executor (now genuinely unblocked)**. See the milestone
-card's ordered tail.
+time: intents as facts, explicit `drain_due_retries`, reconcile-gated, auditable; no worker/timer.
+**P10 HTTP readiness/design CLOSED 2026-06-15** (`http.rs`, 12 tests; tail #7, FAKE transport) —
+status/timeout taxonomy, idempotency, redaction, injected credentials, rate limits, body limits,
+replay-never-resends, correlation id; all mapped onto `EffectOutcome`. Next: **P11 real LOCAL
+loopback HTTP** behind the same policy (no external internet); then external host/SparkCRM.
+See the milestone card's ordered tail.
 
 > Progress: P1 (`capability.rs`, 13), P2 (`service_loop.rs`, 9), P3 (`executors.rs` read, 5), P4
 > (`clock.rs`, 5), P5 (`capability.rs` passport, 9), P6a (`write.rs`, 9), P6b (`executors.rs`

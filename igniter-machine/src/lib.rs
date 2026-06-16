@@ -6,6 +6,7 @@ pub mod clock;
 pub mod errors;
 pub mod executors;
 pub mod fact;
+pub mod http;
 pub mod machine;
 pub mod reconcile;
 pub mod registry;
