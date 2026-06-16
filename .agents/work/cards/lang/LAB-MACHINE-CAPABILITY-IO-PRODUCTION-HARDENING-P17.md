@@ -38,9 +38,10 @@ until the atomic gate is in.**
    - 4a signed passport — verify the `evidence_digest` signature. **→
      `LAB-MACHINE-CAPABILITY-IO-SIGNED-PASSPORT-P21` (CLOSED 2026-06-16, 5 tests).**
    - 4b real `SecretProvider` (env/file/vault, not the in-process map). **→
-     `LAB-MACHINE-CAPABILITY-IO-SECRET-PROVIDER-P22` (NEXT).**
-5. **Observability** (operational, MED) — metrics/tracing on top of the audit facts; a
-   dead-letter path for `blocked`/`exhausted` intents (a stuck `unknown` must be escalable).
+     `LAB-MACHINE-CAPABILITY-IO-SECRET-PROVIDER-P22` (CLOSED 2026-06-16, 5 tests).**
+   **Blocker #4 (security) CLOSED.**
+5. **Observability** (operational, MED) — metrics + dead-letter inbox projected from facts. **→
+   `LAB-MACHINE-CAPABILITY-IO-OBSERVABILITY-P23` (CLOSED 2026-06-16, 6 tests).**
 6. **Load test 2–5k rpm** (operational) — exercise the gate + durability under the real target
    throughput (depends on #1, #2).
 
