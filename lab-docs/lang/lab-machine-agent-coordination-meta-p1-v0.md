@@ -270,6 +270,11 @@ Add votes/coordination patterns as messages:
 
 ### P6 — multi-machine/federation spike
 
+> **Readiness map PREPARED (2026-06-16): `LAB-MACHINE-FEDERATION-READINESS-P1`
+> → `lab-docs/lang/lab-machine-federation-readiness-p1-v0.md`** — two-plane model (replication vs
+> effect), single-writer-per-key-space idempotency, failure modes, deferred non-goals, and a
+> low-risk v0 (`…-CAPSULE-SYNC-P2`, replication-plane only). Design only; not authorized.
+
 Only after local model is proven:
 
 - export/import envelope between machine instances;

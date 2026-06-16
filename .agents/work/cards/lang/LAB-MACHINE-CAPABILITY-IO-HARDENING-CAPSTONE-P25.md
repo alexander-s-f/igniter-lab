@@ -50,16 +50,33 @@ the above, NOT a continuation of this engineering wave.
 ## Next routes (the wave is intentionally stopped)
 
 - **optional live-gate packet** — a single document gathering the deltas above for a human gate
-  decision (NOT executed by an agent).
+  decision (NOT executed by an agent). **PREPARED: [`LAB-MACHINE-SPARKCRM-LIVE-GATE-P1`](LAB-MACHINE-SPARKCRM-LIVE-GATE-P1.md)
+  (2026-06-16)** — answers the 10 gate questions; still human-gated, NOT executed.
 - **deployment topology design** — readiness card for the operational shape (still in-lab/design).
+  **DONE: `LAB-MACHINE-DEPLOYMENT-TOPOLOGY-P1` (2026-06-16)** — process model / storage / boot
+  order / ingress / pools / backup / clock-secrets-passport / operator commands / risks. Hard
+  constraint surfaced: exactly-one is in-process → one effect-process per RocksDB.
 - **switch track** — the substrate is done enough; other tracks (frame/GUI, coordination
   federation, language) may be the higher-value move.
+
+## Post-capstone storage addendum (2026-06-16)
+
+After this checkpoint, an audit of the **physical** fact store (the "durable backend (RocksDB)" the
+P19 row above relies on) found it was a pure-Rust `.mpk` file store with non-atomic, non-fsync'd
+writes that could **silently lose** receipts under a torn write — `LAB-MACHINE-ROCKSDB-DURABILITY-P2`.
+That gap is now **narrowed by `LAB-MACHINE-FACTSTORE-DURABILITY-HARDENING-P3`**: atomic
+temp→fsync→rename writes, observable+refused corruption, receipt spine on the hardened path, backend
+renamed `MpkFileBackend`. **Still gated for live:** full cross-platform **power-loss** durability
+(macOS `F_FULLFSYNC`, cloud-volume fsync honoring) — an operational property under this human-gate,
+not an in-lab engineering gap.
 
 ## Anti-drift
 
 - Do NOT open live/staging/SparkCRM smoke as the next card — it is human-gated.
 - Read the milestone front door + this checkpoint before pulling any single P-slice out of context.
 - Hardening is composition of the existing substrate — no new effect primitives were added.
+- The persistent backend is `MpkFileBackend` (a `.mpk` file store), NOT RocksDB — don't reintroduce
+  the misnomer; physical durability is P2 (audit) + P3 (fix).
 
 ## Governance
 

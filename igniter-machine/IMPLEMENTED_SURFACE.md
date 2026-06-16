@@ -11,6 +11,18 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > **Capability IO front door:** the read/write capability IO rows below (P1–P6b) are one
 > coherent track — read `.agents/work/cards/lang/LAB-MACHINE-CAPABILITY-IO-MILESTONE-P1.md`
 > before pulling any single slice out of context.
+>
+> **IO wave digest (whole-wave front door):** for the full picture — capability-IO substrate,
+> HTTP/TLS/SparkCRM executor, coordination/service runtime, bridge/wire contour, and hardening
+> P18–P25, plus the explicit "what is NOT proven (live gate)" — read
+> `../lab-docs/lang/lab-machine-io-wave-digest-p1-v0.md` (card `LAB-MACHINE-IO-WAVE-DIGEST-P1`).
+> It routes to the per-phase cards; this file stays the live code-anchored index.
+>
+> **Readiness/design (post-P25, not implemented):** operator console over P20+P23 —
+> `../lab-docs/lang/lab-machine-operator-console-p1-v0.md` (`LAB-MACHINE-OPERATOR-CONSOLE-P1`);
+> SparkCRM webhook auction policy over P7 —
+> `../lab-docs/lang/lab-sparkcrm-webhook-auction-policy-p1-v0.md` (`LAB-SPARKCRM-WEBHOOK-AUCTION-POLICY-P1`).
+> Design/readiness only — no code behind these yet.
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
 
@@ -69,7 +81,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | Ruby FFI (magnus, `Igniter::Machine`) | ✅ new/resume/load_contract/dispatch/checkpoint/write_fact/read_fact (`ffi` feature) |
 | REPL `igniter-repl` | present (`repl` feature) — not yet verified live here |
 | MCP server `igniter-mcp` | ✅ **verified live** — JSON-RPC 2.0 over stdio (`initialize`/`tools/list`/`tools/call`); 11 tools. Drove a full agent session: load `Add` → dispatch →`42`, write_fact, status, time_travel. `igniter_time_travel` now takes optional `valid_at` → routes to `read_bitemporal` (both bitemporal axes agent-drivable). |
-| backends | ✅ in-memory, RocksDB (persistent), remote-TCP |
+| backends | ✅ in-memory, **`MpkFileBackend`** (persistent; `"rocksdb"` mode + back-compat alias `RocksDBBackend`), remote-TCP — **NB:** the persistent backend is a **pure-Rust `.mpk` file store**, NOT the real RocksDB crate. **Hardened in P3** (`LAB-MACHINE-FACTSTORE-DURABILITY-HARDENING-P3`, `../lab-docs/lang/lab-machine-factstore-durability-hardening-p3-v0.md`): **atomic** temp→fsync→rename writes, corruption is **observable+refused** (`corrupt_files()` / `EngineError::Corruption`, no more silent `unwrap_or_default` loss), receipt spine goes through this hardened path. Crash/torn-write atomic + fsync-to-OS; **full power-loss durability remains platform-gated** (macOS needs `F_FULLFSYNC`). P2 audit: `../lab-docs/lang/lab-machine-rocksdb-durability-p2-v0.md`. |
 
 ## Proven by tests (`tests/machine_tests.rs`)
 

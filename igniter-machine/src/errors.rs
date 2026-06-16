@@ -7,6 +7,10 @@ pub enum EngineError {
     SerializationError(String),
     CompilationError(String),
     VMExecutionError(String),
+    /// An on-disk fact file could not be decoded. Surfaced (never silently treated as empty) so
+    /// corruption is observable instead of presenting as lost history. (LAB-MACHINE-FACTSTORE-
+    /// DURABILITY-HARDENING-P3.)
+    Corruption(String),
     NotFound,
 }
 
@@ -18,6 +22,7 @@ impl std::fmt::Display for EngineError {
             EngineError::SerializationError(e) => write!(f, "Serialization error: {}", e),
             EngineError::CompilationError(e) => write!(f, "Compilation error: {}", e),
             EngineError::VMExecutionError(e) => write!(f, "VM execution error: {}", e),
+            EngineError::Corruption(e) => write!(f, "Corrupt fact file: {}", e),
             EngineError::NotFound => write!(f, "Not found"),
         }
     }

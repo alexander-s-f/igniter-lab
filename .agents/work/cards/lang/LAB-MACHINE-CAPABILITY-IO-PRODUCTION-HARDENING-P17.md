@@ -51,7 +51,8 @@ until the atomic gate is in.**
 **ALL IN-LAB HARDENING (#1–#6) CLOSED.** Only the human-gated step remains:
 
 7. **`P16-live`** — allowlisted staging/prod HTTPS smoke. Real endpoint + vaulted credential +
-   explicit human authorization. NOT a continuation of this wave.
+   explicit human authorization. NOT a continuation of this wave. **Decision packet PREPARED (not
+   executed): [`LAB-MACHINE-SPARKCRM-LIVE-GATE-P1`](LAB-MACHINE-SPARKCRM-LIVE-GATE-P1.md).**
 
 ## Anti-drift
 

@@ -3,7 +3,11 @@ use crate::fact::Fact;
 use async_trait::async_trait;
 use igniter_tbackend_playground::fact::FactData;
 use igniter_tbackend_playground::timeline::ShardedFactLog;
-use std::path::PathBuf;
+use parking_lot::Mutex;
+use std::fs::File;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -152,18 +156,69 @@ impl TBackend for InMemoryBackend {
     }
 }
 
-// ── RocksDBBackend (Pure-Rust Filesystem-Backed Persistent Storage) ──────────
-pub struct RocksDBBackend {
+// ── MpkFileBackend (Pure-Rust Filesystem-Backed Persistent Storage) ──────────
+//
+// NOT RocksDB (there is no `rocksdb` crate dependency) — a store-sharded MessagePack (`.mpk`) file
+// store. `RocksDBBackend` is kept as a back-compat ALIAS below; new code should say `MpkFileBackend`
+// so the name stops implying LSM/WAL/fsync guarantees it never had. (LAB-MACHINE-FACTSTORE-
+// DURABILITY-HARDENING-P3, closing the LAB-MACHINE-ROCKSDB-DURABILITY-P2 hole.)
+//
+// Durability hardening (P3):
+//   * writes are ATOMIC — temp file in the same dir → fsync the data file → atomic `rename` → a
+//     best-effort parent-dir fsync. A crash mid-write leaves either the old complete file or the new
+//     complete file, never a torn one. A failed temp write leaves the prior valid file intact.
+//   * corruption is OBSERVABLE, never silent — a `.mpk` that fails to decode is recorded in
+//     `corrupt_files()` and makes a write to that key fail with `EngineError::Corruption` instead of
+//     `unwrap_or_default()` silently dropping the key's history.
+//   * fsync semantics are explicit: `File::sync_all()` (= `fsync`) is invoked on the data file and
+//     (best-effort) the parent directory. NOTE: on macOS `fsync` does not flush the drive's own write
+//     cache (that needs `F_FULLFSYNC`, which Rust std does not expose), so FULL power-loss durability
+//     is NOT claimed on macOS — only crash/torn-write atomicity + fsync-to-OS. See the P3 doc.
+pub struct MpkFileBackend {
     data_dir: PathBuf,
     log: ShardedFactLog,
+    /// `.mpk` files that failed to decode on open (observable corruption, not silent loss).
+    corrupt_files: Mutex<Vec<PathBuf>>,
+    /// Serializes the read-modify-write critical section so a same-file append is never lost and
+    /// temp names never collide.
+    write_lock: Mutex<()>,
+    tmp_counter: AtomicU64,
 }
 
-impl RocksDBBackend {
+/// Atomic-replace `file_path` with `bytes`: write a sibling temp → fsync → rename → best-effort
+/// parent-dir fsync. On any pre-rename failure the temp is removed and the prior file is untouched.
+fn atomic_write(file_path: &Path, tmp_path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
+    let res = (|| -> std::io::Result<()> {
+        let mut f = File::create(tmp_path)?;
+        f.write_all(bytes)?;
+        f.sync_all()?; // fsync the data file before it is made visible under the final name
+        Ok(())
+    })();
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(tmp_path); // leave the previous file intact
+        return Err(EngineError::IOError(e.to_string()));
+    }
+    std::fs::rename(tmp_path, file_path).map_err(|e| {
+        let _ = std::fs::remove_file(tmp_path);
+        EngineError::IOError(e.to_string())
+    })?;
+    // Best-effort directory fsync so the rename itself is durable (platform-permitting).
+    if let Some(parent) = file_path.parent() {
+        if let Ok(d) = File::open(parent) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(())
+}
+
+impl MpkFileBackend {
     pub fn new(data_dir: PathBuf) -> Result<Self, EngineError> {
         std::fs::create_dir_all(&data_dir).map_err(|e| EngineError::IOError(e.to_string()))?;
         let log = ShardedFactLog::new();
+        let mut corrupt: Vec<PathBuf> = Vec::new();
 
-        // Preload any stored facts from *.mpk files
+        // Preload stored facts from *.mpk files. A file that fails to decode is RECORDED as corrupt
+        // and left on disk (forensics) — it is NOT silently skipped into an empty key.
         if let Ok(entries) = std::fs::read_dir(&data_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -174,12 +229,16 @@ impl RocksDBBackend {
                             if sub_path.is_file()
                                 && sub_path.extension().and_then(|e| e.to_str()) == Some("mpk")
                             {
-                                if let Ok(bytes) = std::fs::read(&sub_path) {
-                                    if let Ok(facts) = rmp_serde::from_slice::<Vec<Fact>>(&bytes) {
-                                        for fact in facts {
-                                            log.push(to_fact_data(fact));
+                                match std::fs::read(&sub_path) {
+                                    Ok(bytes) => match rmp_serde::from_slice::<Vec<Fact>>(&bytes) {
+                                        Ok(facts) => {
+                                            for fact in facts {
+                                                log.push(to_fact_data(fact));
+                                            }
                                         }
-                                    }
+                                        Err(_) => corrupt.push(sub_path.clone()),
+                                    },
+                                    Err(_) => corrupt.push(sub_path.clone()),
                                 }
                             }
                         }
@@ -188,12 +247,24 @@ impl RocksDBBackend {
             }
         }
 
-        Ok(Self { data_dir, log })
+        Ok(Self {
+            data_dir,
+            log,
+            corrupt_files: Mutex::new(corrupt),
+            write_lock: Mutex::new(()),
+            tmp_counter: AtomicU64::new(0),
+        })
+    }
+
+    /// `.mpk` files that failed to decode on open (or were hit as corrupt during a write). Lets an
+    /// operator/orchestrator SEE corruption instead of it presenting as silently-lost history.
+    pub fn corrupt_files(&self) -> Vec<PathBuf> {
+        self.corrupt_files.lock().clone()
     }
 }
 
 #[async_trait]
-impl TBackend for RocksDBBackend {
+impl TBackend for MpkFileBackend {
     async fn read_as_of(
         &self,
         store: &str,
@@ -205,28 +276,44 @@ impl TBackend for RocksDBBackend {
     }
 
     async fn write_fact(&self, fact: Fact) -> Result<(), EngineError> {
-        // Push to in-memory sharded timeline for fast reads
-        let data = to_fact_data(fact.clone());
-        self.log.push(data);
-
-        // Persist fact to disk in store-sharded MessagePack file
         let store_dir = self.data_dir.join(&fact.store);
         std::fs::create_dir_all(&store_dir).map_err(|e| EngineError::IOError(e.to_string()))?;
-
         let file_path = store_dir.join(format!("{}.mpk", fact.key));
-        let mut facts = if file_path.exists() {
-            let bytes =
-                std::fs::read(&file_path).map_err(|e| EngineError::IOError(e.to_string()))?;
-            rmp_serde::from_slice::<Vec<Fact>>(&bytes).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
 
-        facts.push(fact);
-        let bytes = rmp_serde::to_vec(&facts)
-            .map_err(|e| EngineError::SerializationError(e.to_string()))?;
-        std::fs::write(&file_path, bytes).map_err(|e| EngineError::IOError(e.to_string()))?;
+        // Persist FIRST (durable), then publish to the in-memory log — so a refused write never
+        // leaves the in-memory view ahead of disk.
+        {
+            let _guard = self.write_lock.lock();
+            let mut facts: Vec<Fact> = if file_path.exists() {
+                let bytes =
+                    std::fs::read(&file_path).map_err(|e| EngineError::IOError(e.to_string()))?;
+                match rmp_serde::from_slice::<Vec<Fact>>(&bytes) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        // Do NOT unwrap_or_default — that would silently drop the key's history and
+                        // then persist only the new fact (compounding the loss). Refuse loudly and
+                        // record the corruption so it is observable.
+                        self.corrupt_files.lock().push(file_path.clone());
+                        return Err(EngineError::Corruption(format!(
+                            "{}: {}",
+                            file_path.display(),
+                            e
+                        )));
+                    }
+                }
+            } else {
+                Vec::new()
+            };
 
+            facts.push(fact.clone());
+            let bytes = rmp_serde::to_vec(&facts)
+                .map_err(|e| EngineError::SerializationError(e.to_string()))?;
+            let n = self.tmp_counter.fetch_add(1, Ordering::Relaxed);
+            let tmp_path = store_dir.join(format!(".{}.mpk.{}.tmp", fact.key, n));
+            atomic_write(&file_path, &tmp_path, &bytes)?;
+        }
+
+        self.log.push(to_fact_data(fact));
         Ok(())
     }
 
@@ -250,6 +337,10 @@ impl TBackend for RocksDBBackend {
         Ok(results)
     }
 }
+
+/// Back-compat alias. The backend was historically (mis)named `RocksDBBackend`; it is a pure-Rust
+/// `.mpk` file store, not RocksDB. Prefer [`MpkFileBackend`] in new code. (P3 naming/front-door.)
+pub type RocksDBBackend = MpkFileBackend;
 
 // ── RemoteTcpBackend (Fuses network loopback dynamically via TCP frames) ──────
 pub struct RemoteTcpBackend {
