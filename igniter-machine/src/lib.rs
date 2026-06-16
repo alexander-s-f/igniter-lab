@@ -10,6 +10,7 @@ pub mod machine;
 pub mod reconcile;
 pub mod registry;
 pub mod retry;
+pub mod retry_queue;
 pub mod service_loop;
 pub mod write;
 pub mod wal;

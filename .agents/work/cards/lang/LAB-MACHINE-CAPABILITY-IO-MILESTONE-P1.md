@@ -34,9 +34,10 @@ contract declares effect/capability        (IR: modifier / capabilities / effect
 | P6b | real local write (`TBackendWriteExecutor`, RocksDB; forced-identity payload digest) | `executors.rs` | 8 |
 | P7 | unknown-write reconciliation (`reconcile_unknown_write`; read-back → committed/permanent_failure/unknown; no retry) | `reconcile.rs` | 6 |
 | P8 | bounded reconcile-gated retry (`run_write_with_retry`; transient/permanent split; fresh key/attempt) | `retry.rs` | 7 |
+| P9 | durable retry queue (`enqueue_retry`/`drain_due_retries`; intents as facts, due_at backoff, auditable) | `retry_queue.rs` | 8 |
 | — | regression: capsules / bitemporal / fleet unchanged | `machine_tests.rs` | 12 |
 
-Total **83 green**. Per-card detail: `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md`, `-CLOCK-P4.md`,
+Total **91 green**. Per-card detail: `LAB-MACHINE-CAPABILITY-IO-P{1,2,3}.md`, `-CLOCK-P4.md`,
 `-AUTHORITY-P5.md`, `-WRITE-P6.md`, `-RECONCILIATION-P7.md`, `-RETRY-P8.md`; design docs
 `lab-docs/lang/lab-machine-capability-io-*`.
 
@@ -70,12 +71,17 @@ clock/`now()`, or hold authority. *Contract declares; host executes.*
    unknown blindly.~~ **CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-IO-RETRY-P8`, `retry.rs`,
    7 tests). Transient/permanent split landed (`WriteState::Retryable`). Attempt-count bound
    only — time-based backoff / durable queue still open.
-3. time-based backoff + durable retry queue — the scheduler-over-time beyond P8's safe logic.
+3. ~~**durable retry queue** — retry intents as facts, due_at backoff, explicit drain,
+   reconcile-gated, auditable.~~ **CLOSED 2026-06-15** (`LAB-MACHINE-CAPABILITY-IO-RETRY-QUEUE-P9`,
+   `retry_queue.rs`, 8 tests). Still open: a host tick calling drain on a real cadence; wall-clock
+   timer.
 4. compensation (`aborted`) — explicit host rollback after prepare. (none started)
 5. fact↔receipt correlation id — close the reconciliation same-value caveat. (none started)
 6. write-succeeded-but-receipt-failed window — executor-side idempotency / two-way handshake.
-7. HTTP / SparkCRM API executor — both prerequisites (reconciliation + safe retry) now in place;
-   the next real-substrate expansion when chosen. (none started)
+7. HTTP / SparkCRM API executor — now genuinely unblocked (receipts + idempotency + authority +
+   clock + reconciliation + in-call retry + durable retry-over-time all in place); the next
+   real-substrate expansion when chosen — brings TLS/DNS/status-mapping/timeouts/redaction/creds.
+   (none started)
 
 Minor open: subject/scope detail in receipt (digest-only today); `replay_override` knob;
 `evidence_digest` signature verification.

@@ -343,6 +343,7 @@ pub enum WriteBehavior {
     Commit,
     Deny,
     Timeout,
+    Retryable,
 }
 
 /// A fake write executor: records "applied" mutations in memory and counts attempts so
@@ -387,6 +388,7 @@ impl CapabilityExecutor for FakeWriteExecutor {
             }
             WriteBehavior::Deny => EffectOutcome::denied("write denied by executor"),
             WriteBehavior::Timeout => EffectOutcome::unknown("write timed out — mutation unknown"),
+            WriteBehavior::Retryable => EffectOutcome::retryable("transient write failure, no mutation"),
         }
     }
 }
