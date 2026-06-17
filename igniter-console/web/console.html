@@ -15,6 +15,10 @@
   .hint { color:#8b949e; font-size:12px; margin-top:12px; line-height:1.6; }
   code { color:#39d353; }
   b { color:#58a6ff; }
+  #controls { margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; color:#c9d1d9; background:#21262d; border:1px solid #30363d; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:#a371f7; }
+  #status { color:#8b949e; font-size:12px; }
 </style>
 </head>
 <body>
@@ -22,6 +26,13 @@
     <h1>igniter-console — an IDE-shell over a ViewArtifact app</h1>
     <p class="sub">This whole window is the kit's `FrameRuntime` output. It loads <code>lead_review.view.json</code>, runs it, and wraps it: <b>click the frame viewer</b> to drive the app (each interaction records a frame), <b>click a replay chip</b> to time-travel, and watch the <b>lineage</b> + <b>frame diff</b> update.</p>
     <div id="scene" tabindex="0">loading…</div>
+    <div id="controls">
+      <span style="color:#a371f7;">host action lineage (P20/P21):</span>
+      <button id="btn-committed">▶ attach committed</button>
+      <button id="btn-unknown">▶ attach unknown</button>
+      <span id="status"></span>
+    </div>
+    <p class="hint">The buttons attach a host-generated <code>HostActionRecord</code> JSON (the exact shape <code>FrameBindingEffectResult::to_host_action_json</code> emits from a real P18 bridge run) to the latest frame — plain data, no machine, no secret. The lineage panel then shows the action + receipt.</p>
     <p class="hint">The console invents no layout primitives — it reuses igniter-frame's hit-test for its chrome and embeds the target's own SVG. No <code>igniter-machine</code> symbols, localhost only. Host maps DOM events; Rust owns the target runtime, recording, time-travel, and diff.</p>
   </div>
 
@@ -46,6 +57,17 @@
         if (ev.key === 'Backspace') { con.backspace(); render(); ev.preventDefault(); return; }
         if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey) { con.key(ev.key); render(); ev.preventDefault(); }
       });
+
+      const attach = async (file) => {
+        const rec = await (await fetch('./' + file)).text();
+        con.attach_action(rec);            // plain data → latest frame (the console never sees the machine)
+        con.select_step(con.len() - 1);    // show the annotated (live) frame
+        render();
+        const lin = JSON.parse(con.lineage_json()).host_action;
+        document.getElementById('status').textContent = '✓ ' + lin.action_name + ' (' + lin.contract + ') → ' + lin.effect_state + ' ' + lin.effect_receipt_id;
+      };
+      document.getElementById('btn-committed').onclick = () => attach('host_action_committed.json');
+      document.getElementById('btn-unknown').onclick = () => attach('host_action_unknown.json');
 
       window.__con = con; window.__CW = CW; window.__CH = CH;
       render(); scene.focus();

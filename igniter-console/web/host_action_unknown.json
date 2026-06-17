@@ -1,0 +1,11 @@
+{
+  "action_id": "frame-action-2",
+  "action_name": "submit_lead",
+  "contract": "SubmitLeadReview",
+  "pool_id": "leads-svc",
+  "invoke_digest": "blake3:9f8e7d6c5b4a3210",
+  "effect_receipt_id": "IO.LeadReview:idem-c0ffee01",
+  "effect_state": "unknown_external_state",
+  "idempotency_key": "idem-c0ffee01",
+  "correlation_id": "corr-lead-99"
+}
