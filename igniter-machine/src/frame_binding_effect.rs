@@ -61,6 +61,34 @@ pub struct FrameBindingEffectResult {
     pub result: Value,             // the effect's returned value
 }
 
+impl FrameBindingEffectResult {
+    /// Project this host bridge result into a plain `HostActionRecord`-shaped JSON for a frame
+    /// console (LAB-FRAME-BINDING-CONSOLE-E2E-P20). The console consumes DATA only; this conversion
+    /// stays HOST-SIDE — it carries an id/state/digest, never a secret, passport, or machine handle.
+    pub fn to_host_action_json(
+        &self,
+        action_id: &str,
+        action_name: &str,
+        contract: &str,
+        pool_id: &str,
+        idempotency_key: &str,
+        correlation_id: &str,
+    ) -> Value {
+        let hex = blake3::hash(serde_json::to_string(&self.invoke_result).unwrap_or_default().as_bytes()).to_hex();
+        json!({
+            "action_id": action_id,
+            "action_name": action_name,
+            "contract": contract,
+            "pool_id": pool_id,
+            "invoke_digest": format!("blake3:{}", &hex[..16]),
+            "effect_receipt_id": self.receipt_key,
+            "effect_state": self.receipt_state.as_str(),
+            "idempotency_key": idempotency_key,
+            "correlation_id": correlation_id,
+        })
+    }
+}
+
 /// The effect bridge. Stateless over: the contract `registry` (P17 declaration gate), the capability
 /// executor `registry`, the receipts store, the clock, the HOST effect passport, and the single-flight
 /// gate (exactly-once per idempotency key).

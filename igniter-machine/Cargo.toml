@@ -50,6 +50,13 @@ required-features = ["repl"]
 name = "igniter-mcp"
 path = "src/bin/mcp.rs"
 
+# E2E proof only (LAB-FRAME-BINDING-CONSOLE-E2E-P20): the host-side test drives the binding bridge →
+# console (top-of-stack integration). console/ui-kit depend on igniter_frame WITHOUT the `machine`
+# feature, so there is no dependency cycle and they stay machine-free. This is a DEV dep only.
+[dev-dependencies]
+igniter_console = { path = "../igniter-console" }
+igniter_ui_kit = { path = "../igniter-ui-kit" }
+
 [profile.release]
 lto = true
 codegen-units = 1
