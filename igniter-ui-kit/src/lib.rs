@@ -19,6 +19,7 @@ use serde_json::{json, Map, Value};
 
 pub mod binding;
 pub mod composition;
+pub mod igv;
 pub mod view_artifact;
 
 #[cfg(feature = "wasm")]

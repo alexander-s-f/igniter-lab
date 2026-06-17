@@ -82,9 +82,10 @@ no real machine dependency in console/ui-kit.
   JSON keeps full ids (the existing console pattern) — receipts expose ids/state, not secrets.
 - **additive**: no change to the replay strip / viewer / diff / overlay; the lineage panel grew.
 
-## Next (gated — not started)
+## Next (gated)
 
-- **`LAB-FRAME-IGV-BINDING-SYNTAX-P1`** — `.igv` text syntax over the proven ViewArtifact manifest +
-  host bridges.
+- **`LAB-FRAME-IGV-BINDING-SYNTAX-P1`** — DONE: `igniter-ui-kit/src/igv.rs` lowers a tiny `.igv` text
+  deterministically to the proven ViewArtifact JSON (machine-free). See
+  `lab-frame-igv-binding-syntax-p1-v0.md`.
 - an end-to-end demo wiring the real P18 host bridge → `attach_action` (host-side glue), behind the
   existing human-gated machine boundary.

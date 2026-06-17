@@ -1,0 +1,20 @@
+// lead_review.igv — lab-only .igv authoring syntax (LAB-FRAME-IGV-BINDING-SYNTAX-P1).
+// Lowers deterministically to the same ViewArtifact JSON as lead_review_bound.view.json.
+view lead_review workbench {
+  source leads = ListLeads
+
+  field priority text "Priority" required
+  field stage select "Stage" [new, qualified, won] required
+  field hot checkbox "Hot lead"
+
+  action submit_lead = SubmitLeadReview {
+    input lead = $selection.lead
+    input fields = $form.values
+    validate ValidateLeadReview
+    effect IO.FrameFixture record write
+  }
+
+  sidebar list leads on_select select
+  inspector keyvalue selected
+  submit submit_lead
+}
