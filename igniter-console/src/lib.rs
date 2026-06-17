@@ -30,7 +30,51 @@ const VH: i64 = 352;
 const TARGET_W: f64 = 720.0;
 const TARGET_H: f64 = 440.0;
 
-/// One recorded frame in the history (a frame-as-fact: digest + lineage + the projected nodes).
+/// Plain DATA describing a host-side bound action that produced a frame (LAB-FRAME-CONSOLE-ACTION-
+/// LINEAGE-P19). The host/machine produces these elsewhere (the P17/P18 bridges); the console only
+/// renders + time-travels them. It is NOT a machine handle — no `igniter-machine` dependency.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HostActionRecord {
+    pub action_id: String,
+    pub action_name: String,
+    pub contract: String,
+    pub pool_id: Option<String>,
+    pub invoke_digest: Option<String>,
+    pub effect_receipt_id: Option<String>,
+    pub effect_state: Option<String>,
+    pub idempotency_key: Option<String>,
+    pub correlation_id: Option<String>,
+}
+
+impl HostActionRecord {
+    /// Parse a host action record from a JSON string (the host/JS feeds it in as data).
+    pub fn from_json(s: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(s).ok()?;
+        let g = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+        Some(Self {
+            action_id: g("action_id").unwrap_or_default(),
+            action_name: g("action_name").unwrap_or_default(),
+            contract: g("contract").unwrap_or_default(),
+            pool_id: g("pool_id"),
+            invoke_digest: g("invoke_digest"),
+            effect_receipt_id: g("effect_receipt_id"),
+            effect_state: g("effect_state"),
+            idempotency_key: g("idempotency_key"),
+            correlation_id: g("correlation_id"),
+        })
+    }
+    fn to_json(&self) -> Value {
+        json!({
+            "action_id": self.action_id, "action_name": self.action_name, "contract": self.contract,
+            "pool_id": self.pool_id, "invoke_digest": self.invoke_digest,
+            "effect_receipt_id": self.effect_receipt_id, "effect_state": self.effect_state,
+            "idempotency_key": self.idempotency_key, "correlation_id": self.correlation_id,
+        })
+    }
+}
+
+/// One recorded frame in the history (a frame-as-fact: digest + lineage + the projected nodes +
+/// the host action that produced it, if any).
 #[derive(Clone)]
 pub struct FrameRecord {
     pub step: usize,
@@ -42,6 +86,7 @@ pub struct FrameRecord {
     pub svg: String,
     pub frame: Frame,
     pub label: String,
+    pub host_action: Option<HostActionRecord>,
 }
 
 /// A single node-level change between two frames.
@@ -80,8 +125,29 @@ impl Console {
             svg: self.target.render_svg(),
             frame,
             label: label.to_string(),
+            host_action: None,
         });
         self.selected = self.log.len() - 1;
+    }
+
+    /// Attach a host action record to the latest (live) frame — the host calls this after running a
+    /// bound action (P17/P18) that produced that frame. Returns `false` if there is no frame yet.
+    pub fn attach_action(&mut self, record: HostActionRecord) -> bool {
+        match self.log.last_mut() {
+            Some(rec) => {
+                rec.host_action = Some(record);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Attach a host action record from a JSON string (host/JS feeds it as data).
+    pub fn attach_action_json(&mut self, json: &str) -> bool {
+        match HostActionRecord::from_json(json) {
+            Some(r) => self.attach_action(r),
+            None => false,
+        }
     }
 
     // ── target interaction (records a new frame, selects the latest) ──
@@ -173,8 +239,8 @@ impl Console {
         // panels
         panel(&mut b, 16, 12, 908, 58, "replay");
         panel(&mut b, 16, 82, 600, 406, &format!("frame viewer — step {}/{}{}", self.selected, self.log.len() - 1, if self.is_live() { " (live)" } else { " (replay)" }));
-        panel(&mut b, 632, 82, 292, 158, "lineage");
-        panel(&mut b, 632, 250, 292, 238, "frame diff vs prev");
+        panel(&mut b, 632, 82, 292, 200, "lineage");
+        panel(&mut b, 632, 292, 292, 196, "frame diff vs prev");
 
         // replay strip: a chip per recorded frame
         for (i, rec) in self.log.iter().enumerate() {
@@ -193,6 +259,10 @@ impl Console {
             1,
         );
         b.push_str(&embedded);
+        // visual diff overlay ON TOP of the embedded frame (added/removed/moved/changed)
+        if self.selected > 0 {
+            b.push_str(&diff_overlay_svg(&self.log[self.selected - 1].frame, &self.log[self.selected].frame));
+        }
 
         // lineage inspector
         let mut ly = 112;
@@ -207,13 +277,28 @@ impl Console {
         kv(&mut b, &mut ly, "frame", &format!("frame:{}", rec.frame_index));
         kv(&mut b, &mut ly, "render", &short(&rec.render_digest, 10));
 
+        // host action / effect receipt lineage (P19) — only when this frame carried a bound action
+        if let Some(a) = &rec.host_action {
+            text(&mut b, 644, ly, 12, "#a371f7", "start", &format!("action: {} ({})", esc(&a.action_name), esc(&short(&a.contract, 14))));
+            ly += 22;
+            let state = a.effect_state.as_deref().unwrap_or("—");
+            let color = match state {
+                "committed" => "#3fb950",
+                "denied" => "#f85149",
+                "unknown_external_state" => "#d29922",
+                _ => "#9da7b3",
+            };
+            let rcpt = a.effect_receipt_id.as_deref().map(|r| short(r, 16)).unwrap_or_else(|| "—".into());
+            text(&mut b, 644, ly, 12, color, "start", &format!("receipt: {state} {rcpt}"));
+        }
+
         // frame diff
         let diff = self.diff();
-        let mut dy = 280;
+        let mut dy = 320;
         if diff.is_empty() {
             text(&mut b, 644, dy, 12, "#6e7681", "start", if self.selected == 0 { "(initial frame)" } else { "(no change)" });
         } else {
-            for ch in diff.iter().take(9) {
+            for ch in diff.iter().take(7) {
                 let color = match ch.change.as_str() {
                     "added" => "#3fb950",
                     "removed" => "#f85149",
@@ -223,8 +308,8 @@ impl Console {
                 text(&mut b, 644, dy, 11, color, "start", &format!("{:<7} {}", ch.change, short(&ch.id, 22)));
                 dy += 20;
             }
-            if diff.len() > 9 {
-                text(&mut b, 644, dy, 11, "#6e7681", "start", &format!("… +{} more", diff.len() - 9));
+            if diff.len() > 7 {
+                text(&mut b, 644, dy, 11, "#6e7681", "start", &format!("… +{} more", diff.len() - 7));
             }
         }
 
@@ -238,11 +323,23 @@ impl Console {
     }
     pub fn lineage_json(&self) -> String {
         let r = &self.log[self.selected];
-        json!({ "step": r.step, "input_receipt_id": r.input_receipt, "effect_receipt_id": r.effect_receipt, "frame_index": r.frame_index }).to_string()
+        let mut obj = json!({ "step": r.step, "input_receipt_id": r.input_receipt, "effect_receipt_id": r.effect_receipt, "frame_index": r.frame_index });
+        if let Some(a) = &r.host_action {
+            obj["host_action"] = a.to_json();
+        }
+        obj.to_string()
     }
     pub fn diff_json(&self) -> String {
         let d: Vec<Value> = self.diff().iter().map(|c| json!({ "id": c.id, "change": c.change })).collect();
         Value::Array(d).to_string()
+    }
+
+    /// The visual diff overlay SVG for the selected step vs. its predecessor (empty at step 0).
+    pub fn diff_overlay(&self) -> String {
+        if self.selected == 0 {
+            return String::new();
+        }
+        diff_overlay_svg(&self.log[self.selected - 1].frame, &self.log[self.selected].frame)
     }
 }
 
@@ -272,6 +369,55 @@ fn diff_frames(prev: &Frame, cur: &Frame) -> Vec<NodeChange> {
         }
     }
     out
+}
+
+/// A node's box bounds (top-left + size) in TARGET frame coords, or `None` for a point node (no
+/// `sw`/`sh`) — we never invent geometry, so point-only changes keep just the textual diff entry.
+fn bounds(frame: &Frame, id: &str) -> Option<(i64, i64, i64, i64)> {
+    let n = frame.nodes.iter().find(|n| n.id == id)?;
+    Some((n.sx, n.sy, n.sw?, n.sh?))
+}
+
+/// Map a TARGET-frame box into the embedded viewer's console coordinates (VX/VY/VW/VH).
+fn viewer_rect(sx: i64, sy: i64, w: i64, h: i64) -> (i64, i64, i64, i64) {
+    let mx = |v: i64| (VX as f64 + v as f64 / TARGET_W * VW as f64).round() as i64;
+    let my = |v: i64| (VY as f64 + v as f64 / TARGET_H * VH as f64).round() as i64;
+    let sw = |v: i64| (v as f64 / TARGET_W * VW as f64).round() as i64;
+    let sh = |v: i64| (v as f64 / TARGET_H * VH as f64).round() as i64;
+    (mx(sx), my(sy), sw(w), sh(h))
+}
+
+/// Render the visual diff overlay (added/removed/moved/changed) for `prev → cur` into the embedded
+/// viewer's coordinate space. The semantic source of truth is `diff_frames`; this only draws it.
+/// `removed` uses previous-frame geometry; everything else uses current-frame geometry. Pure +
+/// deterministic.
+pub fn diff_overlay_svg(prev: &Frame, cur: &Frame) -> String {
+    let mut s = String::new();
+    for ch in diff_frames(prev, cur) {
+        let src = if ch.change == "removed" { prev } else { cur };
+        let Some((sx, sy, w, h)) = bounds(src, &ch.id) else { continue }; // omit point nodes
+        let (vx, vy, vw, vh) = viewer_rect(sx, sy, w, h);
+        let (cls, stroke, dash) = match ch.change.as_str() {
+            "added" => ("diff-added", "#3fb950", ""),
+            "removed" => ("diff-removed", "#f85149", " stroke-dasharray=\"4 3\""),
+            "moved" => ("diff-moved", "#58a6ff", ""),
+            _ => ("diff-changed", "#d29922", ""),
+        };
+        s.push_str(&format!(
+            "  <rect class=\"{cls}\" x=\"{vx}\" y=\"{vy}\" width=\"{vw}\" height=\"{vh}\" rx=\"4\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"2\"{dash}/>\n"
+        ));
+        // a moved node shows the displacement without hiding the current frame
+        if ch.change == "moved" {
+            if let Some((px, py, pw, ph)) = bounds(prev, &ch.id) {
+                let (pvx, pvy, pvw, pvh) = viewer_rect(px, py, pw, ph);
+                s.push_str(&format!(
+                    "  <line class=\"diff-moved\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#58a6ff\" stroke-width=\"1.5\" stroke-dasharray=\"3 2\"/>\n",
+                    pvx + pvw / 2, pvy + pvh / 2, vx + vw / 2, vy + vh / 2
+                ));
+            }
+        }
+    }
+    s
 }
 
 // ── tiny SVG helpers (the console chrome; the target frame is embedded verbatim) ──

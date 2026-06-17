@@ -31,6 +31,12 @@ impl WasmConsole {
         self.inner.select_step(i)
     }
 
+    /// Attach a host action/receipt record (JSON, plain data) to the latest frame. The host produces
+    /// it elsewhere (P17/P18 bridges); the console only renders + time-travels it.
+    pub fn attach_action(&mut self, json: &str) -> bool {
+        self.inner.attach_action_json(json)
+    }
+
     pub fn render_svg(&self) -> String {
         self.inner.render_svg()
     }

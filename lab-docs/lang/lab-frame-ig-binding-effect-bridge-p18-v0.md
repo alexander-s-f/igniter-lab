@@ -104,8 +104,9 @@ panic · 9 ✅ `igniter-ui-kit` has no machine dependency (only comments).
 
 ## Next (gated — not started)
 
-- **`LAB-FRAME-CONSOLE-ACTION-LINEAGE-P*`** — the console records host action/receipt lineage
-  alongside frames (the IDE-shell shows the bind + receipt in its timeline).
+- **`LAB-FRAME-CONSOLE-ACTION-LINEAGE-P19`** — DONE: the console displays host action/receipt lineage
+  next to frames (`HostActionRecord` plain data, per-frame time-travel, machine-free). See
+  `lab-frame-console-action-lineage-p19-v0.md`.
 - **`LAB-FRAME-IGV-BINDING-SYNTAX-P1`** — `.igv` text syntax over the now-code-proven JSON manifest +
   host bridges (invoke + effect).
 - a real executor over local TLS / SparkCRM stays behind the existing human-gated machine live gate.

@@ -31,7 +31,10 @@ the path.
   read-only, the target is not mutated.
 - **Inspects lineage**: the `input → effect → frame` chain + digests for the selected step.
 - **Diffs frames**: `diff()` reports node-level changes (`added` / `removed` / `moved` / `changed`)
-  between the selected frame and its predecessor.
+  between the selected frame and its predecessor — shown both as a textual panel AND as a **visual
+  overlay** painted on the embedded frame (`diff_overlay()` / `diff_overlay_svg`): green added,
+  red-dashed removed (prev geometry), blue moved (+ displacement line), amber changed. Rust owns the
+  diff; the overlay only displays it.
 
 Routing: a console click hit-tests the chrome — a replay chip scrubs; a viewer click is translated
 into the target's frame coordinates and forwarded to the app (which records a new frame). Keystrokes
