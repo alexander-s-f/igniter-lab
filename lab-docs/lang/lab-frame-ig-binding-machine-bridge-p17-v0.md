@@ -96,8 +96,9 @@ has no machine dependency (only comments) · 9 ✅ P16 fixture tests stay green.
 
 ## Next (gated — not started)
 
-- **`LAB-FRAME-IG-BINDING-EFFECT-BRIDGE-P18`** — the action result becomes a declared capability-IO
-  intent → receipt (local fake executor first); this card proved serving invoke, not effect execution.
+- **`LAB-FRAME-IG-BINDING-EFFECT-BRIDGE-P18`** — DONE: `igniter-machine/src/frame_binding_effect.rs`
+  performs the capsule output as a declared capability-IO effect → receipt in `__receipts__` (double
+  authority, idempotent, fake executor). See `lab-frame-ig-binding-effect-bridge-p18-v0.md`.
 - **`LAB-FRAME-CONSOLE-ACTION-LINEAGE-P18`** — the console records host action/receipt lineage
   alongside frames.
 - **`LAB-FRAME-IGV-BINDING-SYNTAX-P1`** — `.igv` text syntax over the now-code-proven JSON manifest +
