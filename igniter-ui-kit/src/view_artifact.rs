@@ -83,6 +83,13 @@ pub fn compile_form(json: &str) -> Result<Form, ViewError> {
     }
 }
 
+/// Parse a `fields` array Value into `FieldSpec`s — shared by the workbench compiler and the
+/// binding host (which builds a workbench from a bound artifact's `regions.main.fields`).
+pub fn parse_fields(fields_value: &Value) -> Result<Vec<FieldSpec>, ViewError> {
+    let arr = fields_value.as_array().ok_or_else(|| ViewError::Schema("\"fields\" must be an array".into()))?;
+    arr.iter().map(field_from_value).collect()
+}
+
 fn field_from_value(fv: &Value) -> Result<FieldSpec, ViewError> {
     let id = req_str(fv, "id", "field")?;
     let label = req_str(fv, "label", "field")?;

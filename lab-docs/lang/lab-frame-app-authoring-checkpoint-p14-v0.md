@@ -119,7 +119,13 @@ the ui-kit browser demo (`/viewartifact.html`, port 8734), and the console.
     is sugar over it, lab-only, never canon.
   - `.ig` binding bridge (resolve `bind`/`action` to real `.ig` data-sources/effects) → requires a
     separate explicit card. `.ig` is the business-logic/state/effect authority; it must NOT silently
-    become a UI markup language.
+    become a UI markup language. **Readiness done:** `lab-frame-ig-binding-readiness-p15-v0.md`
+    designs the bind as a declared-only, host-resolved, passport-authorized request/receipt bridge
+    (the join of fact-to-frame and wire-to-effect). **P16 done (fixture):**
+    `lab-frame-ig-binding-p16-v0.md` implements one source + one action over a fixture host with the
+    **double gate** (declared in artifact AND registered in host), proven native + live browser,
+    machine-free. Next gate is `LAB-FRAME-IG-BINDING-MACHINE-BRIDGE-P17` (real CoordinationHub/
+    passport, host-side); `.igv` text syntax remains a separate later gate.
   - any `igniter-machine` dependency in the UI/browser path → forbidden without re-opening the P2
     extraction decision.
 

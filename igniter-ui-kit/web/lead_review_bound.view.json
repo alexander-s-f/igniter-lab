@@ -1,0 +1,31 @@
+{
+  "artifact": "view",
+  "version": 0,
+  "screen": "lead_review_bound",
+  "layout": "workbench",
+  "sources": {
+    "leads": { "contract": "ListLeads", "mode": "read" }
+  },
+  "actions": {
+    "submit_lead": {
+      "contract": "SubmitLeadReview",
+      "input": { "lead": "$selection.lead", "fields": "$form.values" },
+      "validate": "ValidateLeadReview",
+      "effect": "fixture_receipt"
+    }
+  },
+  "regions": {
+    "sidebar": { "component": "List", "bind": "leads", "on_select": "select" },
+    "main": {
+      "component": "Form",
+      "for_each": "selected",
+      "fields": [
+        { "id": "priority", "kind": "text", "label": "Priority", "required": true },
+        { "id": "stage", "kind": "select", "label": "Stage", "options": ["new", "qualified", "won"], "required": true },
+        { "id": "hot", "kind": "checkbox", "label": "Hot lead", "required": false }
+      ],
+      "submit": { "label": "Submit", "action": "submit_lead" }
+    },
+    "inspector": { "component": "KeyValuePanel", "bind": "selected" }
+  }
+}

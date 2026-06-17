@@ -17,6 +17,7 @@ use igniter_frame::runtime::FrameRuntime;
 use igniter_frame::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
 use serde_json::{json, Map, Value};
 
+pub mod binding;
 pub mod composition;
 pub mod view_artifact;
 

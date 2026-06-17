@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-ui-kit · .ig binding (fixture host) — LAB-FRAME-IG-BINDING-P16</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d1117; color:#c9d1d9; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:600px; height:367px; border:1px solid #21262d; border-radius:10px; overflow:hidden; cursor:pointer; outline:none; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; max-width:480px; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:#8b949e; margin:0 0 12px; font-size:12px; }
+  .card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px 14px; margin-top:12px; }
+  .row { display:flex; gap:10px; padding:3px 0; }
+  .k { color:#8b949e; min-width:140px; }
+  .hint { color:#8b949e; font-size:12px; margin-top:12px; line-height:1.6; }
+  code { color:#39d353; } b { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene" tabindex="0">loading…</div>
+      <p class="hint">Select Ada, click <b>Submit</b> with empty fields → fixture <code>ValidateLeadReview</code> rejects (scoped errors). Fill Priority + cycle Stage, Submit → fixture <code>SubmitLeadReview</code> returns a deterministic receipt.</p>
+    </div>
+    <div id="panel">
+      <h1>igniter-ui-kit — workbench bound to fixture <code>.ig</code></h1>
+      <p class="sub">Leads load from <code>ListLeads</code> (not inline). Submit routes through the host: declared in the artifact AND registered in the fixture registry (double gate). View-local selection/drafts never call the host. No machine, no authority in the browser.</p>
+      <div class="card">
+        <div class="row"><span class="k">selected lead</span><span id="sel">—</span></div>
+        <div class="row"><span class="k">last receipt</span><span id="rcpt" style="color:#3fb950">—</span></div>
+        <div class="row"><span class="k">last refusal</span><span id="ref" style="color:#f85149">—</span></div>
+      </div>
+      <div class="card">
+        <div class="row"><span class="k">ListLeads calls</span><span id="c_list">—</span></div>
+        <div class="row"><span class="k">ValidateLeadReview</span><span id="c_val">—</span></div>
+        <div class="row"><span class="k">SubmitLeadReview</span><span id="c_sub">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmBoundHost } from './igniter_ui_kit.js';
+    const CW = 720, CH = 440;
+    async function main() {
+      await init();
+      const json = await (await fetch('./lead_review_bound.view.json')).text();
+      const h = WasmBoundHost.from_artifact(json);
+      const scene = document.getElementById('scene');
+      const render = () => {
+        scene.innerHTML = h.render_svg();
+        document.getElementById('sel').textContent = h.selected_lead();
+        document.getElementById('rcpt').textContent = h.last_receipt_id() ?? '—';
+        document.getElementById('ref').textContent = h.last_refusal() ?? '—';
+        document.getElementById('c_list').textContent = h.calls('ListLeads');
+        document.getElementById('c_val').textContent = h.calls('ValidateLeadReview');
+        document.getElementById('c_sub').textContent = h.calls('SubmitLeadReview');
+      };
+      scene.addEventListener('pointerdown', (ev) => {
+        scene.focus();
+        const r = scene.getBoundingClientRect();
+        h.click((ev.clientX - r.left) / r.width * CW, (ev.clientY - r.top) / r.height * CH);
+        render();
+      });
+      scene.addEventListener('keydown', (ev) => {
+        if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey) { h.key(ev.key); render(); ev.preventDefault(); }
+      });
+      window.__h = h; window.__CSS = [CW, CH];
+      render(); scene.focus();
+    }
+    main();
+  </script>
+</body>
+</html>

@@ -4,9 +4,49 @@
 //! catches DOM pointer + keyboard events but only ROUTES them; layout, hit-test, intent routing,
 //! field state, and validation all run in Rust.
 
+use crate::binding::{BoundViewHost, FixtureContractRegistry};
 use crate::composition::WorkbenchRuntime;
 use crate::FormRuntime;
 use wasm_bindgen::prelude::*;
+
+/// A workbench bound to FIXTURE `.ig` contracts (LAB-FRAME-IG-BINDING-P16). The browser fetches a
+/// bound ViewArtifact, calls `from_artifact`, and interacts; submit routes through the fixture host
+/// (validate → scoped errors, or a deterministic fixture receipt). No machine, no authority in the
+/// browser — the fixture registry is deterministic and authority-free.
+#[wasm_bindgen]
+pub struct WasmBoundHost {
+    inner: BoundViewHost,
+}
+
+#[wasm_bindgen]
+impl WasmBoundHost {
+    pub fn from_artifact(json: &str) -> Result<WasmBoundHost, String> {
+        BoundViewHost::from_artifact(json, FixtureContractRegistry::lead_review())
+            .map(|inner| WasmBoundHost { inner })
+            .map_err(|e| e.to_string())
+    }
+    pub fn click(&mut self, cx: f64, cy: f64) -> bool {
+        self.inner.click(cx, cy)
+    }
+    pub fn key(&mut self, ch: &str) -> bool {
+        self.inner.key(ch)
+    }
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+    pub fn selected_lead(&self) -> String {
+        self.inner.selected_lead()
+    }
+    pub fn last_receipt_id(&self) -> Option<String> {
+        self.inner.last_receipt().map(|r| r.id.clone())
+    }
+    pub fn last_refusal(&self) -> Option<String> {
+        self.inner.last_refusal().map(String::from)
+    }
+    pub fn calls(&self, contract: &str) -> usize {
+        self.inner.calls(contract)
+    }
+}
 
 /// The composable Lead Review workbench (LAB-FRAME-UI-KIT-COMPOSITION-P10).
 #[wasm_bindgen]
