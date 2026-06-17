@@ -1,4 +1,4 @@
-// LAB-COMPILER-PROJECT-MODE-COMPILE-P1
+// LAB-COMPILER-PROJECT-MODE-COMPILE-P1 / LAB-COMPILER-PROJECT-OVERLAY-P2
 //
 // Canonical project-root compile mode for multi-file Igniter projects.
 //
@@ -7,6 +7,12 @@
 // declaration (never by directory inference), and resolve the transitive
 // import closure for an entry module. It then hands the resolved file list to
 // the existing `multifile::compile_units` pipeline.
+//
+// P2 adds IDE overlays: an overlay maps a project source path to a temporary
+// editor-buffer file. During scanning, the overlay content is read in place of
+// the on-disk file, so module/import resolution AND the final compile see the
+// unsaved buffer. The overlay path is what flows to compile_units, so source
+// evidence honestly carries the overlay (temp) path for overlaid units.
 //
 // Authority boundary: igniter-lab only. This does NOT change language import
 // semantics. Imports remain logical module paths. stdlib.* is reserved and is
@@ -17,7 +23,7 @@ use crate::parser::Parser;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Directories never scanned for source files.
 const IGNORED_DIRS: &[&str] = &[".git", "target", "build", ".idea"];
@@ -66,6 +72,8 @@ pub struct ProjectDiagnostic {
     pub entry_module: Option<String>,
     pub module_path: Option<String>,
     pub source_paths: Vec<String>,
+    pub original_path: Option<String>,
+    pub overlay_path: Option<String>,
 }
 
 impl ProjectDiagnostic {
@@ -78,6 +86,8 @@ impl ProjectDiagnostic {
             entry_module: None,
             module_path: None,
             source_paths: Vec::new(),
+            original_path: None,
+            overlay_path: None,
         }
     }
 
@@ -96,6 +106,12 @@ impl ProjectDiagnostic {
         if !self.source_paths.is_empty() {
             obj.insert("source_paths".to_string(), json!(self.source_paths));
         }
+        if let Some(op) = &self.original_path {
+            obj.insert("original_path".to_string(), json!(op));
+        }
+        if let Some(op) = &self.overlay_path {
+            obj.insert("overlay_path".to_string(), json!(op));
+        }
         Value::Object(obj)
     }
 }
@@ -110,6 +126,22 @@ impl From<std::io::Error> for ProjectError {
     fn from(e: std::io::Error) -> Self {
         ProjectError::Io(e)
     }
+}
+
+/// LAB-COMPILER-PROJECT-OVERLAY-P2
+/// An IDE overlay: substitute `overlay_path`'s contents for the project source
+/// file at `original_path` during scanning and compilation.
+#[derive(Debug, Clone)]
+pub struct ProjectOverlay {
+    pub original_path: PathBuf,
+    pub overlay_path: PathBuf,
+}
+
+/// A validated overlay: normalized original location + the file to read instead.
+#[derive(Debug, Clone)]
+struct ResolvedOverlay {
+    norm_original: PathBuf,
+    overlay_path: PathBuf,
 }
 
 /// One scanned source file: its logical module path and its non-stdlib imports.
@@ -140,8 +172,21 @@ pub struct ModuleIndex {
 /// reported here — they are left for `compile_units` to surface as OOF-IMP2,
 /// preserving canonical import-diagnostic behavior.
 pub fn resolve_entry(root: &Path, entry_module: &str) -> Result<Vec<PathBuf>, ProjectError> {
+    resolve_entry_with_overlays(root, entry_module, &[])
+}
+
+/// LAB-COMPILER-PROJECT-OVERLAY-P2
+/// Like `resolve_entry`, but each overlay substitutes its `overlay_path`'s
+/// contents for the on-disk `original_path` during scanning and compilation.
+/// With an empty overlay slice this is byte-for-byte the P1 behavior.
+pub fn resolve_entry_with_overlays(
+    root: &Path,
+    entry_module: &str,
+    overlays: &[ProjectOverlay],
+) -> Result<Vec<PathBuf>, ProjectError> {
     let config = ProjectConfig::load(root);
-    let index = build_module_index(root, &config)?;
+    let resolved = validate_overlays(root, &config, overlays)?;
+    let index = build_module_index(root, &config, &resolved)?;
 
     // Duplicate module declarations are a project-assembly fault: the index is
     // ambiguous. Surface deterministically (OOF-IMP4) with all source paths.
@@ -202,7 +247,15 @@ pub fn resolve_entry(root: &Path, entry_module: &str) -> Result<Vec<PathBuf>, Pr
 
 /// Recursively scan source roots and build the module index by parsing each
 /// `.ig` file's `module` declaration. Directory names never define modules.
-fn build_module_index(root: &Path, config: &ProjectConfig) -> Result<ModuleIndex, ProjectError> {
+///
+/// Overlays substitute their content for the matching on-disk file (matched by
+/// normalized absolute path). An overlay whose original is not present on disk
+/// is injected as a new source unit (the IDE "unsaved new file" case).
+fn build_module_index(
+    root: &Path,
+    config: &ProjectConfig,
+    overlays: &[ResolvedOverlay],
+) -> Result<ModuleIndex, ProjectError> {
     let mut files: Vec<PathBuf> = Vec::new();
     for source_root in &config.source_roots {
         // Avoid a spurious "./" segment when the source root is the project root.
@@ -213,6 +266,16 @@ fn build_module_index(root: &Path, config: &ProjectConfig) -> Result<ModuleIndex
         };
         collect_ig_files(&scan_root, &mut files)?;
     }
+
+    // Inject overlay originals that are not present on disk (new unsaved files).
+    let scanned_norms: std::collections::HashSet<PathBuf> =
+        files.iter().map(|p| normalize_abs(p)).collect();
+    for ov in overlays {
+        if !scanned_norms.contains(&ov.norm_original) {
+            files.push(ov.norm_original.clone());
+        }
+    }
+
     // Deterministic scan order independent of filesystem enumeration.
     files.sort();
     files.dedup();
@@ -221,7 +284,17 @@ fn build_module_index(root: &Path, config: &ProjectConfig) -> Result<ModuleIndex
     let mut dup_acc: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for path in files {
-        let scanned = scan_file(&path)?;
+        // If this file is overlaid, read the overlay buffer instead of disk.
+        // The overlay path also becomes the effective source path handed to
+        // compile_units, so source evidence honestly carries the temp path.
+        let np = normalize_abs(&path);
+        let read_path = overlays
+            .iter()
+            .find(|ov| ov.norm_original == np)
+            .map(|ov| ov.overlay_path.clone())
+            .unwrap_or_else(|| path.clone());
+
+        let scanned = scan_file(&read_path)?;
         // Files without a module declaration are not addressable by entry/import
         // resolution. compile_units will reject them (OOF-IMP5) if they are ever
         // passed in; here we simply cannot index them, so skip.
@@ -295,6 +368,100 @@ fn scan_file(path: &Path) -> std::io::Result<ScannedFile> {
         module_path,
         non_stdlib_imports,
     })
+}
+
+/// LAB-COMPILER-PROJECT-OVERLAY-P2
+/// Validate overlays and resolve them to normalized originals + readable buffers.
+///
+/// Deterministic: overlays are validated in sorted-by-original order, so the
+/// first refusal is stable. Two refusal classes:
+/// - `OOF-PROJ-OVERLAY-OUTSIDE`: original is not inside any configured source root.
+/// - `OOF-PROJ-OVERLAY-MISSING`: overlay buffer file is unreadable.
+fn validate_overlays(
+    root: &Path,
+    config: &ProjectConfig,
+    overlays: &[ProjectOverlay],
+) -> Result<Vec<ResolvedOverlay>, ProjectError> {
+    // Absolute, normalized source roots for an inside-roots containment check.
+    let abs_roots: Vec<PathBuf> = config
+        .source_roots
+        .iter()
+        .map(|sr| {
+            let joined = if sr == Path::new(".") {
+                root.to_path_buf()
+            } else {
+                root.join(sr)
+            };
+            normalize_abs(&joined)
+        })
+        .collect();
+
+    let mut sorted = overlays.to_vec();
+    sorted.sort_by(|a, b| a.original_path.cmp(&b.original_path));
+
+    let mut resolved = Vec::new();
+    for ov in &sorted {
+        let norm_original = normalize_abs(&ov.original_path);
+
+        if !abs_roots.iter().any(|r| norm_original.starts_with(r)) {
+            let mut diag = ProjectDiagnostic::new(
+                "OOF-PROJ-OVERLAY-OUTSIDE",
+                format!(
+                    "overlay original path '{}' is not inside any project source root",
+                    ov.original_path.to_string_lossy()
+                ),
+                "overlay".to_string(),
+            );
+            diag.original_path = Some(ov.original_path.to_string_lossy().to_string());
+            diag.overlay_path = Some(ov.overlay_path.to_string_lossy().to_string());
+            return Err(ProjectError::Diagnostic(diag));
+        }
+
+        if fs::read_to_string(&ov.overlay_path).is_err() {
+            let mut diag = ProjectDiagnostic::new(
+                "OOF-PROJ-OVERLAY-MISSING",
+                format!(
+                    "overlay buffer file '{}' could not be read",
+                    ov.overlay_path.to_string_lossy()
+                ),
+                "overlay".to_string(),
+            );
+            diag.original_path = Some(ov.original_path.to_string_lossy().to_string());
+            diag.overlay_path = Some(ov.overlay_path.to_string_lossy().to_string());
+            return Err(ProjectError::Diagnostic(diag));
+        }
+
+        resolved.push(ResolvedOverlay {
+            norm_original,
+            overlay_path: ov.overlay_path.clone(),
+        });
+    }
+    Ok(resolved)
+}
+
+/// Lexically absolutize and normalize a path (join cwd if relative; collapse
+/// `.` and `..`). Does NOT touch the filesystem, so it works for not-yet-saved
+/// overlay originals. Used only for overlay matching/containment, never for
+/// the source evidence handed to compile_units.
+fn normalize_abs(path: &Path) -> PathBuf {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    for comp in abs.components() {
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str().to_os_string()),
+        }
+    }
+    out.iter().collect()
 }
 
 /// Minimal `source_roots = ["a", "b"]` extractor. Not a general TOML parser.

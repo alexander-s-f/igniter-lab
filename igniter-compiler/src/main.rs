@@ -105,12 +105,43 @@ fn run_project_mode(args: &[String]) {
         flag_value("--out"),
     ) else {
         eprintln!(
-            "Usage: igc compile --project-root ROOT --entry MODULE --out OUT.igapp"
+            "Usage: igc compile --project-root ROOT --entry MODULE \
+             [--overlay PROJECT_PATH=OVERLAY_PATH ...] --out OUT.igapp"
         );
         std::process::exit(1);
     };
 
-    match igniter_compiler::project::resolve_entry(Path::new(&root), &entry) {
+    // LAB-COMPILER-PROJECT-OVERLAY-P2: collect zero or more `--overlay a=b`.
+    let mut overlays = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--overlay" {
+            let Some(spec) = args.get(i + 1) else {
+                eprintln!("--overlay requires PROJECT_PATH=OVERLAY_PATH");
+                std::process::exit(1);
+            };
+            let Some((original, overlay)) = spec.split_once('=') else {
+                eprintln!(
+                    "--overlay expects PROJECT_PATH=OVERLAY_PATH, got '{}'",
+                    spec
+                );
+                std::process::exit(1);
+            };
+            overlays.push(igniter_compiler::project::ProjectOverlay {
+                original_path: Path::new(original).to_path_buf(),
+                overlay_path: Path::new(overlay).to_path_buf(),
+            });
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    match igniter_compiler::project::resolve_entry_with_overlays(
+        Path::new(&root),
+        &entry,
+        &overlays,
+    ) {
         Ok(paths) => {
             let source_paths: Vec<String> =
                 paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
