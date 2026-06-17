@@ -31,12 +31,22 @@ class CompileIgniterFileAction : AnAction() {
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Compiling Igniter file…", true) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
-                val result = IgniterCompilerService.getInstance().compile(ioFile)
+                // Explicit compile: write the .igapp bundle next to the source so
+                // "Show Semantic IR" can find semantic_ir_program.json afterwards.
+                val outRoot = ioFile.parentFile?.toPath()
+                val result = IgniterCompilerService.getInstance().compile(ioFile, outRoot)
+
+                // First error message reads better than the raw JSON envelope the
+                // native compiler prints to stdout.
+                val firstError = result.diagnostics
+                    .firstOrNull { it.severity == OofSeverity.ERROR }
+                    ?.let { "[${it.code}] ${it.message}" }
+                    ?: result.rawOutput.take(200)
 
                 ApplicationManager.getApplication().invokeLater {
                     showResult(project, ioFile.name, result.success, result.diagnostics.size,
                         result.diagnostics.count { it.severity == OofSeverity.ERROR },
-                        result.rawOutput)
+                        firstError)
                 }
             }
         })
@@ -48,7 +58,7 @@ class CompileIgniterFileAction : AnAction() {
         success: Boolean,
         total: Int,
         errors: Int,
-        rawOutput: String
+        detail: String
     ) {
         val group = NotificationGroupManager.getInstance()
             .getNotificationGroup("Igniter Compiler")
@@ -60,10 +70,9 @@ class CompileIgniterFileAction : AnAction() {
                 NotificationType.INFORMATION
             ).notify(project)
         } else {
-            val preview = if (rawOutput.length > 400) rawOutput.take(400) + "…" else rawOutput
             group.createNotification(
                 "Igniter Compiler",
-                "$fileName: $errors error(s). $preview",
+                "$fileName: $errors error(s). $detail",
                 NotificationType.ERROR
             ).notify(project)
         }

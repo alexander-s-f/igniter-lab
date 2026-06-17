@@ -1,14 +1,15 @@
 package com.igniter.plugin.compiler
 
 import com.igniter.plugin.lang.IgniterFile
+import com.igniter.plugin.model.IgniterModelService
 import com.igniter.plugin.settings.IgniterSettings
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
-import java.io.File
 
 /**
  * Runs the Igniter compiler on each .ig file and maps OOF diagnostics back to
@@ -16,31 +17,34 @@ import java.io.File
  * on every keystroke once highlighting is stable) but we guard with the
  * "auto-compile on save" preference so power users can opt out of continuous
  * recompilation.
+ *
+ * Goes through [IgniterModelService] so it analyses the *editor text* (unsaved
+ * edits included) and shares the one compile per content hash with navigation
+ * and hints.
  */
-class IgniterExternalAnnotator : ExternalAnnotator<PsiFile, List<OofDiagnostic>>() {
+class IgniterExternalAnnotator : ExternalAnnotator<IgniterExternalAnnotator.Request, List<OofDiagnostic>>() {
 
     private val log = Logger.getInstance(IgniterExternalAnnotator::class.java)
 
-    // Phase 1 — collect file info on the EDT
-    override fun collectInformation(file: PsiFile): PsiFile? {
+    data class Request(val project: Project, val name: String, val path: String, val text: String)
+
+    // Phase 1 — collect file + current document text on the EDT
+    override fun collectInformation(file: PsiFile): Request? {
         if (file !is IgniterFile) return null
-        val settings = IgniterSettings.getInstance()
-        if (!settings.autoCompileOnSave) return null
-        return file
+        if (!IgniterSettings.getInstance().autoCompileOnSave) return null
+        val vFile = file.virtualFile ?: return null
+        return Request(file.project, vFile.name, vFile.path, file.text)
     }
 
-    // Phase 2 — run compiler on a background thread
-    override fun doAnnotate(collectedInfo: PsiFile?): List<OofDiagnostic>? {
-        collectedInfo ?: return null
-        val vFile = collectedInfo.virtualFile ?: return null
-        val ioFile = File(vFile.path)
-        if (!ioFile.exists()) return null
-
+    // Phase 2 — run compiler on a background thread (via the shared analysis cache)
+    override fun doAnnotate(collectedInfo: Request?): List<OofDiagnostic>? {
+        val req = collectedInfo ?: return null
         return try {
-            val result = IgniterCompilerService.getInstance().compile(ioFile)
-            result.diagnostics
+            IgniterModelService.getInstance(req.project)
+                .analyze(req.name, req.path, req.text)
+                .diagnostics
         } catch (e: Exception) {
-            log.warn("ExternalAnnotator compile failed", e)
+            log.warn("ExternalAnnotator analysis failed", e)
             null
         }
     }

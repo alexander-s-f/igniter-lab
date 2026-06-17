@@ -19,14 +19,14 @@ class IgniterSettingsConfigurable : Configurable {
 
     override fun createComponent(): JComponent {
         compilerPathField.addBrowseFolderListener(
-            "Select igniter_compiler Binary",
-            "Choose the path to the igniter_compiler executable",
+            "Select the igniter_compiler Binary",
+            "Choose the native lab compiler (igniter-lab/igniter-compiler/target/release/igniter_compiler)",
             null,
             com.intellij.openapi.fileChooser.FileChooserDescriptorFactory.createSingleFileDescriptor()
         )
 
         panel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Compiler path (leave empty to use PATH):"), compilerPathField, 1, false)
+            .addLabeledComponent(JBLabel("Path to igniter_compiler (empty = PATH / IGNITER_COMPILER / IGNITER_LAB_HOME):"), compilerPathField, 1, false)
             .addComponent(autoCompileCheckBox, 1)
             .addComponent(showObservationsCheckBox, 1)
             .addComponentFillVertically(JPanel(), 0)

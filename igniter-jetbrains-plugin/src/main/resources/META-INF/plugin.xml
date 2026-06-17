@@ -80,6 +80,10 @@
         <applicationService
             serviceImplementation="com.igniter.plugin.compiler.IgniterCompilerService"/>
 
+        <!-- Project service: compiler-backed semantic model (DX substrate) -->
+        <projectService
+            serviceImplementation="com.igniter.plugin.model.IgniterModelService"/>
+
         <!-- Application service: settings -->
         <applicationService
             serviceImplementation="com.igniter.plugin.settings.IgniterSettings"/>
@@ -133,6 +137,14 @@
             language="Igniter"
             implementation="com.igniter.plugin.references.IgniterReferenceContributor"/>
 
+        <!-- Go-to-Declaration (compiler-backed, semantic) -->
+        <gotoDeclarationHandler
+            implementation="com.igniter.plugin.navigation.IgniterGotoDeclarationHandler"/>
+
+        <!-- Go to Symbol (project-wide, index-backed) -->
+        <gotoSymbolContributor
+            implementation="com.igniter.plugin.navigation.IgniterGotoSymbolContributor"/>
+
     </extensions>
 
     <!-- ================================================================== -->
@@ -155,6 +167,24 @@
             text="Show Semantic IR"
             description="Open the semantic_ir_program.json artifact for this .ig file">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+
+        <action
+            id="Igniter.JumpToSemanticIRNode"
+            class="com.igniter.plugin.actions.JumpToSemanticIRNodeAction"
+            text="Jump to Semantic IR Node"
+            description="Open semantic_ir_program.json at the node under the caret">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift J"/>
+        </action>
+
+        <action
+            id="Igniter.FindDependents"
+            class="com.igniter.plugin.actions.FindIgniterDependentsAction"
+            text="Find Igniter Dependents"
+            description="List nodes that depend on the declaration under the caret">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift U"/>
         </action>
     </actions>
 

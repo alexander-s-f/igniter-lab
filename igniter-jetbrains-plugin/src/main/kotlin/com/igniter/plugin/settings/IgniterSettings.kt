@@ -14,8 +14,8 @@ import com.intellij.util.xmlb.XmlSerializerUtil
 @Service(Service.Level.APP)
 class IgniterSettings : PersistentStateComponent<IgniterSettings> {
 
-    // The path to the igniter_compiler binary.
-    // Empty string means "find on PATH".
+    // The path to the native lab `igniter_compiler` binary.
+    // Empty string means resolve via PATH / IGNITER_COMPILER / IGNITER_LAB_HOME.
     var compilerPath: String = ""
 
     // When true the ExternalAnnotator compiles the file on each change.
