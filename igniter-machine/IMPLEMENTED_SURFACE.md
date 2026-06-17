@@ -25,9 +25,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > Postgres connector + ORM boundary map —
 > `../lab-docs/lang/lab-machine-postgres-capability-readiness-p1-v0.md` (`LAB-MACHINE-POSTGRES-CAPABILITY-READINESS-P1`):
 > v0 = host `CapabilityExecutor` (SparkCRM pattern over SQL), NOT a `TBackend`, NOT an in-VM ORM.
-> **Read slice `LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2` is now IMPLEMENTED** (fake adapter, no dep;
-> see the "Postgres-shaped read executor" capability row +
-> `../lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md`); write-gate P3 / reconcile P4 next.
+> **Read slice P2 + write-gate P3 are now IMPLEMENTED** (fake adapter, no dep; see the
+> "Postgres-shaped read executor" + "Postgres-shaped write gate" capability rows +
+> `../lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md`,
+> `../lab-docs/lang/lab-machine-postgres-write-gate-p3-v0.md`); reconcile P4 next.
 > The operator-console and webhook-auction designs above remain design/readiness only — no code yet.
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
@@ -81,6 +82,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **bounded concurrent serving** | ✅ (P13, structured concurrency) | `serving_loop::{ConcurrentServingPolicy, ConcurrentServingReport}` + `ServingLoop::run_concurrent` — additive over P12 (sequential `run` untouched): boot once → drive a `FuturesUnordered` of `serve_once_effect` calls topped up to `max_in_flight` → bounded stop at `max_requests` → optional host-owned `tick_on_stop`. **Structured, NOT spawned** — in-flight calls are polled by the same task, no `tokio::spawn`/detached task, so nothing can outlive `run_concurrent` (stronger than join-on-shutdown: no worker to leak). `max_in_flight_observed` = peak in-flight reached. Invariant held: distinct keys served concurrently (proven observed-concurrency > 1, one effect each), same-key concurrent → **exactly one effect + one committed receipt**. NOTE: same-key collapse on this wire path is the `run_write_effect` receipt-replay gate over the **non-yielding in-memory** receipt store (NOT the P18 SingleFlight lock, which `serve_once_effect` does not use); a *yielding* receipt backend would need `run_write_effect_atomic` threaded into `handle_effect` (named follow-on). Cooperative concurrency (one polling task), not OS-parallel. Loopback only; no daemon/public ingress/live vendor. (LAB-MACHINE-SERVING-LOOP-CONCURRENCY-P13) |
 | **frame projection (substrate only)** | ✅ (FP-P1 proven, EXTRACTED to `igniter-frame` P2) | The machine is the state-kernel SUBSTRATE: `TBackend` facts (e.g. a `__world__` store) project deterministically to frames. The projection runtime — `Frame`/`Camera`/`RenderHost`/world projection/frame receipts — was **extracted OUT of the machine** into the sibling `igniter-frame` crate (the kernel owns no frame/camera/render code; `src/frame.rs` deleted). `igniter-frame` core builds machine-free; its `machine` feature adapts the `FrameSource`/`FrameSink`/`RenderHost` ports to `TBackend` (`__world__`/`__frames__`). Machine = boring kernel; projection = a consumer (`fact-to-frame`, inverse of wire-to-effect). (LAB-MACHINE-FRAME-PROJECTION-P1 → LAB-FRAME-PROJECTION-EXTRACT-P2) |
 | **Postgres-shaped read executor** | ✅ (fake-adapter proof) | `postgres_read::{PostgresReadExecutor<A>, PostgresReadAdapter, PostgresReadResult, PostgresReadPolicy, QueryPlan, QueryFilter, FakePostgresAdapter}` — first Postgres-shaped read capability, the `SparkCrmExecutor` pattern applied to SQL. A contract emits a **typed `QueryPlan`** (NO SQL string, NO DB handle); the executor (a `CapabilityExecutor`, so receipts/idempotency/replay come free from `run_effect`) runs gates **before** the single adapter call: raw-SQL refusal · source allowlist · read-only(mutation refusal) · op allowlist · field allowlist · row-limit **clamp**(≠denial). Outcome: rows/empty→Succeeded, unavailable→UnknownExternalState, transient→Retryable, query-error→PermanentFailure. **Fake in-memory adapter only — no `tokio-postgres`/`sqlx`/`diesel`, no SQL, no network, no new dependency.** Schema authority = host-side `PostgresReadPolicy` (not contract input, not introspection); filter-predicate evaluation deferred (`LAB-FILTER-EVAL-P1`); Postgres-as-`TBackend` is a separate deferred track. (LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2) |
+| **Postgres-shaped write gate** | ✅ (fake-adapter proof) | `postgres_write::{PostgresWriteExecutor<A>, PostgresWriteAdapter, PostgresWriteResult, PostgresWriteIntent, PostgresWritePolicy, FakePostgresWriteAdapter, FakeWriteBehavior}` — Postgres-shaped WRITE, driven by the EXISTING `write::run_write_effect` two-phase receipt (NO new write machinery; the `TBackendWriteExecutor` pattern). Contract emits a typed `PostgresWriteIntent` (NO SQL, NO handle); gates before the adapter: raw-SQL refusal · target allowlist · op allowlist. **TWO idempotency layers**: machine `__receipts__` (replay / different-payload refusal / no-blind-retry) + a fake PG-side `effect_receipts(idempotency_key)` upsert in ONE modelled txn (blocks a 2nd business mutation even if the machine receipt is LOST). Taxonomy: commit/duplicate→Committed, denied→Denied, constraint→PermanentFailure, serialization-rollback→Retryable, lost-after-send→UnknownExternalState (no blind retry; reconcile=P4). Receipt records correlation+idempotency key, not raw SQL/values. **Fake adapter only — no `tokio-postgres`/`sqlx`/`diesel`, no SQL, no network, no new dependency.** (LAB-MACHINE-POSTGRES-WRITE-GATE-P3) |
 
 ## Surfaces
 
@@ -255,6 +257,13 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   filter) / mutation op all refused BEFORE the adapter (call count 0); row-limit clamp reflected in
   result + persisted receipt; adapter unavailable→unknown, transient→retryable; replay same key →
   adapter call count stays 1. No DB / SQL / network / dependency.
+- `tests/postgres_write_tests.rs` (10) — **Postgres-shaped write gate** (P3, fake adapter): through
+  `run_write_effect` — commit lifecycle prepared→committed + business row + PG effect receipt;
+  raw-SQL payload → permanent + adapter untouched; replay same key+payload bypasses adapter
+  (machine receipt); same key + different payload refused before adapter; **PG-side dedup blocks a
+  2nd mutation when the machine receipt is LOST** (attempts 2, business rows 1); serialization→
+  retryable; lost→unknown + no blind retry; constraint→permanent; denial→denied; policy gates
+  (target/op) refuse before the adapter. No DB / SQL / network / dependency.
 - `tests/serving_loop_tests.rs` (4) — **host serving loop** (P12, real 127.0.0.1): one loop instance
   boots once + serves two requests (observe() projects 2 committed); duplicate same-key over the loop →
   exactly one effect; host-owned tick drains a due retry intent; deterministic bounded shutdown

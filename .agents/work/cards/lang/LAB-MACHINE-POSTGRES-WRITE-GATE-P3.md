@@ -1,7 +1,30 @@
 # Card: LAB-MACHINE-POSTGRES-WRITE-GATE-P3 — fake Postgres receipt-gated write
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol  
-**Status: READY.** Follow-on to `LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2`.
+**Status: CLOSED 2026-06-17 — implementation proof complete (10/10).** Follow-on to
+`LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2`.
+
+## Closing report (2026-06-17)
+
+Doc: [`lab-docs/lang/lab-machine-postgres-write-gate-p3-v0.md`](../../../../lab-docs/lang/lab-machine-postgres-write-gate-p3-v0.md).
+
+Added `igniter-machine/src/postgres_write.rs` (+`pub mod` in `lib.rs`) and
+`tests/postgres_write_tests.rs`. **Fake adapter only — no DB, no SQL, no network, no new
+dependency.** `PostgresWriteExecutor<A: PostgresWriteAdapter>` implements `CapabilityExecutor` and
+is driven by the EXISTING `write::run_write_effect` two-phase receipt protocol — NO bespoke runner,
+NO new write machinery (the `TBackendWriteExecutor` pattern).
+
+**Two idempotency layers (defence in depth):** machine `__receipts__` (replay / different-payload
+refusal / no-blind-retry) + a fake PG-side `effect_receipts(idempotency_key)` upsert inside the
+modelled transaction (blocks a second business mutation even when the machine receipt is LOST).
+Gates before the adapter: raw-SQL refusal (structural) → target allowlist → op allowlist. Taxonomy:
+commit/duplicate→`Committed`, denied→`Denied`, constraint→`PermanentFailure`,
+serialization-rollback→`Retryable`, lost-after-send→`UnknownExternalState` (no blind retry; P4
+reconciles). Receipt records correlation + idempotency key, not raw SQL or business values.
+
+**Verify:** `cargo test --no-default-features --test postgres_write_tests` → 10 passed / 0 failed;
+full suite green (no regression); module compiles with no new warnings. `IMPLEMENTED_SURFACE.md`
+updated (public API added).
 
 ## Front door
 
@@ -91,23 +114,23 @@ pub struct PostgresWriteExecutor<A> { ... }
 
 ## Acceptance
 
-- [ ] Verify-first confirms P2 is read-only and no Postgres write executor exists.
-- [ ] `PostgresWriteExecutor` implements `CapabilityExecutor` and is exercised through
+- [x] Verify-first confirms P2 is read-only and no Postgres write executor exists.
+- [x] `PostgresWriteExecutor` implements `CapabilityExecutor` and is exercised through
       `run_write_effect` or `run_write_effect_atomic`, not a bespoke runner.
-- [ ] Fake adapter only; no new dependency, no real SQL/network.
-- [ ] Typed write intent accepted; raw SQL payload refused structurally before adapter call.
-- [ ] Successful write lifecycle: machine receipt `prepared → committed`, fake business row written,
+- [x] Fake adapter only; no new dependency, no real SQL/network.
+- [x] Typed write intent accepted; raw SQL payload refused structurally before adapter call.
+- [x] Successful write lifecycle: machine receipt `prepared → committed`, fake business row written,
       fake PG-side effect receipt inserted.
-- [ ] Replay same idempotency key + same payload bypasses adapter through machine receipt.
-- [ ] Same idempotency key + different payload refused before adapter execution.
-- [ ] PG-side duplicate idempotency key prevents a second business mutation if machine receipt is
+- [x] Replay same idempotency key + same payload bypasses adapter through machine receipt.
+- [x] Same idempotency key + different payload refused before adapter execution.
+- [x] PG-side duplicate idempotency key prevents a second business mutation if machine receipt is
       absent or simulated-lost.
-- [ ] Transient rolled-back condition maps to `retryable`; unknown/lost-after-send maps to
+- [x] Transient rolled-back condition maps to `retryable`; unknown/lost-after-send maps to
       `unknown_external_state` with no blind retry.
-- [ ] Constraint/type error maps to permanent failure; authorization/policy denial maps to denied.
-- [ ] Correlation/idempotency key is recorded in result/receipt details without leaking raw SQL or
+- [x] Constraint/type error maps to permanent failure; authorization/policy denial maps to denied.
+- [x] Correlation/idempotency key is recorded in result/receipt details without leaking raw SQL or
       secrets.
-- [ ] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated if public API is added.
+- [x] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated (public API added).
 
 ## Closed surfaces
 
