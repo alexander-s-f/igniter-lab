@@ -1,0 +1,37 @@
+{
+  "capabilities": {
+    "effect_kinds": [],
+    "required_caps": []
+  },
+  "effects": [],
+  "ffi": [],
+  "fragments": [
+    "core"
+  ],
+  "lifecycle": {
+    "has_audit": false,
+    "has_window": false,
+    "min_lifecycle": "local"
+  },
+  "required_tbackend_caps": {
+    "append_atomic": false,
+    "compact_enabled": false,
+    "consistency": "strong",
+    "read_as_of": false,
+    "replay_enabled": false,
+    "snapshot_enabled": false,
+    "subscribe_enabled": false
+  },
+  "temporal": {
+    "axes": [],
+    "coordinate_refs": [],
+    "min_consistency": "strong",
+    "requires_as_of": false,
+    "requires_replay": false,
+    "requires_snapshot": false,
+    "requires_transaction_time": false,
+    "requires_valid_time": false,
+    "slices": [],
+    "windows": []
+  }
+}

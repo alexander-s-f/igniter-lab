@@ -1,0 +1,18 @@
+{
+  "compilation_report_ref": "compilation_report/813720688bd92d00",
+  "contracts": [
+    "Add"
+  ],
+  "format_version": "0.1.0",
+  "fragment_class": "core",
+  "kind": "classified_program",
+  "loadable_contracts": [
+    "Add"
+  ],
+  "oof_count": 0,
+  "pass_result": "ok",
+  "program_id": "semanticir/813720688bd92d00",
+  "semantic_ir_ref": "semanticir/813720688bd92d00",
+  "source_hash": "sha256:813720688bd92d00bf09eb085c9c074822d1e6ccc39d482f51dbbaa60629d8e5",
+  "source_path": "src/test/resources/fixtures/add.ig"
+}

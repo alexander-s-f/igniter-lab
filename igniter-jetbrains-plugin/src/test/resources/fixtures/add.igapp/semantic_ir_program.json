@@ -1,0 +1,83 @@
+{
+  "compilation_report_ref": "compilation_report/813720688bd92d00",
+  "contracts": [
+    {
+      "capabilities": [],
+      "contract_name": "Add",
+      "contract_ref": "contract/Add/sha256:713458b3d39e2fae90265135",
+      "effects": [],
+      "escape_boundaries": [],
+      "fragment_class": "core",
+      "inputs": [
+        {
+          "lifecycle": "local",
+          "name": "a",
+          "node_id": "input:Add.a",
+          "type": {
+            "name": "Integer",
+            "params": []
+          }
+        },
+        {
+          "lifecycle": "local",
+          "name": "b",
+          "node_id": "input:Add.b",
+          "type": {
+            "name": "Integer",
+            "params": []
+          }
+        }
+      ],
+      "kind": "contract_ir",
+      "modifier": "pure",
+      "nodes": [
+        {
+          "deps": [
+            "a",
+            "b"
+          ],
+          "expr": {
+            "kind": "binary_op",
+            "left": {
+              "kind": "ref",
+              "name": "a"
+            },
+            "op": "+",
+            "right": {
+              "kind": "ref",
+              "name": "b"
+            }
+          },
+          "fragment": "core",
+          "kind": "compute",
+          "name": "sum",
+          "node_id": "compute:Add.sum",
+          "type": {
+            "name": "Integer",
+            "params": []
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "lifecycle": "session",
+          "name": "sum",
+          "node_id": "output:Add.sum",
+          "type": {
+            "name": "Integer",
+            "params": []
+          }
+        }
+      ],
+      "specialization_of": null,
+      "type_args": {}
+    }
+  ],
+  "format_version": "0.1.0",
+  "grammar_version": "0.1.0",
+  "kind": "semantic_ir_program",
+  "module": "Lang.Examples.Add",
+  "program_id": "semanticir/813720688bd92d00",
+  "source_hash": "sha256:813720688bd92d00bf09eb085c9c074822d1e6ccc39d482f51dbbaa60629d8e5",
+  "source_path": "src/test/resources/fixtures/add.ig"
+}

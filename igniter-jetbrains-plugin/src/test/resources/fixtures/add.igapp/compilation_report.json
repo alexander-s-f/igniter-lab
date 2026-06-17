@@ -1,0 +1,17 @@
+{
+  "diagnostics": [],
+  "format_version": "0.1.0",
+  "grammar_version": "0.1.0",
+  "kind": "compilation_report",
+  "pass_result": "ok",
+  "program_id": "compilation_report/813720688bd92d00",
+  "semantic_ir_ref": "semanticir/813720688bd92d00",
+  "source_hash": "sha256:813720688bd92d00bf09eb085c9c074822d1e6ccc39d482f51dbbaa60629d8e5",
+  "source_path": "src/test/resources/fixtures/add.ig",
+  "stages": {
+    "classify": "ok",
+    "emit": "ok",
+    "parse": "ok",
+    "typecheck": "ok"
+  }
+}

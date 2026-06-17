@@ -1,0 +1,82 @@
+{
+  "artifact_hash": "sha256:603dd086c6e7ad3537816cd83b1ff9ac328141f19eda6f7ec54c53bb66367311",
+  "capabilities": [],
+  "compute_nodes": [
+    {
+      "dependencies": [
+        "input:a",
+        "input:b"
+      ],
+      "expr": {
+        "kind": "binary_op",
+        "left": {
+          "kind": "ref",
+          "name": "a"
+        },
+        "op": "+",
+        "right": {
+          "kind": "ref",
+          "name": "b"
+        }
+      },
+      "expression": {
+        "kind": "binary_op",
+        "left": {
+          "kind": "ref",
+          "name": "a"
+        },
+        "op": "+",
+        "right": {
+          "kind": "ref",
+          "name": "b"
+        }
+      },
+      "fragment_class": "core",
+      "kind": "compute",
+      "lifecycle": "session",
+      "name": "sum",
+      "node_id": "node_sum",
+      "obs_kind": "value_observation",
+      "type_tag": "Integer"
+    }
+  ],
+  "contract_id": "Add",
+  "effects": [],
+  "escape_set": [],
+  "fragment_class": "core",
+  "input_ports": [
+    {
+      "lifecycle": "local",
+      "name": "a",
+      "required": true,
+      "type_tag": "Integer"
+    },
+    {
+      "lifecycle": "local",
+      "name": "b",
+      "required": true,
+      "type_tag": "Integer"
+    }
+  ],
+  "lifecycle": "session",
+  "modifier": "pure",
+  "name": "Add",
+  "output_ports": [
+    {
+      "lifecycle": "session",
+      "name": "sum",
+      "required": true,
+      "type_tag": "Integer"
+    }
+  ],
+  "source_contract_ref": "contract/Add/sha256:713458b3d39e2fae90265135",
+  "type_signature": {
+    "inputs": {
+      "a": "Integer",
+      "b": "Integer"
+    },
+    "outputs": {
+      "sum": "Integer"
+    }
+  }
+}

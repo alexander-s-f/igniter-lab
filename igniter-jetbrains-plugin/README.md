@@ -27,3 +27,5 @@ It is a lab-only tooling prototype inside `igniter-lab`. It is not a Marketplace
 ```
 
 `buildPlugin` creates local artifacts under `build/`; those outputs are intentionally ignored.
+
+The compiler-backed semantic navigation layer has a proof card: `LAB-JETBRAINS-SEMANTIC-NAV-PROOF-P1` (`./gradlew test`, proof doc under `lab-docs/lang/`).

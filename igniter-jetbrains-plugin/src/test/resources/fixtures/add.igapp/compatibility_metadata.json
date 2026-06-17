@@ -1,0 +1,13 @@
+{
+  "canonical_artifact": "semantic_ir_program.json",
+  "canonical_semantic_ir_ref": "semanticir/813720688bd92d00",
+  "compilation_report_ref": "compilation_report/813720688bd92d00",
+  "format_version": "0.1.0",
+  "kind": "igapp_compatibility_metadata",
+  "loader_shape": "runtime_machine_memory_proof.prop0191_direct_v0",
+  "notes": [
+    "semantic_ir_program.json preserves PROP-019.1 envelope",
+    "RuntimeMachine proof loader reads semantic_ir_program.json directly"
+  ],
+  "runtime_compatibility_artifact": null
+}

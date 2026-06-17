@@ -1,0 +1,53 @@
+{
+  "diagnostics": [
+    {
+      "line": 2,
+      "message": "Unknown body declaration: =",
+      "node": "parse",
+      "rule": "OOF-P0",
+      "severity": "error"
+    },
+    {
+      "line": 2,
+      "message": "Unknown body declaration: is_some",
+      "node": "parse",
+      "rule": "OOF-P0",
+      "severity": "error"
+    },
+    {
+      "line": 2,
+      "message": "Unknown body declaration: (",
+      "node": "parse",
+      "rule": "OOF-P0",
+      "severity": "error"
+    },
+    {
+      "line": 2,
+      "message": "Unknown body declaration: x",
+      "node": "parse",
+      "rule": "OOF-P0",
+      "severity": "error"
+    },
+    {
+      "line": 2,
+      "message": "Unknown body declaration: )",
+      "node": "parse",
+      "rule": "OOF-P0",
+      "severity": "error"
+    }
+  ],
+  "format_version": "0.1.0",
+  "grammar_version": "0.1.0",
+  "kind": "compilation_report",
+  "pass_result": "error",
+  "program_id": "compilation_report/c018d2d4e8f695d5",
+  "semantic_ir_ref": null,
+  "source_hash": "sha256:c018d2d4e8f695d5ca84126472ebac2386b2878bb67960efa0a81c8b7a43d0e2",
+  "source_path": "/tmp/fix_bad.ig",
+  "stages": {
+    "classify": "skipped",
+    "emit": "skipped",
+    "parse": "error",
+    "typecheck": "skipped"
+  }
+}

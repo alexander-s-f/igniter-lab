@@ -1,0 +1,53 @@
+{
+  "module": "Lang.Examples.Add",
+  "nodes": [
+    {
+      "kind": "contract",
+      "node_id": "contract:Add",
+      "sir_path": "$.contracts[?(@.contract_name=='Add')]",
+      "source_span": {
+        "start_col": 10,
+        "start_line": 3
+      }
+    },
+    {
+      "kind": "input",
+      "node_id": "input:Add.a",
+      "sir_path": "$.contracts[?(@.contract_name=='Add')].inputs[?(@.name=='a')]",
+      "source_span": {
+        "start_col": 3,
+        "start_line": 4
+      }
+    },
+    {
+      "kind": "input",
+      "node_id": "input:Add.b",
+      "sir_path": "$.contracts[?(@.contract_name=='Add')].inputs[?(@.name=='b')]",
+      "source_span": {
+        "start_col": 3,
+        "start_line": 5
+      }
+    },
+    {
+      "kind": "compute",
+      "node_id": "compute:Add.sum",
+      "sir_path": "$.contracts[?(@.contract_name=='Add')].nodes[?(@.name=='sum')]",
+      "source_span": {
+        "start_col": 3,
+        "start_line": 7
+      }
+    },
+    {
+      "kind": "output",
+      "node_id": "output:Add.sum",
+      "sir_path": "$.contracts[?(@.contract_name=='Add')].outputs[?(@.name=='sum')]",
+      "source_span": {
+        "start_col": 3,
+        "start_line": 9
+      }
+    }
+  ],
+  "provenance_note": "v0: declaration spans exact (token-start of name); expression spans best-effort (token-start of delimiter); end positions absent (not tracked in v0)",
+  "schema_version": "srcmap-v0",
+  "source_file": "src/test/resources/fixtures/add.ig"
+}

@@ -1,0 +1,22 @@
+{
+  "ambiguities": [],
+  "diagnostics": [],
+  "resolved_forms": [],
+  "trace": [
+    {
+      "candidates": [],
+      "contract_ctx": "Add",
+      "decl_name": "sum",
+      "expr_kind": "binary_op",
+      "filter_status": "primitive_pass_through",
+      "kind": "primitive_pass_through",
+      "resolved_to": null,
+      "trigger": "+",
+      "typed_operands": [
+        "Integer",
+        "Integer"
+      ],
+      "typed_result": "Integer"
+    }
+  ]
+}
