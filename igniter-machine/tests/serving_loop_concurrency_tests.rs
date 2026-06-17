@@ -17,6 +17,7 @@ use igniter_machine::coordination::{
     PoolVisibility, ServiceRecipe,
 };
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::observability::observe;
 use igniter_machine::orchestrator::EffectOrchestrator;
@@ -101,8 +102,8 @@ async fn http_post(addr: std::net::SocketAddr, key: String, corr: String) -> u16
     let text = String::from_utf8_lossy(&resp).to_string();
     text.lines().next().and_then(|l| l.split_whitespace().nth(1)).and_then(|x| x.parse().ok()).unwrap_or(0)
 }
-fn cfg<'a>(registry: &'a CapabilityExecutorRegistry, receipts: &'a Arc<dyn TBackend>, eclock: &'a Arc<dyn ClockProvider>, ep: &'a CapabilityPassport) -> EffectBridgeConfig<'a> {
-    EffectBridgeConfig { registry, receipts, effect_clock: eclock, effect_passport: ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() }
+fn cfg<'a>(registry: &'a CapabilityExecutorRegistry, receipts: &'a Arc<dyn TBackend>, eclock: &'a Arc<dyn ClockProvider>, ep: &'a CapabilityPassport, sf: &'a SingleFlight) -> EffectBridgeConfig<'a> {
+    EffectBridgeConfig { registry, receipts, effect_clock: eclock, effect_passport: ep, single_flight: sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() }
 }
 fn write_req(idem: &str) -> WriteRequest {
     WriteRequest {
@@ -135,7 +136,8 @@ fn concurrent_distinct_keys_run_in_parallel() {
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -169,7 +171,8 @@ fn concurrent_same_key_exactly_one_effect() {
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -201,7 +204,8 @@ fn concurrent_distinct_parallel_same_key_serialized() {
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -235,7 +239,8 @@ fn concurrent_deterministic_shutdown_no_leak() {
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -271,7 +276,8 @@ fn concurrent_tick_drains_due_retry() {
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
 
         // a retry intent due immediately, for the SAME capability/executor.

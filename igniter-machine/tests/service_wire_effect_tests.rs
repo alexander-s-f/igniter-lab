@@ -15,6 +15,7 @@ use igniter_machine::coordination::{
     PoolVisibility, ServiceRecipe, COORD_AUDIT_STORE,
 };
 use igniter_machine::ingress::{serve_once_effect, EffectBridgeConfig, IngressRouter};
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 use serde_json::{json, Value};
@@ -98,8 +99,8 @@ async fn http_post(addr: std::net::SocketAddr, key: &str, base: i64, corr: &str)
     (status, text)
 }
 
-fn cfg<'a>(registry: &'a CapabilityExecutorRegistry, receipts: &'a Arc<dyn TBackend>, eclock: &'a Arc<dyn ClockProvider>, ep: &'a CapabilityPassport) -> EffectBridgeConfig<'a> {
-    EffectBridgeConfig { registry, receipts, effect_clock: eclock, effect_passport: ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() }
+fn cfg<'a>(registry: &'a CapabilityExecutorRegistry, receipts: &'a Arc<dyn TBackend>, eclock: &'a Arc<dyn ClockProvider>, ep: &'a CapabilityPassport, sf: &'a SingleFlight) -> EffectBridgeConfig<'a> {
+    EffectBridgeConfig { registry, receipts, effect_clock: eclock, effect_passport: ep, single_flight: sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() }
 }
 
 async fn bridge_facts(audit: &Arc<dyn TBackend>) -> Vec<Value> {
@@ -117,7 +118,8 @@ fn wire_to_effect_committed() {
         let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -140,7 +142,8 @@ fn wire_dedup_strict_no_second_effect() {
         let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -161,7 +164,8 @@ fn wire_bounded_fresh_attempts() {
         let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -186,7 +190,8 @@ fn wire_status_mapping() {
             let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
             let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
             let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-            let c = cfg(&registry, &receipts, &eclock, &ep);
+            let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let (_s, (status, _)) = tokio::join!(serve_once_effect(&listener, &r, &h, &c), http_post(addr, "E1", 1000, "c1"));
@@ -199,7 +204,8 @@ fn wire_status_mapping() {
             let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
             let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
             let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-            let c = cfg(&registry, &receipts, &eclock, &ep);
+            let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let (_s, (status, _)) = tokio::join!(serve_once_effect(&listener, &r, &h, &c), http_post(addr, "E2", 1000, "c2"));
@@ -217,7 +223,8 @@ fn wire_receipt_links() {
         let mut registry = CapabilityExecutorRegistry::new(); registry.register(exec.clone());
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock(); let ep = cpass("host", CAP, &["write"]);
-        let c = cfg(&registry, &receipts, &eclock, &ep);
+        let sf = SingleFlight::new();
+        let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 

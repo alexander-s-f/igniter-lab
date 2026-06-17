@@ -18,6 +18,10 @@
 //! - the clamped `effective_limit` is the `LIMIT`.
 
 use crate::postgres_read::{PostgresReadAdapter, PostgresReadResult, QueryPlan};
+use crate::postgres_write::{
+    PostgresReceiptLookup, PostgresWriteAdapter, PostgresWriteIntent, PostgresWriteReceiptResolver,
+    PostgresWriteResult,
+};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -124,6 +128,169 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
                     PostgresReadResult::Unavailable(format!("{e}"))
                 }
             }
+        }
+    }
+}
+
+// ── Real write adapter (LAB-MACHINE-POSTGRES-LOCAL-WRITE-P8) ────────────────────
+//
+// The real counterpart of `FakePostgresWriteAdapter`. Driven by the UNCHANGED `run_write_effect`
+// two-phase receipt; this adapter only performs the transaction. **One effect = one atomic
+// statement**: a single writable-CTE statement inserts the PG-side `effect_receipts(idempotency_key)`
+// row (ON CONFLICT DO NOTHING) and performs the business upsert ONLY when that receipt was fresh —
+// so a duplicate idempotency key blocks the second business mutation (the P3 second idempotency
+// layer) without a separate transaction object (`Client::query` takes `&self`, so `Arc<Client>`
+// suffices). Read-only reconcile via `PostgresWriteReceiptResolver`. Dedicated test DB only.
+
+/// Render a JSON value as an optional TEXT parameter (absent/null → SQL NULL).
+fn json_to_opt_text(v: Option<&Value>) -> Option<String> {
+    match v {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(other) => Some(other.to_string()),
+    }
+}
+
+/// Map a `tokio_postgres` error to the P3 write taxonomy: SQLSTATE class drives permanent vs
+/// retryable vs denied; a non-DB (connection/IO) error is `Unknown` (no blind retry).
+fn classify_write_error(e: &tokio_postgres::Error) -> PostgresWriteResult {
+    match e.as_db_error() {
+        Some(db) => {
+            let code = db.code().code().to_string();
+            match code.as_str() {
+                "40001" | "40P01" => PostgresWriteResult::SerializationFailure(format!("{code}: {e}")),
+                "42501" => PostgresWriteResult::Denied(format!("{code}: insufficient privilege")),
+                c if c.starts_with("23") => PostgresWriteResult::ConstraintViolation(format!("{c}: {e}")),
+                _ => PostgresWriteResult::ConstraintViolation(format!("{code}: {e}")),
+            }
+        }
+        None => PostgresWriteResult::Unknown(format!("connection/io: {e}")),
+    }
+}
+
+/// A real write adapter over `tokio_postgres`. HOST-CONFIGURED with the single `target` table, its
+/// primary-key column, and the value columns it may write — so a contract can NEVER supply a SQL
+/// identifier (the intent's values are read only for those configured columns; missing → NULL).
+pub struct TokioPostgresWriteAdapter {
+    client: Arc<Client>,
+    target: String,
+    key_column: String,
+    columns: Vec<String>,
+    attempts: AtomicU64,
+}
+
+impl TokioPostgresWriteAdapter {
+    /// Connect and bind to one host-owned `target(key_column, columns…)`. DSN from a
+    /// SecretProvider/env — never hardcoded, never in a receipt. NoTls loopback (TLS = later slice).
+    pub async fn connect(dsn: &str, target: &str, key_column: &str, columns: &[&str]) -> Result<Self, tokio_postgres::Error> {
+        let (client, connection) = tokio_postgres::connect(dsn, NoTls).await?;
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        Ok(Self {
+            client: Arc::new(client),
+            target: target.to_string(),
+            key_column: key_column.to_string(),
+            columns: columns.iter().map(|c| c.to_string()).collect(),
+            attempts: AtomicU64::new(0),
+        })
+    }
+
+    /// How many real transactions were attempted (a machine-receipt replay must NOT increment this).
+    pub fn attempts(&self) -> u64 {
+        self.attempts.load(Ordering::SeqCst)
+    }
+
+    /// Direct read of the business table (test/diagnostic): `SELECT <cols> FROM target WHERE key=$1`.
+    pub async fn read_business_text(&self, key: &str, col: &str) -> Option<String> {
+        let sql = format!(
+            "SELECT {}::text FROM {} WHERE {} = $1",
+            quote_ident(col),
+            quote_ident(&self.target),
+            quote_ident(&self.key_column)
+        );
+        match self.client.query_opt(sql.as_str(), &[&key]).await {
+            Ok(Some(row)) => row.get::<_, Option<String>>(0),
+            _ => None,
+        }
+    }
+}
+
+#[async_trait]
+impl PostgresWriteAdapter for TokioPostgresWriteAdapter {
+    async fn transact(&self, intent: &PostgresWriteIntent, idempotency_key: &str) -> PostgresWriteResult {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+
+        // Build the business insert column/placeholder/conflict clauses from the HOST-configured
+        // columns (never the intent's keys). Params: $1..$4 = effect-receipt row, $5 = business key,
+        // $6.. = the configured column values (NULL when the intent omits them).
+        let biz_cols: Vec<String> = std::iter::once(quote_ident(&self.key_column))
+            .chain(self.columns.iter().map(|c| quote_ident(c)))
+            .collect();
+        let biz_placeholders: Vec<String> = (0..biz_cols.len()).map(|i| format!("${}", 5 + i)).collect();
+        let on_conflict = if self.columns.is_empty() {
+            "DO NOTHING".to_string()
+        } else {
+            let sets: Vec<String> = self.columns.iter().map(|c| format!("{0}=EXCLUDED.{0}", quote_ident(c))).collect();
+            format!("DO UPDATE SET {}", sets.join(", "))
+        };
+
+        let sql = format!(
+            "WITH ins AS (\
+               INSERT INTO effect_receipts (idempotency_key, correlation_id, target, business_key) \
+               VALUES ($1, $2, $3, $4) ON CONFLICT (idempotency_key) DO NOTHING RETURNING 1\
+             ), biz AS (\
+               INSERT INTO {target} ({cols}) \
+               SELECT {ph} WHERE EXISTS (SELECT 1 FROM ins) \
+               ON CONFLICT ({key}) {on_conflict} RETURNING 1\
+             ) SELECT count(*)::int AS fresh FROM ins",
+            target = quote_ident(&self.target),
+            cols = biz_cols.join(", "),
+            ph = biz_placeholders.join(", "),
+            key = quote_ident(&self.key_column),
+            on_conflict = on_conflict,
+        );
+
+        // Params (all Option<String> so NULLs bind uniformly).
+        let mut params: Vec<Option<String>> = vec![
+            Some(idempotency_key.to_string()),
+            intent.correlation_id.clone(),
+            Some(intent.target.clone()),
+            Some(intent.key.clone()),
+            Some(intent.key.clone()), // $5 = business key column value
+        ];
+        for c in &self.columns {
+            params.push(json_to_opt_text(intent.values.get(c)));
+        }
+        let param_refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+
+        match self.client.query_one(sql.as_str(), &param_refs).await {
+            Ok(row) => {
+                let fresh: i32 = row.get("fresh");
+                if fresh == 1 {
+                    PostgresWriteResult::Committed
+                } else {
+                    PostgresWriteResult::DuplicateKey
+                }
+            }
+            Err(e) => classify_write_error(&e),
+        }
+    }
+}
+
+#[async_trait]
+impl PostgresWriteReceiptResolver for TokioPostgresWriteAdapter {
+    async fn lookup_effect_receipt(&self, idempotency_key: &str) -> PostgresReceiptLookup {
+        // READ ONLY — never re-runs the write. Any error → Unavailable (cannot determine the fate).
+        let sql = "SELECT correlation_id, target, business_key FROM effect_receipts WHERE idempotency_key = $1";
+        match self.client.query_opt(sql, &[&idempotency_key]).await {
+            Ok(Some(row)) => PostgresReceiptLookup::Found {
+                correlation_id: row.get::<_, Option<String>>(0),
+                target: row.get::<_, String>(1),
+                key: row.get::<_, String>(2),
+            },
+            Ok(None) => PostgresReceiptLookup::NotFound,
+            Err(e) => PostgresReceiptLookup::Unavailable(format!("{e}")),
         }
     }
 }

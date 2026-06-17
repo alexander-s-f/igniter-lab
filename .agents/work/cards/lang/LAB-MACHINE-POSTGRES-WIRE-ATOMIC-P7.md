@@ -1,9 +1,48 @@
 # Card: LAB-MACHINE-POSTGRES-WIRE-ATOMIC-P7 — atomic effect gate on wire-to-effect path
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol  
-**Status:** OPEN  
+**Status: CLOSED 2026-06-17 — implementation proof complete (3/3 deterministic + all serving suites green).**
 **Date opened:** 2026-06-17  
 **Authority:** Lab-only implementation proof. No live DB. No Postgres writes. No external network.
+
+## Closing report (2026-06-17)
+
+Doc: [`lab-docs/lang/lab-machine-postgres-wire-atomic-p7-v0.md`](../../../../lab-docs/lang/lab-machine-postgres-wire-atomic-p7-v0.md).
+
+**Verify-first:** `ingress::handle_effect` performed the effect via plain `run_write_effect`
+(`src/ingress.rs:344`); only `bridge_effect::ServiceEffectBridge` used `run_write_effect_atomic`.
+The in-memory fake backend never yields mid-`run_write_effect`, so the single-task cooperative
+serving loop MASKED the same-key double-execute race a real (yielding) backend would open.
+
+**Change (per required shape #3 — host passes the gate explicitly, no implicit global):**
+`EffectBridgeConfig` gains `pub single_flight: &'a SingleFlight` (host-provided, shareable with
+`ServiceEffectBridge` so the same effect key serializes across BOTH entry paths); `handle_effect`
+performs the effect via `run_write_effect_atomic(cfg.single_flight, …)` keyed by the effect
+idempotency key `capability:duplicate_key:attempt`. `serve_once_effect` inherits it. The 9
+`EffectBridgeConfig` construction sites now thread a `SingleFlight`. Three `src/ingress.rs` edits
+(import, struct field, the effect call); no new primitive; `duplicate_policy` semantics unchanged;
+fanout still never executes effects.
+
+**Proof** = `tests/wire_atomic_gate_tests.rs`, **deterministic** via a `BarrierBackend` that reads
+the receipt value FIRST then parks both same-key writers on a barrier, so both observe "no receipt"
+before either writes `prepared` (the window a real backend opens): (A) plain `run_write_effect` →
+**2** attempts (race is real); (B) `run_write_effect_atomic` → **1** attempt, all `Committed`
+(gate closes it, duplicates replay — not 202-unknown); (C) distinct keys both reach the barrier
+concurrently → **2** attempts, no deadlock (per-key, NOT global — a global lock would deadlock the
+barrier, guarded by a 5s timeout). 5× reruns identical (no flakiness).
+
+**Verify:** `cargo test --no-default-features` → **51 suites green, 317 tests passed, 0 failed, 0
+compiler errors** (no regression). Serving suites: duplicate_policy 8 / ingress_replica 7 /
+bridge_replica 6 / wire_effect 5 / serving_loop 4 / concurrency 5 / pool_fanout 8; new
+`wire_atomic_gate_tests` 3/3. `cargo build --no-default-features --features postgres` → `Finished`
+(build-only, no DB). No DB / live / new dependency.
+
+**Independent re-verification (2026-06-17, verify-first close).** Re-ran from a clean state, not
+trusting the prior report: targeted `wire_atomic_gate_tests` 3/3; each named serving suite at its
+listed count; full `--no-default-features` = 51 suites / 317 tests / 0 failed; `--features postgres`
+builds; `wire_atomic_gate_tests` re-run 5× — identical 3/3 every run (deterministic, no flake).
+Every claimed count reproduced exactly. IMPLEMENTED_SURFACE P13 row's stale "named follow-on" note
+updated to point at this closed gate.
 
 ## Why this card exists
 
@@ -60,20 +99,20 @@ effect exactly once.
 
 ## Acceptance
 
-- [ ] Verify-first note identifies the current non-atomic or atomic call site in the wire path.
-- [ ] Wire-to-effect bridge calls `run_write_effect_atomic` (or an equivalent wrapper over it)
+- [x] Verify-first note identifies the current non-atomic or atomic call site in the wire path.
+- [x] Wire-to-effect bridge calls `run_write_effect_atomic` (or an equivalent wrapper over it)
       with a host-provided `SingleFlight`.
-- [ ] Same-key concurrent `handle_effect` calls produce exactly one downstream executor attempt
+- [x] Same-key concurrent `handle_effect` calls produce exactly one downstream executor attempt
       and replay/share the recorded result for the rest.
-- [ ] Different idempotency keys are not globally serialized (prove with a yielding probe executor,
-      or document why the existing P18 proof remains the distinct-key evidence).
-- [ ] Existing P7 duplicate-policy tests remain green.
-- [ ] Existing P9/P10/P11 serving bridge and wire tests remain green.
-- [ ] No change to Postgres read/write modules, no DB dependency, no live network.
-- [ ] `IMPLEMENTED_SURFACE.md` updated with the atomic wire-path proof.
-- [ ] Proof doc written:
+- [x] Different idempotency keys are not globally serialized (barrier proves concurrent reach on
+      distinct keys; a global lock would deadlock).
+- [x] Existing P7 duplicate-policy tests remain green.
+- [x] Existing P9/P10/P11 serving bridge and wire tests remain green.
+- [x] No change to Postgres read/write modules, no DB dependency, no live network.
+- [x] `IMPLEMENTED_SURFACE.md` updated with the atomic wire-path proof.
+- [x] Proof doc written:
       `lab-docs/lang/lab-machine-postgres-wire-atomic-p7-v0.md`.
-- [ ] Closing report added to this card with exact commands and pass counts.
+- [x] Closing report added to this card with exact commands and pass counts.
 
 ## Closed surfaces
 

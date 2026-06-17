@@ -22,7 +22,8 @@ use crate::backend::TBackend;
 use crate::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode};
 use crate::clock::ClockProvider;
 use crate::coordination::{select_replica, CoordinationHub, DuplicatePolicy, PoolRefusal};
-use crate::write::{run_write_effect, WriteRequest, WriteState};
+use crate::single_flight::{run_write_effect_atomic, SingleFlight};
+use crate::write::{WriteRequest, WriteState};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -87,6 +88,13 @@ pub struct EffectBridgeConfig<'a> {
     pub receipts: &'a Arc<dyn TBackend>,
     pub effect_clock: &'a Arc<dyn ClockProvider>,
     pub effect_passport: &'a CapabilityPassport,
+    /// Host-provided per-key atomic gate (P18) for the effect side (LAB-MACHINE-POSTGRES-WIRE-
+    /// ATOMIC-P7). The host passes ONE `SingleFlight` explicitly (no implicit global), shared with
+    /// any other effect path (e.g. `ServiceEffectBridge`) so the same effect idempotency key
+    /// `capability:duplicate_key:attempt` serializes regardless of entry path → the downstream
+    /// effect runs EXACTLY ONCE even under a yielding/real backend. The in-memory fake backend never
+    /// yielded mid-`run_write_effect`, which MASKED this on the wire path until now.
+    pub single_flight: &'a SingleFlight,
     pub capability_id: String,
     pub operation: String,
     pub scope: String,
@@ -341,7 +349,10 @@ impl IngressRouter {
                     idempotency_key: effect_idem.clone(),
                     payload: json!({ "intent": intent, "correlation_id": correlation_id }),
                 };
-                let (status, body, state_str) = match run_write_effect(cfg.registry, cfg.receipts, cfg.effect_clock, cfg.effect_passport, &cfg.scope, &write_req, RunMode::Live).await {
+                // Atomic gate (P18) on the effect idempotency key — concurrent same-key wire
+                // requests serialize so the downstream effect runs exactly once even when a real
+                // backend yields mid-write. Host-provided per-key lock → distinct keys run parallel.
+                let (status, body, state_str) = match run_write_effect_atomic(cfg.single_flight, cfg.registry, cfg.receipts, cfg.effect_clock, cfg.effect_passport, &cfg.scope, &write_req, RunMode::Live).await {
                     Ok(o) => {
                         let (s, b) = map_effect_outcome(o.state, &o.result, &o.detail, &correlation_id);
                         (s, b, format!("{:?}", o.state))

@@ -15,6 +15,7 @@ use igniter_machine::coordination::{
     PoolVisibility, ServiceRecipe, COORD_AUDIT_STORE,
 };
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRequest, IngressRouter};
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 use serde_json::{json, Value};
@@ -91,7 +92,7 @@ async fn prod(n: usize, dp: DuplicatePolicy) -> (CoordinationHub, Arc<dyn TBacke
     (h, audit, r)
 }
 
-fn req(key: &str, base: i64, corr: &str) -> IngressRequest {
+fn req(key: &str, corr: &str) -> IngressRequest {
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "Bearer vtok".to_string());
     headers.insert("x-vendor-event-id".to_string(), key.to_string());
@@ -116,9 +117,10 @@ fn one_request_one_effect() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
-        let resp = r.handle_effect(&h, &req("E1", 1000, "c1"), &cfg).await;
+        let resp = r.handle_effect(&h, &req("E1", "c1"), &cfg).await;
         assert_eq!(resp.status, 200);
         assert_eq!(exec.attempts(), 1, "exactly one effect");
         assert_eq!(exec.applied_count(), 1);
@@ -136,10 +138,11 @@ fn dedup_strict_no_second_effect() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
-        let a = r.handle_effect(&h, &req("E1", 1000, "c1"), &cfg).await;
-        let b = r.handle_effect(&h, &req("E1", 1000, "c2"), &cfg).await; // same key+payload → replay
+        let a = r.handle_effect(&h, &req("E1", "c1"), &cfg).await;
+        let b = r.handle_effect(&h, &req("E1", "c2"), &cfg).await; // same key+payload → replay
         assert_eq!(a.status, 200);
         assert_eq!(b.status, 200);
         assert_eq!(exec.attempts(), 1, "the repeat replays, NO second effect");
@@ -157,10 +160,11 @@ fn bounded_fresh_distinct_effects() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
         for i in 0..3 {
-            r.handle_effect(&h, &req("E1", 1000, &format!("c{}", i)), &cfg).await;
+            r.handle_effect(&h, &req("E1", &format!("c{}", i)), &cfg).await;
         }
         // three fresh attempts → three distinct effect idempotency keys → three committed effects
         assert_eq!(exec.applied_count(), 3, "each fresh attempt is a distinct effect");
@@ -180,9 +184,10 @@ fn audit_links_request_attempt_replica_effect() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
-        r.handle_effect(&h, &req("E1", 1000, "corr-xyz"), &cfg).await;
+        r.handle_effect(&h, &req("E1", "corr-xyz"), &cfg).await;
         let bf = &bridge_facts(&audit).await[0];
         assert_eq!(bf["correlation_id"], json!("corr-xyz"));
         assert_eq!(bf["attempt_index"], json!(0));
@@ -203,9 +208,10 @@ fn unknown_effect_202() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
-        let resp = r.handle_effect(&h, &req("E1", 1000, "c1"), &cfg).await;
+        let resp = r.handle_effect(&h, &req("E1", "c1"), &cfg).await;
         assert_eq!(resp.status, 202);
         assert_eq!(resp.body["correlation_id"], json!("c1"));
     });
@@ -222,9 +228,10 @@ fn fanout_never_on_bridge_path() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let eclock = clock();
         let ep = host_effect();
-        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
+        let sf = SingleFlight::new();
+        let cfg = EffectBridgeConfig { registry: &registry, receipts: &receipts, effect_clock: &eclock, effect_passport: &ep, single_flight: &sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() };
 
-        r.handle_effect(&h, &req("E1", 1000, "c1"), &cfg).await;
+        r.handle_effect(&h, &req("E1", "c1"), &cfg).await;
         let all = audit.all_facts().await.unwrap();
         assert!(all.iter().all(|f| f.value["operation"] != json!("invoke_fanout")));
         assert_eq!(bridge_facts(&audit).await.len(), 1, "exactly one bridge effect");
