@@ -145,6 +145,17 @@
         <gotoSymbolContributor
             implementation="com.igniter.plugin.navigation.IgniterGotoSymbolContributor"/>
 
+        <!-- Type inlay hints (compiler-backed, declarative) -->
+        <codeInsight.declarativeInlayProvider
+            language="Igniter"
+            implementationClass="com.igniter.plugin.hints.IgniterTypeInlayProvider"
+            isEnabledByDefault="true"
+            group="TYPES_GROUP"
+            providerId="igniter.types.inlay"
+            nameKey="inlay.igniter.types.name"
+            descriptionKey="inlay.igniter.types.description"
+            bundle="messages.IgniterBundle"/>
+
     </extensions>
 
     <!-- ================================================================== -->
