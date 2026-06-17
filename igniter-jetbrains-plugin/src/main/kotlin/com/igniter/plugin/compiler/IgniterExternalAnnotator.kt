@@ -2,7 +2,11 @@ package com.igniter.plugin.compiler
 
 import com.igniter.plugin.lang.IgniterFile
 import com.igniter.plugin.model.IgniterModelService
+import com.igniter.plugin.quickfix.ConfigureCompilerPathQuickFix
+import com.igniter.plugin.quickfix.IgniterQuickFix
+import com.igniter.plugin.quickfix.IgniterQuickFixPlanner
 import com.igniter.plugin.settings.IgniterSettings
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
@@ -68,23 +72,22 @@ class IgniterExternalAnnotator : ExternalAnnotator<IgniterExternalAnnotator.Requ
 
             val range = TextRange(start, end)
             val tooltip = "[${diag.code}] ${diag.message}"
-
-            when (diag.severity) {
-                OofSeverity.ERROR -> holder.newAnnotation(HighlightSeverity.ERROR, tooltip)
-                    .range(range)
-                    .tooltip(tooltip)
-                    .create()
-
-                OofSeverity.WARNING -> holder.newAnnotation(HighlightSeverity.WARNING, tooltip)
-                    .range(range)
-                    .tooltip(tooltip)
-                    .create()
-
-                OofSeverity.INFO -> holder.newAnnotation(HighlightSeverity.INFORMATION, tooltip)
-                    .range(range)
-                    .tooltip(tooltip)
-                    .create()
+            val severity = when (diag.severity) {
+                OofSeverity.ERROR   -> HighlightSeverity.ERROR
+                OofSeverity.WARNING -> HighlightSeverity.WARNING
+                OofSeverity.INFO    -> HighlightSeverity.INFORMATION
             }
+
+            var builder = holder.newAnnotation(severity, tooltip).range(range).tooltip(tooltip)
+            // Attach a safe, plugin-owned quickfix when the planner approves one.
+            IgniterQuickFixPlanner.planFor(diag.code)?.let { spec ->
+                builder = builder.withFix(quickFixFor(spec))
+            }
+            builder.create()
         }
+    }
+
+    private fun quickFixFor(spec: IgniterQuickFix): IntentionAction = when (spec) {
+        IgniterQuickFix.CONFIGURE_COMPILER_PATH -> ConfigureCompilerPathQuickFix()
     }
 }
