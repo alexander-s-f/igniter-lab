@@ -31,6 +31,28 @@ In other words: `igniter-server` should not become a config-driven router with d
 meaning. A minimal app may implement only the protocol directly. A richer app/framework may add
 helpers, as long as it still compiles down to the same protocol.
 
+## Three execution shapes (readiness P1)
+
+The app's `ServerDecision` names WHICH proven host path to run — never HOW an effect runs:
+
+- `Respond` — the app answers directly (health, 404, validation); the machine is never touched.
+- `Invoke` — the host activates one capsule replica (`CoordinationHub::invoke`, one replica via
+  `select_replica`).
+- `InvokeEffect` *(planned next slice)* — the host runs the wire-to-effect bridge
+  (`ingress::handle_effect` → `run_write_effect_atomic`): one replica → one atomic effect → receipt.
+
+The decision carries a **logical target + input**, never a hand-built effect (`capability_id` /
+`operation` / `scope`). The effect identity comes from the signed `ServiceRecipe` plus the host's
+effect passport — a different authority than the serving passport. This is what keeps the P7/P8
+exactly-one-effect guarantees: the app declares product meaning as data; the host owns transport,
+authority, and the single execution path.
+
+Authority split: routing/classification → the **app**; `target → pool` binding, listener, passports,
+single-flight, executor registry → the **host (infra)**; `capsule_digest` / `entry_contract` /
+duplicate policy → the **signed recipe (deploy)**.
+
+See `lab-docs/lang/lab-machine-igniter-server-protocol-readiness-p1-v0.md`.
+
 ## Current contents
 
 - `src/protocol.rs` — tiny JSON-stable request/response/decision envelope.
@@ -38,8 +60,10 @@ helpers, as long as it still compiles down to the same protocol.
 
 ## Next
 
-Research card:
+Research card (CLOSED, readiness): `LAB-MACHINE-IGNITER-SERVER-PROTOCOL-READINESS-P1` — the durable
+app protocol is decided (see the readiness doc above).
 
-- `LAB-MACHINE-IGNITER-SERVER-PROTOCOL-READINESS-P1`
-
-That card should decide the durable app protocol before adding listener/runtime code.
+Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-BINARY-P2` — a local-loopback binary that
+parses one request into `ServerRequest`, calls a fixture `ServerApp`, and executes the returned
+`ServerDecision` through the proven ingress path. Still no public listener, no web framework, no
+SparkCRM, no DB/live.
