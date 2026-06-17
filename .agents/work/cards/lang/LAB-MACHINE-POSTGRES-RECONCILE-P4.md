@@ -1,7 +1,31 @@
 # Card: LAB-MACHINE-POSTGRES-RECONCILE-P4 — fake Postgres write reconcile
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol  
-**Status: READY.** Follow-on to `LAB-MACHINE-POSTGRES-WRITE-GATE-P3`.
+**Status: CLOSED 2026-06-17 — implementation proof complete (7/7).** Follow-on to
+`LAB-MACHINE-POSTGRES-WRITE-GATE-P3`.
+
+## Closing report (2026-06-17)
+
+Doc: [`lab-docs/lang/lab-machine-postgres-reconcile-p4-v0.md`](../../../../lab-docs/lang/lab-machine-postgres-reconcile-p4-v0.md).
+
+Extended `igniter-machine/src/postgres_write.rs` with `PostgresReceiptLookup`,
+`PostgresWriteReceiptResolver` (impl on `FakePostgresWriteAdapter`, READ-ONLY), `PostgresReconcileResult`,
+and `reconcile_postgres_unknown_write`; added `tests/postgres_reconcile_tests.rs`. **Fake
+adapter/resolver only — no DB, no SQL, no network, no new dependency.** No change to
+`run_write_effect`, `retry`, or `orchestrator`.
+
+Resolves an `unknown_external_state` (or dangling `prepared`, P19) write receipt by an EXACT,
+READ-ONLY lookup of the PG-side `effect_receipts(idempotency_key)` table — found→`committed`,
+not-found→`permanent_failure`, unavailable→stays `unknown`. Never calls `transact` (no second
+mutation — structural, the resolver trait has no mutating method). Keyed by idempotency identity,
+not values → the P7 same-value false positive is impossible. Reuses the P13 `write_resolved`
+upgrade shape (preserves authority+payload digests) so a reconciled-committed receipt REPLAYS
+through `run_write_effect` with no re-execution (proven). Looked-up correlation/target/key recorded
+as evidence in the terminal receipt.
+
+**Verify:** `cargo test --no-default-features --test postgres_reconcile_tests` → 7 passed / 0
+failed; full suite green (no regression); module compiles with no new warnings.
+`IMPLEMENTED_SURFACE.md` updated (public API added).
 
 ## Front door
 
@@ -82,17 +106,17 @@ effect receipt table.
 
 ## Acceptance
 
-- [ ] Verify-first confirms P3 write has PG-side fake `effect_receipts` but no reconcile helper yet.
-- [ ] Reconcile is read-only: no executor/transact call, no new business mutation.
-- [ ] Unknown write with PG effect receipt found resolves to `committed`.
-- [ ] Unknown write with no PG effect receipt resolves to `permanent_failure`.
-- [ ] Resolver unavailable keeps the receipt `unknown_external_state`.
-- [ ] Dangling `prepared` receipt can be reconciled through the same path.
-- [ ] Recovered committed receipt replays without re-executing.
-- [ ] Correlation/idempotency/target/key evidence is preserved in the terminal receipt.
-- [ ] Same-value false positive is impossible: lookup is by idempotency/effect receipt identity, not values.
-- [ ] Fake only; no DB dependency, SQL execution, network, migrations, or ORM.
-- [ ] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated if public API is added.
+- [x] Verify-first confirms P3 write has PG-side fake `effect_receipts` but no reconcile helper yet.
+- [x] Reconcile is read-only: no executor/transact call, no new business mutation.
+- [x] Unknown write with PG effect receipt found resolves to `committed`.
+- [x] Unknown write with no PG effect receipt resolves to `permanent_failure`.
+- [x] Resolver unavailable keeps the receipt `unknown_external_state`.
+- [x] Dangling `prepared` receipt can be reconciled through the same path.
+- [x] Recovered committed receipt replays without re-executing.
+- [x] Correlation/idempotency/target/key evidence is preserved in the terminal receipt.
+- [x] Same-value false positive is impossible: lookup is by idempotency/effect receipt identity, not values.
+- [x] Fake only; no DB dependency, SQL execution, network, migrations, or ORM.
+- [x] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated (public API added).
 
 ## Closed surfaces
 

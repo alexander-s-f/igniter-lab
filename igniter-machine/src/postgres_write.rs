@@ -23,11 +23,16 @@
 //! `effect_receipts` unique key blocks a second business mutation. Reconcile of `unknown` is P4
 //! (NOT here). No ORM/SQL reaches `.ig`, the VM, or capsule activation.
 
-use crate::capability::{CapabilityExecutor, EffectOutcome, EffectRequest};
+use crate::backend::TBackend;
+use crate::capability::{CapabilityExecutor, EffectOutcome, EffectRequest, RECEIPTS_STORE};
+use crate::clock::ClockProvider;
+use crate::errors::EngineError;
+use crate::fact::Fact;
+use crate::write::WriteState;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 // ── Typed write intent (what a contract emits — never SQL) ─────────────────────
@@ -202,6 +207,10 @@ impl<A: PostgresWriteAdapter + 'static> CapabilityExecutor for PostgresWriteExec
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FakeWriteBehavior {
     Commit,
+    /// The transaction COMMITTED (business row + effect receipt recorded) but the response was
+    /// lost → the executor reports `unknown`. This is the landed-but-unknown case that reconcile
+    /// (P4) resolves to `committed` via the effect-receipt read-back.
+    CommitButLost,
     ConstraintViolation,
     SerializationFailure,
     Unknown,
@@ -222,6 +231,9 @@ pub struct FakePostgresWriteAdapter {
     business_rows: Mutex<HashMap<String, Value>>,
     effect_receipts: Mutex<HashMap<String, Value>>,
     attempts: AtomicU64,
+    /// When set, the READ-ONLY reconcile resolver path reports `Unavailable` (the write path is
+    /// unaffected). Lets a test prove "resolver down → receipt stays unknown".
+    resolver_down: AtomicBool,
 }
 
 impl FakePostgresWriteAdapter {
@@ -231,7 +243,12 @@ impl FakePostgresWriteAdapter {
             business_rows: Mutex::new(HashMap::new()),
             effect_receipts: Mutex::new(HashMap::new()),
             attempts: AtomicU64::new(0),
+            resolver_down: AtomicBool::new(false),
         }
+    }
+    /// Mark the reconcile resolver unavailable (read-back can't determine the fate).
+    pub fn set_resolver_down(&self, down: bool) {
+        self.resolver_down.store(down, Ordering::SeqCst);
     }
     /// How many times a transaction was actually attempted (a machine-receipt replay must NOT
     /// increment this).
@@ -275,6 +292,23 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
                 );
                 PostgresWriteResult::Committed
             }
+            FakeWriteBehavior::CommitButLost => {
+                // The commit lands (row + effect receipt) but the ack is lost → report unknown.
+                if self.effect_receipts.lock().unwrap().contains_key(idempotency_key) {
+                    return PostgresWriteResult::DuplicateKey;
+                }
+                let row_key = format!("{}/{}", intent.target, intent.key);
+                self.business_rows.lock().unwrap().insert(row_key, intent.values.clone());
+                self.effect_receipts.lock().unwrap().insert(
+                    idempotency_key.to_string(),
+                    json!({
+                        "correlation_id": intent.correlation_id,
+                        "target": intent.target,
+                        "key": intent.key,
+                    }),
+                );
+                PostgresWriteResult::Unknown("response lost after commit".to_string())
+            }
             // The remaining behaviours roll back — no mutation, nothing recorded.
             FakeWriteBehavior::ConstraintViolation => {
                 PostgresWriteResult::ConstraintViolation("duplicate value violates unique constraint".to_string())
@@ -291,5 +325,135 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
                 PostgresWriteResult::Denied("insufficient privilege".to_string())
             }
         }
+    }
+}
+
+// ── Reconcile of an unknown/dangling write (LAB-MACHINE-POSTGRES-RECONCILE-P4) ──
+//
+// The Postgres-shaped version of P13 correlation reconcile, using the in-transaction PG-side
+// `effect_receipts(idempotency_key)` table modelled in P3. It resolves an `unknown_external_state`
+// (or a dangling `prepared`, P19) write receipt by a READ-ONLY exact lookup of the effect-receipt
+// table — found → committed, not-found → permanent_failure, unavailable → still unknown. It NEVER
+// re-runs the write executor / `transact`. Lookup is by idempotency-key identity, NOT by value, so
+// the P7 same-value false-positive is impossible.
+
+/// Read-only result of looking up the PG-side effect-receipt table by idempotency key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PostgresReceiptLookup {
+    /// The effect-receipt row exists → the transaction committed. Carries the recorded identity.
+    Found { correlation_id: Option<String>, target: String, key: String },
+    /// No effect-receipt row → the transaction did not commit.
+    NotFound,
+    /// The lookup could not be performed (resolver down) → fate undetermined.
+    Unavailable(String),
+}
+
+/// Looks up the fate of a write by its idempotency key against the PG-side `effect_receipts`
+/// table. MUST be read-only — never re-issues the write. (A real impl runs a `SELECT` against the
+/// effect-receipt table; no `transact`.)
+#[async_trait]
+pub trait PostgresWriteReceiptResolver: Send + Sync {
+    async fn lookup_effect_receipt(&self, idempotency_key: &str) -> PostgresReceiptLookup;
+}
+
+#[async_trait]
+impl PostgresWriteReceiptResolver for FakePostgresWriteAdapter {
+    async fn lookup_effect_receipt(&self, idempotency_key: &str) -> PostgresReceiptLookup {
+        // READ ONLY: this path never touches `attempts`/`business_rows` — no mutation.
+        if self.resolver_down.load(Ordering::SeqCst) {
+            return PostgresReceiptLookup::Unavailable("effect-receipt lookup unavailable".to_string());
+        }
+        match self.effect_receipts.lock().unwrap().get(idempotency_key) {
+            Some(rec) => PostgresReceiptLookup::Found {
+                correlation_id: rec.get("correlation_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                target: rec.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                key: rec.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            },
+            None => PostgresReceiptLookup::NotFound,
+        }
+    }
+}
+
+/// Outcome of reconciling a Postgres write receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PostgresReconcileResult {
+    ResolvedCommitted,
+    ResolvedPermanentFailure,
+    StillUnknown,
+    /// The receipt is not in a reconcilable state (`unknown`/dangling `prepared`).
+    NotApplicable(WriteState),
+    NoReceipt,
+}
+
+/// Upgrade the existing receipt to a terminal state, PRESERVING every other field (authority &
+/// payload digests, correlation, target/key) so a later `run_write_effect` replay still matches.
+/// Mirrors `correlation::write_resolved`; tagged `reconciled_by = "pg_effect_receipt"`.
+async fn write_pg_resolved(
+    receipts: &Arc<dyn TBackend>,
+    now: f64,
+    rkey: &str,
+    original: &Value,
+    resolved: WriteState,
+    evidence: Option<Value>,
+) -> Result<(), EngineError> {
+    let mut value = original.clone();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("state".to_string(), json!(resolved.as_str()));
+        obj.insert("reconciled".to_string(), json!(true));
+        obj.insert("reconciled_by".to_string(), json!("pg_effect_receipt"));
+        // Preserve the looked-up effect-receipt identity (correlation/target/key) as evidence.
+        if let Some(ev) = evidence {
+            obj.insert("pg_effect_receipt".to_string(), ev);
+        }
+    }
+    let fact = Fact {
+        id: format!("write-receipt:{}:pg-reconciled:{}", rkey, resolved.as_str()),
+        store: RECEIPTS_STORE.to_string(),
+        key: rkey.to_string(),
+        value,
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: now,
+        valid_time: None,
+        schema_version: 1,
+        producer: Some(json!("postgres-write-reconciler")),
+        derivation: None,
+    };
+    receipts.write_fact(fact).await
+}
+
+/// Reconcile an `unknown_external_state` (or dangling `prepared`) Postgres write receipt by an
+/// exact, READ-ONLY lookup of the PG-side effect-receipt table. Never re-runs the write executor.
+pub async fn reconcile_postgres_unknown_write(
+    receipts: &Arc<dyn TBackend>,
+    resolver: &dyn PostgresWriteReceiptResolver,
+    clock: &Arc<dyn ClockProvider>,
+    capability_id: &str,
+    idempotency_key: &str,
+) -> Result<PostgresReconcileResult, EngineError> {
+    let rkey = format!("{capability_id}:{idempotency_key}");
+    let fact = match receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
+        Some(f) => f,
+        None => return Ok(PostgresReconcileResult::NoReceipt),
+    };
+    let v = &fact.value;
+    let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
+    // `unknown` OR a dangling `prepared` (crash before the terminal receipt, P19) is reconcilable.
+    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
+        return Ok(PostgresReconcileResult::NotApplicable(state));
+    }
+
+    // Exact lookup by the idempotency key (== the PG effect-receipt identity). NOT a value match.
+    match resolver.lookup_effect_receipt(idempotency_key).await {
+        PostgresReceiptLookup::Found { correlation_id, target, key } => {
+            let evidence = json!({ "correlation_id": correlation_id, "target": target, "key": key });
+            write_pg_resolved(receipts, clock.now(), &rkey, v, WriteState::Committed, Some(evidence)).await?;
+            Ok(PostgresReconcileResult::ResolvedCommitted)
+        }
+        PostgresReceiptLookup::NotFound => {
+            write_pg_resolved(receipts, clock.now(), &rkey, v, WriteState::PermanentFailure, None).await?;
+            Ok(PostgresReconcileResult::ResolvedPermanentFailure)
+        }
+        PostgresReceiptLookup::Unavailable(_) => Ok(PostgresReconcileResult::StillUnknown),
     }
 }
