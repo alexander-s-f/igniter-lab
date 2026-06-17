@@ -1,10 +1,34 @@
 # Card: LAB-MACHINE-POSTGRES-LOCAL-FEATURE-READINESS-P5 — real local Postgres feature gate
 
 **Lane:** formal / readiness gate · **Skill:** idd-agent-protocol  
-**Status: READY.** Follow-on to the fake-adapter Postgres wave P1→P4.
+**Status: CLOSED 2026-06-17 — formal readiness/decision packet produced.** Follow-on to the
+fake-adapter Postgres wave P1→P4. No code, no `Cargo.toml` edit, no driver, no DB connection, no
+Docker, no credentials.
 
-This card prepares the decision packet for a **real local Postgres adapter**. It must not add a
-driver, start Docker, connect to a DB, create credentials, or run live/staging traffic.
+## Closing report (2026-06-17)
+
+Doc: [`lab-docs/lang/lab-machine-postgres-local-feature-readiness-p5-v0.md`](../../../../lab-docs/lang/lab-machine-postgres-local-feature-readiness-p5-v0.md).
+
+Verify-first confirmed the three fake surfaces (P2 read / P3 write / P4 reconcile) live + green and
+**no real Postgres adapter / no DB driver** in `Cargo.toml`. Two load-bearing live-code facts:
+(1) the **wire path is NOT atomic-gated** — `ingress::handle_effect`/`serve_once_effect`
+(`src/ingress.rs:344`) use plain `run_write_effect`; only `bridge_effect::ServiceEffectBridge`
+(`src/bridge_effect.rs:93`) uses `run_write_effect_atomic` (P18); (2) the `tls` feature is the exact
+opt-in precedent (`default=["ffi"]`).
+
+Packet answers all 11 questions. Headline decisions: open a real local adapter **gated** behind an
+opt-in `postgres` feature (default build stays fake-only, DB-dependency-free); **`tokio-postgres`
+only** for the first read slice (pool at the write slice; TLS later; reject `sqlx`/`diesel`); DSN =
+a single named `SecretProvider` secret `pg.dsn` (no value in contract/receipt/doc); schema host-owned
+via fixture DDL in test setup, migrations out of scope (named seam); read = gated `QueryPlan`→
+parameterised SQL (`eq`-first), write = one effect = one `BEGIN…ON CONFLICT(idempotency_key)…COMMIT`,
+reconcile = `SELECT … WHERE idempotency_key=$1` read-only. **Hard precondition: thread
+`run_write_effect_atomic` into the wire `handle_effect` BEFORE any real write over the concurrent
+wire** (dedicated card, no DB). Test split: durable fake/unit (always) vs opt-in integration
+(`--features postgres`, DSN-gated skip). Sequence: **real READ (P6) → wire-atomic gate → real WRITE**.
+
+This card authorises **nothing to implement** — it is the human-gate input; each next slice needs
+its own card.
 
 ## Front door
 
@@ -78,16 +102,16 @@ from casually adding `tokio-postgres`/Docker/DSN handling without an explicit de
 
 ## Acceptance
 
-- [ ] Verify-first cites the current fake surfaces P2/P3/P4 and confirms no real Postgres adapter exists.
-- [ ] Packet answers all 11 required questions.
-- [ ] Recommends an implementation sequence with the smallest first real-local slice.
-- [ ] States exact dependency/feature proposal and what remains default-build clean.
-- [ ] States DSN/secret names without values.
-- [ ] States schema/migration boundary.
-- [ ] Names the wire-path atomicity decision before any yielding backend.
-- [ ] Separates fake/unit tests from opt-in integration tests.
-- [ ] No code, no dependency edits, no DB connection, no Docker/server start, no credentials.
-- [ ] Card is closed with a decision-ready summary.
+- [x] Verify-first cites the current fake surfaces P2/P3/P4 and confirms no real Postgres adapter exists.
+- [x] Packet answers all 11 required questions.
+- [x] Recommends an implementation sequence with the smallest first real-local slice.
+- [x] States exact dependency/feature proposal and what remains default-build clean.
+- [x] States DSN/secret names without values.
+- [x] States schema/migration boundary.
+- [x] Names the wire-path atomicity decision before any yielding backend.
+- [x] Separates fake/unit tests from opt-in integration tests.
+- [x] No code, no dependency edits, no DB connection, no Docker/server start, no credentials.
+- [x] Card is closed with a decision-ready summary.
 
 ## Deliverables
 

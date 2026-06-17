@@ -18,6 +18,8 @@ pub mod machine;
 pub mod observability;
 pub mod orchestrator;
 pub mod postgres_read;
+#[cfg(feature = "postgres")]
+pub mod postgres_real;
 pub mod postgres_write;
 pub mod reconcile;
 pub mod recovery;

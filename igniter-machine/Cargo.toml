@@ -34,12 +34,16 @@ crossterm = { version = "0.27", optional = true }
 rustls         = { version = "=0.21.12", optional = true }
 tokio-rustls   = { version = "=0.24.1", optional = true }
 rustls-pemfile = { version = "=1.0.4", optional = true }
+# Real local Postgres adapter (LAB-MACHINE-POSTGRES-LOCAL-READ-P6) — opt-in only; the default
+# build stays fake-only and DB-dependency-free (the fake P2/P3/P4 adapters are pure Rust).
+tokio-postgres = { version = "0.7", optional = true }
 
 [features]
 default = ["ffi"]
 ffi  = ["dep:magnus"]
 repl = ["dep:ratatui", "dep:crossterm"]
 tls  = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
+postgres = ["dep:tokio-postgres"]
 
 [[bin]]
 name    = "igniter-repl"

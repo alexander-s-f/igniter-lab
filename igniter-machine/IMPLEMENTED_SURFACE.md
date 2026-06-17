@@ -30,8 +30,14 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > gate" / "Postgres write reconcile" capability rows + docs
 > `../lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md`,
 > `…-postgres-write-gate-p3-v0.md`, `…-postgres-reconcile-p4-v0.md`). Real local Postgres behind an
-> opt-in `postgres` feature stays a later human gate. The operator-console and webhook-auction
-> designs above remain design/readiness only — no code yet.
+> opt-in `postgres` feature: formal gate packet
+> `…-postgres-local-feature-readiness-p5-v0.md` (`LAB-MACHINE-POSTGRES-LOCAL-FEATURE-READINESS-P5`)
+> answered the 11 gate questions; **the first real slice is now IMPLEMENTED — real local READ (P6),
+> `tokio-postgres` behind opt-in `postgres`, proven against dev SparkCRM `companies`** (see the
+> "real local Postgres read" capability row + `…-postgres-local-read-p6-v0.md`). Still pending: the
+> wire-atomic precondition (`run_write_effect_atomic` into `ingress::handle_effect`) before any real
+> WRITE over the wire, then real local write against a dedicated test DB. The operator-console and
+> webhook-auction designs above remain design/readiness only — no code yet.
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
 
@@ -86,6 +92,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **Postgres-shaped read executor** | ✅ (fake-adapter proof) | `postgres_read::{PostgresReadExecutor<A>, PostgresReadAdapter, PostgresReadResult, PostgresReadPolicy, QueryPlan, QueryFilter, FakePostgresAdapter}` — first Postgres-shaped read capability, the `SparkCrmExecutor` pattern applied to SQL. A contract emits a **typed `QueryPlan`** (NO SQL string, NO DB handle); the executor (a `CapabilityExecutor`, so receipts/idempotency/replay come free from `run_effect`) runs gates **before** the single adapter call: raw-SQL refusal · source allowlist · read-only(mutation refusal) · op allowlist · field allowlist · row-limit **clamp**(≠denial). Outcome: rows/empty→Succeeded, unavailable→UnknownExternalState, transient→Retryable, query-error→PermanentFailure. **Fake in-memory adapter only — no `tokio-postgres`/`sqlx`/`diesel`, no SQL, no network, no new dependency.** Schema authority = host-side `PostgresReadPolicy` (not contract input, not introspection); filter-predicate evaluation deferred (`LAB-FILTER-EVAL-P1`); Postgres-as-`TBackend` is a separate deferred track. (LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2) |
 | **Postgres-shaped write gate** | ✅ (fake-adapter proof) | `postgres_write::{PostgresWriteExecutor<A>, PostgresWriteAdapter, PostgresWriteResult, PostgresWriteIntent, PostgresWritePolicy, FakePostgresWriteAdapter, FakeWriteBehavior}` — Postgres-shaped WRITE, driven by the EXISTING `write::run_write_effect` two-phase receipt (NO new write machinery; the `TBackendWriteExecutor` pattern). Contract emits a typed `PostgresWriteIntent` (NO SQL, NO handle); gates before the adapter: raw-SQL refusal · target allowlist · op allowlist. **TWO idempotency layers**: machine `__receipts__` (replay / different-payload refusal / no-blind-retry) + a fake PG-side `effect_receipts(idempotency_key)` upsert in ONE modelled txn (blocks a 2nd business mutation even if the machine receipt is LOST). Taxonomy: commit/duplicate→Committed, denied→Denied, constraint→PermanentFailure, serialization-rollback→Retryable, lost-after-send→UnknownExternalState (no blind retry; reconcile=P4). Receipt records correlation+idempotency key, not raw SQL/values. **Fake adapter only — no `tokio-postgres`/`sqlx`/`diesel`, no SQL, no network, no new dependency.** (LAB-MACHINE-POSTGRES-WRITE-GATE-P3) |
 | **Postgres write reconcile** | ✅ (fake-resolver proof) | `postgres_write::{reconcile_postgres_unknown_write, PostgresWriteReceiptResolver, PostgresReceiptLookup, PostgresReconcileResult}` — closes the P3 `unknown` hole: resolves an `unknown_external_state` (or dangling `prepared`, P19) write receipt by an EXACT, READ-ONLY lookup of the PG-side `effect_receipts(idempotency_key)` table — found→committed / not-found→permanent_failure / unavailable→still-unknown. **Never re-runs the executor** (`transact`) — the resolver trait has no mutating method (structural). Keyed by idempotency identity (NOT values) → P7 same-value false positive impossible (the SQL form of P13 correlation reconcile). Reuses the P13 `write_resolved` upgrade (preserves authority+payload digests) → a reconciled-committed receipt REPLAYS through `run_write_effect` with no re-execution; looked-up correlation/target/key kept as evidence. Fake resolver only; `run_write_effect`/retry/orchestrator unchanged. (LAB-MACHINE-POSTGRES-RECONCILE-P4) |
+| **real local Postgres read** | ✅ (opt-in `postgres` feature, real DB) | `postgres_real::TokioPostgresReadAdapter` (`#[cfg(feature = "postgres")]`) — FIRST real database adapter: impl `PostgresReadAdapter` over `tokio-postgres`, a drop-in behind the unchanged P2 trait (executor gates + `run_effect` receipt/idempotency/replay UNCHANGED). `QueryPlan`→parameterized SQL: explicit projection rendered `"<col>"::text`, `eq`-only filters bound `$1..$n` with `::text` compare, identifiers from the allowlist only (quoted, never interpolated), `LIMIT` = clamped `effective_limit`. Taxonomy: rows/empty→Succeeded, SQLSTATE→PermanentFailure, connection/IO→UnknownExternalState. **Default build unchanged (fake-only, no driver); opt-in `postgres = ["dep:tokio-postgres"]`.** Read-only; NoTls loopback; DSN from `IGNITER_PG_DSN`/SecretProvider (never in code/receipts). PROVEN against dev SparkCRM `companies` (6 integration tests, DSN-gated skip). (LAB-MACHINE-POSTGRES-LOCAL-READ-P6) |
 
 ## Surfaces
 
@@ -273,6 +280,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   unknown; dangling `prepared` → committed (no transact); reconciled-committed receipt replays via
   `run_write_effect` with no re-execution; same values + different key → not-found → permanent (no
   false positive) while the landed key → committed; committed → NotApplicable / missing → NoReceipt.
+- `tests/postgres_real_read_tests.rs` (6, `--features postgres`, DSN-gated skip) — **real local
+  Postgres read** (P6) against dev SparkCRM `companies`: allowlisted SELECT → rows + receipt
+  (queried once); row-limit clamp reflected; `eq` filter → parameter-bound subset; forbidden field /
+  unknown source refused before the DB (query count 0); replay same key → DB queried once; non-existent
+  column → SQLSTATE → PermanentFailure. Skips cleanly without `IGNITER_PG_DSN`; default build excludes it.
 - `tests/serving_loop_tests.rs` (4) — **host serving loop** (P12, real 127.0.0.1): one loop instance
   boots once + serves two requests (observe() projects 2 committed); duplicate same-key over the loop →
   exactly one effect; host-owned tick drains a due retry intent; deterministic bounded shutdown
