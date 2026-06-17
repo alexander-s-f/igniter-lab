@@ -1,11 +1,13 @@
 package com.igniter.plugin.model
 
 import com.igniter.plugin.compiler.IgniterCompilerService
+import com.igniter.plugin.compiler.IgniterDiagnosticMapper
 import com.igniter.plugin.compiler.IgniterProjectModePlanner
 import com.igniter.plugin.compiler.OofDiagnostic
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -108,9 +110,14 @@ class IgniterModelService(private val project: Project) {
         if (!isInsideRoot(path, root)) return null
         val outDir = Files.createDirectories(dir.resolve("project"))
         val base = Paths.get(path).fileName?.toString()?.removeSuffix(".ig")?.ifEmpty { "source" } ?: "source"
-        return IgniterCompilerService.getInstance()
+        val result = IgniterCompilerService.getInstance()
             .compileProject(root, entry, path, buffer.toFile(), outDir, base)
-            .diagnostics
+        // P9: attribute merged/project-mode diagnostics to the current file and remap
+        // to original lines; diagnostics belonging to imported files are dropped here
+        // (they surface when that file is the active editor). The current file's unit
+        // was read from the overlay buffer, so its origin path is the buffer path.
+        val currentOrigins = setOf(buffer.toFile().absolutePath, File(path).absolutePath)
+        return IgniterDiagnosticMapper.remapForCurrentFile(result.diagnostics, result.sourceLineMap, currentOrigins)
     }
 
     /** True when [path] is lexically inside the project [root] (overlay precondition). */

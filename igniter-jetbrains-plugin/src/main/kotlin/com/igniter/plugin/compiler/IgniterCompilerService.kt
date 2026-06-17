@@ -17,7 +17,14 @@ data class OofDiagnostic(
     val message: String,
     val line: Int,
     val col: Int,
-    val severity: OofSeverity
+    val severity: OofSeverity,
+    // LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3 enrichment (LAB-JETBRAINS-…-MAPPING-P9):
+    // per-file origin attached by the compiler to diagnostics with a merged line.
+    // `mergedLine` is the raw report `line` when it was numeric (null when absent),
+    // so the diagnostic mapper can also resolve origin via the source line map.
+    val sourcePath: String? = null,
+    val originalLine: Int? = null,
+    val mergedLine: Int? = null
 )
 
 data class CompilationResult(
@@ -26,7 +33,10 @@ data class CompilationResult(
     // Directory of the produced `<basename>.igapp` artifact bundle (may not exist
     // on hard failures). Used by ShowSemanticIRAction to locate semantic_ir_program.json.
     val outputDir: Path?,
-    val rawOutput: String
+    val rawOutput: String,
+    // LAB-JETBRAINS-PROJECT-MODE-DIAGNOSTIC-MAPPING-P9: the multifile/project-mode
+    // merged_line -> origin map (empty for single-file builds).
+    val sourceLineMap: List<SourceLineMapEntry> = emptyList()
 )
 
 /**
@@ -183,17 +193,20 @@ class IgniterCompilerService {
             val exitCode   = process.waitFor()
 
             val reportFile = locateReportFile(root, igapp, base)
-            val diagnostics = if (reportFile != null && reportFile.exists()) {
-                IgniterReportParser.parseReport(reportFile.readText())
+            val reportText = if (reportFile != null && reportFile.exists()) reportFile.readText() else null
+            val diagnostics = if (reportText != null) {
+                IgniterReportParser.parseReport(reportText)
             } else {
                 IgniterReportParser.parseFallbackOutput(rawOutput)
             }
+            val sourceLineMap = reportText?.let { IgniterReportParser.parseSourceLineMap(it) } ?: emptyList()
 
             CompilationResult(
-                success     = exitCode == 0,
-                diagnostics = diagnostics,
-                outputDir   = igapp,
-                rawOutput   = rawOutput
+                success       = exitCode == 0,
+                diagnostics   = diagnostics,
+                outputDir     = igapp,
+                rawOutput     = rawOutput,
+                sourceLineMap = sourceLineMap
             )
         } catch (e: Exception) {
             log.warn("Compiler invocation failed", e)

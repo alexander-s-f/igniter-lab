@@ -24,6 +24,22 @@ pub struct MergedProgram {
     pub source_hash: String,
     pub source: String,
     pub source_units: Vec<Value>,
+    // LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3: merged_line -> origin (source unit + line).
+    pub source_line_map: Vec<Value>,
+}
+
+/// LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3
+/// Maps one 1-based line of the merged `Lab.Multifile.Universe` program back to the
+/// 1-based line of the original source unit it came from. Only emitted source lines
+/// get an entry; synthetic header/comment/blank lines do not. `source_path` is the
+/// path handed to `compile_units` — for an overlaid unit this is the overlay buffer
+/// path, matching P2 `source_units` evidence.
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceLineMapEntry {
+    pub merged_line: usize,
+    pub source_path: String,
+    pub module_path: String,
+    pub original_line: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -144,13 +160,18 @@ pub fn compile_units(
         &source_hash.trim_start_matches("sha256:")[0..16]
     );
     let source_units = source_units_evidence(&sorted);
-    let source = merged_source(&sorted);
+    let (source, line_map) = merged_source_with_map(&sorted);
+    let source_line_map = line_map
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
+        .collect();
 
     Ok(Ok(MergedProgram {
         source_path,
         source_hash,
         source,
         source_units,
+        source_line_map,
     }))
 }
 
@@ -460,21 +481,52 @@ fn composite_source_hash(units: &[SourceUnit]) -> String {
     sha256(&json)
 }
 
-fn merged_source(units: &[SourceUnit]) -> String {
-    let mut merged = String::from("module Lab.Multifile.Universe\n\n");
+/// LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3
+/// Build the merged source AND a deterministic per-line origin map in one pass.
+/// The merged text is byte-identical to the previous `merged_source` output (the
+/// header, `-- source_module:` markers, the same `module`/`import` stripping, and
+/// the trailing blank per unit are unchanged). The map records, for each *emitted*
+/// source line, which unit + original line it came from; synthetic lines (header,
+/// markers, trailing blanks) are intentionally not mapped.
+fn merged_source_with_map(units: &[SourceUnit]) -> (String, Vec<SourceLineMapEntry>) {
+    let mut merged = String::new();
+    let mut map: Vec<SourceLineMapEntry> = Vec::new();
+    // Count of fully-written (newline-terminated) lines so far. After writing a
+    // line + '\n', `merged_line` equals that line's 1-based number.
+    let mut merged_line: usize = 0;
+
+    merged.push_str("module Lab.Multifile.Universe\n");
+    merged_line += 1;
+    merged.push('\n');
+    merged_line += 1;
+
     for unit in units {
         merged.push_str(&format!("-- source_module: {}\n", unit.module_path));
+        merged_line += 1;
+
+        // 1-based line counter into the ORIGINAL unit source (header lines included,
+        // so stripped `module`/`import` lines still advance it — acceptance 5).
+        let mut original_line: usize = 0;
         for line in unit.source.lines() {
+            original_line += 1;
             let trimmed = line.trim_start();
             if trimmed.starts_with("module ") || trimmed.starts_with("import ") {
                 continue;
             }
             merged.push_str(line);
             merged.push('\n');
+            merged_line += 1;
+            map.push(SourceLineMapEntry {
+                merged_line,
+                source_path: unit.source_path.clone(),
+                module_path: unit.module_path.clone(),
+                original_line,
+            });
         }
         merged.push('\n');
+        merged_line += 1;
     }
-    merged
+    (merged, map)
 }
 
 fn sha256(value: &str) -> String {

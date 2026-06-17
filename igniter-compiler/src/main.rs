@@ -232,7 +232,7 @@ fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value
     hasher.update(source_content.as_bytes());
     let source_hash = format!("sha256:{:x}", hasher.finalize());
 
-    run_compiler_source(source_path, &source_content, &source_hash, out_path, None)
+    run_compiler_source(source_path, &source_content, &source_hash, out_path, None, None)
 }
 
 fn run_multifile_compiler(source_paths: &[String], out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
@@ -243,6 +243,7 @@ fn run_multifile_compiler(source_paths: &[String], out_path: &str, _profile_sour
             &merged.source_hash,
             out_path,
             Some(merged.source_units),
+            Some(merged.source_line_map),
         ),
         Err(diagnostics) => {
             let source_hash = multifile_error_source_hash(source_paths);
@@ -304,6 +305,7 @@ fn run_compiler_source(
     source_hash: &str,
     out_path: &str,
     source_units: Option<Vec<Value>>,
+    source_line_map: Option<Vec<Value>>,
 ) -> std::io::Result<bool> {
     let source_hash = source_hash.to_string();
 
@@ -352,8 +354,15 @@ fn run_compiler_source(
             Value::Object(m)
         }).collect();
         report.insert("diagnostics".to_string(), Value::Array(diag_vals));
+        // LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3: parse diagnostics carry merged line
+        // numbers, so attach the line map here and enrich them with per-file origin.
+        if let Some(map) = &source_line_map {
+            report.insert("source_line_map".to_string(), Value::Array(map.clone()));
+            enrich_diagnostics_with_origin(&mut report, map);
+        }
         report.insert("semantic_ir_ref".to_string(), Value::Null);
 
+        // Re-read enriched diagnostics for the result envelope below.
         let report_val = Value::Object(report);
         let report_path = report_path_for(out_path);
         fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
@@ -424,6 +433,7 @@ fn run_compiler_source(
     emit_res.resolved_program = resolved_json;
     emitter.apply_form_lowering(&mut emit_res);
     attach_source_units(&mut emit_res, &source_units);
+    attach_source_line_map(&mut emit_res, &source_line_map);
 
     // LAB-COMPILER-LIVENESS-P2/P3: collect instrumentation stats after all passes complete
     let liveness_stats = igniter_compiler::liveness::collect_stats();
@@ -616,6 +626,57 @@ fn attach_source_units(emit_res: &mut igniter_compiler::emitter::EmitResult, sou
     }
     if let Some(report) = emit_res.compilation_report.as_object_mut() {
         report.insert("source_units".to_string(), Value::Array(source_units.clone()));
+    }
+}
+
+/// LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3
+/// Attach the merged-line -> source-unit map to the semantic IR and compilation
+/// report, then enrich any diagnostic whose `line` is a merged line with the
+/// origin fields (`source_path`/`module_path`/`original_line`). The existing
+/// `line`/`col` fields are left untouched (still merged coordinates) — consumers
+/// opt in via the new fields. No-op for single-file builds (map is None).
+fn attach_source_line_map(emit_res: &mut igniter_compiler::emitter::EmitResult, source_line_map: &Option<Vec<Value>>) {
+    let Some(map) = source_line_map else {
+        return;
+    };
+    if let Some(semantic_ir_value) = emit_res.semantic_ir.as_mut() {
+        if let Some(semantic_ir) = semantic_ir_value.as_object_mut() {
+            semantic_ir.insert("source_line_map".to_string(), Value::Array(map.clone()));
+        }
+    }
+    if let Some(report) = emit_res.compilation_report.as_object_mut() {
+        report.insert("source_line_map".to_string(), Value::Array(map.clone()));
+        enrich_diagnostics_with_origin(report, map);
+    }
+}
+
+/// Build a merged_line -> entry index and add origin fields to diagnostics that
+/// carry a numeric `line`. Diagnostics without a usable `line` (e.g. `line:null`)
+/// are left as-is — they cannot be mapped per-file yet.
+fn enrich_diagnostics_with_origin(report: &mut Map<String, Value>, map: &[Value]) {
+    use std::collections::HashMap;
+    let mut by_merged: HashMap<u64, &Value> = HashMap::new();
+    for entry in map {
+        if let Some(ml) = entry.get("merged_line").and_then(|v| v.as_u64()) {
+            by_merged.insert(ml, entry);
+        }
+    }
+    let Some(diags) = report.get_mut("diagnostics").and_then(|d| d.as_array_mut()) else {
+        return;
+    };
+    for diag in diags {
+        let Some(obj) = diag.as_object_mut() else { continue };
+        let Some(line) = obj.get("line").and_then(|v| v.as_u64()) else { continue };
+        let Some(entry) = by_merged.get(&line) else { continue };
+        if let Some(sp) = entry.get("source_path") {
+            obj.entry("source_path").or_insert_with(|| sp.clone());
+        }
+        if let Some(mp) = entry.get("module_path") {
+            obj.entry("module_path").or_insert_with(|| mp.clone());
+        }
+        if let Some(ol) = entry.get("original_line") {
+            obj.entry("original_line").or_insert_with(|| ol.clone());
+        }
     }
 }
 

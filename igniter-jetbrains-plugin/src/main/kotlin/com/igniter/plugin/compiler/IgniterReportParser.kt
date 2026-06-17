@@ -35,9 +35,31 @@ internal object IgniterReportParser {
                 rawSev == "info"                                                  -> OofSeverity.INFO
                 else                                                              -> OofSeverity.ERROR
             }
-            result += OofDiagnostic(code, message, line, col, severity)
+            // LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3 / …-MAPPING-P9: per-file origin
+            // enrichment (present on multifile/project-mode diagnostics that carry a
+            // merged line). `mergedLine` is the raw top-level `line` when numeric.
+            val sourcePath   = extractString(objStr, "source_path")
+            val originalLine = extractInt(objStr, "original_line")
+            val mergedLine   = extractInt(objStr, "line")
+            result += OofDiagnostic(code, message, line, col, severity, sourcePath, originalLine, mergedLine)
         }
         return result
+    }
+
+    /**
+     * LAB-JETBRAINS-PROJECT-MODE-DIAGNOSTIC-MAPPING-P9
+     * Parse the report's top-level `source_line_map` array (empty when absent, e.g.
+     * single-file builds). Used to attribute diagnostics that carry only a merged line.
+     */
+    fun parseSourceLineMap(json: String): List<SourceLineMapEntry> {
+        val content = extractArrayContent(json, "source_line_map") ?: return emptyList()
+        return splitJsonObjects(content).mapNotNull { o ->
+            val mergedLine   = extractInt(o, "merged_line") ?: return@mapNotNull null
+            val sourcePath   = extractString(o, "source_path") ?: return@mapNotNull null
+            val modulePath   = extractString(o, "module_path") ?: ""
+            val originalLine = extractInt(o, "original_line") ?: return@mapNotNull null
+            SourceLineMapEntry(mergedLine, sourcePath, modulePath, originalLine)
+        }
     }
 
     /**
