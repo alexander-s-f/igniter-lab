@@ -104,50 +104,85 @@ class IgniterCompilerService {
     // -----------------------------------------------------------------------
 
     /**
-     * Compiles [sourceFile] with `igniter_compiler`.
+     * Compiles [sourceFile] alone with `igniter_compiler`
+     * (`compile <sourceFile> --out OUT.igapp`).
+     *
+     * Used for the editor MODEL (navigation / inlays / structure), which must stay
+     * in *editor* coordinates, and for the single-file path of files with no
+     * non-stdlib imports. Import-aware compilation goes through [compileProject].
      *
      * @param outRoot directory under which `<basename>.igapp` is written. When null
      *   an ephemeral temp directory is used (the annotator path — no source-tree
      *   pollution). The compile action passes the source's own directory so the
      *   produced bundle is discoverable by ShowSemanticIRAction.
-     * @param extraSources additional `.ig` source files (imported project modules)
-     *   passed alongside [sourceFile] so the compiler resolves cross-module
-     *   declarations. The native CLI is multi-file:
-     *   `compile <sourceFile> <extra...> --out OUT.igapp`. [sourceFile] stays first
-     *   (the primary/current file); resolution is order-independent compiler-side.
-     *   Empty (the default) preserves the original single-file behaviour.
      */
-    fun compile(sourceFile: File, outRoot: Path? = null, extraSources: List<File> = emptyList()): CompilationResult {
-        val binary = resolveCompilerBinary()
-            ?: return CompilationResult(
-                success = false,
-                diagnostics = listOf(
-                    OofDiagnostic(
-                        code = "PLUGIN-001",
-                        message = "igniter_compiler not found. Set its path in " +
-                            "Settings > Languages & Frameworks > Igniter, put it on PATH, or set " +
-                            "IGNITER_COMPILER / IGNITER_LAB_HOME.",
-                        line = 1, col = 1, severity = OofSeverity.ERROR
-                    )
-                ),
-                outputDir = null,
-                rawOutput = "igniter_compiler not found"
-            )
+    fun compile(sourceFile: File, outRoot: Path? = null): CompilationResult {
+        val binary = resolveCompilerBinary() ?: return compilerNotFound()
 
         val root = outRoot ?: Files.createTempDirectory("igniter_out")
         val igapp = root.resolve("${sourceFile.nameWithoutExtension}.igapp")
-        val command = listOf(binary, "compile", sourceFile.absolutePath) +
-            extraSources.map { it.absolutePath } +
-            listOf("--out", igapp.toString())
-        log.info("Running: ${command.joinToString(" ")}")
+        val command = listOf(binary, "compile", sourceFile.absolutePath, "--out", igapp.toString())
+        return runCompile(command, root, igapp, sourceFile.nameWithoutExtension)
+    }
 
+    /**
+     * LAB-JETBRAINS-PROJECT-MODE-DELEGATION-P7.
+     * Compiles via the canonical compiler project mode + overlay — the compiler
+     * owns project assembly and reads [overlayBuffer] in place of the on-disk
+     * [overlayOriginal] (so unsaved editor text wins). The plugin supplies only
+     * [projectRoot], [entryModule], and the overlay.
+     *
+     * The produced bundle is named `<outBaseName>.igapp` under [outRoot]; diagnostics
+     * are read from whichever report layout the compiler writes (success bundle,
+     * refusal sibling, or project-resolve sibling).
+     */
+    fun compileProject(
+        projectRoot: String,
+        entryModule: String,
+        overlayOriginal: String,
+        overlayBuffer: File,
+        outRoot: Path,
+        outBaseName: String,
+    ): CompilationResult {
+        val binary = resolveCompilerBinary() ?: return compilerNotFound()
+
+        val igapp = outRoot.resolve("$outBaseName.igapp")
+        val command = IgniterProjectModePlanner.buildCompileArgs(
+            binary = binary,
+            projectRoot = projectRoot,
+            entryModule = entryModule,
+            overlayOriginal = overlayOriginal,
+            overlayBuffer = overlayBuffer.absolutePath,
+            outIgapp = igapp.toString(),
+        )
+        return runCompile(command, outRoot, igapp, outBaseName)
+    }
+
+    private fun compilerNotFound(): CompilationResult = CompilationResult(
+        success = false,
+        diagnostics = listOf(
+            OofDiagnostic(
+                code = "PLUGIN-001",
+                message = "igniter_compiler not found. Set its path in " +
+                    "Settings > Languages & Frameworks > Igniter, put it on PATH, or set " +
+                    "IGNITER_COMPILER / IGNITER_LAB_HOME.",
+                line = 1, col = 1, severity = OofSeverity.ERROR
+            )
+        ),
+        outputDir = null,
+        rawOutput = "igniter_compiler not found"
+    )
+
+    /** Runs a prepared compiler [command] and parses the resulting report. */
+    private fun runCompile(command: List<String>, root: Path, igapp: Path, base: String): CompilationResult {
+        log.info("Running: ${command.joinToString(" ")}")
         return try {
             // Native binary: no interpreter/env plumbing needed.
             val process   = ProcessBuilder(command).redirectErrorStream(true).start()
             val rawOutput  = process.inputStream.bufferedReader().readText()
             val exitCode   = process.waitFor()
 
-            val reportFile = locateReportFile(root, igapp, sourceFile)
+            val reportFile = locateReportFile(root, igapp, base)
             val diagnostics = if (reportFile != null && reportFile.exists()) {
                 IgniterReportParser.parseReport(reportFile.readText())
             } else {
@@ -182,9 +217,7 @@ class IgniterCompilerService {
      *   - success  -> inside `<basename>.igapp/`
      *   - refusal  -> sibling `<basename>.compilation_report.json` next to the bundle
      */
-    private fun locateReportFile(root: Path, igapp: Path, sourceFile: File): File? {
-        val base = sourceFile.nameWithoutExtension
-
+    private fun locateReportFile(root: Path, igapp: Path, base: String): File? {
         // Success layout: report inside the bundle.
         val inside = igapp.resolve("compilation_report.json").toFile()
         if (inside.exists()) return inside

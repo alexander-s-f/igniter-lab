@@ -1,12 +1,11 @@
 package com.igniter.plugin.model
 
 import com.igniter.plugin.compiler.IgniterCompilerService
-import com.igniter.plugin.compiler.IgniterImportCompilePlanner
+import com.igniter.plugin.compiler.IgniterProjectModePlanner
 import com.igniter.plugin.compiler.OofDiagnostic
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -79,18 +78,15 @@ class IgniterModelService(private val project: Project) {
             val igapp = modelResult.outputDir?.toFile()
             val model = if (igapp != null && igapp.isDirectory) IgniterModelParser.parse(igapp) else IgniterModel.EMPTY
 
-            // Diagnostics become import-aware: if the current file imports resolvable
-            // project modules, compile it *together with* those modules so the
-            // compiler resolves cross-module declarations (no false OOF-P1) and is the
-            // authority on genuinely missing imports (OOF-IMP*). Falls back to the
-            // standalone diagnostics when there are no resolvable imports.
-            val importedSources = resolveImportedSources(path, text)
-            val diagnostics = if (importedSources.isNotEmpty()) {
-                val importsDir = Files.createDirectories(dir.resolve("imports"))
-                compiler.compile(src.toFile(), importsDir, importedSources).diagnostics
-            } else {
-                modelResult.diagnostics
-            }
+            // Diagnostics become import-aware via the compiler's canonical project
+            // mode + overlay (P7): the compiler scans the project root, resolves the
+            // entry module's import closure, and reads the editor buffer for the
+            // current file (overlay). This yields no false OOF-P1 across imports and
+            // makes the compiler authoritative on missing imports (OOF-IMP*), even
+            // when nothing resolves. Files with no non-stdlib imports keep the
+            // unchanged standalone diagnostics.
+            val diagnostics = projectModeDiagnostics(path, text, src, dir)
+                ?: modelResult.diagnostics
 
             Analysis(diagnostics, model)
         } catch (e: Exception) {
@@ -100,19 +96,30 @@ class IgniterModelService(private val project: Project) {
     }
 
     /**
-     * On-disk `.ig` files for the current file's (transitively) imported project
-     * modules, or empty when the file has no non-stdlib imports or no project root
-     * is known. The current file is excluded from the scan so its in-editor text
-     * remains the single source of truth for its own module.
+     * Import-aware diagnostics through compiler project mode + overlay, or null when
+     * project mode does not apply (no module declaration, no non-stdlib import, no
+     * project root, or the current file is outside the project root — the compiler
+     * refuses overlays outside its source roots). [buffer] is the temp file already
+     * holding the editor text; it is passed as the overlay so unsaved edits win.
      */
-    private fun resolveImportedSources(path: String, text: String): List<File> {
-        val imports = IgniterImportCompilePlanner.importedModules(text)
-        if (imports.isEmpty()) return emptyList()
-        val root = project.basePath?.let { Paths.get(it) } ?: return emptyList()
-        val index = IgniterImportCompilePlanner.scanProject(root, excludePath = path)
-        val module = IgniterImportCompilePlanner.moduleNameOf(text)
-        return IgniterImportCompilePlanner.resolve(module, imports, index).map(::File)
+    private fun projectModeDiagnostics(path: String, text: String, buffer: Path, dir: Path): List<OofDiagnostic>? {
+        val entry = IgniterProjectModePlanner.entryModuleForProjectMode(text) ?: return null
+        val root = project.basePath ?: return null
+        if (!isInsideRoot(path, root)) return null
+        val outDir = Files.createDirectories(dir.resolve("project"))
+        val base = Paths.get(path).fileName?.toString()?.removeSuffix(".ig")?.ifEmpty { "source" } ?: "source"
+        return IgniterCompilerService.getInstance()
+            .compileProject(root, entry, path, buffer.toFile(), outDir, base)
+            .diagnostics
     }
+
+    /** True when [path] is lexically inside the project [root] (overlay precondition). */
+    private fun isInsideRoot(path: String, root: String): Boolean =
+        runCatching {
+            val p = Paths.get(path).toAbsolutePath().normalize()
+            val r = Paths.get(root).toAbsolutePath().normalize()
+            p.startsWith(r)
+        }.getOrDefault(false)
 
     /** Stable per-file cache directory (overwritten each refresh; one dir per path). */
     private fun cacheDirFor(path: String): Path {

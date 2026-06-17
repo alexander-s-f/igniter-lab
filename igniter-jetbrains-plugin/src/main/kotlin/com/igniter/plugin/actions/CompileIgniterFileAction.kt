@@ -1,7 +1,7 @@
 package com.igniter.plugin.actions
 
 import com.igniter.plugin.compiler.IgniterCompilerService
-import com.igniter.plugin.compiler.IgniterImportCompilePlanner
+import com.igniter.plugin.compiler.IgniterProjectModePlanner
 import com.igniter.plugin.compiler.OofSeverity
 import com.igniter.plugin.lang.IgniterFile
 import com.intellij.notification.NotificationGroupManager
@@ -35,11 +35,12 @@ class CompileIgniterFileAction : AnAction() {
                 // Explicit compile: write the .igapp bundle next to the source so
                 // "Show Semantic IR" can find semantic_ir_program.json afterwards.
                 val outRoot = ioFile.parentFile?.toPath()
-                // Import-aware: pass the file's imported project modules so cross-module
-                // declarations resolve (no false OOF-P1). Empty when the file has no
-                // resolvable non-stdlib imports — i.e. the original single-file compile.
-                val imported = resolveImportedSources(project, vFile.path, ioFile)
-                val result = IgniterCompilerService.getInstance().compile(ioFile, outRoot, imported)
+                // Import-aware via compiler project mode + overlay (P7): when the
+                // file declares a module and has non-stdlib imports (and lives inside
+                // the project root), the compiler resolves the import closure. The
+                // saved file is its own overlay buffer. Otherwise the unchanged
+                // single-file compile runs.
+                val result = compileFile(project, vFile.path, ioFile, outRoot)
 
                 // First error message reads better than the raw JSON envelope the
                 // native compiler prints to stdout.
@@ -57,16 +58,42 @@ class CompileIgniterFileAction : AnAction() {
         })
     }
 
-    /** On-disk `.ig` files for [ioFile]'s imported project modules (see planner). */
-    private fun resolveImportedSources(project: Project, path: String, ioFile: File): List<File> {
-        val text = runCatching { ioFile.readText() }.getOrNull() ?: return emptyList()
-        val imports = IgniterImportCompilePlanner.importedModules(text)
-        if (imports.isEmpty()) return emptyList()
-        val root = project.basePath?.let { java.nio.file.Paths.get(it) } ?: return emptyList()
-        val index = IgniterImportCompilePlanner.scanProject(root, excludePath = path)
-        val module = IgniterImportCompilePlanner.moduleNameOf(text)
-        return IgniterImportCompilePlanner.resolve(module, imports, index).map(::File)
+    /**
+     * Compiles [ioFile] through compiler project mode + overlay when it declares a
+     * module and has non-stdlib imports and lives inside the project root; otherwise
+     * the unchanged single-file compile. The saved on-disk file is used as its own
+     * overlay buffer (content == disk), so both paths share the project-mode invocation.
+     */
+    private fun compileFile(
+        project: Project,
+        path: String,
+        ioFile: File,
+        outRoot: java.nio.file.Path?
+    ): com.igniter.plugin.compiler.CompilationResult {
+        val service = IgniterCompilerService.getInstance()
+        val text = runCatching { ioFile.readText() }.getOrNull()
+        val entry = text?.let { IgniterProjectModePlanner.entryModuleForProjectMode(it) }
+        val root = project.basePath
+        if (entry != null && root != null && outRoot != null && isInsideRoot(path, root)) {
+            return service.compileProject(
+                projectRoot = root,
+                entryModule = entry,
+                overlayOriginal = path,
+                overlayBuffer = ioFile,
+                outRoot = outRoot,
+                outBaseName = ioFile.nameWithoutExtension,
+            )
+        }
+        return service.compile(ioFile, outRoot)
     }
+
+    /** True when [path] is lexically inside the project [root] (overlay precondition). */
+    private fun isInsideRoot(path: String, root: String): Boolean =
+        runCatching {
+            val p = java.nio.file.Paths.get(path).toAbsolutePath().normalize()
+            val r = java.nio.file.Paths.get(root).toAbsolutePath().normalize()
+            p.startsWith(r)
+        }.getOrDefault(false)
 
     private fun showResult(
         project: Project,
