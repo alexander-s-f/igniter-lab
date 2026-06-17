@@ -24,9 +24,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > `../lab-docs/lang/lab-sparkcrm-webhook-auction-policy-p1-v0.md` (`LAB-SPARKCRM-WEBHOOK-AUCTION-POLICY-P1`);
 > Postgres connector + ORM boundary map —
 > `../lab-docs/lang/lab-machine-postgres-capability-readiness-p1-v0.md` (`LAB-MACHINE-POSTGRES-CAPABILITY-READINESS-P1`):
-> v0 = host `CapabilityExecutor` (SparkCRM pattern over SQL), NOT a `TBackend`, NOT an in-VM ORM;
-> next slice `…-POSTGRES-READ-EXECUTOR-P2` (fake adapter, no dep).
-> Design/readiness only — no code behind these yet.
+> v0 = host `CapabilityExecutor` (SparkCRM pattern over SQL), NOT a `TBackend`, NOT an in-VM ORM.
+> **Read slice `LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2` is now IMPLEMENTED** (fake adapter, no dep;
+> see the "Postgres-shaped read executor" capability row +
+> `../lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md`); write-gate P3 / reconcile P4 next.
+> The operator-console and webhook-auction designs above remain design/readiness only — no code yet.
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
 
@@ -76,7 +78,9 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **service→effect bridge (replica)** | ✅ (P10, glass box) | `ingress::{EffectBridgeConfig, IngressRouter::handle_effect}` + `coordination::audit_bridge` — combines P7 dup-policy + P9 single-replica + the capability-IO effect: webhook → dup policy → ONE replica → capsule INTENT → `run_write_effect` (host effect passport, distinct from vendor) = ONE effect → receipt → HTTP. **Effect idem key = `duplicate_key:attempt_index`** so dup policy controls effect count: `dedup_strict`→one effect ever (repeat replays, no 2nd effect); `bounded_fresh(n)`→up to n distinct-keyed effects (auction leads). Single replica → ≤1 effect; fanout never effects. Unknown→202+correlation. audit links correlation/attempt/replica/effect_receipt_id. Fake executor only. (LAB-MACHINE-SERVICE-BRIDGE-REPLICA-P10) |
 | **wire-to-effect contour** | ✅ (P11 MILESTONE, real socket) | `ingress::serve_once_effect` (+ shared `read_one_request`/`write_one_response`) — a real `127.0.0.1` HTTP/1.1 POST drives the FULL contour: parser → passport → duplicate policy → ONE replica → capsule intent → ONE effect → receipt → real HTTP response. All P10 invariants hold over real transport (one-replica-one-effect, dedup_strict replay no 2nd effect, bounded_fresh attempts 0..n, unknown→202, denied→403, audit links). **"wire-to-effect production contour proven in lab"** — front door `LAB-MACHINE-SERVICE-WIRE-EFFECT-MILESTONE`. Fake executor; no live SparkCRM (human-gated staging). (LAB-MACHINE-SERVICE-WIRE-EFFECT-P11) |
 | **host serving loop** | ✅ (P12, host-owned) | `serving_loop::{ServingLoop, ServingPolicy, ServingReport}` — the in-lab **host shell** that shows the machine living as a process without a daemon: `boot()` recovery ONCE → accept/process `max_requests` connections via repeated `ingress::serve_once_effect` (P11) → optional host-owned tick cadence (`tick_every`/`tick_on_stop`) draining due retries via `EffectOrchestrator::tick` (P20) → `report/observe` stay queryable. **Host owns the loop and cadence; the machine exposes only functions** — no `tokio::spawn`, no background worker, no hidden scheduler (when `run` returns nothing of the loop remains). Sequential processing → introduces no concurrency → cannot weaken the P18 atomic gate: duplicate same-key requests still perform exactly one effect. Bounded, deterministic stop (`max_requests`, never unbounded). Loopback only (caller passes a `127.0.0.1` listener; the helper opens no address). NOT deployment topology (no daemon/supervisor/systemd/Dockerfile, no live vendor). `ServingReport` is a derived counter, NOT a side-log — facts remain the truth. (LAB-MACHINE-SERVING-LOOP-P12) |
+| **bounded concurrent serving** | ✅ (P13, structured concurrency) | `serving_loop::{ConcurrentServingPolicy, ConcurrentServingReport}` + `ServingLoop::run_concurrent` — additive over P12 (sequential `run` untouched): boot once → drive a `FuturesUnordered` of `serve_once_effect` calls topped up to `max_in_flight` → bounded stop at `max_requests` → optional host-owned `tick_on_stop`. **Structured, NOT spawned** — in-flight calls are polled by the same task, no `tokio::spawn`/detached task, so nothing can outlive `run_concurrent` (stronger than join-on-shutdown: no worker to leak). `max_in_flight_observed` = peak in-flight reached. Invariant held: distinct keys served concurrently (proven observed-concurrency > 1, one effect each), same-key concurrent → **exactly one effect + one committed receipt**. NOTE: same-key collapse on this wire path is the `run_write_effect` receipt-replay gate over the **non-yielding in-memory** receipt store (NOT the P18 SingleFlight lock, which `serve_once_effect` does not use); a *yielding* receipt backend would need `run_write_effect_atomic` threaded into `handle_effect` (named follow-on). Cooperative concurrency (one polling task), not OS-parallel. Loopback only; no daemon/public ingress/live vendor. (LAB-MACHINE-SERVING-LOOP-CONCURRENCY-P13) |
 | **frame projection (substrate only)** | ✅ (FP-P1 proven, EXTRACTED to `igniter-frame` P2) | The machine is the state-kernel SUBSTRATE: `TBackend` facts (e.g. a `__world__` store) project deterministically to frames. The projection runtime — `Frame`/`Camera`/`RenderHost`/world projection/frame receipts — was **extracted OUT of the machine** into the sibling `igniter-frame` crate (the kernel owns no frame/camera/render code; `src/frame.rs` deleted). `igniter-frame` core builds machine-free; its `machine` feature adapts the `FrameSource`/`FrameSink`/`RenderHost` ports to `TBackend` (`__world__`/`__frames__`). Machine = boring kernel; projection = a consumer (`fact-to-frame`, inverse of wire-to-effect). (LAB-MACHINE-FRAME-PROJECTION-P1 → LAB-FRAME-PROJECTION-EXTRACT-P2) |
+| **Postgres-shaped read executor** | ✅ (fake-adapter proof) | `postgres_read::{PostgresReadExecutor<A>, PostgresReadAdapter, PostgresReadResult, PostgresReadPolicy, QueryPlan, QueryFilter, FakePostgresAdapter}` — first Postgres-shaped read capability, the `SparkCrmExecutor` pattern applied to SQL. A contract emits a **typed `QueryPlan`** (NO SQL string, NO DB handle); the executor (a `CapabilityExecutor`, so receipts/idempotency/replay come free from `run_effect`) runs gates **before** the single adapter call: raw-SQL refusal · source allowlist · read-only(mutation refusal) · op allowlist · field allowlist · row-limit **clamp**(≠denial). Outcome: rows/empty→Succeeded, unavailable→UnknownExternalState, transient→Retryable, query-error→PermanentFailure. **Fake in-memory adapter only — no `tokio-postgres`/`sqlx`/`diesel`, no SQL, no network, no new dependency.** Schema authority = host-side `PostgresReadPolicy` (not contract input, not introspection); filter-predicate evaluation deferred (`LAB-FILTER-EVAL-P1`); Postgres-as-`TBackend` is a separate deferred track. (LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2) |
 
 ## Surfaces
 
@@ -245,10 +249,21 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   HTTP POST → handle_effect → committed 200; dedup_strict wire replay → no 2nd effect; bounded_fresh
   over repeated POSTs → 3 distinct effects; status mapping unknown→202 / denied→403; bridge audit
   links correlation/attempt/replica/effect_receipt_id over the wire.
+- `tests/postgres_read_tests.rs` (9) — **Postgres-shaped read executor** (P2, fake adapter): impl
+  `CapabilityExecutor`; allowlisted source → rows (projection-shaped) + receipt; empty→success/empty;
+  raw-SQL input → permanent + adapter untouched; unknown-source / forbidden field (projection AND
+  filter) / mutation op all refused BEFORE the adapter (call count 0); row-limit clamp reflected in
+  result + persisted receipt; adapter unavailable→unknown, transient→retryable; replay same key →
+  adapter call count stays 1. No DB / SQL / network / dependency.
 - `tests/serving_loop_tests.rs` (4) — **host serving loop** (P12, real 127.0.0.1): one loop instance
   boots once + serves two requests (observe() projects 2 committed); duplicate same-key over the loop →
   exactly one effect; host-owned tick drains a due retry intent; deterministic bounded shutdown
   (re-entrant, no leaked acceptor, system stays queryable).
+- `tests/serving_loop_concurrency_tests.rs` (5) — **bounded concurrent serving** (P13, multi-thread,
+  real 127.0.0.1): distinct keys served concurrently (observed == max_in_flight > 1, all effects run);
+  6 same-key concurrent → exactly one effect + one committed receipt; mixed batch → one effect per
+  distinct key (duplicates serialized); deterministic bounded shutdown (re-entrant, no leaked task);
+  host-owned tick drains a due retry. Stable over 10 consecutive runs.
 - frame projection (6 checks) lives in the **`igniter-frame` crate** now, not here
   (`igniter-frame/tests/frame_projection_tests.rs`; `cargo test` there) — extracted per
   LAB-FRAME-PROJECTION-EXTRACT-P2. The machine only proves its facts are a projection substrate.

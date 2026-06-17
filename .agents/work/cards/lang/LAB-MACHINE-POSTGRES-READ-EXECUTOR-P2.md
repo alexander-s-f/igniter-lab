@@ -1,8 +1,29 @@
 # Card: LAB-MACHINE-POSTGRES-READ-EXECUTOR-P2 — fake-adapter Postgres read executor
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol  
-**Status: READY.** This is the bounded next slice from
-`LAB-MACHINE-POSTGRES-CAPABILITY-READINESS-P1`.
+**Status: CLOSED 2026-06-17 — implementation proof complete (9/9).** This was the bounded next
+slice from `LAB-MACHINE-POSTGRES-CAPABILITY-READINESS-P1`.
+
+## Closing report (2026-06-17)
+
+Doc: [`lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md`](../../../../lab-docs/lang/lab-machine-postgres-read-executor-p2-v0.md).
+
+Added `igniter-machine/src/postgres_read.rs` (+`pub mod` in `lib.rs`) and
+`tests/postgres_read_tests.rs`. **Fake adapter only — no DB, no SQL, no network, no new
+dependency.** `PostgresReadExecutor<A: PostgresReadAdapter>` implements `CapabilityExecutor`, so
+it rides the existing `run_effect` machinery (authority, idempotency, receipt-as-fact, replay)
+with **no new primitive** — the `SparkCrmExecutor`/`TBackendReadExecutor` pattern.
+
+Gates enforced **before** the single adapter call: raw-SQL refusal (structural) → plan parse →
+source allowlist (G1) → read-only mutation refusal → op allowlist (G2) → field allowlist (G3) →
+row-limit clamp (G4, not a denial). Outcome taxonomy: rows/empty→`Succeeded`,
+unavailable→`UnknownExternalState`, transient→`Retryable`, query-error→`PermanentFailure`.
+v0 does NOT evaluate filter predicates (left to `LAB-FILTER-EVAL-P1`); schema authority =
+host-side `PostgresReadPolicy`, not contract input.
+
+**Verify:** `cargo test --no-default-features --test postgres_read_tests` → 9 passed / 0 failed;
+full suite green (no regression); module compiles with no new warnings.
+`IMPLEMENTED_SURFACE.md` updated (public API added).
 
 ## Front door
 
@@ -69,17 +90,17 @@ pub struct PostgresReadExecutor<A> {
 
 ## Acceptance
 
-- [ ] Verify-first note confirms no real Postgres connector exists before this card.
-- [ ] `PostgresReadExecutor` implements `CapabilityExecutor`.
-- [ ] Fake adapter only; no new dependency and no real SQL/network.
-- [ ] Typed query/plan input accepted; raw SQL input refused structurally.
-- [ ] Allowlisted source/query succeeds and returns rows.
-- [ ] Empty result maps to success/empty, not failure.
-- [ ] Unknown source / forbidden field / mutation attempt refused before adapter call.
-- [ ] Row limit is clamped by policy and reflected in result/receipt details.
-- [ ] Adapter unavailable maps to `UnknownExternalState` or `Retryable` per documented taxonomy.
-- [ ] Replay with same idempotency key bypasses the adapter (adapter call count remains 1).
-- [ ] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated only if public API is added.
+- [x] Verify-first note confirms no real Postgres connector exists before this card.
+- [x] `PostgresReadExecutor` implements `CapabilityExecutor`.
+- [x] Fake adapter only; no new dependency and no real SQL/network.
+- [x] Typed query/plan input accepted; raw SQL input refused structurally.
+- [x] Allowlisted source/query succeeds and returns rows.
+- [x] Empty result maps to success/empty, not failure.
+- [x] Unknown source / forbidden field / mutation attempt refused before adapter call.
+- [x] Row limit is clamped by policy and reflected in result/receipt details.
+- [x] Adapter unavailable maps to `UnknownExternalState` or `Retryable` per documented taxonomy.
+- [x] Replay with same idempotency key bypasses the adapter (adapter call count remains 1).
+- [x] Docs/card updated; `IMPLEMENTED_SURFACE.md` updated (public API added).
 
 ## Closed surfaces
 

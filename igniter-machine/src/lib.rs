@@ -17,6 +17,7 @@ pub mod ingress;
 pub mod machine;
 pub mod observability;
 pub mod orchestrator;
+pub mod postgres_read;
 pub mod reconcile;
 pub mod recovery;
 pub mod registry;

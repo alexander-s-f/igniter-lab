@@ -27,6 +27,7 @@ use crate::coordination::CoordinationHub;
 use crate::errors::EngineError;
 use crate::ingress::{serve_once_effect, EffectBridgeConfig, IngressRouter};
 use crate::orchestrator::EffectOrchestrator;
+use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::net::TcpListener;
 
 /// How the host paces the loop. Cadence is explicit and the stop is bounded: there is no hidden
@@ -115,6 +116,102 @@ impl ServingLoop<'_> {
                     report.ticks_run += 1;
                     report.retries_drained += drained.len();
                 }
+            }
+        }
+
+        if policy.tick_on_stop {
+            let drained = orch.tick().await?;
+            report.ticks_run += 1;
+            report.retries_drained += drained.len();
+        }
+
+        Ok(report)
+    }
+}
+
+// ── Bounded concurrent serving (LAB-MACHINE-SERVING-LOOP-CONCURRENCY-P13) ────────────────────────
+
+/// How the host paces a *bounded concurrent* run. Like `ServingPolicy` but with an explicit
+/// `max_in_flight`: at most that many `serve_once_effect` calls are ever in flight at once. The
+/// stop is still bounded (`max_requests`); there is no hidden timer.
+#[derive(Debug, Clone)]
+pub struct ConcurrentServingPolicy {
+    /// Deterministic stop: process exactly this many inbound connections, then return.
+    pub max_requests: usize,
+    /// Upper bound on concurrently in-flight `serve_once_effect` calls. Clamped to ≥ 1. The loop
+    /// NEVER exceeds this — there is no unbounded fan-out.
+    pub max_in_flight: usize,
+    /// Run one final host-owned `tick` after the last request, before returning.
+    pub tick_on_stop: bool,
+}
+
+impl ConcurrentServingPolicy {
+    /// Serve `max_requests` connections with at most `max_in_flight` in flight; no auto-tick.
+    pub fn new(max_requests: usize, max_in_flight: usize) -> Self {
+        Self { max_requests, max_in_flight, tick_on_stop: false }
+    }
+    /// Tick once after the last request, before returning.
+    pub fn tick_on_stop(mut self) -> Self {
+        self.tick_on_stop = true;
+        self
+    }
+}
+
+/// Derived summary of one `run_concurrent`. NOT a source of truth (facts remain authoritative);
+/// `max_in_flight_observed` is the peak size of the in-flight set the loop actually reached.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ConcurrentServingReport {
+    pub booted: bool,
+    pub requests_served: usize,
+    pub max_in_flight_observed: usize,
+    pub ticks_run: usize,
+    pub retries_drained: usize,
+}
+
+impl ServingLoop<'_> {
+    /// boot recovery once → serve `policy.max_requests` connections with **bounded concurrency**
+    /// (`max_in_flight` simultaneously in flight) → optional host-owned tick → derived report.
+    ///
+    /// Concurrency model: **structured, not spawned.** The in-flight `serve_once_effect` calls live
+    /// in a `FuturesUnordered` polled by THIS task — there is no `tokio::spawn`, no detached task,
+    /// and therefore nothing that can outlive `run_concurrent`. When it returns, the set is dropped;
+    /// any still-pending future would be cancelled (in practice the loop awaits them all). This is a
+    /// strictly stronger "no leaked worker" guarantee than join-on-shutdown: there is no worker to
+    /// leak. Multiple connections are genuinely in flight at once (interleaved at every `accept` /
+    /// read / write / effect await), bounded by `max_in_flight`.
+    ///
+    /// Atomic gate: this helper does NOT invent request-level idempotency. Each connection runs the
+    /// unchanged `serve_once_effect` contour; same-key duplicates collapse to one effect through the
+    /// existing duplicate-policy + receipt-replay path, exactly as a hand-driven set of concurrent
+    /// `serve_once_effect` calls would (see the proof doc for the precise mechanism and its limits).
+    pub async fn run_concurrent(
+        &self,
+        orch: &EffectOrchestrator<'_>,
+        policy: &ConcurrentServingPolicy,
+    ) -> Result<ConcurrentServingReport, EngineError> {
+        // boot recovery ONCE, before serving (P19 sweep), same as the sequential `run`.
+        orch.boot().await?;
+        let mut report = ConcurrentServingReport { booted: true, ..Default::default() };
+
+        let cap = policy.max_in_flight.max(1);
+        let mut started = 0usize;
+        let mut in_flight = FuturesUnordered::new();
+
+        loop {
+            // Top up the in-flight set to the bound, never beyond it and never past the budget.
+            while in_flight.len() < cap && started < policy.max_requests {
+                in_flight.push(serve_once_effect(self.listener, self.router, self.hub, self.cfg));
+                started += 1;
+            }
+            report.max_in_flight_observed = report.max_in_flight_observed.max(in_flight.len());
+
+            // Await exactly one completion; if the set is empty and nothing is left to start, stop.
+            match in_flight.next().await {
+                Some(res) => {
+                    res.map_err(|e| EngineError::IOError(e.to_string()))?;
+                    report.requests_served += 1;
+                }
+                None => break,
             }
         }
 
