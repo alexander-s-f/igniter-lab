@@ -21,7 +21,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > **Readiness/design (post-P25, not implemented):** operator console over P20+P23 —
 > `../lab-docs/lang/lab-machine-operator-console-p1-v0.md` (`LAB-MACHINE-OPERATOR-CONSOLE-P1`);
 > SparkCRM webhook auction policy over P7 —
-> `../lab-docs/lang/lab-sparkcrm-webhook-auction-policy-p1-v0.md` (`LAB-SPARKCRM-WEBHOOK-AUCTION-POLICY-P1`).
+> `../lab-docs/lang/lab-sparkcrm-webhook-auction-policy-p1-v0.md` (`LAB-SPARKCRM-WEBHOOK-AUCTION-POLICY-P1`);
+> Postgres connector + ORM boundary map —
+> `../lab-docs/lang/lab-machine-postgres-capability-readiness-p1-v0.md` (`LAB-MACHINE-POSTGRES-CAPABILITY-READINESS-P1`):
+> v0 = host `CapabilityExecutor` (SparkCRM pattern over SQL), NOT a `TBackend`, NOT an in-VM ORM;
+> next slice `…-POSTGRES-READ-EXECUTOR-P2` (fake adapter, no dep).
 > Design/readiness only — no code behind these yet.
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
@@ -71,6 +75,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 | **replica selection in ingress** | ✅ (P9) | `ingress::IngressRouter` `route_with_strategy` + `serve_one` → `invoke_replica` (P8) in the hot path: webhook → passport → duplicate policy (P7, attempt/key) → ONE replica selected (`select_replica`: hash_key stable / hash_key_attempt / round_robin, NO random) → activation → response + `coordination::audit_serve` (replica_index/replica_count/strategy/seed_digest). **Single replica, NEVER fanout** (scaling compute must not multiply downstream effects; `invoke_fanout` stays diagnostic). Output-invariant. Duplicate policy decided before selection. (LAB-MACHINE-SERVICE-INGRESS-REPLICA-P9) |
 | **service→effect bridge (replica)** | ✅ (P10, glass box) | `ingress::{EffectBridgeConfig, IngressRouter::handle_effect}` + `coordination::audit_bridge` — combines P7 dup-policy + P9 single-replica + the capability-IO effect: webhook → dup policy → ONE replica → capsule INTENT → `run_write_effect` (host effect passport, distinct from vendor) = ONE effect → receipt → HTTP. **Effect idem key = `duplicate_key:attempt_index`** so dup policy controls effect count: `dedup_strict`→one effect ever (repeat replays, no 2nd effect); `bounded_fresh(n)`→up to n distinct-keyed effects (auction leads). Single replica → ≤1 effect; fanout never effects. Unknown→202+correlation. audit links correlation/attempt/replica/effect_receipt_id. Fake executor only. (LAB-MACHINE-SERVICE-BRIDGE-REPLICA-P10) |
 | **wire-to-effect contour** | ✅ (P11 MILESTONE, real socket) | `ingress::serve_once_effect` (+ shared `read_one_request`/`write_one_response`) — a real `127.0.0.1` HTTP/1.1 POST drives the FULL contour: parser → passport → duplicate policy → ONE replica → capsule intent → ONE effect → receipt → real HTTP response. All P10 invariants hold over real transport (one-replica-one-effect, dedup_strict replay no 2nd effect, bounded_fresh attempts 0..n, unknown→202, denied→403, audit links). **"wire-to-effect production contour proven in lab"** — front door `LAB-MACHINE-SERVICE-WIRE-EFFECT-MILESTONE`. Fake executor; no live SparkCRM (human-gated staging). (LAB-MACHINE-SERVICE-WIRE-EFFECT-P11) |
+| **host serving loop** | ✅ (P12, host-owned) | `serving_loop::{ServingLoop, ServingPolicy, ServingReport}` — the in-lab **host shell** that shows the machine living as a process without a daemon: `boot()` recovery ONCE → accept/process `max_requests` connections via repeated `ingress::serve_once_effect` (P11) → optional host-owned tick cadence (`tick_every`/`tick_on_stop`) draining due retries via `EffectOrchestrator::tick` (P20) → `report/observe` stay queryable. **Host owns the loop and cadence; the machine exposes only functions** — no `tokio::spawn`, no background worker, no hidden scheduler (when `run` returns nothing of the loop remains). Sequential processing → introduces no concurrency → cannot weaken the P18 atomic gate: duplicate same-key requests still perform exactly one effect. Bounded, deterministic stop (`max_requests`, never unbounded). Loopback only (caller passes a `127.0.0.1` listener; the helper opens no address). NOT deployment topology (no daemon/supervisor/systemd/Dockerfile, no live vendor). `ServingReport` is a derived counter, NOT a side-log — facts remain the truth. (LAB-MACHINE-SERVING-LOOP-P12) |
 | **frame projection (substrate only)** | ✅ (FP-P1 proven, EXTRACTED to `igniter-frame` P2) | The machine is the state-kernel SUBSTRATE: `TBackend` facts (e.g. a `__world__` store) project deterministically to frames. The projection runtime — `Frame`/`Camera`/`RenderHost`/world projection/frame receipts — was **extracted OUT of the machine** into the sibling `igniter-frame` crate (the kernel owns no frame/camera/render code; `src/frame.rs` deleted). `igniter-frame` core builds machine-free; its `machine` feature adapts the `FrameSource`/`FrameSink`/`RenderHost` ports to `TBackend` (`__world__`/`__frames__`). Machine = boring kernel; projection = a consumer (`fact-to-frame`, inverse of wire-to-effect). (LAB-MACHINE-FRAME-PROJECTION-P1 → LAB-FRAME-PROJECTION-EXTRACT-P2) |
 
 ## Surfaces
@@ -240,6 +245,10 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   HTTP POST → handle_effect → committed 200; dedup_strict wire replay → no 2nd effect; bounded_fresh
   over repeated POSTs → 3 distinct effects; status mapping unknown→202 / denied→403; bridge audit
   links correlation/attempt/replica/effect_receipt_id over the wire.
+- `tests/serving_loop_tests.rs` (4) — **host serving loop** (P12, real 127.0.0.1): one loop instance
+  boots once + serves two requests (observe() projects 2 committed); duplicate same-key over the loop →
+  exactly one effect; host-owned tick drains a due retry intent; deterministic bounded shutdown
+  (re-entrant, no leaked acceptor, system stays queryable).
 - frame projection (6 checks) lives in the **`igniter-frame` crate** now, not here
   (`igniter-frame/tests/frame_projection_tests.rs`; `cargo test` there) — extracted per
   LAB-FRAME-PROJECTION-EXTRACT-P2. The machine only proves its facts are a projection substrate.

@@ -41,6 +41,11 @@ real HTTP POST (127.0.0.1)
 **77 coordination tests; full machine suite 219 green** (incl. the neighbour's capability-IO
 P1–P15 + service↔effect bridge).
 
+> **Host shell (follow-on):** `LAB-MACHINE-SERVING-LOOP-P12` CLOSED — a host-owned bounded loop
+> over `serve_once_effect` + `EffectOrchestrator::{boot,tick}` (loopback only, no daemon, fake
+> executor). Shows the machine living as a process without inventing a background daemon. Proof:
+> `lab-docs/lang/lab-machine-serving-loop-p12-v0.md`.
+
 ## The two convergent tracks
 
 ```text
