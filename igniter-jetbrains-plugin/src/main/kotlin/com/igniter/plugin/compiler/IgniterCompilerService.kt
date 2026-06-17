@@ -110,8 +110,14 @@ class IgniterCompilerService {
      *   an ephemeral temp directory is used (the annotator path — no source-tree
      *   pollution). The compile action passes the source's own directory so the
      *   produced bundle is discoverable by ShowSemanticIRAction.
+     * @param extraSources additional `.ig` source files (imported project modules)
+     *   passed alongside [sourceFile] so the compiler resolves cross-module
+     *   declarations. The native CLI is multi-file:
+     *   `compile <sourceFile> <extra...> --out OUT.igapp`. [sourceFile] stays first
+     *   (the primary/current file); resolution is order-independent compiler-side.
+     *   Empty (the default) preserves the original single-file behaviour.
      */
-    fun compile(sourceFile: File, outRoot: Path? = null): CompilationResult {
+    fun compile(sourceFile: File, outRoot: Path? = null, extraSources: List<File> = emptyList()): CompilationResult {
         val binary = resolveCompilerBinary()
             ?: return CompilationResult(
                 success = false,
@@ -130,7 +136,9 @@ class IgniterCompilerService {
 
         val root = outRoot ?: Files.createTempDirectory("igniter_out")
         val igapp = root.resolve("${sourceFile.nameWithoutExtension}.igapp")
-        val command = listOf(binary, "compile", sourceFile.absolutePath, "--out", igapp.toString())
+        val command = listOf(binary, "compile", sourceFile.absolutePath) +
+            extraSources.map { it.absolutePath } +
+            listOf("--out", igapp.toString())
         log.info("Running: ${command.joinToString(" ")}")
 
         return try {

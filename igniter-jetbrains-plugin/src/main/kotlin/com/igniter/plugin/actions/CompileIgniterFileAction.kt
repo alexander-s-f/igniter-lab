@@ -1,6 +1,7 @@
 package com.igniter.plugin.actions
 
 import com.igniter.plugin.compiler.IgniterCompilerService
+import com.igniter.plugin.compiler.IgniterImportCompilePlanner
 import com.igniter.plugin.compiler.OofSeverity
 import com.igniter.plugin.lang.IgniterFile
 import com.intellij.notification.NotificationGroupManager
@@ -34,7 +35,11 @@ class CompileIgniterFileAction : AnAction() {
                 // Explicit compile: write the .igapp bundle next to the source so
                 // "Show Semantic IR" can find semantic_ir_program.json afterwards.
                 val outRoot = ioFile.parentFile?.toPath()
-                val result = IgniterCompilerService.getInstance().compile(ioFile, outRoot)
+                // Import-aware: pass the file's imported project modules so cross-module
+                // declarations resolve (no false OOF-P1). Empty when the file has no
+                // resolvable non-stdlib imports — i.e. the original single-file compile.
+                val imported = resolveImportedSources(project, vFile.path, ioFile)
+                val result = IgniterCompilerService.getInstance().compile(ioFile, outRoot, imported)
 
                 // First error message reads better than the raw JSON envelope the
                 // native compiler prints to stdout.
@@ -50,6 +55,17 @@ class CompileIgniterFileAction : AnAction() {
                 }
             }
         })
+    }
+
+    /** On-disk `.ig` files for [ioFile]'s imported project modules (see planner). */
+    private fun resolveImportedSources(project: Project, path: String, ioFile: File): List<File> {
+        val text = runCatching { ioFile.readText() }.getOrNull() ?: return emptyList()
+        val imports = IgniterImportCompilePlanner.importedModules(text)
+        if (imports.isEmpty()) return emptyList()
+        val root = project.basePath?.let { java.nio.file.Paths.get(it) } ?: return emptyList()
+        val index = IgniterImportCompilePlanner.scanProject(root, excludePath = path)
+        val module = IgniterImportCompilePlanner.moduleNameOf(text)
+        return IgniterImportCompilePlanner.resolve(module, imports, index).map(::File)
     }
 
     private fun showResult(

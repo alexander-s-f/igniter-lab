@@ -1,10 +1,12 @@
 package com.igniter.plugin.model
 
 import com.igniter.plugin.compiler.IgniterCompilerService
+import com.igniter.plugin.compiler.IgniterImportCompilePlanner
 import com.igniter.plugin.compiler.OofDiagnostic
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -22,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  * [IgniterModelParser] so it can be proven without an IDE fixture.
  */
 @Service(Service.Level.PROJECT)
-class IgniterModelService(@Suppress("unused") private val project: Project) {
+class IgniterModelService(private val project: Project) {
 
     private val log = Logger.getInstance(IgniterModelService::class.java)
 
@@ -67,14 +69,49 @@ class IgniterModelService(@Suppress("unused") private val project: Project) {
             val src = dir.resolve("$base.ig")
             Files.write(src, text.toByteArray(StandardCharsets.UTF_8))
 
-            val result = IgniterCompilerService.getInstance().compile(src.toFile(), dir)
-            val igapp = result.outputDir?.toFile()
+            val compiler = IgniterCompilerService.getInstance()
+
+            // The model (navigation / inlays / structure) is always derived from the
+            // current file compiled alone, so its line/col stay in *editor*
+            // coordinates. A failing standalone compile yields no artifacts → the
+            // model is EMPTY, exactly as before this card.
+            val modelResult = compiler.compile(src.toFile(), dir)
+            val igapp = modelResult.outputDir?.toFile()
             val model = if (igapp != null && igapp.isDirectory) IgniterModelParser.parse(igapp) else IgniterModel.EMPTY
-            Analysis(result.diagnostics, model)
+
+            // Diagnostics become import-aware: if the current file imports resolvable
+            // project modules, compile it *together with* those modules so the
+            // compiler resolves cross-module declarations (no false OOF-P1) and is the
+            // authority on genuinely missing imports (OOF-IMP*). Falls back to the
+            // standalone diagnostics when there are no resolvable imports.
+            val importedSources = resolveImportedSources(path, text)
+            val diagnostics = if (importedSources.isNotEmpty()) {
+                val importsDir = Files.createDirectories(dir.resolve("imports"))
+                compiler.compile(src.toFile(), importsDir, importedSources).diagnostics
+            } else {
+                modelResult.diagnostics
+            }
+
+            Analysis(diagnostics, model)
         } catch (e: Exception) {
             log.warn("Model analysis failed for $path", e)
             Analysis(emptyList(), IgniterModel.EMPTY)
         }
+    }
+
+    /**
+     * On-disk `.ig` files for the current file's (transitively) imported project
+     * modules, or empty when the file has no non-stdlib imports or no project root
+     * is known. The current file is excluded from the scan so its in-editor text
+     * remains the single source of truth for its own module.
+     */
+    private fun resolveImportedSources(path: String, text: String): List<File> {
+        val imports = IgniterImportCompilePlanner.importedModules(text)
+        if (imports.isEmpty()) return emptyList()
+        val root = project.basePath?.let { Paths.get(it) } ?: return emptyList()
+        val index = IgniterImportCompilePlanner.scanProject(root, excludePath = path)
+        val module = IgniterImportCompilePlanner.moduleNameOf(text)
+        return IgniterImportCompilePlanner.resolve(module, imports, index).map(::File)
     }
 
     /** Stable per-file cache directory (overwritten each refresh; one dir per path). */
