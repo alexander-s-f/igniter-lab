@@ -10,6 +10,7 @@ pub mod correlation;
 pub mod errors;
 pub mod executors;
 pub mod fact;
+pub mod frame_binding;
 pub mod http;
 pub mod ingress;
 pub mod machine;

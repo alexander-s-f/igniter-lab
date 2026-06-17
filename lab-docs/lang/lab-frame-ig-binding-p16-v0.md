@@ -104,11 +104,13 @@ mean the console records host action records alongside frames) — out of this s
 - **browser authority-free**: the fixture host runs in-process and deterministically; it holds no
   secret/passport; real authority (passport, `CoordinationHub`) is a later gate.
 
-## Next (gated — not started)
+## Next (gated)
 
-- **`LAB-FRAME-IG-BINDING-MACHINE-BRIDGE-P17`** — replace the fixture host with a host-side adapter to
-  the real `CoordinationHub`/passport/`ContractRegistry`, still local and no external IO. The view/
-  browser path stays machine-free; the bridge runs host-side.
+- **`LAB-FRAME-IG-BINDING-MACHINE-BRIDGE-P17`** — DONE: `igniter-machine/src/frame_binding.rs`
+  replaces this fixture executor with the real `CoordinationHub::invoke` serving path (double gate +
+  recipe match before invoke; real `Add` capsule → 5; no receipt; ui-kit stays machine-free). See
+  `lab-frame-ig-binding-machine-bridge-p17-v0.md`. Next gate:
+  `LAB-FRAME-IG-BINDING-EFFECT-BRIDGE-P18` (action → declared capability-IO receipt, fake executor).
 - **`LAB-FRAME-IGV-BINDING-SYNTAX-P1`** — `.igv` text syntax over the now-code-proven ViewArtifact
   manifest, after the JSON shape is settled.
 - console action/receipt lineage — record host action records alongside frames so the IDE-shell shows
