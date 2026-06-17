@@ -27,6 +27,15 @@ fn main() {
         std::process::exit(1);
     }
 
+    // LAB-COMPILER-PROJECT-MODE-COMPILE-P1: canonical project-root compile mode.
+    // `compile --project-root ROOT --entry MODULE --out OUT`
+    // Resolves the transitive import closure for the entry module from the
+    // project source roots, then reuses the existing multi-file pipeline.
+    if args.iter().any(|a| a == "--project-root") {
+        run_project_mode(&args);
+        return;
+    }
+
     let Some(out_index) = args.iter().position(|arg| arg == "--out") else {
         eprintln!("Usage: igc compile SOURCE [SOURCE ...] --out OUT.igapp");
         std::process::exit(1);
@@ -78,6 +87,112 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// LAB-COMPILER-PROJECT-MODE-COMPILE-P1
+/// Parse the project-mode flags, resolve the entry module's import closure, and
+/// hand the resolved source files to the existing multi-file pipeline.
+fn run_project_mode(args: &[String]) {
+    let flag_value = |flag: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+
+    let (Some(root), Some(entry), Some(out_path)) = (
+        flag_value("--project-root"),
+        flag_value("--entry"),
+        flag_value("--out"),
+    ) else {
+        eprintln!(
+            "Usage: igc compile --project-root ROOT --entry MODULE --out OUT.igapp"
+        );
+        std::process::exit(1);
+    };
+
+    match igniter_compiler::project::resolve_entry(Path::new(&root), &entry) {
+        Ok(paths) => {
+            let source_paths: Vec<String> =
+                paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            // A single resolved file still goes through the multi-file path so
+            // that source_units evidence is always emitted in project mode.
+            match run_multifile_compiler(&source_paths, &out_path, None) {
+                Ok(true) => {}
+                Ok(false) => std::process::exit(1),
+                Err(err) => {
+                    eprintln!("Internal compiler error: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(igniter_compiler::project::ProjectError::Diagnostic(diag)) => {
+            emit_project_diagnostic(&diag, &out_path);
+            std::process::exit(1);
+        }
+        Err(igniter_compiler::project::ProjectError::Io(err)) => {
+            eprintln!("Internal compiler error (project scan): {}", err);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Render a project-assembly diagnostic as a compiler_result + compilation
+/// report, mirroring the multi-file error path so tooling sees a consistent
+/// shape.
+fn emit_project_diagnostic(diag: &igniter_compiler::project::ProjectDiagnostic, out_path: &str) {
+    let diagnostics_json = vec![diag.to_value()];
+    let report_path = report_path_for(out_path);
+    if let Some(parent) = Path::new(&report_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let report = json!({
+        "kind": "compilation_report",
+        "format_version": "0.1.0",
+        "program_id": Value::Null,
+        "grammar_version": "igniter-v0",
+        "source_hash": Value::Null,
+        "source_path": "project:error",
+        "pass_result": "oof",
+        "stages": {
+            "parse": "skipped",
+            "project_resolve": "oof",
+            "multifile_resolve": "skipped",
+            "classify": "skipped",
+            "typecheck": "skipped",
+            "emit": "skipped"
+        },
+        "diagnostics": diagnostics_json,
+        "semantic_ir_ref": Value::Null
+    });
+    let _ = fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report).unwrap_or_default() + "\n",
+    );
+
+    let result = json!({
+        "kind": "compiler_result",
+        "format_version": "0.1.0",
+        "status": "oof",
+        "program_id": Value::Null,
+        "source_path": "project:error",
+        "source_hash": Value::Null,
+        "grammar_version": "igniter-v0",
+        "stages": {
+            "parse": "skipped",
+            "project_resolve": "oof",
+            "multifile_resolve": "skipped",
+            "classify": "skipped",
+            "typecheck": "skipped",
+            "emit": "skipped",
+            "assemble": "skipped"
+        },
+        "igapp_path": Value::Null,
+        "contracts": [],
+        "compilation_report_path": report_path,
+        "diagnostics": diagnostics_json,
+        "warnings": []
+    });
+    println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
 }
 
 fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
