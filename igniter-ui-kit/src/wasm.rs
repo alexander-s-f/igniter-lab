@@ -20,6 +20,13 @@ impl WasmWorkbench {
     pub fn new() -> WasmWorkbench {
         WasmWorkbench { inner: WorkbenchRuntime::lead_review() }
     }
+
+    /// Compile a `workbench` ViewArtifact JSON into a live runtime (LAB-FRAME-VIEWARTIFACT-P12).
+    /// Errors surface as a thrown JS string. The browser fetches the .json and calls this — the
+    /// authoring layer is portable data, not Rust.
+    pub fn from_artifact(json: &str) -> Result<WasmWorkbench, String> {
+        WorkbenchRuntime::from_artifact(json).map(|inner| WasmWorkbench { inner }).map_err(|e| e.to_string())
+    }
     pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
         self.inner.click(css_x, css_y)
     }

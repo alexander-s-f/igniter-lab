@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-ui-kit · ViewArtifact JSON (LAB-FRAME-VIEWARTIFACT-P12)</title>
+<style>
+  :root { --line:#21262d; --dim:#8b949e; --acc:#39d353; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d1117; color:#c9d1d9; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:600px; height:367px; border:1px solid var(--line); border-radius:10px; overflow:hidden; cursor:pointer; outline:none; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; max-width:520px; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 12px; font-size:12px; }
+  .badge { display:inline-block; font-size:12px; padding:4px 10px; border-radius:6px; background:#0d2a14; color:var(--acc); border:1px solid #1c5a2e; margin-bottom:10px; }
+  pre { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:11px; color:#9da7b3; overflow:auto; max-height:300px; margin:0 0 14px; }
+  .row { display:flex; gap:10px; padding:3px 0; }
+  .k { color:var(--dim); min-width:120px; }
+  .v.frm { color:var(--acc); } .v.inp { color:#58a6ff; } .v.eff { color:#d29922; }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:12px; }
+  button { font:inherit; color:#c9d1d9; background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .strip { display:flex; gap:6px; margin-top:8px; }
+  code { color:var(--acc); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene" tabindex="0">loading…</div>
+      <div class="strip">
+        <button id="reset">Reset</button>
+        <button id="verify-btn">Verify replay</button>
+      </div>
+      <div id="verify" style="color:var(--acc);font-size:12px;margin-top:10px;"></div>
+    </div>
+    <div id="panel">
+      <h1>igniter-ui-kit — compiled from ViewArtifact JSON</h1>
+      <p class="sub">This workbench was built by fetching <code>lead_review.view.json</code> and calling <code>WasmWorkbench.from_artifact(json)</code> — no Rust constructor. The JSON compiles to the kit tree and runs on the SAME <code>FrameRuntime</code>.</p>
+      <div id="identical" class="badge">checking…</div>
+      <pre id="json">loading json…</pre>
+      <div class="card">
+        <div class="row"><span class="k">frame_index</span><span class="v frm" id="frame_index">—</span></div>
+        <div class="row"><span class="k">render_digest</span><span class="v" id="digest">—</span></div>
+        <div class="row"><span class="k">input_receipt</span><span class="v inp" id="inp">—</span></div>
+        <div class="row"><span class="k">effect_receipt</span><span class="v eff" id="eff">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmWorkbench } from './igniter_ui_kit.js';
+    const CW = 720, CH = 440;
+
+    async function main() {
+      await init();
+      const jsonText = await (await fetch('./lead_review.view.json')).text();
+      document.getElementById('json').textContent = jsonText;
+
+      const rt = WasmWorkbench.from_artifact(jsonText);   // compiled from JSON
+      const hand = new WasmWorkbench();                    // hand-written lead_review()
+      const identical = rt.render_digest() === hand.render_digest();
+      const badge = document.getElementById('identical');
+      badge.textContent = identical ? '✓ byte-identical to hand-written Workbench::lead_review()' : '✗ digests differ';
+      if (!identical) badge.style.color = '#f85149';
+
+      const scene = document.getElementById('scene');
+      const render = () => {
+        scene.innerHTML = rt.render_svg();
+        document.getElementById('frame_index').textContent = rt.frame_index();
+        document.getElementById('digest').textContent = rt.render_digest();
+        const l = JSON.parse(rt.lineage_json());
+        document.getElementById('inp').textContent = l.input_receipt_id ?? '—';
+        document.getElementById('eff').textContent = l.effect_receipt_id ?? '— (no intent)';
+      };
+      scene.addEventListener('pointerdown', (ev) => {
+        scene.focus();
+        const r = scene.getBoundingClientRect();
+        rt.click((ev.clientX - r.left) / r.width * CW, (ev.clientY - r.top) / r.height * CH);
+        render();
+      });
+      scene.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Backspace') { rt.backspace(); render(); ev.preventDefault(); return; }
+        if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey) { rt.key(ev.key); render(); ev.preventDefault(); }
+      });
+      document.getElementById('reset').addEventListener('click', () => { rt.reset(); render(); document.getElementById('verify').textContent=''; });
+      document.getElementById('verify-btn').addEventListener('click', () => {
+        const log = [['c',344,70],['k','h'],['k','i'],['c',344,126],['c',344,178],['c',106,105],['c',344,224],['c',106,65]];
+        const run = () => { rt.reset(); const s=[rt.render_digest()]; for (const e of log){ if(e[0]==='c') rt.click(e[1],e[2]); else rt.key(e[1]); s.push(rt.render_digest()); } return s; };
+        const a = run(), b = run();
+        document.getElementById('verify').textContent = JSON.stringify(a)===JSON.stringify(b) ? '✓ replay byte-identical over '+log.length+' events' : '✗ diverged';
+        rt.reset(); render();
+        window.__verify = { replay_ok: JSON.stringify(a)===JSON.stringify(b), identical };
+      });
+
+      window.__rt = rt; window.__identical = identical; window.__CSS=[CW,CH];
+      render();
+    }
+    main();
+  </script>
+</body>
+</html>

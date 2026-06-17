@@ -22,14 +22,14 @@ const BODY_TOP: i64 = 48;
 
 // ── Vocabulary / structure ──────────────────────────────────────────────────────────────────────
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum FieldKind {
     Text,
     Select(Vec<String>),
     Checkbox,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FieldSpec {
     pub id: String,
     pub label: String,
@@ -39,7 +39,7 @@ pub struct FieldSpec {
 
 /// A workbench: a list of selectable records (sidebar) + a per-record form (main) + a derived
 /// key/value inspector. The structure is authored; only mutable state is a fact.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Workbench {
     pub leads: Vec<String>,
     pub fields: Vec<FieldSpec>,
@@ -379,6 +379,13 @@ impl WorkbenchRuntime {
         Self::new(Workbench::lead_review())
     }
 
+    /// Build a workbench runtime from a `workbench`-layout ViewArtifact JSON (the portable
+    /// authoring layer). Compiling the canonical artifact yields byte-identical frames to
+    /// `lead_review()`.
+    pub fn from_artifact(json: &str) -> Result<Self, crate::view_artifact::ViewError> {
+        Ok(Self::new(crate::view_artifact::compile_workbench(json)?))
+    }
+
     pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
         self.inner.click(css_x, css_y)
     }
@@ -390,6 +397,10 @@ impl WorkbenchRuntime {
     }
     pub fn render_svg(&self) -> String {
         self.inner.render_svg()
+    }
+    /// The current projected frame (for a console/IDE inspecting/diffing the frame history).
+    pub fn frame(&self) -> igniter_frame::Frame {
+        self.inner.frame()
     }
     pub fn render_digest(&self) -> String {
         self.inner.render_digest()

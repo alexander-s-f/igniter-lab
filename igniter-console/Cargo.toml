@@ -1,0 +1,22 @@
+[package]
+name = "igniter_console"
+version = "0.1.0"
+edition = "2021"
+
+# Operator-console / IDE-shell (LAB-FRAME-APP-CONSOLE-P13). The FIRST app built FROM the kit: it
+# consumes a ViewArtifact-authored screen (igniter-ui-kit) and wraps it with a replay strip, a frame
+# viewer, a lineage inspector, and a frame diff over the recorded frame history. It invents no layout
+# primitives — it reuses igniter-frame's Frame/ProjectedNode/hit_test for its own chrome and embeds
+# the target's rendered SVG. Depends on igniter_frame/igniter_ui_kit with no machine in the path.
+
+[dependencies]
+igniter_frame = { path = "../igniter-frame", default-features = false }
+igniter_ui_kit = { path = "../igniter-ui-kit" }
+serde_json = "1.0"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

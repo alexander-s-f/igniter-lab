@@ -80,6 +80,12 @@ impl FrameRuntime {
         self.render_host.render(&self.current_frame())
     }
 
+    /// The current projected `Frame` (nodes + digests + lineage) — for a console/IDE that inspects
+    /// or diffs the frame history. Read-only; does not advance the runtime.
+    pub fn frame(&self) -> Frame {
+        self.current_frame()
+    }
+
     pub fn render_digest(&self) -> String {
         self.current_frame().render_digest()
     }

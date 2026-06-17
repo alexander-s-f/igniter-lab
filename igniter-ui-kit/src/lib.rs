@@ -18,6 +18,7 @@ use igniter_frame::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
 use serde_json::{json, Map, Value};
 
 pub mod composition;
+pub mod view_artifact;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
@@ -31,7 +32,7 @@ const GAP: i64 = 8;
 // ── Component vocabulary (the authoring model) ──────────────────────────────────────────────────
 
 /// A UI component. A `Form` body is a vertical `Stack` of these.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Component {
     Label(String),
     Text { id: String, label: String, required: bool },
@@ -57,7 +58,7 @@ pub fn button(id: &str, label: &str, action: &str) -> Component {
 }
 
 /// A form: a title + a vertical stack of components.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Form {
     pub title: String,
     pub body: Vec<Component>,
@@ -388,6 +389,11 @@ impl FormRuntime {
 
     pub fn lead_intake() -> Self {
         Self::new(Form::lead_intake())
+    }
+
+    /// Build a form runtime from a `form`-layout ViewArtifact JSON (the portable authoring layer).
+    pub fn from_artifact(json: &str) -> Result<Self, crate::view_artifact::ViewError> {
+        Ok(Self::new(crate::view_artifact::compile_form(json)?))
     }
 
     pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {

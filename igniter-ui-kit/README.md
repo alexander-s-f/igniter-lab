@@ -1,5 +1,9 @@
 # igniter-ui-kit — a proto UI-components kit (forms) over igniter-frame
 
+> **Stack map:** this is the component/authoring layer of the Igniter UI authoring stack. For the
+> whole architecture, the build guide, and the gates (`.igv` / `.ig` binding require explicit
+> cards), read `../lab-docs/lang/lab-frame-app-authoring-checkpoint-p14-v0.md`.
+
 `igniter-ui-kit` proves the AUTHORING model over the **`igniter-frame`** runtime: build UI from a
 small declarative component vocabulary instead of hand-rolled rect facts. It is the fourth thing
 over one runtime (2D demo, 3D sim, GUI engine, and now a components kit), and the layer an
@@ -88,6 +92,25 @@ is a `__focus__` fact that clears when its field leaves on a selection change, a
 
 Live: `web/build.sh` then open `http://127.0.0.1:8734/workbench.html` (the form demo is at
 `/index.html`). Select a lead, edit its fields, Submit; the host only maps DOM events.
+
+## ViewArtifact JSON (P12): the portable authoring layer
+
+You don't have to write Rust to author a screen. A **ViewArtifact JSON** compiles to the kit tree
+and runs on the same `FrameRuntime`:
+
+```rust
+let rt = WorkbenchRuntime::from_artifact(json)?;   // compile_workbench(json) → Workbench → runtime
+let rt = FormRuntime::from_artifact(json)?;        // form layout → Form → runtime
+```
+
+`src/view_artifact.rs` is a deterministic lowering (`compile(json) -> Result<Screen, ViewError>`,
+serde_json only) with precise diagnostics. The canonical `web/lead_review.view.json` /
+`web/lead_intake.view.json` are the SAME files the tests (`include_str!`) and the browser (`fetch`)
+load. Compiling them is **byte-identical** to `Workbench::lead_review()` / `Form::lead_intake()`
+(proven by digest-sequence equality). Live: open `http://127.0.0.1:8734/viewartifact.html` — it
+fetches the JSON, calls `WasmWorkbench.from_artifact`, and shows a "byte-identical to hand-written"
+badge. The `bind`/`action` keys are the (future) `.ig`-binding seam; here they resolve locally. This
+is data before a DSL — `.igv` is a later card.
 
 ## Boundary / status
 

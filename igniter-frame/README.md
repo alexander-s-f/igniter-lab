@@ -1,5 +1,9 @@
 # igniter-frame — derived projection runtime
 
+> **Stack map:** this is the runtime layer of the Igniter UI authoring stack. For the whole
+> architecture (kernel → frame → domains/kit → console), the build guide, and the gates, read
+> `../lab-docs/lang/lab-frame-app-authoring-checkpoint-p14-v0.md`.
+
 `igniter-frame` is the **projection runtime** over the `igniter-machine` substrate
 (LAB-FRAME-PROJECTION-EXTRACT-P2). The machine stays a *boring state kernel* (facts, receipts,
 capsules, capability IO, recovery); turning that state into an observable representation is a

@@ -1,0 +1,15 @@
+{
+  "artifact": "view",
+  "version": 0,
+  "screen": "lead_intake",
+  "layout": "form",
+  "title": "Lead Intake",
+  "body": [
+    { "kind": "label", "text": "New Lead" },
+    { "kind": "text", "id": "name", "label": "Name", "required": true },
+    { "kind": "text", "id": "phone", "label": "Phone", "required": true },
+    { "kind": "select", "id": "source", "label": "Source", "options": ["web", "referral", "ad"], "required": true },
+    { "kind": "checkbox", "id": "qualified", "label": "Qualified" },
+    { "kind": "button", "id": "submit", "label": "Submit", "action": "submit" }
+  ]
+}
