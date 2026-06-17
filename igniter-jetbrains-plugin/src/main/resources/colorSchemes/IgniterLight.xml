@@ -115,7 +115,7 @@
       </value>
     </option>
 
-    <!-- #D9694A  --oof  ·  bad character -->
+    <!-- #D9694A  token: oof  ·  bad character -->
     <option name="IGNITER_BAD_CHARACTER">
       <value>
         <option name="FOREGROUND"       value="d9694a"/>

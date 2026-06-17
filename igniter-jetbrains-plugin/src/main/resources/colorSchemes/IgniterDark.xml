@@ -6,7 +6,7 @@
 <scheme name="Darcula" version="142">
   <attributes>
 
-    <!-- #FF6A3D  --ignite  ·  bold -->
+    <!-- #FF6A3D  token: ignite  ·  bold -->
     <option name="IGNITER_KEYWORD">
       <value>
         <option name="FOREGROUND" value="ff6a3d"/>
@@ -14,14 +14,14 @@
       </value>
     </option>
 
-    <!-- #F0A868  --amber   ·  type names -->
+    <!-- #F0A868  token: amber   ·  type names -->
     <option name="IGNITER_TYPE_NAME">
       <value>
         <option name="FOREGROUND" value="f0a868"/>
       </value>
     </option>
 
-    <!-- #FFB07A  --ember   ·  numeric & bool literals -->
+    <!-- #FFB07A  token: ember   ·  numeric & bool literals -->
     <option name="IGNITER_INTEGER_LITERAL">
       <value>
         <option name="FOREGROUND" value="ffb07a"/>
@@ -52,14 +52,14 @@
       </value>
     </option>
 
-    <!-- #E7DDD2  --grey-3  ·  identifiers -->
+    <!-- #E7DDD2  token: grey-3  ·  identifiers -->
     <option name="IGNITER_IDENTIFIER">
       <value>
         <option name="FOREGROUND" value="e7ddd2"/>
       </value>
     </option>
 
-    <!-- #9A8A7C  --grey  ·  operators & all punctuation -->
+    <!-- #9A8A7C  token: grey  ·  operators & all punctuation -->
     <option name="IGNITER_OPERATOR">
       <value>
         <option name="FOREGROUND" value="9a8a7c"/>
@@ -114,7 +114,7 @@
       </value>
     </option>
 
-    <!-- #D9694A  --oof  ·  bad character -->
+    <!-- #D9694A  token: oof  ·  bad character -->
     <option name="IGNITER_BAD_CHARACTER">
       <value>
         <option name="FOREGROUND"       value="d9694a"/>
