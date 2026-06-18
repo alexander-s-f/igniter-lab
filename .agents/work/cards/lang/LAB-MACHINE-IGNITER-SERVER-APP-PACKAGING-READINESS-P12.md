@@ -2,8 +2,9 @@
 
 **Lane:** standard / readiness-design
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab-only design/readiness. No packaging implementation. No release authority.
 
 ## Why this card exists
@@ -145,3 +146,42 @@ app crate exports build_app(config) -> Arc<dyn ServerApp + Send + Sync>
 ```
 
 Verify against live crate layout before finalizing.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered, answering all 10 question groups, grounded in the live
+standalone `igniter-server` layout + public API (verified `serve_loop`, `ReloadableApp::new`,
+`ServerAppExt`, `MachineEffectHost`/`serve_loop_effect`; Cargo auto-discovers the P2 bin + P10 example).
+Design only — no code, no new crate, no runner binary, no live/deploy.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-app-packaging-readiness-p12-v0.md`.
+
+**Recommended v0 packaging model:** a **library crate exporting `build_app(config) -> Arc<dyn ServerApp
++ Send + Sync>`** (which composes P8 middleware explicitly) + an optional **thin binary runner** that
+owns the `TcpListener` + `ServingPolicy` + `ReloadableApp` (+ machine/effect bindings under feature
+`machine`). The library is the unit of reuse; the binary holds no product logic. First shown as an
+example (no new crate); graduate to a sibling crate when a real second consumer exists.
+
+**Config / authority split:** app = routing/normalization/logical targets; host = listener, loop
+policy, machine target→route bindings, secrets/passports; middleware = token/body-limit/tracing labels.
+Effect authority stays host/recipe-owned — the app crate embeds no `capability_id`/`operation`/`scope`/
+passport/secret. The same app crate runs machine-free or machine-backed with zero app change.
+
+**Identity:** `AppIdentity` is observation only; P8 middleware currently delegates `identity()`
+unchanged (digest decoration = optional future). `ReloadableApp` wraps the outer composed stack
+(atomic swap).
+
+**Testing contract:** mandatory direct `call` + middleware-composition tests; recommended loopback
+smoke; optional machine-feature tests with fake executor only.
+
+**Next route:** one bounded slice — `LAB-MACHINE-IGNITER-SERVER-APP-RUNNER-EXAMPLE-P13`: a second
+example (`examples/server_app_runner.rs`, no new crate) demonstrating `build_app` + thin runner
+(`ReloadableApp` + bounded `serve_loop`) + loopback smoke + a `swap` reload test. Separate sample crate
+deferred. No live/SparkCRM/deploy.
+
+**Acceptance:** all boxes met — 10 groups answered; clear v0 recommendation; server-core/domain-app
+boundary preserved; app/host/middleware config + effect authority separated; packaged-app testing
+contract defined; no release/live/deploy claims; no code; no new crate/example created; no
+public-listener/DB/credentials/vendor-API.

@@ -2,8 +2,9 @@
 
 **Lane:** standard / readiness-design
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab-only design/readiness. No implementation. No assets protocol authority.
 
 ## Why this card exists
@@ -138,3 +139,42 @@ ServerApp returns Respond { status, headers, body }
 ```
 
 Verify against live `ServerResponse` before finalizing.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered, answering all 10 question groups, grounded in the live
+`ServerResponse` + host wire encoder. Design only — no code, no assets protocol, no new crate, no
+frame/console dependency.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-assets-readiness-p11-v0.md`.
+
+**Load-bearing finding (verified):** `ServerResponse { status, headers: BTreeMap, body: serde_json::
+Value }` and `host::encode_response` ALWAYS does `serde_json::to_vec(body)`. So an app can set any
+status + any headers (incl. `content-type`) + a JSON body, but **the wire body is always JSON-
+serialized** → JSON/manifests are first-class, but **verbatim HTML/binary bytes are NOT servable today**
+(HTML in a `Value::String` arrives JSON-quoted/escaped).
+
+**Recommended v0 stance:** apps serve **JSON through `Respond`** (manifests, data, JSON-carried UI
+descriptors); app owns content-type via headers; middleware stays generic (size/auth/correlation, never
+content-aware); core owns **no** asset pipeline. Verbatim non-JSON bytes → deferred behind a protocol
+gate; production static assets → an external static server.
+
+**Rejected / deferred:** route table in core; auto-directory serving/index; HTML framework/template
+engine in core; `igniter-frame`/`igniter-console` dependency in core (UI app → server, never reverse);
+ETag/cache/range machinery; filesystem serving (if ever built: canonicalized-path-within-root, no `..`
+traversal, no symlink escape, no directory listing, extension allowlist — named, not implemented).
+
+**UI/Frame:** a future operator console / Frame app is an APP that imports frame/console itself and
+returns its projection (JSON today; verbatim SVG/HTML once the raw-body gate exists) — never a core
+feature.
+
+**Next route:** **STOP at v0 `Respond`(JSON) — no implementation card now.** One named, trigger-gated
+future route only: `LAB-MACHINE-IGNITER-SERVER-RAW-RESPONSE-P*` (add a raw-bytes body variant + wire
+branch + tests), opened **only** when a real in-tree app must emit verbatim HTML/SVG/binary.
+
+**Acceptance:** all boxes met — 10 groups answered; assets/UI kept outside core; `Respond`-today vs
+future-assets-protocol distinguished; content-type/cache/range/path-traversal boundaries covered;
+future-implementation triggers named; no live/public/static-directory work proposed; no code; no new
+crates; no frame/console dependency.
