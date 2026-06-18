@@ -20,10 +20,11 @@ use igniter_machine::machine::IgniterMachine;
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
-use igniter_server::effect_host::{serve_once_effect, serve_once_effect_reloadable, MachineEffectHost};
+use igniter_server::effect_host::{serve_loop_effect, serve_once_effect, serve_once_effect_reloadable, MachineEffectHost};
 use igniter_server::fixture::DemoApp;
 use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
 use igniter_server::reload::ReloadableApp;
+use igniter_server::serving_loop::ServingPolicy;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -373,6 +374,34 @@ fn reloadable_effect_path_uses_machine_host() {
         let (_s2, (st2, _)) = tokio::join!(serve_once_effect_reloadable(&listener, &reload, &eh), server_post(addr, "/effect/record", "E1", "c2", 1000));
         assert_eq!(st2, 200);
         assert_eq!(st.exec.attempts(), 1, "reloaded app still routes through MachineEffectHost; replay performs no second effect");
+    });
+}
+
+// ── 8: bounded effect serving loop over a reloadable app → P3 contour, replay no second effect ───
+#[test]
+fn loop_effect_path_replay_no_second_effect() {
+    rt().block_on(async {
+        let (h, r) = prod(3, policy("dedup_strict", 0)).await;
+        let st = effect_state(WriteBehavior::Commit);
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+        let reload = ReloadableApp::new(Arc::new(DemoApp));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let pol = ServingPolicy::new(2);
+
+        // the bounded loop serves 2 requests while a client posts the SAME key twice.
+        let (report, _client) = tokio::join!(serve_loop_effect(&listener, &reload, &eh, &pol), async {
+            let a = server_post(addr, "/effect/record", "E1", "c1", 1000).await;
+            let b = server_post(addr, "/effect/record", "E1", "c2", 1000).await;
+            (a, b)
+        });
+        let report = report.unwrap();
+
+        assert_eq!(report.requests_served, 2, "loop served exactly two and returned");
+        assert_eq!(report.app_versions_seen, vec!["v0", "v0"], "DemoApp identity observed per request");
+        assert_eq!(st.exec.attempts(), 1, "replay through the loop + P3 contour performs no second effect");
     });
 }
 

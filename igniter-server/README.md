@@ -84,5 +84,12 @@ and `effect_host::serve_once_effect_reloadable`), so an in-flight request keeps 
 a swap lands mid-flight. `AppIdentity { name, version, digest }` is observation only, not authority.
 See `lab-docs/lang/lab-machine-igniter-server-hot-reload-p4-v0.md`.
 
-Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-SERVING-LOOP-P5` — a bounded serving loop over
-the reloadable app pointer. Still no public listener, no web framework, no SparkCRM, no DB/live.
+Implemented slice (CLOSED): `LAB-MACHINE-IGNITER-SERVER-SERVING-LOOP-P5` — a bounded serving loop.
+`serving_loop::serve_loop(&listener, &reloadable_app, &policy)` runs a fixed `ServingPolicy.max_requests`
+budget over a **caller-bound** loopback listener (the loop binds nothing), snapshots the active app per
+request, and returns an observation-only `ServingReport`. A loop, not a daemon: no `tokio::spawn`, no
+background thread. The `machine` feature adds `effect_host::serve_loop_effect` over the P3 contour. See
+`lab-docs/lang/lab-machine-igniter-server-serving-loop-p5-v0.md`.
+
+Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-MIDDLEWARE-P*` — wrapper middleware, only after
+the loop shape settles. Still no public listener, no web framework, no SparkCRM, no DB/live.

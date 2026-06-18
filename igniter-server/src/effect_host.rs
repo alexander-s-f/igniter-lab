@@ -161,11 +161,50 @@ pub async fn serve_once_effect_reloadable(
     app: &crate::reload::ReloadableApp,
     effect_host: &MachineEffectHost<'_>,
 ) -> std::io::Result<()> {
+    serve_once_effect_reloadable_observed(listener, app, effect_host).await.map(|_| ())
+}
+
+/// Same as `serve_once_effect_reloadable`, but returns the snapshotted app's `AppIdentity` so the
+/// serving loop can record which app version served each request (observation only).
+pub async fn serve_once_effect_reloadable_observed(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+    effect_host: &MachineEffectHost<'_>,
+) -> std::io::Result<crate::protocol::AppIdentity> {
     let (mut stream, _) = listener.accept().await?;
     let current = app.current(); // snapshot before read/call — in-flight keeps this instance.
+    let identity = current.identity();
     let req = read_server_request(&mut stream).await?;
     let decision = current.call(req.clone());
     let resp = dispatch(&req, decision, effect_host).await;
     stream.write_all(&host::encode_response(&resp)).await?;
-    stream.flush().await
+    stream.flush().await?;
+    Ok(identity)
+}
+
+/// Bounded effect serving loop (LAB-MACHINE-IGNITER-SERVER-SERVING-LOOP-P5, machine path): serve
+/// `policy.max_requests` requests over a caller-bound listener through the P3 `MachineEffectHost`
+/// contour, then return a `ServingReport`. Binds nothing; no `tokio::spawn`; no daemon. Reuses the
+/// machine-free `ServingPolicy` / `ServingReport` and the same loopback guard.
+pub async fn serve_loop_effect(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+    effect_host: &MachineEffectHost<'_>,
+    policy: &crate::serving_loop::ServingPolicy,
+) -> std::io::Result<crate::serving_loop::ServingReport> {
+    let addr = listener.local_addr()?;
+    crate::serving_loop::enforce_loopback(addr, policy.loopback_only)?;
+
+    let mut app_versions_seen = Vec::with_capacity(policy.max_requests);
+    while app_versions_seen.len() < policy.max_requests {
+        let identity = serve_once_effect_reloadable_observed(listener, app, effect_host).await?;
+        app_versions_seen.push(identity.version);
+    }
+
+    Ok(crate::serving_loop::ServingReport {
+        requests_served: app_versions_seen.len(),
+        app_versions_seen,
+        bound_addr: addr.to_string(),
+        is_loopback: addr.ip().is_loopback(),
+    })
 }

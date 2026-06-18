@@ -10,3 +10,4 @@ pub mod fixture;
 pub mod host;
 pub mod protocol;
 pub mod reload;
+pub mod serving_loop;

@@ -83,12 +83,25 @@ pub fn serve_bounded(listener: &TcpListener, app: &dyn ServerApp, max_requests: 
 /// in-flight request keeps the instance it snapshotted. The host still never inspects `(method, path)`
 /// — routing is entirely the snapshotted app's `call`.
 pub fn serve_once_reloadable(listener: &TcpListener, app: &crate::reload::ReloadableApp) -> std::io::Result<()> {
+    serve_once_reloadable_observed(listener, app).map(|_| ())
+}
+
+/// Same as `serve_once_reloadable`, but returns the `AppIdentity` of the snapshotted app that served
+/// the request — observation only (the serving loop records it). The snapshot is taken AFTER `accept`
+/// (request-start pinning): the request that actually arrived is bound to the app active at that
+/// moment, and a later swap cannot change it.
+pub fn serve_once_reloadable_observed(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+) -> std::io::Result<crate::protocol::AppIdentity> {
     let (mut stream, _) = listener.accept()?;
     let current = app.current(); // snapshot — request keeps this instance even if a swap follows.
+    let identity = current.identity();
     let req = read_request(&mut stream)?;
     let decision = current.call(req);
     let resp = execute(decision);
-    write_response(&mut stream, &resp)
+    write_response(&mut stream, &resp)?;
+    Ok(identity)
 }
 
 /// Reloadable variant of `serve_bounded`. Each served request re-snapshots, so a swap performed
