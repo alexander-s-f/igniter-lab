@@ -99,6 +99,13 @@ target+idem, no effect identity); unknown→404 + wrong-method→405; host-has-n
 - Dialect registry/tooling (P0 `LAB-IGNITER-DIALECT-REGISTRY-P1`), resource-grouping sugar, source
   maps, assets/raw responses, real domain apps, and live effect hosts — all out of scope.
 
+## Next
+
+The packaging contract for this seam (package shape, builder-vs-manifest, cache key, source-map stance,
+server boundary type) is settled in `lab-docs/lang/lab-igniter-web-routing-packaging-p6-v0.md`; the next
+implementation is `LAB-IGNITER-WEB-ROUTING-PACKAGE-BUILDER-P7` (extract this hand-assembly into a
+reusable `build_igweb_app` lab builder + prove reload compatibility).
+
 ## Closed surfaces (held)
 
 No canon `.igweb` claim · no dialect registry · no live network beyond loopback · no SparkCRM/live
