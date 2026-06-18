@@ -106,8 +106,12 @@ composes_with_middleware. `igniter-server` warning-clean in both builds.
 ## What remains deferred
 
 `igweb.toml` manifest; `.igweb→.ig` source map; CLI / dialect registry (P0); real `InvokeEffect`
-execution wiring (proven P3, host-side; observed as 202 here); graduating `build_igweb_app` into a
-public `igniter-web` crate (P6 gate: a real second consumer).
+execution wiring (proven P3, host-side; observed as 202 here).
+
+> **Update (P8, CLOSED):** the builder was graduated out of `tests/support` into the dedicated lab crate
+> **`igniter-web`** (`igniter_web::build_igweb_app`), consumed by `igniter-server` as a dev-dependency;
+> the server's normal dep tree stays serde-only. See
+> `lab-docs/lang/lab-igniter-web-crate-p8-v0.md`.
 
 ---
 

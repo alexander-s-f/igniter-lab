@@ -1,14 +1,11 @@
-// tests/igweb_adapter_tests.rs — LAB-IGNITER-WEB-ROUTING-ADAPTER-P5 (refactored on P7)
-// Proves `.igweb` live behind igniter-server. As of P7 this proof no longer hand-assembles the app:
-// it uses the reusable `build_igweb_app`/`build_todo_app` builder (tests/support/igweb_build.rs).
+// tests/igweb_adapter_tests.rs — LAB-IGNITER-WEB-ROUTING-ADAPTER-P5 (P8: consumes the igniter-web crate)
+// Proves `.igweb` live behind igniter-server. The app is built by the `igniter_web` lab crate's
+// builder — no hand-assembly, no `#[path]` support code.
 #![cfg(feature = "machine")]
 
 use igniter_server::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_web::testkit::{build_todo_app, roundtrip};
 use serde_json::json;
-
-#[path = "support/igweb_build.rs"]
-mod igweb_build;
-use igweb_build::{build_todo_app, roundtrip};
 
 #[test]
 fn igweb_app_health_roundtrip() {

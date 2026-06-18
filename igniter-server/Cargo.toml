@@ -21,7 +21,8 @@ machine = ["dep:igniter_machine", "dep:tokio"]
 
 [dev-dependencies]
 serde_json = "1.0"
-# LAB-IGNITER-WEB-ROUTING-ADAPTER-P5: test-only — the IgWeb adapter proof lowers `.igweb` via
-# `igniter_compiler::igweb::lower_igweb` and runs the generated `.ig` through `igniter_machine`
-# (the `machine` feature). DEV-only: the default server build stays machine-free (serde only).
-igniter_compiler = { path = "../igniter-compiler" }
+# LAB-IGNITER-WEB-CRATE-P8: test-only — the IgWeb adapter/builder proofs consume the builder from its
+# lab crate `igniter-web` (which owns the compiler+machine weight). DEV-only: the default server lib
+# build stays serde-only (`cargo tree -e normal` shows no web/compiler/machine/tokio). The
+# igniter-server →(dev) igniter-web →(normal) igniter-server cycle is allowed via the dev-dependency.
+igniter_web = { path = "../igniter-web" }
