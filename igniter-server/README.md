@@ -47,6 +47,12 @@ A runnable, machine-free example of an external app lives at `examples/server_ap
 `ServerApp`" reference — routing inside `call`, effects as logical `InvokeEffect { target, … }`, and
 composition under P8 middleware. See `lab-docs/lang/lab-machine-igniter-server-example-app-p10-v0.md`.
 
+A second example, `examples/server_app_runner.rs` (`cargo run --example server_app_runner`), teaches the
+packaging pattern: `build_app(config) -> Arc<dyn ServerApp + Send + Sync>` (composing middleware from
+config) + a thin runner that owns the loopback listener, `ServingPolicy`, and `ReloadableApp` over a
+bounded `serve_loop` — including a hot-reload (`swap`) that replaces the whole composed stack. See
+`lab-docs/lang/lab-machine-igniter-server-app-runner-example-p13-v0.md`.
+
 Generic **wrapper middleware** (`src/middleware.rs`, P8) is the supported extension mechanism: a
 middleware is just a `ServerApp` that wraps an inner `ServerApp` — `TraceApp` (correlation id +
 response decoration), `AuthTokenApp` (bearer-token short-circuit), `BodyLimitApp` (413 on oversized
