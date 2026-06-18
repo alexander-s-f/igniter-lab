@@ -1,21 +1,20 @@
-//! SparkCRM-shaped `ServerApp` (LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-P2). Machine-free.
+//! SparkCRM-shaped `ServerApp` + sanitized payloads — TEST FIXTURE (LAB-MACHINE-IGNITER-SERVER-APP-
+//! BOUNDARY-P6). Moved here OUT of `igniter-server/src/` so the core crate exports only generic server
+//! substrate; a domain app is a consumer that implements `ServerApp`, never part of the server API.
+//! The SHADOW-P2 proof is preserved verbatim — only its location changed.
 //!
-//! Offline product shape only — NO live SparkCRM, NO network, NO credentials, NO DB. `SparkCrmApp`
-//! turns vendor-like auction webhooks into `ServerDecision::InvokeEffect { target, input,
-//! idempotency_key }`. It carries vendor normalization (path→target, raw fields→clean input, and the
-//! duplicate-key extraction precedence) so the machine duplicate policy can stay GENERIC
-//! (`key_header = "idempotency-key"`): after extraction, the server protocol carries ONE canonical
-//! `idempotency_key`.
-//!
-//! Authority boundary (P1 readiness): the app names only a logical `target`; it NEVER emits
-//! `capability_id`, `operation`, or `scope`. The host maps target→route and owns the effect identity.
+//! Included by the SparkCRM test binaries via `#[path = "fixtures/sparkcrm_app.rs"] mod ...`. Strictly
+//! offline/in-memory/sanitized: no live SparkCRM, no network, no DB, no credentials.
+#![allow(dead_code)] // shared across two test binaries; each uses a subset.
 
-use crate::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
 use serde_json::{json, Value};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-/// Offline SparkCRM-shaped app. Stateless.
+/// Offline SparkCRM-shaped app. Stateless. Carries vendor normalization (path→target, raw fields→clean
+/// input, duplicate-key extraction) so the machine duplicate policy stays GENERIC
+/// (`key_header = "idempotency-key"`): the protocol carries ONE canonical `idempotency_key`.
 #[derive(Default)]
 pub struct SparkCrmApp;
 
@@ -30,9 +29,9 @@ impl SparkCrmApp {
         }
     }
 
-    /// Normalize raw vendor fields into a clean local capsule input. Always provides `base` (an
-    /// integer the capsule consumes as `code = base + attempt`); the host injects `attempt`. Extra
-    /// descriptive fields are carried for traceability — the capsule reads only what it declares.
+    /// Normalize raw vendor fields into a clean local capsule input. Always provides `base` (consumed
+    /// by the capsule as `code = base + attempt`); the host injects `attempt`. Extra descriptive
+    /// fields are carried for traceability — the capsule reads only what it declares.
     fn normalize_input(target: &str, body: &Value) -> Value {
         let lead_id = body.get("lead").and_then(|l| l.get("external_id")).and_then(|v| v.as_str()).unwrap_or("unknown");
         let value_cents = body.get("value_cents").and_then(|v| v.as_i64());
@@ -48,7 +47,6 @@ impl SparkCrmApp {
                 "status": body.get("status").and_then(|v| v.as_str()).unwrap_or("unknown"),
                 "base": value_cents.unwrap_or(0),
             }),
-            // lead-intake (default shape)
             _ => json!({
                 "lead_id": lead_id,
                 "base": value_cents.unwrap_or(1000),
@@ -83,8 +81,8 @@ impl SparkCrmApp {
 
     /// Deterministic composite key from non-secret stable fields (`phone`, `email`, `campaign`, plus
     /// an optional payload-supplied `event_bucket` — NEVER the host clock, to preserve replay
-    /// determinism). `None` if no stable field is present. Opaque (`comp-<hex>`) so PII is not echoed
-    /// in the key; the digest helper is the std `DefaultHasher` (a lab choice, no algorithm mandated).
+    /// determinism). `None` if no stable field is present. Opaque (`comp-<hex>`); the digest helper is
+    /// the std `DefaultHasher` (a lab choice, no algorithm mandated).
     fn composite_key(body: &Value) -> Option<String> {
         let fields = [
             body.get("phone").and_then(|v| v.as_str()),
@@ -97,7 +95,6 @@ impl SparkCrmApp {
         }
         let mut h = DefaultHasher::new();
         for f in fields {
-            // hash a present/absent marker + value so {phone:"x"} ≠ {email:"x"}.
             match f {
                 Some(s) => {
                     1u8.hash(&mut h);
@@ -132,5 +129,56 @@ impl ServerApp for SparkCrmApp {
 
     fn identity(&self) -> AppIdentity {
         AppIdentity::new("sparkcrm-shadow", "p2", "")
+    }
+}
+
+/// Sanitized, in-memory webhook fixtures (fabricated — no real vendor data).
+pub mod payloads {
+    use serde_json::{json, Value};
+
+    pub fn lead_intake() -> Value {
+        json!({
+            "auction_id": "AUC-LEAD-1001",
+            "lead": { "external_id": "lead_9982" },
+            "phone": "+1-555-0100",
+            "email": "ada@example.test",
+            "campaign": "spring-auctions",
+            "value_cents": 1500
+        })
+    }
+
+    pub fn lead_bid() -> Value {
+        json!({
+            "auction_id": "AUC-BID-2002",
+            "lead": { "external_id": "lead_9982" },
+            "bid_amount_cents": 4200,
+            "campaign": "spring-auctions"
+        })
+    }
+
+    pub fn lead_status() -> Value {
+        json!({
+            "auction_id": "AUC-STAT-3003",
+            "lead": { "external_id": "lead_9982" },
+            "status": "converted",
+            "value_cents": 9000
+        })
+    }
+
+    pub fn lead_composite_only() -> Value {
+        json!({
+            "lead": { "external_id": "lead_7777" },
+            "phone": "+1-555-0199",
+            "email": "grace@example.test",
+            "campaign": "fall-auctions",
+            "value_cents": 800
+        })
+    }
+
+    pub fn lead_keyless() -> Value {
+        json!({
+            "lead": { "external_id": "lead_0000" },
+            "note": "no identifying fields"
+        })
     }
 }

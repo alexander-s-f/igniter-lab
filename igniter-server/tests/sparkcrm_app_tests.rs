@@ -5,9 +5,12 @@
 //! invariant on decisions.
 
 use igniter_server::protocol::{ServerApp, ServerDecision};
-use igniter_server::sparkcrm::SparkCrmApp;
-use igniter_server::sparkcrm_payloads as fx;
 use serde_json::{json, Value};
+
+// The SparkCRM-shaped app is a TEST FIXTURE (not part of the core server surface, P6).
+#[path = "fixtures/sparkcrm_app.rs"]
+mod sparkcrm_fixture;
+use sparkcrm_fixture::{payloads as fx, SparkCrmApp};
 
 fn req(path: &str, headers: &[(&str, &str)], body: Value) -> igniter_server::protocol::ServerRequest {
     let mut r = igniter_server::protocol::ServerRequest::new("POST", path, body);

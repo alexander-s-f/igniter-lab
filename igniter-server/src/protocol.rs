@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn invoke_uses_target_not_contract_and_is_protocol_data() {
         let decision = ServerDecision::Invoke {
-            target: "lead-intake".into(),
+            target: "demo-target".into(),
             input: json!({"path": "/webhook/demo"}),
             correlation_id: Some("corr-1".into()),
             idempotency_key: Some("event-1".into()),
@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(encoded["kind"], json!("invoke"));
         // P1 delta #1: the app names a logical `target`, never a host `contract`.
-        assert_eq!(encoded["target"], json!("lead-intake"));
+        assert_eq!(encoded["target"], json!("demo-target"));
         assert!(encoded.get("contract").is_none());
         // no server-config leak.
         assert!(encoded.get("route_table").is_none());
@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn invoke_effect_round_trips_and_carries_no_effect_identity() {
         let decision = ServerDecision::InvokeEffect {
-            target: "lead-intake".into(),
-            input: json!({"event": "lead"}),
+            target: "demo-target".into(),
+            input: json!({"event": "demo"}),
             correlation_id: Some("corr-2".into()),
             idempotency_key: Some("event-2".into()),
         };
@@ -152,7 +152,7 @@ mod tests {
 
         assert_eq!(decoded, decision);
         assert_eq!(encoded["kind"], json!("invoke_effect"));
-        assert_eq!(encoded["target"], json!("lead-intake"));
+        assert_eq!(encoded["target"], json!("demo-target"));
         // P1 delta #3: the app decision must NEVER carry the effect identity — that comes from the
         // signed recipe + host effect passport, never from app code.
         assert!(encoded.get("capability_id").is_none());

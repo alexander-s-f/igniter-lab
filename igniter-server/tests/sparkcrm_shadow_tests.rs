@@ -18,10 +18,13 @@ use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
 use igniter_server::effect_host::{serve_once_effect, MachineEffectHost};
-use igniter_server::sparkcrm::SparkCrmApp;
-use igniter_server::sparkcrm_payloads as fx;
 
 use serde_json::{json, Value};
+
+// The SparkCRM-shaped app is a TEST FIXTURE (not part of the core server surface, P6).
+#[path = "fixtures/sparkcrm_app.rs"]
+mod sparkcrm_fixture;
+use sparkcrm_fixture::{payloads as fx, SparkCrmApp};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

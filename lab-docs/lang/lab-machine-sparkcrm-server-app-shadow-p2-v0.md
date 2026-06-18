@@ -8,6 +8,13 @@ network IO, no `igniter-machine` semantic change.**
 **Authority:** Lab-only shadow proof. No canon claim. Product meaning = SparkCRM/Alex. Builds on the
 P1 readiness packet + the auction-policy readiness.
 
+> **Supersession note (P6, 2026-06-18):** the SparkCRM app was moved OUT of the core server surface in
+> `LAB-MACHINE-IGNITER-SERVER-APP-BOUNDARY-P6`. `igniter_server::sparkcrm` /
+> `igniter_server::sparkcrm_payloads` no longer exist; the proof remains intact as a **test fixture**
+> at `igniter-server/tests/fixtures/sparkcrm_app.rs` (included by both SparkCRM test binaries). All
+> behavior and pass counts below are unchanged — only the location moved. See
+> `lab-docs/lang/lab-machine-igniter-server-app-boundary-p6-v0.md`.
+
 ## What this card proves
 
 ```text

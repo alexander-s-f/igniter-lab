@@ -31,6 +31,17 @@ In other words: `igniter-server` should not become a config-driven router with d
 meaning. A minimal app may implement only the protocol directly. A richer app/framework may add
 helpers, as long as it still compiles down to the same protocol.
 
+## Domain apps live OUTSIDE the core (boundary, P6)
+
+The core crate exports only **generic server substrate**: `protocol`, `host`, `reload`,
+`serving_loop`, and the optional `effect_host` machine bridge. It owns no product domain — no SparkCRM,
+notifications, VoIP UI, operator console, or vendor vocabulary. A **domain app** is a *consumer* that
+implements the `ServerApp` trait; it belongs in an app package, example, or test fixture, never in
+`igniter-server`'s public surface. (The SparkCRM-shaped shadow app proved in
+`LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-P2` now lives as a test fixture under
+`tests/fixtures/sparkcrm_app.rs`, not in `src/`.) How third-party/domain apps should extend or
+specialize the server is the subject of `LAB-MACHINE-IGNITER-SERVER-EXTENSIONS-READINESS-P7`.
+
 ## Three execution shapes (readiness P1)
 
 The app's `ServerDecision` names WHICH proven host path to run — never HOW an effect runs:
