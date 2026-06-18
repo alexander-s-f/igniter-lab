@@ -2,8 +2,9 @@
 
 **Lane:** standard / readiness-design
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab-only design/readiness. No implementation unless a later card opens it.
 
 ## Why this card exists
@@ -127,3 +128,41 @@ examples/server_app_basic/ (or equivalent) as a standalone Cargo example
 ```
 
 But verify against the live crate layout before finalizing.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered, answering all 10 question groups, grounded in the live
+standalone `igniter-server` crate layout (verified: standalone crate, serde-only default, generic
+`src/` substrate, SparkCRM app already a test fixture). Design only — no code, no example created, no
+new crate, no middleware/machine work.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-example-app-readiness-p9-v0.md`.
+
+**Recommended location + shape:** a standalone **Cargo example** at
+`igniter-server/examples/server_app_basic.rs` — discoverable (`cargo run --example`), proves the
+dependency direction *app → server* via `use igniter_server::…`, and never touches `src/` or the
+published lib surface. Domain: neutral **`ticket-intake`** (`GET /health` → `Respond`; `POST /tickets`
+→ `InvokeEffect{ target: "ticket-create", … }`; keyless → 400; else 404). Routing is a `match` inside
+`call`. Machine-free by default (P2 `host`: `Respond` executes, `InvokeEffect` observed); the machine
+bridge is referenced as a later host-side, feature-gated concern (P3/P6), app unchanged. Composable
+under `ReloadableApp` (P4) and future middleware (P8) without requiring either.
+
+**Rejected locations/domains:** test-fixture-only (wrong lesson — teaches "test-only"); sibling crate
+(overkill for v0, no workspace); `demo-counter` (tempts hidden mutable state); domain module in
+`src/lib.rs` (violates the P6 boundary).
+
+**Files a future card creates (named, not created):** `igniter-server/examples/server_app_basic.rs`
+(`ExampleApp` + `main` demo) and `igniter-server/tests/example_app_tests.rs` (includes the example via
+`#[path]`, asserts routing/effect/keyless/no-identity). Commands: `cargo build --examples`,
+`cargo run --example server_app_basic`, `cargo test`, `cargo test --features machine`.
+
+**One implementation-card proposal:** `LAB-MACHINE-IGNITER-SERVER-EXAMPLE-APP-P10` — create those two
+files; machine-free build + run; `--features machine` still green; no middleware, no machine bridge, no
+live IO, no `src/` change beyond an optional README pointer.
+
+**Acceptance:** all boxes met — packet answers all 10 groups; keeps the example outside core; avoids
+SparkCRM/vendor vocabulary (neutral `ticket-intake`); separates machine-free run from the later
+host-machine bridge; names exact future files/tests without creating them; no code changes; no new
+crate/example created; no live/network/DB/credential work.
