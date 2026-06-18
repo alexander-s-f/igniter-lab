@@ -20,9 +20,10 @@ use igniter_machine::machine::IgniterMachine;
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
-use igniter_server::effect_host::{serve_once_effect, MachineEffectHost};
+use igniter_server::effect_host::{serve_once_effect, serve_once_effect_reloadable, MachineEffectHost};
 use igniter_server::fixture::DemoApp;
-use igniter_server::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::reload::ReloadableApp;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -324,6 +325,54 @@ fn server_routing_still_lives_in_app() {
         assert_eq!(status2, 200);
         assert_eq!(body2["status"], json!("committed"));
         assert_eq!(st.exec.attempts(), 1);
+    });
+}
+
+// ── 7: reloadable effect path still uses MachineEffectHost / P3 contour; replay no second effect ──
+#[test]
+fn reloadable_effect_path_uses_machine_host() {
+    // A v2 app that still routes /effect/* to the same InvokeEffect target (no effect identity).
+    struct EffectAppV2;
+    impl ServerApp for EffectAppV2 {
+        fn call(&self, req: ServerRequest) -> ServerDecision {
+            match (req.method.as_str(), req.path.as_str()) {
+                ("POST", p) if p.starts_with("/effect/") => ServerDecision::InvokeEffect {
+                    target: "demo-effect".into(),
+                    input: req.body,
+                    correlation_id: req.correlation_id,
+                    idempotency_key: req.idempotency_key,
+                },
+                _ => ServerDecision::Respond { response: ServerResponse::json(404, json!({ "error": "v2: no route" })) },
+            }
+        }
+        fn identity(&self) -> AppIdentity {
+            AppIdentity::new("demo", "v2", "")
+        }
+    }
+
+    rt().block_on(async {
+        let (h, r) = prod(3, policy("dedup_strict", 0)).await;
+        let st = effect_state(WriteBehavior::Commit);
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+        let reload = ReloadableApp::new(Arc::new(DemoApp));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // request 1 through v1 (DemoApp) → committed via the P3 machine contour.
+        let (_s1, (st1, b1)) = tokio::join!(serve_once_effect_reloadable(&listener, &reload, &eh), server_post(addr, "/effect/record", "E1", "c1", 1000));
+        assert_eq!(st1, 200);
+        assert_eq!(b1["status"], json!("committed"));
+
+        // operator reloads the app between requests.
+        reload.swap(Arc::new(EffectAppV2));
+        assert_eq!(reload.identity().version, "v2");
+
+        // request 2 (same key) through the reloaded v2 app → replay, NO second effect.
+        let (_s2, (st2, _)) = tokio::join!(serve_once_effect_reloadable(&listener, &reload, &eh), server_post(addr, "/effect/record", "E1", "c2", 1000));
+        assert_eq!(st2, 200);
+        assert_eq!(st.exec.attempts(), 1, "reloaded app still routes through MachineEffectHost; replay performs no second effect");
     });
 }
 

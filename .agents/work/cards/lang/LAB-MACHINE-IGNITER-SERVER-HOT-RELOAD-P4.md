@@ -1,8 +1,9 @@
 # Card: LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4 - safe ServerApp swap between requests
 
 **Lane:** standard / implementation proof  
-**Status:** OPEN  
+**Status:** CLOSED (implementation proof)  
 **Date opened:** 2026-06-18  
+**Date closed:** 2026-06-18  
 **Authority:** Lab-only local proof. No public listener. No daemon. No SparkCRM/live.
 
 ## Why this card exists
@@ -108,4 +109,46 @@ the app instance they started with.
   is settled.
 - `LAB-MACHINE-SPARKCRM-SERVER-APP-READINESS-P1` - product-shaped app design remains readiness-only
   until local server mechanics are proven.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Safe `ServerApp` hot reload implemented and proven. The host swaps the active app between
+requests via `ReloadableApp = Arc<RwLock<Arc<dyn ServerApp + Send + Sync>>>`; each request snapshots
+the active app at start (clone the inner `Arc` under a brief read lock, then drop it), so an in-flight
+request keeps its instance even when a swap lands mid-flight. All guardrails held: no public listener,
+no daemon, no file watcher, no dynamic code loading, no SparkCRM/live, no route-config framework, no
+middleware, **zero `igniter-machine` code changes**.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-hot-reload-p4-v0.md`.
+
+**Implementation (lab-only, `igniter-server`):**
+- `src/reload.rs` (new, machine-free) — `ReloadableApp` (`new`/`current`/`swap`/`identity`); read lock
+  held only to `Arc::clone`, never across `call`/effect. 2 unit tests.
+- `src/protocol.rs` — `AppIdentity { name, version, digest }` + `ServerApp::identity()` with a default
+  (opaque digest, observation only — NOT authority). Existing apps unchanged.
+- `src/host.rs` — `serve_once_reloadable` / `serve_bounded_reloadable` (sync, snapshot then serve).
+- `src/effect_host.rs` (`machine` feature) — `serve_once_effect_reloadable` (snapshot then the
+  unchanged P3 `MachineEffectHost` contour; one-line diff vs `serve_once_effect`).
+- `src/fixture.rs` — `DemoApp::identity()` override.
+- `tests/reload_tests.rs` (new) 4 tests + `tests/effect_machine_tests.rs` +1 reloadable-effect test.
+
+**Exact commands + pass counts:**
+
+```text
+$ cd igniter-server && cargo test                    → 15 passed; 0 failed (4 protocol + 2 reload-unit + 5 loopback + 4 reload; effect gated off)
+$ cd igniter-server && cargo test --features machine → 22 passed; 0 failed (above + 7 effect)
+```
+`igniter-server` warning-clean in both builds (transitive warnings are pre-existing in
+`igniter_compiler`/`igniter_machine`).
+
+**Key tests:** `reloadable_host_routes_v1_then_v2_on_same_listener` (swap → next request sees v2);
+`in_flight_request_keeps_original_app_after_swap` (genuinely concurrent — app blocks in `call` on a
+`Condvar`, test swaps to v2 mid-flight, response still v1 while `host.identity()` is already v2);
+`reload_does_not_create_host_route_table` (v1 routes /a, v2 routes /b, same host); 
+`app_identity_is_observable_but_not_authority`; `reloadable_effect_path_uses_machine_host` (commit via
+P3, swap, same-key replay → `attempts == 1`).
+
+**Acceptance:** all boxes met (see deliverable doc). Middleware deliberately left out per guardrail.
 

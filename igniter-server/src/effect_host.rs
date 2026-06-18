@@ -151,3 +151,21 @@ pub async fn serve_once_effect(
     stream.write_all(&host::encode_response(&resp)).await?;
     stream.flush().await
 }
+
+/// Reloadable variant of `serve_once_effect` (LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4): SNAPSHOT the
+/// active app at request start, then run the P3 effect contour against that exact instance. A `swap`
+/// is picked up by the next request; the effect path is still the unchanged `MachineEffectHost` and
+/// the app decision still carries no effect identity.
+pub async fn serve_once_effect_reloadable(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+    effect_host: &MachineEffectHost<'_>,
+) -> std::io::Result<()> {
+    let (mut stream, _) = listener.accept().await?;
+    let current = app.current(); // snapshot before read/call — in-flight keeps this instance.
+    let req = read_server_request(&mut stream).await?;
+    let decision = current.call(req.clone());
+    let resp = dispatch(&req, decision, effect_host).await;
+    stream.write_all(&host::encode_response(&resp)).await?;
+    stream.flush().await
+}

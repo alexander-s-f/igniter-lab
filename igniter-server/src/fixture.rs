@@ -7,7 +7,7 @@
 //!
 //! Names are intentionally generic — no SparkCRM paths, tables, or business terms.
 
-use crate::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use crate::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
 use serde_json::json;
 
 /// Demo app with three routes, each producing a different `ServerDecision` shape:
@@ -40,5 +40,9 @@ impl ServerApp for DemoApp {
                 response: ServerResponse::json(404, json!({ "error": "no route" })),
             },
         }
+    }
+
+    fn identity(&self) -> AppIdentity {
+        AppIdentity::new("demo-app", "v0", "")
     }
 }

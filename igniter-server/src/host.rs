@@ -78,6 +78,30 @@ pub fn serve_bounded(listener: &TcpListener, app: &dyn ServerApp, max_requests: 
     Ok(served)
 }
 
+/// Reloadable variant of `serve_once`: SNAPSHOT the active app at request start (`app.current()`),
+/// then serve that exact instance. A `swap` between requests is picked up by the next snapshot; an
+/// in-flight request keeps the instance it snapshotted. The host still never inspects `(method, path)`
+/// — routing is entirely the snapshotted app's `call`.
+pub fn serve_once_reloadable(listener: &TcpListener, app: &crate::reload::ReloadableApp) -> std::io::Result<()> {
+    let (mut stream, _) = listener.accept()?;
+    let current = app.current(); // snapshot — request keeps this instance even if a swap follows.
+    let req = read_request(&mut stream)?;
+    let decision = current.call(req);
+    let resp = execute(decision);
+    write_response(&mut stream, &resp)
+}
+
+/// Reloadable variant of `serve_bounded`. Each served request re-snapshots, so a swap performed
+/// between two requests on the same listener takes effect for the later request.
+pub fn serve_bounded_reloadable(listener: &TcpListener, app: &crate::reload::ReloadableApp, max_requests: usize) -> std::io::Result<usize> {
+    let mut served = 0;
+    while served < max_requests {
+        serve_once_reloadable(listener, app)?;
+        served += 1;
+    }
+    Ok(served)
+}
+
 // ── minimal loopback HTTP/1.1 (std blocking, no framework) ───────────────────────────────────────
 
 pub(crate) fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {

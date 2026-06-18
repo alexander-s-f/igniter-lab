@@ -77,5 +77,12 @@ tests. The adapter maps a decision `target → machine ingress route` (infra bin
 `IngressRouter::handle_effect` — it is not a new effect runner. See
 `lab-docs/lang/lab-machine-igniter-server-effect-p3-v0.md`.
 
-Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4` — swap the `ServerApp` behind an
-`Arc` between requests. Still no public listener, no web framework, no SparkCRM, no DB/live.
+Implemented slice (CLOSED): `LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4` — safe `ServerApp` hot reload.
+`reload::ReloadableApp` (`Arc<RwLock<Arc<dyn ServerApp + Send + Sync>>>`) lets the host swap the active
+app **between** requests; each request snapshots the active app at start (`host::serve_once_reloadable`
+and `effect_host::serve_once_effect_reloadable`), so an in-flight request keeps its instance even when
+a swap lands mid-flight. `AppIdentity { name, version, digest }` is observation only, not authority.
+See `lab-docs/lang/lab-machine-igniter-server-hot-reload-p4-v0.md`.
+
+Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-SERVING-LOOP-P5` — a bounded serving loop over
+the reloadable app pointer. Still no public listener, no web framework, no SparkCRM, no DB/live.

@@ -9,3 +9,4 @@ pub mod effect_host;
 pub mod fixture;
 pub mod host;
 pub mod protocol;
+pub mod reload;

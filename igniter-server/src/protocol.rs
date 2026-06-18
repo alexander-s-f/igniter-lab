@@ -73,8 +73,31 @@ pub enum ServerDecision {
     },
 }
 
+/// Opaque, app-supplied identity for operator/test visibility (LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-
+/// P4). `digest` is whatever the app chooses (a content hash, a build id, ""); the host never mandates
+/// a scheme and never treats identity as authority — it is OBSERVATION only, distinct from the signed
+/// recipe / effect passport that actually gate execution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AppIdentity {
+    pub name: String,
+    pub version: String,
+    pub digest: String,
+}
+
+impl AppIdentity {
+    pub fn new(name: impl Into<String>, version: impl Into<String>, digest: impl Into<String>) -> Self {
+        Self { name: name.into(), version: version.into(), digest: digest.into() }
+    }
+}
+
 pub trait ServerApp {
     fn call(&self, request: ServerRequest) -> ServerDecision;
+
+    /// App identity for hot-reload visibility. Default is anonymous so existing apps need no change;
+    /// apps that want to be observable across a swap override it. NOT authority (see `AppIdentity`).
+    fn identity(&self) -> AppIdentity {
+        AppIdentity::new("anonymous", "0", "")
+    }
 }
 
 #[cfg(test)]
