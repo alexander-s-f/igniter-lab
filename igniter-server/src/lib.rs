@@ -8,6 +8,7 @@
 pub mod effect_host;
 pub mod fixture;
 pub mod host;
+pub mod middleware;
 pub mod protocol;
 pub mod reload;
 pub mod serving_loop;

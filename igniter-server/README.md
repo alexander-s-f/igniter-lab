@@ -42,6 +42,13 @@ implements the `ServerApp` trait; it belongs in an app package, example, or test
 `tests/fixtures/sparkcrm_app.rs`, not in `src/`.) How third-party/domain apps should extend or
 specialize the server is the subject of `LAB-MACHINE-IGNITER-SERVER-EXTENSIONS-READINESS-P7`.
 
+Generic **wrapper middleware** (`src/middleware.rs`, P8) is the supported extension mechanism: a
+middleware is just a `ServerApp` that wraps an inner `ServerApp` — `TraceApp` (correlation id +
+response decoration), `AuthTokenApp` (bearer-token short-circuit), `BodyLimitApp` (413 on oversized
+body). Compose with `app.with_trace().with_auth(token).with_body_limit(n)`; `ReloadableApp` wraps the
+whole composed stack. Middleware may observe/reject/decorate but must never route by `(method, path)`,
+name effects, or hold mutable state. See `lab-docs/lang/lab-machine-igniter-server-middleware-p8-v0.md`.
+
 ## Three execution shapes (readiness P1)
 
 The app's `ServerDecision` names WHICH proven host path to run — never HOW an effect runs:

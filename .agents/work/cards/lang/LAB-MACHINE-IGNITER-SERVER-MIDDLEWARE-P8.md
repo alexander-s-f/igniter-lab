@@ -2,8 +2,9 @@
 
 **Lane:** standard / implementation
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (implementation proof)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab implementation in `igniter-server` only. Generic server substrate, no domain app.
 
 ## Why this card exists
@@ -130,3 +131,37 @@ meaning remains in the `ServerApp`; effect authority remains in the host/recipe 
 
 If the implementation wants more than these three wrappers, stop and narrow the card rather than
 inventing a framework.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Three generic zero-cost wrapper middlewares implemented and proven. Middleware extends the
+server as ordinary `ServerApp` wrappers — no new runtime, no routing, no effect authority, no hidden
+state. All guardrails held; `igniter-machine` untouched.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-middleware-p8-v0.md`.
+
+**Implementation (`igniter-server/src/middleware.rs`, machine-free):**
+- `TraceApp<A>` — ensures/propagates a deterministic correlation id (no clock/RNG), decorates `Respond`
+  with `x-correlation-id`; decision kind unchanged; `Invoke`/`InvokeEffect` pass through verbatim.
+- `AuthTokenApp<A>` — static bearer-token gate; `401` WITHOUT calling inner on failure.
+- `BodyLimitApp<A>` — `413` for oversized serialized body BEFORE inner.
+- `ServerAppExt` — `app.with_trace().with_auth(token).with_body_limit(n)` sugar → the card pipeline.
+- All `&self`-pure, `Send + Sync`, `identity()` delegates to inner. No route table, no domain vocab
+  (`rg` clean), no effect identity (structurally impossible on `ServerDecision`).
+
+**Tests (`tests/middleware_tests.rs`, 8):** sequential decoration; auth short-circuit (PanicApp);
+body-limit short-circuit (PanicApp); route-agnostic (same wrapper, different inner); effect identity
+not injectable; `ReloadableApp` wraps the WHOLE stack (real loopback: TOKA→200 under v1, swap whole
+stack, TOKA→401 under v2; in-flight snapshot keeps v1); composed stack `Send+Sync` + erasable to
+`Arc<dyn ServerApp + Send + Sync>`; no hidden cross-request state (200/401/200).
+
+**Exact commands + pass counts:**
+```text
+$ cd igniter-server && cargo test                    → 34 passed; 0 failed  (+8 middleware)
+$ cd igniter-server && cargo test --features machine → 47 passed; 0 failed
+```
+`igniter-server` warning-clean both builds.
+
+**Acceptance:** all boxes met. README pointer added. Kept to exactly the three wrappers (no framework).
