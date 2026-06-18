@@ -219,3 +219,50 @@ Report:
 - how it composes with P8 middleware, P4 reload, P3 effect host, P9 IgWeb app;
 - next implementation card.
 
+---
+
+## Closing report — 2026-06-18
+
+**Chosen v0 runner model:** a tiny declarative **`igweb.toml` (B)** + **directory convention (D)** read
+by a **generic runner binary in `igniter-web`** that calls `build_igweb_app`, composes P8 middleware,
+wraps in `ReloadableApp`, runs `serve_loop`. The author writes `routes.igweb` + handler `.ig` +
+`igweb.toml` — **zero authored Rust** — and runs a pre-built runner. `todo_server.rs` is reclassified
+as the proof harness, not the target.
+
+**Rejected:** A (Rust-only — fails non-Rust author); C (`config.ig` returning sources — bootstrapping
+paradox); E (`.igwebpkg` build artifact — too heavy for v0, deferred). D adopted as the default under B.
+
+**Proposed layout:** `todo_app/{ routes.igweb, todo_handlers.ig, igweb.toml }`; `igweb.toml` has
+`[app] entry` (+ optional `sources`, default = dir's `*.ig`/`*.igweb`), `[server] mode/max_requests`,
+`[middleware] trace/body_limit_bytes/auth_token_env`.
+
+**User command (v0):** `cargo run --bin igweb-serve -- ./todo_app` (future polished form:
+`igniter-web run ./todo_app`).
+
+**Authority boundary:** manifest `[app]` = author (entry+sources); `[server]`/`[middleware]`/`[effects]`
+= host/operator (bind, secrets via env refs, effect-target mapping). `.igweb` never names bind/secret/
+effect identity; operator never edits routes. `build_igweb_app` stays the library seam.
+
+**Composition:** P9 app files unchanged; P10 prelude/handlers as-is; P8 middleware composed from
+`[middleware]` via the `Arc<A>` blanket impl (P7); P4 reload = rebuild → `swap` the whole `Arc`
+(explicit operator action, no file watcher); P3 effect host out of the machine-free v0 runner.
+
+**Effect target binding / middleware:** middleware config in `[middleware]` (host policy; auth secret
+via env, never inline/`.igweb`); effect `target → EffectBridgeConfig` deferred to a live runner in a
+host-only `[effects]` section + secret provider.
+
+**Reload sees:** the built `Arc<dyn ServerApp + Send + Sync>` as the atomic swap unit.
+
+**Deferred:** source maps/diagnostics expansion, assets, public CLI stability, live effect execution,
+deployment topology, package signing, multi-app hosting, domain plugins, file-watch reload.
+
+**Next implementation card:** `LAB-IGNITER-WEB-RUNNER-P12` — generic `igweb-serve` runner in
+`igniter-web` reading a minimal hand-parsed `igweb.toml` (no new dep, mirroring
+`igniter-compiler/src/project.rs::parse_source_roots_toml`), defaulting `sources` to the app dir, over
+`build_igweb_app` + P8 middleware + `ReloadableApp` + bounded `serve_loop`; fixture `todo_app/` with an
+`igweb.toml`; tests prove the P9 Todo runs with ZERO authored Rust over real loopback. Gates: no
+`.igweb`-sourced bind/secret/effect-identity; loopback only; no live effect exec; igniter-server normal
+tree serde-only; no CLI-stability/source-map promise.
+
+**Acceptance:** all 10 boxes met (see `lab-docs/lang/lab-igniter-web-runner-dx-readiness-p11-v0.md`).
+
