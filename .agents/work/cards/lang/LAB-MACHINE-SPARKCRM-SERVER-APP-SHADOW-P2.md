@@ -1,8 +1,9 @@
 # Card: LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-P2 - SparkCRM ServerApp shadow harness and fixtures
 
 **Lane:** standard / implementation proof  
-**Status:** OPEN  
+**Status:** CLOSED (implementation proof)
 **Date opened:** 2026-06-18  
+**Date closed:** 2026-06-18
 **Authority:** Lab-only local proof. No public listener. No daemon. No live DB. No real SparkCRM API/endpoint.  
 **Delegation-Code:** `GEMINI-20260618-SERVER-WAVE-C`
 
@@ -98,3 +99,44 @@ normalization, duplicate key extraction, and bounded auction policy correctness.
   whether a human live-gate packet should be revisited.
 - Existing `LAB-MACHINE-SPARKCRM-LIVE-GATE-P1` remains the separate human gate. Do not infer live
   execution from this shadow harness.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Offline SparkCRM-shaped `ServerApp` + sanitized in-memory fixtures implemented and proven
+through the P3 machine contour. Deterministic, DB-free, network-free, credential-free. All guardrails
+held; **zero `igniter-machine` semantic changes**.
+
+**Deliverable:** `lab-docs/lang/lab-machine-sparkcrm-server-app-shadow-p2-v0.md`.
+
+**Canonical-key correction applied:** recipe `duplicate_policy.key_header = "idempotency-key"` (generic);
+`SparkCrmApp` extracts the vendor key (precedence: `x-auction-id` > body `auction_id` > deterministic
+composite > `idempotency-key`) into `ServerDecision.idempotency_key`; the P3 adapter now FORCE-inserts
+that canonical key as the IngressRequest `idempotency-key` header (override). Vendor normalization stays
+in the app, the machine duplicate gate stays generic. The change is inert for P3/P4/P5 (decisions there
+carry `idempotency_key = None`) — those suites still pass.
+
+**Implementation (lab-only, `igniter-server`):**
+- `src/sparkcrm.rs` (new, machine-free) — `SparkCrmApp` (path→target, normalize_input with integer
+  `base`, key extraction, deterministic opaque composite via std `DefaultHasher`, no host clock).
+- `src/sparkcrm_payloads.rs` (new, machine-free) — sanitized in-memory lead/bid/status/composite/keyless.
+- `src/effect_host.rs` — canonical `idempotency-key` force-insert.
+- `tests/sparkcrm_app_tests.rs` (new) 5 + `tests/sparkcrm_shadow_tests.rs` (new, `machine`) 5.
+
+**Exact commands + pass counts:**
+
+```text
+$ cd igniter-server && cargo test                    → 26 passed; 0 failed (shadow + effect gated off)
+$ cd igniter-server && cargo test --features machine → 39 passed; 0 failed
+```
+`igniter-server` warning-clean both builds.
+
+**Key tests:** targets normalize+execute (3 targets → 3 effects); keyless → 400 zero effects (unit +
+over-socket); bounded_fresh attempts 0..4 → `applied_count==5` + distinct `payload_digest` per attempt;
+deterministic code reproducible across fresh runs; 6th → `dedup_last` replay (body==5th, no new effect,
+no `:5` receipt); precedence header>body>composite>idempotency-key; decisions carry no
+`capability_id`/`operation`/`scope`.
+
+**Acceptance:** all boxes met. No live execution inferred — `LAB-MACHINE-SPARKCRM-LIVE-GATE-P1` remains
+the separate human gate; next local route = `LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-REPORT-P3`.

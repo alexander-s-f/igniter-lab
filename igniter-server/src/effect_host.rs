@@ -72,14 +72,18 @@ impl<'a> MachineEffectHost<'a> {
         };
 
         // Carry the original request headers (already lower-cased by the parser): Authorization
-        // (bearer passport), the duplicate-key header, x-correlation-id, idempotency-key. The app
-        // never sees or sets these — they pass through to the machine's auth + duplicate gates.
+        // (bearer passport) and any raw vendor headers pass through to the machine's auth gate. The
+        // app never sees or sets these.
         let mut headers: HashMap<String, String> = req.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         if let Some(c) = &correlation_id {
             headers.entry("x-correlation-id".to_string()).or_insert_with(|| c.clone());
         }
+        // The decision's `idempotency_key` is the CANONICAL duplicate key the app extracted (vendor
+        // normalization lives in the app; the machine duplicate policy stays generic with
+        // `key_header = "idempotency-key"`). It OVERRIDES any raw vendor `idempotency-key` header so
+        // the machine's duplicate gate keys on exactly what the app decided.
         if let Some(i) = &idempotency_key {
-            headers.entry("idempotency-key".to_string()).or_insert_with(|| i.clone());
+            headers.insert("idempotency-key".to_string(), i.clone());
         }
 
         let ingress = IngressRequest {
