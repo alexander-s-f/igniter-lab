@@ -2,8 +2,9 @@
 
 **Lane:** standard / readiness-design
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab-only design/readiness. No implementation. No plugin framework authority.
 
 ## Why this card exists
@@ -159,3 +160,40 @@ static Rust app crates/examples implement ServerApp
 ```
 
 But verify this against live code before finalizing.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered, answering all 10 question groups, grounded in the live P2–P6
+surface (trait shapes re-verified in `protocol.rs`/`reload.rs`/`serving_loop.rs`/`effect_host.rs`).
+Design only — no code, no plugin system, no middleware, no assets protocol, no new crate.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-extensions-readiness-p7-v0.md`.
+
+**Recommended v0 extension model (confirmed against live code):** static Rust apps implement
+`ServerApp` (separate crate / workspace example / test fixture — never a `pub mod` of core) → optional
+zero-cost wrapper middleware (Approach 1) composes into ONE stack → `ReloadableApp` wraps the **outer
+composed stack** (so a swap is atomic and an in-flight request runs middleware+core under one revision)
+→ host supplies `target` bindings + `MachineEffectHost` + `EffectBridgeConfig` (effect authority stays
+host/recipe-owned; the app emits only logical `target` + canonical `idempotency_key`).
+
+**Explicitly rejected / deferred:** dynamic plugin loading (ABI/authority/determinism — needs C-ABI or
+wasm sandbox + capability restriction + signing + human gate first); an assets protocol in core (an app
+returns `Respond` with bytes/manifest instead); feature-gated domain modules in core; any app/
+middleware injection of `capability_id`/`operation`/`scope`; route tables in middleware; live
+SparkCRM/DB/public listener.
+
+**Forbidden in core (named):** product domains/vocabulary, route tables, effect-identity injection,
+hidden mutable state, exposing host internals, duplicating host transport concerns.
+
+**Next 1–3 cards:** (1) `LAB-MACHINE-IGNITER-SERVER-MIDDLEWARE-P8` — the single justified
+implementation slice (Tracing/Auth/BodyLimit wrapper middleware + composition/short-circuit/in-flight
+tests). (2) `LAB-MACHINE-IGNITER-SERVER-EXAMPLE-APP-P*` — a discoverable workspace example app
+(readiness/small). (3) `LAB-MACHINE-IGNITER-SERVER-ASSETS-READINESS-P*` — assets, only if a real need
+appears. No live work proposed.
+
+**Acceptance:** all boxes met — packet answers all 10 groups; keeps core domain-free; distinguishes
+static app crates/examples from dynamic plugins; preserves the app/middleware/host authority split;
+covers future assets without implementing them; names what's forbidden in core; proposes bounded next
+cards with no live work; no code changes; no new crates (only named as future routes).
