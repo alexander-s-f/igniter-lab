@@ -1,8 +1,9 @@
 # Card: LAB-MACHINE-IGNITER-SERVER-EFFECT-P3 — execute InvokeEffect through machine contour
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (implementation proof)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab-only local proof. No public listener. No SparkCRM-specific app. No live DB/network.
 
 ## Why this card exists
@@ -135,3 +136,52 @@ fixture app and fake/local executor, with the same safety invariants as direct `
   `igniter-machine` only after P3 proves server-mediated execution.
 - `LAB-MACHINE-SPARKCRM-SERVER-APP-P*` — SparkCRM-shaped app only after local server effect proof and
   the existing live-gate packet.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** `ServerDecision::InvokeEffect`, decided by a fixture `ServerApp`, now executes end-to-end
+through the EXISTING `igniter-machine` wire-to-effect contour (`IngressRouter::handle_effect` →
+`select_replica` → `run_write_effect_atomic`). An adapter, not a new runner. All guardrails held: no
+public listener, no daemon, no SparkCRM, no DB/live, no web framework, **zero `igniter-machine` code
+changes**.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-effect-p3-v0.md`.
+
+**Implementation (lab-only, `igniter-server`):**
+- `src/effect_host.rs` (`#[cfg(feature = "machine")]`) — `MachineEffectHost` adapter (`target → machine
+  route` infra binding, builds the `IngressRequest`, forwards to `handle_effect`, normalizes the
+  result) + async `serve_once_effect` (real loopback → `ServerApp::call` → machine) + `dispatch`
+  (reuses `host::execute` for `Respond`/`Invoke`, which stays observed).
+- `src/host.rs` — factored pure wire helpers to `pub(crate)` so sync + async paths share one format;
+  no behavior change.
+- `tests/effect_machine_tests.rs` (`#![cfg(feature = "machine")]`) — 6 tests, fixture mirrors
+  `service_wire_effect_tests`, neutral `CAP = "IO.Demo"`.
+- `Cargo.toml` — `igniter_machine` + `tokio` are OPTIONAL deps behind a single `machine` feature.
+  **Default build stays protocol-only / machine-free (serde only).** Documented boundary.
+
+**Authority split (P1) held:** routing → app; `target → pool` + transport + single-flight → host;
+effect identity (`capability_id`/`operation`/`scope`) → signed recipe + host effect passport, never in
+the app decision.
+
+**Exact commands + pass counts:**
+
+```text
+$ cd igniter-server && cargo test                      → 9 passed; 0 failed  (4 protocol + 5 loopback; effect gated off)
+$ cd igniter-server && cargo test --features machine   → 15 passed; 0 failed (4 protocol + 6 effect + 5 loopback)
+$ cd igniter-machine && cargo test --no-default-features \
+    --test service_wire_effect_tests --test serving_loop_concurrency_tests --test service_bridge_replica_tests
+                                                        → 16 passed; 0 failed (5 + 5 + 6) — regression intact
+```
+
+**Tests (effect, `--features machine`):**
+`server_invoke_effect_commits_via_machine_contour` (real socket → committed 200, attempts==1),
+`server_invoke_effect_replay_no_second_effect` (dedup_strict → attempts==1),
+`server_invoke_effect_bounded_fresh_attempts_match_ingress` (distinct keys IO.Demo:E1:0..2),
+`server_path_matches_direct_ingress_normalized` (status + body equal vs hand-built `handle_effect`),
+`server_routing_still_lives_in_app` (different app → 404 no effect; own route → committed; host
+unchanged), `server_concurrent_same_key_exactly_one_effect` (4 concurrent same-key → attempts==1 via
+shared `SingleFlight`).
+
+**Acceptance:** all boxes met (see deliverable doc).

@@ -69,6 +69,13 @@ Implemented slice (CLOSED): `LAB-MACHINE-IGNITER-SERVER-BINARY-P2` — a local-l
 executed fully; `Invoke` / `InvokeEffect` are returned as observed protocol decisions (202). See
 `lab-docs/lang/lab-machine-igniter-server-binary-p2-v0.md`.
 
-Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-EFFECT-P3` — execute `InvokeEffect` end-to-end
-through the proven `igniter-machine` ingress / P7 atomic-effect path. Still no public listener, no web
-framework, no SparkCRM, no DB/live.
+Implemented slice (CLOSED): `LAB-MACHINE-IGNITER-SERVER-EFFECT-P3` — `InvokeEffect` now executes
+end-to-end through the proven `igniter-machine` ingress / P7 atomic-effect path. This lives behind the
+**optional `machine` feature** (`src/effect_host.rs`): the default build stays protocol-only and
+machine-free (serde only); `cargo test --features machine` compiles + runs the effect adapter and its
+tests. The adapter maps a decision `target → machine ingress route` (infra binding) and forwards to
+`IngressRouter::handle_effect` — it is not a new effect runner. See
+`lab-docs/lang/lab-machine-igniter-server-effect-p3-v0.md`.
+
+Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4` — swap the `ServerApp` behind an
+`Arc` between requests. Still no public listener, no web framework, no SparkCRM, no DB/live.

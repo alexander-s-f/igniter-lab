@@ -80,11 +80,11 @@ pub fn serve_bounded(listener: &TcpListener, app: &dyn ServerApp, max_requests: 
 
 // ── minimal loopback HTTP/1.1 (std blocking, no framework) ───────────────────────────────────────
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-fn content_length(head: &[u8]) -> usize {
+pub(crate) fn content_length(head: &[u8]) -> usize {
     let t = String::from_utf8_lossy(head).to_lowercase();
     for line in t.split("\r\n") {
         if let Some(v) = line.strip_prefix("content-length:") {
@@ -97,7 +97,7 @@ fn content_length(head: &[u8]) -> usize {
 /// Parse a raw HTTP/1.1 request buffer into a durable `ServerRequest`. Header names are lower-cased
 /// and stored in a `BTreeMap` (deterministic). `correlation_id` / `idempotency_key` are promoted
 /// from their headers to typed fields (P1 Q1) while remaining present in `headers`.
-fn parse_request(buf: &[u8]) -> ServerRequest {
+pub(crate) fn parse_request(buf: &[u8]) -> ServerRequest {
     let header_end = find_subslice(buf, b"\r\n\r\n").unwrap_or(buf.len());
     let head = String::from_utf8_lossy(&buf[..header_end]);
     let mut lines = head.split("\r\n");
@@ -154,7 +154,7 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
     Ok(parse_request(&buf))
 }
 
-fn status_text(status: u16) -> &'static str {
+pub(crate) fn status_text(status: u16) -> &'static str {
     match status {
         200 => "OK",
         202 => "Accepted",
@@ -165,14 +165,21 @@ fn status_text(status: u16) -> &'static str {
     }
 }
 
-fn write_response(stream: &mut TcpStream, resp: &ServerResponse) -> std::io::Result<()> {
+/// Encode a `ServerResponse` to raw HTTP/1.1 bytes. Shared by the sync loopback writer and the
+/// (feature-gated) async machine-effect writer so both wire formats are identical.
+pub(crate) fn encode_response(resp: &ServerResponse) -> Vec<u8> {
     let body = serde_json::to_vec(&resp.body).unwrap_or_default();
     let mut head = format!("HTTP/1.1 {} {}\r\n", resp.status, status_text(resp.status));
     for (k, v) in &resp.headers {
         head.push_str(&format!("{}: {}\r\n", k, v));
     }
     head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(&body)?;
+    let mut out = head.into_bytes();
+    out.extend_from_slice(&body);
+    out
+}
+
+fn write_response(stream: &mut TcpStream, resp: &ServerResponse) -> std::io::Result<()> {
+    stream.write_all(&encode_response(resp))?;
     stream.flush()
 }
