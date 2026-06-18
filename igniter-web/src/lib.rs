@@ -134,6 +134,172 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
     }
 }
 
+/// Generic lab runner (LAB-IGNITER-WEB-RUNNER-P12): a `config.ru`-analogue. Reads a tiny `igweb.toml`
+/// from an app directory, builds the IgWeb app via `build_igweb_app`, and composes P8 middleware from
+/// the manifest. The server still owns transport/loop/reload; the manifest names only app entry/sources
+/// + host policy (no routes, bind, secrets, or effect identity). Lab v0 — NOT a stable CLI/canon.
+pub mod runner {
+    use super::{build_igweb_app, IgWebBuildError, IgWebBuildInput};
+    use igniter_server::middleware::{AuthTokenApp, BodyLimitApp, TraceApp};
+    use igniter_server::protocol::ServerApp;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    /// Parsed `igweb.toml`. `[app]` is author-owned; `[server]`/`[middleware]` are host policy.
+    #[derive(Debug, Clone, Default)]
+    pub struct IgwebManifest {
+        pub entry: String,
+        pub sources: Option<Vec<String>>,
+        pub server_mode: Option<String>,
+        pub max_requests: Option<usize>,
+        pub trace: bool,
+        pub body_limit_bytes: Option<usize>,
+        pub auth_token_env: Option<String>,
+    }
+
+    #[derive(Debug)]
+    pub enum RunnerError {
+        Io(String),
+        /// malformed/forbidden manifest content.
+        Manifest(String),
+        Build(IgWebBuildError),
+    }
+
+    impl std::fmt::Display for RunnerError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                RunnerError::Io(m) => write!(f, "igweb runner io error: {m}"),
+                RunnerError::Manifest(m) => write!(f, "igweb.toml error: {m}"),
+                RunnerError::Build(e) => write!(f, "igweb build error: {e:?}"),
+            }
+        }
+    }
+    impl std::error::Error for RunnerError {}
+
+    /// Hand-rolled tiny `igweb.toml` parse (no toml crate; mirrors `project.rs::parse_source_roots_toml`).
+    /// Supports only the documented v0 subset; unsupported sections/keys are rejected with a clear error.
+    pub fn parse_manifest(text: &str) -> Result<IgwebManifest, RunnerError> {
+        let mut m = IgwebManifest::default();
+        let mut section = String::new();
+        for raw in text.lines() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(s) = line.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                section = s.trim().to_string();
+                if section == "effects" {
+                    return Err(RunnerError::Manifest("[effects] is unsupported in v0 (effect target binding is host-side, not the manifest)".into()));
+                }
+                continue;
+            }
+            let (key, val) = line.split_once('=').ok_or_else(|| RunnerError::Manifest(format!("expected `key = value`, got `{line}`")))?;
+            let key = key.trim();
+            let val = val.trim();
+            match (section.as_str(), key) {
+                ("app", "entry") => m.entry = parse_str(val)?,
+                ("app", "sources") => m.sources = Some(parse_str_array(val)?),
+                ("server", "mode") => m.server_mode = Some(parse_str(val)?),
+                ("server", "max_requests") => m.max_requests = Some(parse_int(val)?),
+                ("middleware", "trace") => m.trace = parse_bool(val)?,
+                ("middleware", "body_limit_bytes") => m.body_limit_bytes = Some(parse_int(val)?),
+                ("middleware", "auth_token_env") => m.auth_token_env = Some(parse_str(val)?),
+                ("middleware", "auth_token") => {
+                    return Err(RunnerError::Manifest("inline `auth_token` is forbidden — use `auth_token_env = \"VAR\"` (secret read from the environment)".into()))
+                }
+                (sec, k) => return Err(RunnerError::Manifest(format!("unknown key `{k}` in section `[{sec}]`"))),
+            }
+        }
+        if m.entry.is_empty() {
+            return Err(RunnerError::Manifest("missing required `[app] entry`".into()));
+        }
+        if let Some(mode) = &m.server_mode {
+            if mode != "loopback" {
+                return Err(RunnerError::Manifest(format!("[server] mode `{mode}` unsupported in v0 (only `loopback`)")));
+            }
+        }
+        Ok(m)
+    }
+
+    fn parse_str(v: &str) -> Result<String, RunnerError> {
+        let v = v.trim();
+        if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
+            Ok(v[1..v.len() - 1].to_string())
+        } else {
+            Err(RunnerError::Manifest(format!("expected a quoted string, got `{v}`")))
+        }
+    }
+    fn parse_str_array(v: &str) -> Result<Vec<String>, RunnerError> {
+        let inner = v.trim().strip_prefix('[').and_then(|s| s.strip_suffix(']')).ok_or_else(|| RunnerError::Manifest(format!("expected `[...]` array, got `{v}`")))?;
+        inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).map(parse_str).collect()
+    }
+    fn parse_bool(v: &str) -> Result<bool, RunnerError> {
+        match v.trim() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            other => Err(RunnerError::Manifest(format!("expected true/false, got `{other}`"))),
+        }
+    }
+    fn parse_int(v: &str) -> Result<usize, RunnerError> {
+        v.trim().parse().map_err(|_| RunnerError::Manifest(format!("expected an integer, got `{}`", v.trim())))
+    }
+
+    /// Load `<app_dir>/igweb.toml`.
+    pub fn load_manifest(app_dir: &Path) -> Result<IgwebManifest, RunnerError> {
+        let path = app_dir.join("igweb.toml");
+        let text = std::fs::read_to_string(&path).map_err(|e| RunnerError::Io(format!("{}: {e}", path.display())))?;
+        parse_manifest(&text)
+    }
+
+    /// Resolve sources relative to the app dir: explicit `[app] sources`, else all `*.ig` + `*.igweb`
+    /// directly in the dir, sorted deterministically.
+    pub fn resolve_sources(app_dir: &Path, manifest: &IgwebManifest) -> Result<Vec<PathBuf>, RunnerError> {
+        if let Some(list) = &manifest.sources {
+            return Ok(list.iter().map(|s| app_dir.join(s)).collect());
+        }
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(app_dir).map_err(|e| RunnerError::Io(e.to_string()))? {
+            let p = entry.map_err(|e| RunnerError::Io(e.to_string()))?.path();
+            if p.is_file() {
+                match p.extension().and_then(|e| e.to_str()) {
+                    Some("ig") | Some("igweb") => out.push(p),
+                    _ => {}
+                }
+            }
+        }
+        out.sort();
+        if out.is_empty() {
+            return Err(RunnerError::Manifest(format!("no `.ig`/`.igweb` sources found in {}", app_dir.display())));
+        }
+        Ok(out)
+    }
+
+    /// Compose the P8 wrapper stack from the manifest: `BodyLimit -> Auth -> Trace -> app` (only the
+    /// configured layers). Auth token is read from `auth_token_env` (env var), never from the manifest.
+    fn compose(mut app: Arc<dyn ServerApp + Send + Sync>, manifest: &IgwebManifest) -> Arc<dyn ServerApp + Send + Sync> {
+        if manifest.trace {
+            app = Arc::new(TraceApp::new(app));
+        }
+        if let Some(env_name) = &manifest.auth_token_env {
+            let token = std::env::var(env_name).unwrap_or_default();
+            app = Arc::new(AuthTokenApp::new(app, token));
+        }
+        if let Some(n) = manifest.body_limit_bytes {
+            app = Arc::new(BodyLimitApp::new(app, n));
+        }
+        app
+    }
+
+    /// The runner primitive: load the manifest, build the IgWeb app, compose middleware. Returns the
+    /// composed (erased) app + the manifest. The server host (loop/listener/reload) is the caller's.
+    pub fn build_app_from_dir(app_dir: &Path) -> Result<(Arc<dyn ServerApp + Send + Sync>, IgwebManifest), RunnerError> {
+        let manifest = load_manifest(app_dir)?;
+        let sources = resolve_sources(app_dir, &manifest)?;
+        let built = build_igweb_app(IgWebBuildInput { sources, entry: manifest.entry.clone() }).map_err(RunnerError::Build)?;
+        Ok((compose(built, &manifest), manifest))
+    }
+}
+
 /// Test fixtures + loopback helpers shared by `igniter-web` and `igniter-server` proofs. Lab/test only.
 pub mod testkit {
     use super::*;

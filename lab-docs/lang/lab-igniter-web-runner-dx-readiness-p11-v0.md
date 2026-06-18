@@ -130,6 +130,10 @@ compose P8 middleware from `[middleware]` → `ReloadableApp` → `serve_loop` w
 
 ## Next implementation card
 
+> **Status:** `LAB-IGNITER-WEB-RUNNER-P12` is now **CLOSED** — `igweb-serve` runs the P10 Todo app from
+> `routes.igweb + todo_handlers.ig + igweb.toml` with zero authored Rust. See
+> `lab-docs/lang/lab-igniter-web-runner-p12-v0.md`.
+
 **`LAB-IGNITER-WEB-RUNNER-P12`** — implement a generic IgWeb runner in `igniter-web` (a
 `src/bin/igweb-serve.rs` or example) that:
 - reads a minimal `igweb.toml` (`[app] entry`, optional `sources`; optional `[server]

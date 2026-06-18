@@ -1,0 +1,134 @@
+// igniter-web/tests/runner_tests.rs — LAB-IGNITER-WEB-RUNNER-P12
+// Proves the generic runner: tiny igweb.toml parse, default source discovery, and that the P10 Todo app
+// runs from `todo_handlers.ig + routes.igweb + igweb.toml` with ZERO authored Rust.
+
+use igniter_server::reload::ReloadableApp;
+use igniter_server::serving_loop::{serve_loop, ServingPolicy};
+use igniter_web::runner::{build_app_from_dir, parse_manifest, resolve_sources, RunnerError};
+use igniter_web::testkit::{http_get, roundtrip, HANDLERS, IGWEB};
+use serde_json::json;
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::thread;
+
+fn example_dir() -> PathBuf {
+    PathBuf::from(format!("{}/examples/todo_app", env!("CARGO_MANIFEST_DIR")))
+}
+
+/// Write a throwaway app dir with the given igweb.toml + the canonical handlers/routes.
+fn write_app(tag: &str, toml: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("igweb_runner_{}_{}", std::process::id(), tag));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("handlers.ig"), HANDLERS).unwrap();
+    std::fs::write(dir.join("routes.igweb"), IGWEB).unwrap();
+    std::fs::write(dir.join("igweb.toml"), toml).unwrap();
+    dir
+}
+
+// ── manifest parsing ──────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn parses_full_manifest() {
+    let m = parse_manifest(
+        "[app]\nentry = \"Serve\"\nsources = [\"a.ig\", \"b.igweb\"]\n[server]\nmode = \"loopback\"\nmax_requests = 7\n[middleware]\ntrace = true\nbody_limit_bytes = 65536\nauth_token_env = \"TOK\"\n",
+    )
+    .unwrap();
+    assert_eq!(m.entry, "Serve");
+    assert_eq!(m.sources, Some(vec!["a.ig".into(), "b.igweb".into()]));
+    assert_eq!(m.server_mode.as_deref(), Some("loopback"));
+    assert_eq!(m.max_requests, Some(7));
+    assert!(m.trace);
+    assert_eq!(m.body_limit_bytes, Some(65536));
+    assert_eq!(m.auth_token_env.as_deref(), Some("TOK"));
+}
+
+#[test]
+fn rejects_missing_entry_effects_inline_secret_and_bad_mode() {
+    assert!(matches!(parse_manifest("[server]\nmode=\"loopback\"\n"), Err(RunnerError::Manifest(_))), "missing entry");
+    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[effects]\nx=\"y\"\n"), Err(RunnerError::Manifest(_))), "[effects] unsupported");
+    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[middleware]\nauth_token=\"hunter2\"\n"), Err(RunnerError::Manifest(_))), "inline secret forbidden");
+    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[server]\nmode=\"public\"\n"), Err(RunnerError::Manifest(_))), "non-loopback mode");
+    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\nbogus=\"x\"\n"), Err(RunnerError::Manifest(_))), "unknown key");
+}
+
+#[test]
+fn missing_manifest_is_structured_error() {
+    let dir = std::env::temp_dir().join(format!("igweb_runner_nomanifest_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(matches!(build_app_from_dir(&dir), Err(RunnerError::Io(_))));
+}
+
+// ── default source discovery ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn default_source_discovery_is_deterministic_and_excludes_toml() {
+    let m = igniter_web::runner::load_manifest(&example_dir()).unwrap();
+    let srcs = resolve_sources(&example_dir(), &m).unwrap();
+    let names: Vec<String> = srcs.iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect();
+    assert!(names.contains(&"todo_handlers.ig".to_string()));
+    assert!(names.contains(&"routes.igweb".to_string()));
+    assert!(!names.iter().any(|n| n.ends_with(".toml")), "toml is not a source");
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "deterministic (sorted) order");
+}
+
+// ── the P10 Todo app runs from manifest, no authored Rust, no web_types.ig ──────────────────────────
+
+fn build_example() -> std::sync::Arc<dyn igniter_server::protocol::ServerApp + Send + Sync> {
+    build_app_from_dir(&example_dir()).expect("build from examples/todo_app/igweb.toml").0
+}
+
+#[test]
+fn runner_serves_p10_todo_behavior() {
+    let app = build_example();
+    assert_eq!(roundtrip(&*app, "GET", "/health", &[], "").0, 200);
+    let (s, body) = roundtrip(&*app, "GET", "/todos/42", &[], "");
+    assert_eq!(s, 200);
+    assert_eq!(body["body"], json!("42"), "path param via generated regexp/capture");
+    assert_eq!(roundtrip(&*app, "POST", "/todos/42/done", &[], "").0, 400, "keyless → 400");
+    let (se, be) = roundtrip(&*app, "POST", "/todos/42/done", &[("idempotency-key", "evt-1")], "{}");
+    assert_eq!(se, 202);
+    assert_eq!(be["target"], json!("todo-done"));
+    assert_eq!(be["idempotency_key"], json!("evt-1"));
+    assert!(be.get("capability_id").is_none(), "manifest cannot smuggle effect identity");
+    assert!(be.get("scope").is_none());
+    assert_eq!(roundtrip(&*app, "GET", "/missing", &[], "").0, 404);
+    assert_eq!(roundtrip(&*app, "POST", "/health", &[], "").0, 405);
+}
+
+// ── middleware from manifest ────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn manifest_body_limit_rejects_oversized() {
+    let dir = write_app("bodylimit", "[app]\nentry = \"Serve\"\n[middleware]\nbody_limit_bytes = 10\n");
+    let (app, _m) = build_app_from_dir(&dir).unwrap();
+    let big = "{\"x\":\"this is definitely longer than ten bytes\"}";
+    assert_eq!(roundtrip(&*app, "POST", "/todos", &[("idempotency-key", "k")], big).0, 413, "body limit from manifest applied before app");
+}
+
+#[test]
+fn manifest_auth_env_short_circuits_then_passes() {
+    std::env::set_var("RUNNER_TEST_TOK", "s3cret");
+    let dir = write_app("auth", "[app]\nentry = \"Serve\"\n[middleware]\nauth_token_env = \"RUNNER_TEST_TOK\"\n");
+    let (app, _m) = build_app_from_dir(&dir).unwrap();
+    assert_eq!(roundtrip(&*app, "GET", "/health", &[], "").0, 401, "no token → auth short-circuits");
+    assert_eq!(roundtrip(&*app, "GET", "/health", &[("authorization", "Bearer s3cret")], "").0, 200, "valid token passes");
+    std::env::remove_var("RUNNER_TEST_TOK");
+}
+
+// ── full runner path: build_app_from_dir → ReloadableApp → serve_loop (bounded) ──────────────────────
+
+#[test]
+fn runner_full_path_over_serve_loop() {
+    let (app, manifest) = build_app_from_dir(&example_dir()).unwrap();
+    assert_eq!(manifest.entry, "Serve");
+    let reloadable = ReloadableApp::new(app);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let reload_srv = reloadable.clone();
+    let server = thread::spawn(move || serve_loop(&listener, &reload_srv, &ServingPolicy::new(1).loopback_only()).unwrap());
+    assert_eq!(http_get(&addr, "/health"), 200);
+    let report = server.join().unwrap();
+    assert_eq!(report.requests_served, 1);
+}

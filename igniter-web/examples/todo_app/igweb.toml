@@ -1,0 +1,17 @@
+# igweb.toml — the config.ru analogue for an IgWeb app (LAB-IGNITER-WEB-RUNNER-P12).
+# `[app]` is author-owned (entry + sources). `[server]`/`[middleware]` are host/operator policy.
+# No routes, bind address, secrets, or effect identity live here.
+
+[app]
+entry = "Serve"
+# sources omitted → all *.ig + *.igweb in this directory (deterministic), so the builder discovers
+# todo_handlers.ig + routes.igweb automatically (IgWebPrelude is injected by the builder).
+
+[server]
+mode = "loopback"
+max_requests = 7
+
+[middleware]
+trace = true
+body_limit_bytes = 65536
+# auth_token_env = "TODO_TOKEN"   # optional; token value comes from the env var, never inline.
