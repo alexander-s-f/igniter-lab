@@ -100,6 +100,19 @@ pub trait ServerApp {
     }
 }
 
+/// An `Arc<A>` is itself a `ServerApp` (delegates to the inner app). This lets an erased, already-built
+/// app (`Arc<dyn ServerApp + Send + Sync>` — e.g. an IgWeb package, P5/P7) be composed under wrapper
+/// middleware and held by `ReloadableApp`, exactly like a concrete app. Generic ergonomic only — no
+/// routing, no behavior change.
+impl<A: ServerApp + ?Sized> ServerApp for std::sync::Arc<A> {
+    fn call(&self, request: ServerRequest) -> ServerDecision {
+        (**self).call(request)
+    }
+    fn identity(&self) -> AppIdentity {
+        (**self).identity()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -132,6 +132,10 @@ capability identity. It sees one `Arc<dyn ServerApp + Send + Sync>` and a `Servi
 
 ## Next implementation card
 
+> **Status:** `LAB-IGNITER-WEB-ROUTING-PACKAGE-BUILDER-P7` is now **CLOSED** — the builder exists as
+> `build_igweb_app(...)` (tests/support/igweb_build.rs), proven with `ReloadableApp` swap + P8
+> middleware. See `lab-docs/lang/lab-igniter-web-routing-package-builder-p7-v0.md`.
+
 **`LAB-IGNITER-WEB-ROUTING-PACKAGE-BUILDER-P7`** — extract P5's hand-assembly into a reusable lab
 builder `build_igweb_app(paths: &[&str], entry: &str) -> Result<Arc<dyn ServerApp + Send + Sync>,
 IgWebBuildError>` (lower once + `load_program` + wrap as `ServerApp`), prove **reload compatibility**
