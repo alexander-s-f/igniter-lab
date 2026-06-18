@@ -1,7 +1,7 @@
 // igniter-web/tests/builder_tests.rs — LAB-IGNITER-WEB-CRATE-P8
 // Direct tests for the IgWeb builder in its new lab home.
 
-use igniter_web::testkit::{build_todo_app, roundtrip, HANDLERS, WEB_TYPES};
+use igniter_web::testkit::{build_todo_app, roundtrip, HANDLERS};
 use igniter_web::{build_igweb_app, IgWebBuildError, IgWebBuildInput};
 use serde_json::json;
 use std::path::PathBuf;
@@ -46,8 +46,9 @@ fn emits_logical_invoke_effect_without_identity() {
 
 #[test]
 fn lowering_error_is_structured() {
+    // malformed route on line 2 → parse error fires during the loop, before the handlers check.
     let bad = "app X entry Serve {\n  route GET /todos -> Health\n}\n";
-    let paths = write_dir("c_lowerr", &[("web_types.ig", WEB_TYPES), ("handlers.ig", HANDLERS), ("routes.igweb", bad)]);
+    let paths = write_dir("c_lowerr", &[("handlers.ig", HANDLERS), ("routes.igweb", bad)]);
     match build_igweb_app(IgWebBuildInput { sources: paths, entry: "Serve".into() }) {
         Err(IgWebBuildError::Lower { line, .. }) => assert_eq!(line, 2),
         Err(e) => panic!("expected Lower error, got {e:?}"),
@@ -58,8 +59,8 @@ fn lowering_error_is_structured() {
 #[test]
 fn compile_error_is_structured() {
     let broken = format!("{HANDLERS}\npure contract {{ input req : Request }}\n");
-    let valid = "app X entry Serve {\n  route GET \"/health\" -> Health\n}\n";
-    let paths = write_dir("c_comperr", &[("web_types.ig", WEB_TYPES), ("handlers.ig", &broken), ("routes.igweb", valid)]);
+    let valid = "app X entry Serve {\n  handlers TodoHandlers\n  route GET \"/health\" -> Health\n}\n";
+    let paths = write_dir("c_comperr", &[("handlers.ig", &broken), ("routes.igweb", valid)]);
     match build_igweb_app(IgWebBuildInput { sources: paths, entry: "Serve".into() }) {
         Err(IgWebBuildError::Load(msg)) => assert!(!msg.is_empty()),
         Err(e) => panic!("expected Load error, got {e:?}"),

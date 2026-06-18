@@ -1,6 +1,8 @@
 -- igniter-web example app — routes (the `.igweb` Projection Dialect, authored).
 -- Lowers deterministically to an explicit Serve(Request) -> Decision .ig contract.
 app TodoWeb entry Serve {
+  handlers TodoHandlers
+
   route GET  "/health"          -> Health
   route GET  "/todos"           -> TodoIndex
   route GET  "/todos/:id"       -> TodoShow

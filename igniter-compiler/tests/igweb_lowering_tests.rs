@@ -3,14 +3,15 @@
 // real compiler (multifile compile_units, via the binary) with no OOF-RE1 / OOF-TY0 from the generated
 // regexp / call_contract. The two static fixtures are inspectable; routes.ig is generated.
 
-use igniter_compiler::igweb::lower_igweb;
+use igniter_compiler::igweb::{lower_igweb, PRELUDE_SOURCE};
 use std::process::Command;
 
-const WEB_TYPES: &str = include_str!("fixtures/igweb_todo/web_types.ig");
+// P10: handlers import the shared `IgWebPrelude` (Request/Decision); no per-app `web_types.ig`.
 const HANDLERS: &str = include_str!("fixtures/igweb_todo/handlers.ig");
 
 const TODO_IGWEB: &str = "\
 app TodoWeb entry Serve {
+  handlers TodoHandlers
   route GET  \"/health\"          -> Health
   route GET  \"/todos\"           -> TodoIndex
   route POST \"/todos\"           -> TodoCreate requires idempotency
@@ -28,17 +29,17 @@ fn bin() -> &'static str {
 fn compile_generated(routes_ig: &str, tag: &str) -> String {
     let dir = std::env::temp_dir().join(format!("igweb_{}_{}", tag, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let wt = dir.join("web_types.ig");
+    let pl = dir.join("prelude.ig");
     let hd = dir.join("handlers.ig");
     let rt = dir.join("routes.ig");
-    std::fs::write(&wt, WEB_TYPES).unwrap();
+    std::fs::write(&pl, PRELUDE_SOURCE).unwrap();
     std::fs::write(&hd, HANDLERS).unwrap();
     std::fs::write(&rt, routes_ig).unwrap();
     let out = dir.join("out.igapp");
     let output = Command::new(bin())
         .args([
             "compile",
-            wt.to_str().unwrap(),
+            pl.to_str().unwrap(),
             hd.to_str().unwrap(),
             rt.to_str().unwrap(),
             "--out",
@@ -86,7 +87,7 @@ fn generated_todo_project_compiles_clean() {
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
     // Both params extract positionally via capture(index 1) + capture(index 2) — no split/nth tricks.
-    let src = "app AccTodo entry Serve {\n  route GET \"/accounts/:account_id/todos/:id\" -> AccountTodoShow\n}\n";
+    let src = "app AccTodo entry Serve {\n  handlers AccHandlers\n  route GET \"/accounts/:account_id/todos/:id\" -> AccountTodoShow\n}\n";
     let routes = lower_igweb(src).expect("lower");
     assert!(routes.contains("matches(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\")"));
     assert!(routes.contains("capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)"));

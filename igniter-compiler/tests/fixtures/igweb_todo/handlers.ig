@@ -3,7 +3,7 @@
 -- handlers accept the captured id as Option[String] (capture returns Option[String]).
 module TodoHandlers
 
-import WebTypes
+import IgWebPrelude
 
 pure contract Health {
   input req : Request

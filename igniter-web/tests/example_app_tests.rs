@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn example_sources() -> Vec<PathBuf> {
-    ["web_types.ig", "todo_handlers.ig", "routes.igweb"]
+    // P10: no `web_types.ig` — the builder injects the shared IgWebPrelude.
+    ["todo_handlers.ig", "routes.igweb"]
         .iter()
         .map(|f| PathBuf::from(format!("{}/examples/todo_app/{}", env!("CARGO_MANIFEST_DIR"), f)))
         .collect()

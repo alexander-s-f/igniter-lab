@@ -62,6 +62,11 @@ pub fn build_igweb_app(input: IgWebBuildInput) -> Result<Arc<dyn ServerApp + Sen
         }
     }
 
+    // P10: inject the shared IgWeb prelude (Request/Decision) so apps no longer author `web_types.ig`.
+    let prelude_path = build_dir.join("igweb_prelude.ig");
+    std::fs::write(&prelude_path, igniter_compiler::igweb::PRELUDE_SOURCE).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+    ig_paths.push(prelude_path.to_string_lossy().to_string());
+
     let machine = IgniterMachine::new(None, "in_memory").map_err(|e| IgWebBuildError::Load(format!("{e:?}")))?;
     machine
         .load_program(&ig_paths, &input.entry)
@@ -137,24 +142,9 @@ pub mod testkit {
     use std::net::{TcpListener, TcpStream};
     use std::thread;
 
-    pub const WEB_TYPES: &str = "\
-module WebTypes
-type Request {
-  method          : String
-  path            : String
-  body            : String
-  correlation_id  : String
-  idempotency_key : String
-}
-variant Decision {
-  Respond      { status : Integer, body : String }
-  InvokeEffect { target : String, input : String, idempotency_key : String }
-}
-";
-
     pub const HANDLERS: &str = "\
 module TodoHandlers
-import WebTypes
+import IgWebPrelude
 pure contract Health {
   input req : Request
   compute d : Decision = Respond { status: 200, body: \"ok\" }
@@ -186,6 +176,7 @@ pure contract TodoDone {
 
     pub const IGWEB: &str = "\
 app TodoWeb entry Serve {
+  handlers TodoHandlers
   route GET  \"/health\"          -> Health
   route GET  \"/todos\"           -> TodoIndex
   route POST \"/todos\"           -> TodoCreate requires idempotency
@@ -194,17 +185,16 @@ app TodoWeb entry Serve {
 }
 ";
 
-    /// Write the canonical Todo fixture sources into a fresh dir; return their paths.
+    /// Write the canonical Todo fixture sources into a fresh dir; return their paths. P10: no
+    /// `web_types.ig` — the builder injects the shared `IgWebPrelude`.
     pub fn write_todo_fixtures(tag: &str) -> Vec<PathBuf> {
         let dir = std::env::temp_dir().join(format!("igweb_fix_{}_{}", std::process::id(), tag));
         std::fs::create_dir_all(&dir).unwrap();
-        let wt = dir.join("web_types.ig");
         let hd = dir.join("handlers.ig");
         let rt = dir.join("routes.igweb");
-        std::fs::write(&wt, WEB_TYPES).unwrap();
         std::fs::write(&hd, HANDLERS).unwrap();
         std::fs::write(&rt, IGWEB).unwrap();
-        vec![wt, hd, rt]
+        vec![hd, rt]
     }
 
     /// Build the canonical Todo app via the builder (no hand-assembly).

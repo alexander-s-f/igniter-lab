@@ -7,7 +7,7 @@
 use igniter_server::middleware::ServerAppExt;
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
-use igniter_web::testkit::{build_todo_app, http_get, roundtrip, HANDLERS, WEB_TYPES};
+use igniter_web::testkit::{build_todo_app, http_get, roundtrip, HANDLERS};
 use igniter_web::{build_igweb_app, IgWebBuildInput};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -29,8 +29,8 @@ fn builder_app_health_smoke() {
 fn builder_reload_swaps_whole_loaded_app() {
     // app A = canonical Todo (/health → 200). app B = a different built app (/health unknown → 404).
     let app_a = build_todo_app("srv_reload_a");
-    let b_igweb = "app W entry Serve {\n  route GET \"/other\" -> Health\n}\n";
-    let b_paths = write_dir("srv_reload_b", &[("web_types.ig", WEB_TYPES), ("handlers.ig", HANDLERS), ("routes_b.igweb", b_igweb)]);
+    let b_igweb = "app W entry Serve {\n  handlers TodoHandlers\n  route GET \"/other\" -> Health\n}\n";
+    let b_paths = write_dir("srv_reload_b", &[("handlers.ig", HANDLERS), ("routes_b.igweb", b_igweb)]);
     let app_b = build_igweb_app(IgWebBuildInput { sources: b_paths, entry: "Serve".into() }).expect("build app B");
 
     let reloadable = ReloadableApp::new(app_a);

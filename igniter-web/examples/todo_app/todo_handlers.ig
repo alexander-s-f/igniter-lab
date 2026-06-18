@@ -1,6 +1,6 @@
 -- igniter-web example app — handler contracts (authored product logic; pure, fixture data).
 module TodoHandlers
-import WebTypes
+import IgWebPrelude
 
 pure contract Health {
   input req : Request

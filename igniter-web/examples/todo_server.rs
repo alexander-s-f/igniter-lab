@@ -32,7 +32,7 @@ fn http_call(addr: &str, method: &str, path: &str, idem: Option<&str>, body: &st
 
 fn main() -> std::io::Result<()> {
     let app = build_igweb_app(IgWebBuildInput {
-        sources: vec![src("web_types.ig"), src("todo_handlers.ig"), src("routes.igweb")],
+        sources: vec![src("todo_handlers.ig"), src("routes.igweb")],
         entry: "Serve".into(),
     })
     .expect("build the IgWeb todo app from authored files");

@@ -101,6 +101,10 @@ A shared `Request`/`Decision` prelude in `igniter-web`; module-name parameteriza
 `.igweb→.ig` source maps; real effect execution wiring (P3); dialect registry/CLI (P0). None block the
 example.
 
+> **Next (P10, CLOSED):** the prelude + handler-module convention landed — the example now needs no
+> `web_types.ig` and names its handler module via `handlers TodoHandlers`. See
+> `lab-docs/lang/lab-igniter-web-prelude-p10-v0.md`.
+
 ---
 
 *Lab implementation. Compiled 2026-06-18; `cargo run --example todo_server` deterministic; igniter-web
