@@ -42,6 +42,11 @@ implements the `ServerApp` trait; it belongs in an app package, example, or test
 `tests/fixtures/sparkcrm_app.rs`, not in `src/`.) How third-party/domain apps should extend or
 specialize the server is the subject of `LAB-MACHINE-IGNITER-SERVER-EXTENSIONS-READINESS-P7`.
 
+A runnable, machine-free example of an external app lives at `examples/server_app_basic.rs` (neutral
+`ticket-intake` domain): `cargo run --example server_app_basic`. It is the "write your first
+`ServerApp`" reference — routing inside `call`, effects as logical `InvokeEffect { target, … }`, and
+composition under P8 middleware. See `lab-docs/lang/lab-machine-igniter-server-example-app-p10-v0.md`.
+
 Generic **wrapper middleware** (`src/middleware.rs`, P8) is the supported extension mechanism: a
 middleware is just a `ServerApp` that wraps an inner `ServerApp` — `TraceApp` (correlation id +
 response decoration), `AuthTokenApp` (bearer-token short-circuit), `BodyLimitApp` (413 on oversized

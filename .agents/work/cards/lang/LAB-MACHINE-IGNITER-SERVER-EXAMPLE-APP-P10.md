@@ -2,8 +2,9 @@
 
 **Lane:** standard / implementation
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (implementation)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab implementation in `igniter-server` examples/tests only. No domain module in core.
 
 ## Why this card exists
@@ -125,3 +126,39 @@ cd igniter-server && cargo test --features machine
 
 This is a teaching artifact, not a product app. If the implementation starts needing a framework,
 configuration format, real effect host, or domain ontology, stop and split the work.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** First discoverable external `ServerApp` implemented as a standalone Cargo example +
+verifying test. Teaches the boundary: app lives in `examples/` (not `src/`), routing inside
+`ServerApp::call`, effects as logical `InvokeEffect { target, … }`, effect authority host-side.
+Machine-free; no `src/` domain module; no `igniter-machine` change; warning-clean.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-example-app-p10-v0.md`.
+
+**Files created:**
+- `igniter-server/examples/server_app_basic.rs` — `pub struct ExampleApp` + `impl ServerApp` (neutral
+  `ticket-intake`: `GET /health`→Respond 200; `POST /tickets` w/ idempotency-key→`InvokeEffect{target:
+  "ticket-create"}`; keyless→400; else 404), `identity()` = `ticket-intake-example`/`v0`, sanitizing
+  `normalize_ticket`, machine-free `main()` printing decisions + a P8-middleware demo.
+- `igniter-server/tests/example_app_tests.rs` — includes the example via `#[path]`; 8 tests.
+- `igniter-server/README.md` — one-line pointer to the runnable example (no architecture rewrite).
+
+**Exact commands + pass counts:**
+```text
+$ cargo build --examples                     → Finished (warning-clean)
+$ cargo run --example server_app_basic       → prints health/tickets/keyless/unknown + middleware demo, exit 0
+$ cargo test                                 → 42 passed; 0 failed   (was 34; +8)
+$ cargo test --features machine              → 55 passed; 0 failed   (was 47; +8)
+```
+
+**Tests:** health→Respond 200; POST /tickets w/ key→InvokeEffect (target `ticket-create`,
+idempotency_key `Some("tkt-1001")`, correlation propagated, sanitized input); keyless→400; unknown→404;
+serialized decision has no `capability_id`/`operation`/`scope`; `identity().name`; composes with P8
+middleware (`with_trace().with_auth(...)` → 401 short-circuit / 200 + x-correlation-id); real loopback
+`host::serve_once` `/health`→200.
+
+**Acceptance:** all boxes met. Guardrail honored — no framework/config-format/real-effect-host/domain
+ontology introduced.
