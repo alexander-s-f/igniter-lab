@@ -227,3 +227,15 @@ Report:
 - how this fits Igniter philosophy;
 - next card name + acceptance sketch.
 
+## Round 1 — Gemini shard research received (2026-06-18)
+
+Six background reports were received and curated:
+
+- five shard reports (`Cargo/Go`, `JS/Python/Deno`, `Ruby/Rails`, `OCI/WASM/Terraform`,
+  `Igniter artifacts`);
+- one synthesis report;
+- curated summary: `lab-docs/lang/lab-igniter-package-manager-research-round1-v0.md`.
+
+Status remains research/readiness only. The round-1 direction is promising but not yet a package spec:
+local workspace packages + content-addressed lock/provenance + no install scripts + host-owned
+capabilities. Next recommended step is an Opus validation pass before implementation.
