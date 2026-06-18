@@ -2,8 +2,9 @@
 
 **Lane:** standard / readiness + architecture boundary
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness / architecture-boundary packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Delegation label:** OPUS-PROJECTION-DIALECTS-A
 **Authority:** Lab readiness only. This card names and documents the `.ig*` phenomenon as a general
 projection/lowering mechanism. It does **not** implement a new compiler feature, does **not** canonize
@@ -277,4 +278,43 @@ Likely follow-ups:
 2. If useful later: `LAB-IGNITER-DIALECT-REGISTRY-P1` — implementation of a lab registry/check command,
    only after at least two dialects need tooling.
 3. Continue IgWeb routing work under the projection-dialect contract, not as a special language fork.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Named the `.ig*` phenomenon **Projection Dialects** and delivered a governance packet — all
+10 sections + Q1–Q10. Definition: an authoring syntax that DETERMINISTICALLY lowers into an existing,
+inspectable canonical Igniter artifact and creates NO hidden runtime authority. `.ig` is the only
+runtime authority; `.ig*` are projections. Both live dialects classified as **lab** (neither canon):
+`.igv` → ViewArtifact JSON (machine-free, byte-identical); `.igweb` → generated `.ig` `Serve` (static
+`call_contract`, regexp params, no server routing). App-local/custom dialects allowed but bounded
+(owner explicit, no public-canon claim, no extension collision, explicit lowerer, reviewable artifact,
+same invariants). Registry schema, MUST/SHOULD invariant checklist, future tooling sketch (no CLI),
+anti-proliferation smell test + "when NOT to create a dialect", and a promotion ladder
+(private→lab→experimental→canon-candidate→canon; lab ≠ canon) all specified.
+
+**Deliverable:** `lab-docs/lang/lab-igniter-projection-dialects-p0-v0.md`.
+
+**Files touched (docs only, no code):**
+- NEW: `lab-docs/lang/lab-igniter-projection-dialects-p0-v0.md` (the packet).
+- one-line pointer added to `lab-docs/lang/lab-igniter-web-routing-lowering-p4-v0.md` (`.igweb` → P0).
+- one-line pointer added to `lab-docs/lang/lab-frame-igv-binding-syntax-p1-v0.md` (`.igv` → P0).
+- this card's status + closing report.
+
+**P4 not blocked/rewritten:** P4 stands as the FIRST `.igweb` dialect implementation; only a thin
+pointer was added. Re-verified P4's `igweb_lowering_tests` still green (2/2) under its strengthened
+compile assertions.
+
+**Verify-first:** confirmed exactly two `.ig*` lowerers exist today (`igniter-ui-kit/src/igv.rs::
+lower_igv`, `igniter-compiler/src/igweb.rs::lower_igweb`); no others.
+
+**Acceptance:** all boxes met — pattern named; `.ig` canonical vs `.ig*` projection distinction
+explicit; both dialects classified without canonizing either; registry entry shape specified;
+app-local dialects allowed-but-bounded; hidden runtime authority forbidden; tooling sketch only (no
+CLI/code); P4 positioned not blocked; no `igniter-server`/compiler/VM/UI code changed; files-touched
+listed.
+
+**Next:** (optional) `LAB-IGNITER-DIALECT-REGISTRY-P1` (lab `igniter dialect list/lower/check`, only
+when ≥2 dialects need shared tooling); continue IgWeb under this contract (`…-ADAPTER-P5`).
 

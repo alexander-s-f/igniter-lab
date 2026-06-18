@@ -8,6 +8,10 @@ compiler using `stdlib.regexp.matches`/`capture` (P3) for params and static `cal
 DB/live.**
 **Authority:** Lab tooling. Mirrors the proven `.igv`→ViewArtifact lowering; verified against live code.
 
+> `.igweb` is the first **Projection Dialect** under the governance contract in
+> `lab-docs/lang/lab-igniter-projection-dialects-p0-v0.md` (status: lab; target: generated `.ig`; no
+> hidden runtime authority).
+
 ## What this card proves
 
 ```text

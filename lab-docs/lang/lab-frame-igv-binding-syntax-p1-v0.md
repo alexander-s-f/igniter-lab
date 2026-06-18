@@ -6,6 +6,9 @@ DETERMINISTICALLY to the already-proven ViewArtifact JSON manifest, which the ex
 (P16) and the P17/P18 bridges consume unchanged. `.igv` is SUGAR — not Igniter canon, no `.ig`
 change, machine-free.
 
+> `.igv` is classified as a **Projection Dialect** (status: lab; target: ViewArtifact JSON; no hidden
+> runtime authority) under `lab-docs/lang/lab-igniter-projection-dialects-p0-v0.md`.
+
 ## What it proves
 
 The stack already had code proof for `ViewArtifact JSON → ui-kit/FrameRuntime → console lineage →
