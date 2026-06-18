@@ -11,3 +11,10 @@ crate-type = ["rlib", "cdylib"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# PROOF-ONLY (LAB-STDLIB-REGEXP-P2): the `regex` crate backs the regexp-engine semantics proof in
+# `tests/regexp_engine_proof_tests.rs`. It is a DEV dependency only — it does NOT enter the published
+# library, and no `stdlib.regexp` `.ig` surface is exposed yet. Promotion to a real dependency happens
+# (if ever) in LAB-STDLIB-REGEXP-P3 when the builtin is registered in the typechecker + VM.
+[dev-dependencies]
+regex = "1"
+
