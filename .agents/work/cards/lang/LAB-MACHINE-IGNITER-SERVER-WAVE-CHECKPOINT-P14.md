@@ -2,8 +2,9 @@
 
 **Lane:** standard / checkpoint-digest
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (checkpoint digest)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Authority:** Lab documentation/checkpoint only. No implementation. No live/deploy authority.
 
 ## Why this card exists
@@ -155,3 +156,41 @@ igniter-server in-lab wave: CLOSED ENOUGH as substrate + DX proof
 ```
 
 Verify before writing; do not trust this suggested conclusion blindly.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** One compact, source-backed front-door digest written for the `igniter-server` wave. All 8
+required sections present (exec summary, P1–P14 timeline, surface map, fresh command block, boundary/
+not-proven, DX, next routes, agent navigation). Grounded in live source + fresh `cargo` runs, not card
+lore. No code, no new behavior, no live/deploy.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-wave-checkpoint-p14-v0.md` + a one-line
+front-door pointer added to `igniter-server/README.md` (no rewrite).
+
+**Command results (fresh, this session):**
+```text
+cargo build --examples              → Finished, 0 warnings
+cargo test                          → 49 passed; 0 failed
+cargo test --features machine       → 62 passed; 0 failed
+```
+Per-file (default): lib-unit 7 · loopback 5 · reload 4 · serving_loop 5 · middleware 8 · sparkcrm_app 5
+· example_app 8 · app_runner_example 7 (effect_machine 0 + sparkcrm_shadow 0 feature-gated off);
+machine adds effect_machine 8 + sparkcrm_shadow 5.
+
+**Inventory verified:** all P1–P13 server cards + both SPARKCRM-SERVER-APP cards are CLOSED (read from
+each card's `Status:` line); src module map matches `lib.rs`; two examples + nine test files present.
+
+**Key next route:** `LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-REPORT-P3` (offline product work). Substrate
+work is trigger-only (raw response / separate app crate / live gate by human).
+
+**Caveats found:**
+- README "Current contents" line ("`src/lib.rs` — exports the protocol module") is **stale shorthand**;
+  the real module map is `protocol`/`host`/`reload`/`serving_loop`/`middleware`/`fixture` (+ `effect_host`
+  under feature `machine`). Flagged in the digest §8 (stale-claim guards) rather than rewriting README.
+- Several non-`Pn` design docs exist (`…-app-stack-composition`, `…-middleware-shape`,
+  `…-gemini-wave-a-synthesis`, review checklists) — folded into the timeline/surface map context.
+
+**Acceptance:** all boxes met — 8 sections; source-grounded; fresh commands included; explicit
+boundary list; bounded non-live next routes; no code/behavior/live change.

@@ -2,6 +2,10 @@
 
 Lab-only server shell for Igniter.
 
+> **Front door:** for the whole wave at a glance (timeline P1–P14, surface map, fresh test counts,
+> what is NOT proven, and how to navigate), read
+> `lab-docs/lang/lab-machine-igniter-server-wave-checkpoint-p14-v0.md`.
+
 This crate starts as a **protocol boundary**, not a framework:
 
 - no hardcoded route table;
