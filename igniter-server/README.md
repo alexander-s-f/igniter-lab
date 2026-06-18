@@ -63,7 +63,12 @@ See `lab-docs/lang/lab-machine-igniter-server-protocol-readiness-p1-v0.md`.
 Research card (CLOSED, readiness): `LAB-MACHINE-IGNITER-SERVER-PROTOCOL-READINESS-P1` — the durable
 app protocol is decided (see the readiness doc above).
 
-Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-BINARY-P2` — a local-loopback binary that
-parses one request into `ServerRequest`, calls a fixture `ServerApp`, and executes the returned
-`ServerDecision` through the proven ingress path. Still no public listener, no web framework, no
-SparkCRM, no DB/live.
+Implemented slice (CLOSED): `LAB-MACHINE-IGNITER-SERVER-BINARY-P2` — a local-loopback binary
+(`src/bin/igniter-server.rs`) parses one request into `ServerRequest`, calls a fixture `ServerApp`
+(`src/fixture.rs`), and the host (`src/host.rs`) executes the returned `ServerDecision`. `Respond` is
+executed fully; `Invoke` / `InvokeEffect` are returned as observed protocol decisions (202). See
+`lab-docs/lang/lab-machine-igniter-server-binary-p2-v0.md`.
+
+Next implementation slice: `LAB-MACHINE-IGNITER-SERVER-EFFECT-P3` — execute `InvokeEffect` end-to-end
+through the proven `igniter-machine` ingress / P7 atomic-effect path. Still no public listener, no web
+framework, no SparkCRM, no DB/live.

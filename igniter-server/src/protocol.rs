@@ -44,14 +44,29 @@ impl ServerResponse {
     }
 }
 
+/// What the app decided. This is PROTOCOL DATA, not a host effect: the app names WHICH proven host
+/// path to run and the logical `target` + `input` — never HOW an effect runs. A decision deliberately
+/// carries NO `capability_id` / `operation` / `scope`: the effect identity comes from the signed
+/// `ServiceRecipe` + the host effect passport at execution time (P1 readiness, delta #3). The host
+/// maps `target -> pool` (infra); the recipe pins the entry contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ServerDecision {
+    /// App answers directly — no machine touch (health, validation, 404).
     Respond {
         response: ServerResponse,
     },
+    /// Host activates one capsule replica (pure, `CoordinationHub::invoke` / `select_replica`).
     Invoke {
-        contract: String,
+        target: String,
+        input: Value,
+        correlation_id: Option<String>,
+        idempotency_key: Option<String>,
+    },
+    /// Host runs the wire-to-effect bridge (one replica -> one atomic effect + receipt, the proven
+    /// P7 `ingress::handle_effect` / `run_write_effect_atomic` path). Execution is the P3 slice.
+    InvokeEffect {
+        target: String,
         input: Value,
         correlation_id: Option<String>,
         idempotency_key: Option<String>,
@@ -82,10 +97,10 @@ mod tests {
     }
 
     #[test]
-    fn app_decision_is_protocol_data_not_server_config() {
+    fn invoke_uses_target_not_contract_and_is_protocol_data() {
         let decision = ServerDecision::Invoke {
-            contract: "HandleWebhook".into(),
-            input: json!({"path": "/webhook/callrail"}),
+            target: "lead-intake".into(),
+            input: json!({"path": "/webhook/demo"}),
             correlation_id: Some("corr-1".into()),
             idempotency_key: Some("event-1".into()),
         };
@@ -93,8 +108,33 @@ mod tests {
         let encoded = serde_json::to_value(&decision).unwrap();
 
         assert_eq!(encoded["kind"], json!("invoke"));
-        assert_eq!(encoded["contract"], json!("HandleWebhook"));
+        // P1 delta #1: the app names a logical `target`, never a host `contract`.
+        assert_eq!(encoded["target"], json!("lead-intake"));
+        assert!(encoded.get("contract").is_none());
+        // no server-config leak.
         assert!(encoded.get("route_table").is_none());
+    }
+
+    #[test]
+    fn invoke_effect_round_trips_and_carries_no_effect_identity() {
+        let decision = ServerDecision::InvokeEffect {
+            target: "lead-intake".into(),
+            input: json!({"event": "lead"}),
+            correlation_id: Some("corr-2".into()),
+            idempotency_key: Some("event-2".into()),
+        };
+
+        let encoded = serde_json::to_value(&decision).unwrap();
+        let decoded: ServerDecision = serde_json::from_value(encoded.clone()).unwrap();
+
+        assert_eq!(decoded, decision);
+        assert_eq!(encoded["kind"], json!("invoke_effect"));
+        assert_eq!(encoded["target"], json!("lead-intake"));
+        // P1 delta #3: the app decision must NEVER carry the effect identity — that comes from the
+        // signed recipe + host effect passport, never from app code.
+        assert!(encoded.get("capability_id").is_none());
+        assert!(encoded.get("operation").is_none());
+        assert!(encoded.get("scope").is_none());
     }
 
     #[test]

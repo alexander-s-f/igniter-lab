@@ -1,8 +1,9 @@
 # Card: LAB-MACHINE-IGNITER-SERVER-BINARY-P2 — local loopback binary over ServerApp protocol
 
 **Lane:** standard / implementation proof · **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (implementation proof)
 **Date opened:** 2026-06-17
+**Date closed:** 2026-06-17
 **Authority:** Lab-only implementation proof. No public listener. No SparkCRM-specific code. No DB/live.
 
 ## Why this card exists
@@ -97,3 +98,58 @@ drive responses through the protocol. Keep the proof small and protocol-first.
 - `LAB-MACHINE-IGNITER-SERVER-HOT-RELOAD-P4` — app `Arc` swap between requests.
 - `LAB-MACHINE-SPARKCRM-SERVER-APP-P*` — SparkCRM-shaped app only after the server protocol is
   proven locally.
+
+---
+
+## Closing report — 2026-06-17
+
+**Outcome:** First executable proof of the Rack-like `igniter-server` protocol. A real loopback HTTP
+request flows `wire → ServerRequest → ServerApp::call → ServerDecision → host execute → ServerResponse`,
+and routing provably lives in the app, not server config. All guardrails held: no public listener, no
+daemon, no web framework, no SparkCRM, no DB/live, **zero `igniter-machine` code changes**. Crate deps
+stayed exactly `serde` + `serde_json`.
+
+**Deliverable:** `lab-docs/lang/lab-machine-igniter-server-binary-p2-v0.md`.
+
+**P1 delta applied (`src/protocol.rs`):** (1) `Invoke{contract}` → `Invoke{target}`; (2) added
+`InvokeEffect{target,input,correlation_id,idempotency_key}`; (3) no `capability_id`/`operation`/`scope`
+on any app decision (asserted by tests).
+
+**Implementation (lab-only):**
+- `src/host.rs` — std-blocking loopback HTTP/1.1, `execute(decision)`, `serve_once`/`serve_bounded`.
+  No async runtime, no framework, no machine; **holds no route table** (never inspects method/path).
+- `src/fixture.rs` — `DemoApp`, routing as a plain `match` (generic names, no SparkCRM terms).
+- `src/bin/igniter-server.rs` — binds `127.0.0.1` only, bounded request count, then exits (no daemon).
+- `tests/loopback_tests.rs` — 5 real loopback HTTP proofs.
+
+**Execution decision:** `Invoke`/`InvokeEffect` are recorded as OBSERVED protocol decisions (HTTP 202,
+body names `decision`+`target`+`execution:deferred_to_p3`+corr/idem). End-to-end execution through the
+P7 `ingress::handle_effect` / `run_write_effect_atomic` path is deferred to
+`LAB-MACHINE-IGNITER-SERVER-EFFECT-P3` — wiring it would pull tokio + RocksDB-backed `igniter-machine`
+into this crate (large diff, against "keep small / protocol-first", edges toward DB/live). The protocol
+does not change between P2 and P3; P3 only swaps the `execute()` arm from observe → run.
+
+**Exact commands + pass counts:**
+
+```text
+$ cd igniter-server && cargo test
+  unittests src/lib.rs (protocol)     4 passed; 0 failed
+  unittests src/bin/igniter-server    0 passed; 0 failed
+  tests/loopback_tests.rs             5 passed; 0 failed
+  Doc-tests igniter_server            0 passed; 0 failed
+  TOTAL                               9 passed; 0 failed
+```
+
+Live binary (loopback, bounded — 2 requests then exits):
+```text
+$ ./target/debug/igniter-server 8803 2
+$ curl -i http://127.0.0.1:8803/health        → HTTP/1.1 200 OK  {"ok":true,"service":"igniter-server"}
+$ curl -i -X POST .../effect/demo -H 'x-correlation-id: corr-live' -H 'idempotency-key: evt-live' -d '{"event":"lead"}'
+   → HTTP/1.1 202 Accepted
+     {"correlation_id":"corr-live","decision":"invoke_effect","execution":"deferred_to_p3",
+      "idempotency_key":"evt-live","target":"demo-effect"}
+   igniter-server served 2 request(s); exiting
+```
+
+**Acceptance:** all boxes met (see deliverable doc). `InvokeEffect` not executed → documented as P3
+follow-up, as the card permits.
