@@ -2,8 +2,9 @@
 
 **Lane:** standard / lab-pressure-readiness
 **Skill:** idd-agent-protocol
-**Status:** OPEN
+**Status:** CLOSED (readiness packet)
 **Date opened:** 2026-06-18
+**Date closed:** 2026-06-18
 **Delegation label:** OPUS-STDLIB-REGEXP-A
 **Authority:** Lab evidence/design only. Not canon `LANG-*` yet. No runtime dependency or compiler change.
 
@@ -234,3 +235,53 @@ LAB-STDLIB-REGEXP-P1 result:
 
 If the research finds regexp is the wrong first move, say that plainly and propose
 the better primitive. The goal is gravity, not feature accumulation.
+
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered — all 12 questions answered, grounded in the live string/Unicode
+policy docs, the stdlib builtin seam (typechecker `compiler_builtin` + VM native dispatch), and the
+IgWeb routing pressure. Design only; no code, no dependency change, no compiler/VM/stdlib edit, no canon
+claim.
+
+**Deliverable:** `lab-docs/lang/lab-stdlib-regexp-p1-v0.md`.
+
+**Clean call:**
+- **v0 API:** `matches(text,pattern)->Bool` + `capture(text,pattern,index)->Option[String]` (+
+  `captures->Collection[String]` optional secondary). `capture_named`, `split_regex`, `replace_regex`
+  **deferred** (Map/Option ergonomics weak; not needed for routing).
+- **Engine:** Rust `regex` crate — linear-time (no catastrophic backtracking by construction), Unicode
+  by default, no lookaround/backrefs (a safety feature). `fancy-regex`/PCRE/onig **rejected** (back-
+  tracking). Behind a host `RegexEngine` adapter trait so a richer engine can slot later without
+  changing the `.ig` API.
+- **Safety:** deterministic/pure; no fs/net/locale/global state; **return substrings, not byte offsets**
+  (stays inside the LOCKED Text model, avoids byte-vs-rune question); optional pattern-length budget; no
+  mutation in v0.
+- **Errors:** literal invalid pattern → compile-time structured diagnostic (P3, new `OOF-RE*`, mirrors
+  `regex_match`→`OOF-TY0`); dynamic invalid pattern → runtime operational error (existing VM
+  `Result<_,String>`). Never silent `false`/`None`.
+- **Literal vs dynamic:** both allowed; literal patterns get compile-time validation (like
+  `call_contract` literal resolution), dynamic only runtime. The route DSL emits literals.
+
+**Grounding facts:** existing policy is explicit "**No regex**, deferred, do not open without a separate
+gate" (this card IS that gate, justified by IgWeb WR-P04 pressure); `regex` is **not** a dependency
+anywhere; the builtin seam (`def` → typechecker `compiler_builtin` → VM native arm) already exists, so
+regexp slots cleanly.
+
+**Relationship calls:** (Q10) regexp **unblocks** routing param extraction — including nested/middle
+params that `split`+`nth` cannot do — but does **not** replace WR-P04's `split` typing / `nth` / Option
+ergonomics (and `capture`'s `Option[String]` keeps the Option-ergonomics item alive); regexp must not
+hide it. (Q11) the `.igweb` DSL uses regexp as the **lowered substrate** — authors write `:id`, the
+lowering emits `matches`/`capture` — never the authoring surface.
+
+**Next cards (ordered):** P2 `LAB-STDLIB-REGEXP-P2` (proof-local Rust adapter over `regex`, dep only in
+proof, no compiler wiring) → P3 `LAB-STDLIB-REGEXP-P3` (typechecker builtin + VM dispatch + literal
+diagnostic) → P4 `LAB-IGNITER-WEB-ROUTING-LOWERING-P4` (DSL lowers to regexp substrate). **For IgWeb
+routing this regexp track supersedes the `nth`-for-routing prerequisite** named in DX-SHAPE-P2.
+**Canon promotion: NOT YET — gated by P2/P3 proof.**
+
+**Acceptance:** all boxes met — 12 questions answered; existing no-regex policy summarized accurately;
+host/Rust delegation explicit; safety rejects backtracking; small justified API; invalid-pattern policy
+for literal+dynamic; route/nested/webhook/validation fixtures included; WR-P04 + DSL relationships
+explicit; next cards ordered; no code/dep/compiler/VM/stdlib change; no canon claim.
