@@ -21,3 +21,7 @@ machine = ["dep:igniter_machine", "dep:tokio"]
 
 [dev-dependencies]
 serde_json = "1.0"
+# LAB-IGNITER-WEB-ROUTING-ADAPTER-P5: test-only — the IgWeb adapter proof lowers `.igweb` via
+# `igniter_compiler::igweb::lower_igweb` and runs the generated `.ig` through `igniter_machine`
+# (the `machine` feature). DEV-only: the default server build stays machine-free (serde only).
+igniter_compiler = { path = "../igniter-compiler" }

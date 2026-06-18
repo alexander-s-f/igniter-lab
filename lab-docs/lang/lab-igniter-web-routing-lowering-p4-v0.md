@@ -139,9 +139,10 @@ hand-wave: P4 proves *lowering + real compile*; P5 proves *capsule-behind-server
 
 ## Next cards
 
-1. **`LAB-IGNITER-WEB-ROUTING-ADAPTER-P5`** — app-layer adapter running a compiled IgWeb capsule behind
-   `igniter-server::ServerApp` (`Request` JSON → `dispatch(Serve)` → `Decision` → `ServerDecision`),
-   still with no server-owned routing. Closes the VM/request execution proof end-to-end.
+1. **`LAB-IGNITER-WEB-ROUTING-ADAPTER-P5`** *(CLOSED)* — app-layer adapter ran a compiled IgWeb capsule
+   behind `igniter-server::ServerApp` (`Request` → `IgniterMachine::dispatch("Serve")` → `Decision` →
+   `ServerDecision`) over real loopback, no server-owned routing. The end-to-end execution proof is now
+   closed; see `lab-docs/lang/lab-igniter-web-routing-adapter-p5-v0.md`.
 2. `LAB-IGNITER-WEB-ROUTING-RESOURCE-SUGAR-P*` — optional `resource todos { ... }` grouping lowering to
    the same flat routes (only after flat routes proven — they now are).
 3. `LAB-IGNITER-WEB-ASSETS-READINESS-P*` — static/raw responses, separate from routing.
