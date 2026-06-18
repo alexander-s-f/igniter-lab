@@ -921,6 +921,41 @@ impl VM {
                             let suffix = args[1].as_str()?;
                             Value::Bool(s.ends_with(suffix))
                         }
+                        // LAB-STDLIB-REGEXP-P3: linear-time regexp (bare + qualified). Invalid pattern
+                        // → operational Err (never false/None). capture returns the matched SUBSTRING
+                        // (None == Value::Nil for no-match / out-of-range / unmatched optional group).
+                        "matches" | "stdlib.regexp.matches" => {
+                            if args.len() != 2 {
+                                return Err(format!("matches expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            let text    = args[0].as_str()?;
+                            let pattern = args[1].as_str()?;
+                            match regex::Regex::new(pattern) {
+                                Ok(re) => Value::Bool(re.is_match(text)),
+                                Err(e) => return Err(format!("regexp.matches: invalid pattern: {}", e)),
+                            }
+                        }
+                        "capture" | "stdlib.regexp.capture" => {
+                            if args.len() != 3 {
+                                return Err(format!("capture expects exactly 3 arguments, got {}", args.len()));
+                            }
+                            let text    = args[0].as_str()?;
+                            let pattern = args[1].as_str()?;
+                            let index   = args[2].as_integer()?;
+                            match regex::Regex::new(pattern) {
+                                Ok(re) => {
+                                    if index < 0 {
+                                        Value::Nil
+                                    } else {
+                                        match re.captures(text).and_then(|c| c.get(index as usize)) {
+                                            Some(m) => Value::String(Arc::from(m.as_str())),
+                                            None => Value::Nil,
+                                        }
+                                    }
+                                }
+                                Err(e) => return Err(format!("regexp.capture: invalid pattern: {}", e)),
+                            }
+                        }
                         "stdlib.text.replace" => {
                             if args.len() != 3 {
                                 return Err(format!("stdlib.text.replace expects exactly 3 arguments, got {}", args.len()));
@@ -2892,6 +2927,39 @@ fn eval_ast<'a>(
                         let s = evaluated_operands[0].as_str()?;
                         let prefix = evaluated_operands[1].as_str()?;
                         Ok(Value::Bool(s.starts_with(prefix)))
+                    }
+                    // LAB-STDLIB-REGEXP-P3: eval_ast parity with the bytecode regexp handlers.
+                    "matches" | "stdlib.regexp.matches" => {
+                        if evaluated_operands.len() != 2 {
+                            return Err(format!("matches expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                        }
+                        let text = evaluated_operands[0].as_str()?;
+                        let pattern = evaluated_operands[1].as_str()?;
+                        match regex::Regex::new(pattern) {
+                            Ok(re) => Ok(Value::Bool(re.is_match(text))),
+                            Err(e) => Err(format!("regexp.matches: invalid pattern: {}", e)),
+                        }
+                    }
+                    "capture" | "stdlib.regexp.capture" => {
+                        if evaluated_operands.len() != 3 {
+                            return Err(format!("capture expects exactly 3 arguments, got {}", evaluated_operands.len()));
+                        }
+                        let text = evaluated_operands[0].as_str()?;
+                        let pattern = evaluated_operands[1].as_str()?;
+                        let index = evaluated_operands[2].as_integer()?;
+                        match regex::Regex::new(pattern) {
+                            Ok(re) => {
+                                if index < 0 {
+                                    Ok(Value::Nil)
+                                } else {
+                                    match re.captures(text).and_then(|c| c.get(index as usize)) {
+                                        Some(m) => Ok(Value::String(Arc::from(m.as_str()))),
+                                        None => Ok(Value::Nil),
+                                    }
+                                }
+                            }
+                            Err(e) => Err(format!("regexp.capture: invalid pattern: {}", e)),
+                        }
                     }
                     "diff_seconds" => {
                         if evaluated_operands.len() != 2 {

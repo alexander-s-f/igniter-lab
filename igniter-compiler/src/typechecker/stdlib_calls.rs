@@ -994,6 +994,57 @@ impl TypeChecker {
                     type_errors, node_name,
                 );
             }
+            // LAB-STDLIB-REGEXP-P3: stdlib.regexp.matches(String,String) -> Bool.
+            "matches" => {
+                is_resolved = true;
+                resolved_type = self.check_text_stdlib_call(
+                    "matches", &typed_args, &["Text", "Text"], type_errors, node_name,
+                );
+                // best-effort literal-pattern diagnostic (OOF-RE1): if the pattern arg is a string
+                // literal, it must compile. Dynamic patterns are validated at runtime (operational err).
+                self.check_literal_regexp_pattern(args.get(1), type_errors, node_name);
+            }
+            // stdlib.regexp.capture(String,String,Integer) -> Option[String]. Heterogeneous arity, so
+            // checked in-place (check_text_stdlib_call assumes all-Text args).
+            "capture" => {
+                is_resolved = true;
+                if typed_args.len() != 3 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("stdlib.regexp.capture: expected 3 arguments, got {}", typed_args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    for idx in [0usize, 1usize] {
+                        let actual = self.type_name(&typed_args[idx].resolved_type);
+                        if actual != "Unknown" && !self.text_arg_compatible(&actual, "Text") {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-TY0".to_string(),
+                                message: format!("stdlib.regexp.capture arg {}: expected Text, got {}", idx + 1, actual),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    }
+                    let idx_actual = self.type_name(&typed_args[2].resolved_type);
+                    if idx_actual != "Integer" && idx_actual != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!("stdlib.regexp.capture arg 3: expected Integer, got {}", idx_actual),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+                self.check_literal_regexp_pattern(args.get(1), type_errors, node_name);
+                // return type: Option[String]
+                let string_ty = self.type_ir(&serde_json::Value::String("String".to_string()));
+                let mut opt = serde_json::Map::new();
+                opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+                opt.insert("params".to_string(), serde_json::Value::Array(vec![string_ty]));
+                resolved_type = serde_json::Value::Object(opt);
+            }
             "find" => {
                 is_resolved = true;
                 if typed_args.len() != 2 {
@@ -1561,6 +1612,33 @@ impl TypeChecker {
             Some(resolved_type)
         } else {
             None
+        }
+    }
+
+    /// LAB-STDLIB-REGEXP-P3: best-effort compile-time validation of a LITERAL regexp pattern. If the
+    /// pattern arg is a string literal that fails to compile (bad syntax, or a rejected feature like
+    /// lookaround/backref), emit `OOF-RE1`. Dynamic (non-literal) patterns are NOT checked here — they
+    /// surface as runtime operational errors. Uses the same `regex` engine the VM uses, so a literal
+    /// that passes here behaves identically at runtime.
+    fn check_literal_regexp_pattern(
+        &self,
+        pattern_arg: Option<&Expr>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+    ) {
+        if let Some(Expr::Literal { value, type_tag }) = pattern_arg {
+            if type_tag == "String" || type_tag == "Text" {
+                if let Some(pat) = value.as_str() {
+                    if let Err(e) = regex::Regex::new(pat) {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-RE1".to_string(),
+                            message: format!("stdlib.regexp: invalid literal pattern: {}", e),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
         }
     }
 }

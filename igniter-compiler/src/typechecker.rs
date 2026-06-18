@@ -2606,7 +2606,7 @@ impl TypeChecker {
             "byte_slice" | "rune_slice" | "grapheme_slice" => {
                 self.type_ir(&serde_json::Value::String("Text".to_string()))
             }
-            "contains" | "starts_with" | "ends_with" => {
+            "contains" | "starts_with" | "ends_with" | "matches" => {
                 self.type_ir(&serde_json::Value::String("Bool".to_string()))
             }
             "byte_length" | "rune_length" | "grapheme_length" => {

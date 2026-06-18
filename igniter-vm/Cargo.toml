@@ -24,3 +24,6 @@ uuid = { version = "1.0", features = ["v4"] }
 igniter_stdlib = { path = "../igniter-stdlib" }
 # LAB-STR-UNICODE-P2: UAX #29 extended grapheme clusters for stdlib.text.grapheme_*
 unicode-segmentation = "1.11"
+# LAB-STDLIB-REGEXP-P3: linear-time text pattern engine for stdlib.regexp.{matches,capture}.
+# Rust `regex` (no backtracking, Unicode default, no lookaround/backrefs) — the narrow, real engine.
+regex = "1"

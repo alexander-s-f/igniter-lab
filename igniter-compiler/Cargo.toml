@@ -8,6 +8,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 blake3 = "1.5"
 sha2 = "0.10"
+# LAB-STDLIB-REGEXP-P3: compile-time validation of LITERAL regexp patterns (OOF-RE1). Same engine the
+# VM uses at runtime, so a literal that compiles here behaves identically there.
+regex = "1"
 
 [profile.release]
 opt-level = 3

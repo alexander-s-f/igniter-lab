@@ -846,6 +846,36 @@ impl Emitter {
                                 new_map.insert("resolved_type".to_string(), resolved_type);
                                 return serde_json::Value::Object(new_map);
                             }
+                            // LAB-STDLIB-REGEXP-P3: bare regexp names → stdlib.regexp.* + resolved_type
+                            // (matches -> Bool, capture -> Option[String]). Mirrors the TEXT_STDLIB_OPS
+                            // rewrite above; the VM dispatches the qualified name.
+                            if fn_val == "matches" || fn_val == "capture" {
+                                let qualified = format!("stdlib.regexp.{}", fn_val);
+                                let resolved_type = if fn_val == "matches" {
+                                    let mut m = serde_json::Map::new();
+                                    m.insert("name".to_string(), serde_json::Value::String("Bool".to_string()));
+                                    m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                    serde_json::Value::Object(m)
+                                } else {
+                                    let mut s = serde_json::Map::new();
+                                    s.insert("name".to_string(), serde_json::Value::String("String".to_string()));
+                                    s.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                    let mut opt = serde_json::Map::new();
+                                    opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+                                    opt.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(s)]));
+                                    serde_json::Value::Object(opt)
+                                };
+                                let args: Vec<serde_json::Value> = map.get("args")
+                                    .and_then(|a| a.as_array())
+                                    .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                                    .unwrap_or_default();
+                                let mut new_map = serde_json::Map::new();
+                                new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
+                                new_map.insert("fn".to_string(), serde_json::Value::String(qualified));
+                                new_map.insert("args".to_string(), serde_json::Value::Array(args));
+                                new_map.insert("resolved_type".to_string(), resolved_type);
+                                return serde_json::Value::Object(new_map);
+                            }
                             // (B) already-qualified stdlib.text.* / stdlib.collection.concat /
                             //     stdlib.string.concat (from typechecker rewrite)
                             //     — attach resolved_type if not already present.
