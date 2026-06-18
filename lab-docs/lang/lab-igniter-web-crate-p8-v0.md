@@ -98,6 +98,10 @@ pre-existing in `igniter_compiler`/`igniter_machine`).
 execution wiring (proven P3, host-side; observed as 202); a richer public web-framework surface on top
 of `igniter-web`.
 
+> **Next (P9, CLOSED):** the first real IgWeb app authored as files on disk lives at
+> `igniter-web/examples/todo_app/` + `examples/todo_server.rs` (`cargo run --example todo_server`). See
+> `lab-docs/lang/lab-igniter-web-example-app-p9-v0.md`.
+
 ---
 
 *Lab implementation. Compiled 2026-06-18; `igniter-web` 5 + server machine suite 71 green; default
