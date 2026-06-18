@@ -1,8 +1,9 @@
 # Card: LAB-MACHINE-SPARKCRM-SERVER-APP-READINESS-P1 - SparkCRM-shaped ServerApp without live IO
 
 **Lane:** standard / readiness-design  
-**Status:** OPEN  
+**Status:** CLOSED (readiness packet)  
 **Date opened:** 2026-06-18  
+**Date closed:** 2026-06-18  
 **Authority:** Lab-only product-shape packet. No live SparkCRM, no credentials, no production claim.
 
 ## Why this card exists
@@ -93,3 +94,25 @@ host-owned/gated.
 `LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-P2` - fixture-only `ServerApp` plus recorded sample payloads
 that produce `InvokeEffect` decisions through local fake executors, with no external IO.
 
+---
+
+## Closing report — 2026-06-18
+
+**Outcome:** Readiness packet delivered. It shapes a SparkCRM-like `ServerApp` without opening live
+SparkCRM, public ingress, credentials, or DB access.
+
+**Deliverable:** `lab-docs/lang/lab-machine-sparkcrm-server-app-readiness-p1-v0.md`.
+
+**Decisions captured:**
+- Inbound logical targets: `lead-intake`, `lead-bid`, `lead-status`.
+- Outbound capability/executor labels remain host-owned and distinct from app targets.
+- Request normalization includes duplicate-key precedence and keyless-request refusal.
+- Auction duplicates keep the existing split:
+  `idempotency = safety envelope`, `duplicate_policy = product strategy`.
+- `bounded_fresh(n)` + deterministic `attempt_index` is a product profile, not language canon.
+- `after_limit = dedup_last` is recommended only as a targeted auction profile.
+- Live SparkCRM, live DB, public ingress, credentials, mutating actions, and deployment remain behind
+  the human live gate.
+
+**Acceptance:** all boxes met. The packet proposes a local/shadow next card only:
+`LAB-MACHINE-SPARKCRM-SERVER-APP-SHADOW-P2`.
