@@ -92,7 +92,9 @@ fn cli_help_is_available_without_app_dir() {
     match parsed {
         RunnerCliCommand::Help(text) => {
             assert!(text.contains("igweb-serve"));
+            assert!(text.contains("run [--addr"));
             assert!(text.contains("check <app_dir>"));
+            assert!(text.contains("Commands:"));
             assert!(text.contains("--addr"));
             assert!(text.contains("--max-requests"));
             assert!(text.contains("Loopback only"));
@@ -115,6 +117,27 @@ fn cli_defaults_to_loopback_ephemeral_addr() {
 }
 
 #[test]
+fn cli_explicit_run_parses_like_default_run() {
+    let parsed = parse_cli_args([
+        "run",
+        "--addr",
+        "127.0.0.1:39555",
+        "--max-requests",
+        "2",
+        "examples/todo_app",
+    ])
+    .unwrap();
+    match parsed {
+        RunnerCliCommand::Run(opts) => {
+            assert_eq!(opts.addr.to_string(), "127.0.0.1:39555");
+            assert_eq!(opts.max_requests, Some(2));
+            assert_eq!(opts.app_dir, PathBuf::from("examples/todo_app"));
+        }
+        other => panic!("expected run, got {other:?}"),
+    }
+}
+
+#[test]
 fn cli_check_parses_as_dry_build_command() {
     let parsed = parse_cli_args(["check", "examples/todo_app"]).unwrap();
     match parsed {
@@ -130,6 +153,13 @@ fn cli_check_rejects_missing_and_extra_app_dir() {
     assert!(
         matches!(parse_cli_args(["check"]), Err(RunnerError::Cli(_))),
         "missing check app dir rejected"
+    );
+    assert!(
+        matches!(
+            parse_cli_args(["check", "--help"]),
+            Ok(RunnerCliCommand::Help(_))
+        ),
+        "check --help returns command help"
     );
     assert!(
         matches!(

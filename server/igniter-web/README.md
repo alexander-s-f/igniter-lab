@@ -1,0 +1,137 @@
+# igniter-web
+
+`igniter-web` is the lab home for IgWeb app packaging and the generic `igweb-serve` runner.
+It lets an Igniter author run a small web app from authored `.igweb` routes plus `.ig` handlers,
+without writing a Rust runner per app.
+
+This is lab v0, not a stable public CLI or canon web framework.
+
+## Mental Model
+
+```text
+routes.igweb + handlers.ig + igweb.toml
+  -> build_igweb_app(...)
+  -> Arc<dyn ServerApp + Send + Sync>
+  -> igniter-server loopback runner
+```
+
+The server owns transport, loop, concurrency, reload, and middleware mechanics.
+The app owns routes, handler contracts, domain types, and logical effect targets.
+
+## Quick Start
+
+From this crate:
+
+```bash
+cargo run --bin igweb-serve -- check examples/todo_app
+cargo run --bin igweb-serve -- run examples/todo_app
+```
+
+`check` dry-builds the app and exits before opening a socket.
+`run` builds the app, binds a loopback listener, serves a bounded number of requests, then exits.
+
+The older shortcut still works:
+
+```bash
+cargo run --bin igweb-serve -- examples/todo_app
+```
+
+## CLI
+
+```text
+igweb-serve run [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>
+igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>
+igweb-serve check <app_dir>
+igweb-serve --help
+```
+
+Commands:
+
+- `run`: build the app and serve a bounded loopback listener.
+- `check`: build the app without opening a socket.
+
+Run options:
+
+- `--addr HOST:PORT`: loopback-only bind address. Default: `127.0.0.1:0`.
+- `--max-requests N`: override `[server].max_requests` for this process.
+
+Public bind addresses are rejected in v0. The runner is deliberately loopback-only.
+
+## App Directory
+
+Minimal shape:
+
+```text
+todo_app/
+  igweb.toml
+  routes.igweb
+  todo_handlers.ig
+```
+
+If `[app].sources` is omitted, the runner loads all direct `*.ig` and `*.igweb` files in
+deterministic sorted order. The IgWeb prelude is injected by the builder, so apps do not need to
+define the shared web request/decision types themselves.
+
+## Manifest
+
+```toml
+[app]
+entry = "Serve"
+# sources = ["todo_handlers.ig", "routes.igweb"]  # optional
+
+[server]
+mode = "loopback"
+max_requests = 7
+
+[middleware]
+trace = true
+body_limit_bytes = 65536
+# auth_token_env = "TODO_TOKEN"
+```
+
+Manifest ownership:
+
+- `[app]`: author-owned app entry and optional source list.
+- `[server]`: host/operator process policy.
+- `[middleware]`: host/operator wrapper policy.
+
+The manifest cannot declare routes, public bind addresses, inline secrets, capability ids, effect
+operations, scopes, or target-to-effect bindings.
+
+## Routes
+
+Example `.igweb`:
+
+```text
+app TodoWeb entry Serve {
+  handlers TodoHandlers
+
+  route GET  "/health"          -> Health
+  route GET  "/todos/:id"       -> TodoShow
+  route POST "/todos/:id/done"  -> TodoDone requires idempotency
+}
+```
+
+`.igweb` lowers deterministically to ordinary `.ig` that calls handler contracts. Path parameters are
+implemented through the regexp stdlib substrate; handlers receive them as `Option[String]`.
+
+## Effects
+
+Handlers may return logical `InvokeEffect` decisions, such as target `"todo-done"`.
+That target is not capability authority. The actual mapping from logical target to capability,
+operation, scope, credentials, and receipts belongs to the host side.
+
+In the current runner, effects are observed as protocol decisions. Live effect execution remains a
+separate host gate.
+
+## Current Limits
+
+- No stable CLI promise.
+- No source map from `.igweb` back to generated `.ig` diagnostics yet.
+- No file watcher or auto-reload.
+- No package manager or package manifest.
+- No public listener mode.
+- No inline secrets.
+- No live external effect execution.
+
+Those omissions are intentional for the lab v0 safety envelope.

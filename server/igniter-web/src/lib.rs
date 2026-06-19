@@ -258,8 +258,17 @@ pub mod runner {
     pub const DEFAULT_ADDR: &str = "127.0.0.1:0";
 
     pub fn usage() -> &'static str {
-        "usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
+        "usage: igweb-serve run [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
+         usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
          usage: igweb-serve check <app_dir>\n\
+         \n\
+         Commands:\n\
+           run     build the app and serve a bounded loopback listener\n\
+           check   build the app without opening a socket\n\
+         \n\
+         Options for run:\n\
+           --addr HOST:PORT       loopback-only bind address (default 127.0.0.1:0)\n\
+           --max-requests N       override [server].max_requests for this run\n\
          \n\
          Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side."
     }
@@ -269,26 +278,48 @@ pub mod runner {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
+        let args: Vec<String> = args.into_iter().map(Into::into).collect();
+        match args.first().map(String::as_str) {
+            Some("-h" | "--help") => return Ok(RunnerCliCommand::Help(usage().to_string())),
+            Some("check") => return parse_check_args(args.into_iter().skip(1)),
+            Some("run") => return parse_run_args(args.into_iter().skip(1)),
+            _ => {}
+        }
+        parse_run_args(args)
+    }
+
+    fn parse_check_args<I>(args: I) -> Result<RunnerCliCommand, RunnerError>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut iter = args.into_iter();
+        let app_dir = iter
+            .next()
+            .ok_or_else(|| RunnerError::Cli("check requires <app_dir>".into()))?;
+        if app_dir == "-h" || app_dir == "--help" {
+            return Ok(RunnerCliCommand::Help(usage().to_string()));
+        }
+        if let Some(extra) = iter.next() {
+            return Err(RunnerError::Cli(format!(
+                "unexpected extra argument `{extra}`"
+            )));
+        }
+        Ok(RunnerCliCommand::Check(RunnerCheckOptions {
+            app_dir: PathBuf::from(app_dir),
+        }))
+    }
+
+    fn parse_run_args<I>(args: I) -> Result<RunnerCliCommand, RunnerError>
+    where
+        I: IntoIterator<Item = String>,
+    {
         let mut addr = parse_loopback_addr(DEFAULT_ADDR)?;
         let mut max_requests = None;
         let mut app_dir = None;
-        let mut iter = args.into_iter().map(Into::into);
+        let mut iter = args.into_iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
                 "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
-                "check" => {
-                    let app_dir = iter
-                        .next()
-                        .ok_or_else(|| RunnerError::Cli("check requires <app_dir>".into()))?;
-                    if let Some(extra) = iter.next() {
-                        return Err(RunnerError::Cli(format!(
-                            "unexpected extra argument `{extra}`"
-                        )));
-                    }
-                    return Ok(RunnerCliCommand::Check(RunnerCheckOptions {
-                        app_dir: PathBuf::from(app_dir),
-                    }));
-                }
                 "--addr" => {
                     let value = iter
                         .next()
