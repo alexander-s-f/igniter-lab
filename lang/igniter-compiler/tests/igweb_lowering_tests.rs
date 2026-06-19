@@ -27,13 +27,19 @@ fn bin() -> &'static str {
 /// Write the three modules (two static fixtures + generated routes) to a unique temp dir and run the
 /// real multifile compile. Returns the compiler's stdout (the result JSON text).
 fn compile_generated(routes_ig: &str, tag: &str) -> String {
+    compile_with_handlers(HANDLERS, routes_ig, tag)
+}
+
+/// Like `compile_generated`, but with a caller-supplied handlers module (e.g. the nested two-capture
+/// `AccountHandlers` fixture). Same real multifile compile path.
+fn compile_with_handlers(handlers: &str, routes_ig: &str, tag: &str) -> String {
     let dir = std::env::temp_dir().join(format!("igweb_{}_{}", tag, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     let hd = dir.join("handlers.ig");
     let rt = dir.join("routes.ig");
     std::fs::write(&pl, PRELUDE_SOURCE).unwrap();
-    std::fs::write(&hd, HANDLERS).unwrap();
+    std::fs::write(&hd, handlers).unwrap();
     std::fs::write(&rt, routes_ig).unwrap();
     let out = dir.join("out.igapp");
     let output = Command::new(bin())
@@ -168,6 +174,64 @@ fn resource_todo_is_byte_identical_to_flat_and_compiles() {
         !stdout.contains("OOF-TY0"),
         "generated call_contract/regexp must typecheck (no OOF-TY0).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
         resourced, stdout
+    );
+}
+
+// P18: nested resources by composition — `scope` wraps `resource`, no new keyword. The blessed nested
+// shape and its flat equivalent (authored in the SAME order, so any param/static shadowing is identical).
+const NESTED_ACCOUNT_HANDLERS: &str = include_str!("fixtures/igweb_nested/handlers.ig");
+
+const NESTED_IGWEB: &str = "\
+app TodoWeb entry Serve {
+  handlers AccountHandlers
+  scope \"/accounts/:account_id\" {
+    resource todos \"/todos\" {
+      index      GET                  -> AccountTodosIndex
+      create     POST                 -> AccountTodoCreate requires idempotency
+      show       GET \"/:todo_id\"        -> AccountTodoShow
+      member     POST \"/:todo_id/done\"  -> AccountTodoDone requires idempotency
+      collection GET \"/overdue\"         -> AccountTodosOverdue
+    }
+  }
+}
+";
+
+const NESTED_FLAT_IGWEB: &str = "\
+app TodoWeb entry Serve {
+  handlers AccountHandlers
+  route GET  \"/accounts/:account_id/todos\"               -> AccountTodosIndex
+  route POST \"/accounts/:account_id/todos\"               -> AccountTodoCreate requires idempotency
+  route GET  \"/accounts/:account_id/todos/:todo_id\"      -> AccountTodoShow
+  route POST \"/accounts/:account_id/todos/:todo_id/done\" -> AccountTodoDone requires idempotency
+  route GET  \"/accounts/:account_id/todos/overdue\"       -> AccountTodosOverdue
+}
+";
+
+#[test]
+fn nested_resource_is_byte_identical_to_flat_and_compiles() {
+    let nested = lower_igweb(NESTED_IGWEB).expect("lower nested");
+    let flat = lower_igweb(NESTED_FLAT_IGWEB).expect("lower flat");
+    // nested = scope + resource path composition only; identical to the hand-written flat routes.
+    assert_eq!(
+        nested, flat,
+        "scope-wraps-resource must lower byte-identically to flat routes"
+    );
+
+    // two-capture nested case typechecks: account_id (capture 1) + todo_id (capture 2) reach 2-param
+    // handlers in path order.
+    assert!(nested.contains("call_contract(\"AccountTodoShow\", req, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1), capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2))"));
+
+    let stdout = compile_with_handlers(NESTED_ACCOUNT_HANDLERS, &nested, "nested");
+    assert!(
+        !stdout.contains("OOF-RE1"),
+        "generated regexp must be valid (no OOF-RE1).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        nested,
+        stdout
+    );
+    assert!(
+        !stdout.contains("OOF-TY0"),
+        "generated nested call_contract/regexp must typecheck (no OOF-TY0).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        nested, stdout
     );
 }
 

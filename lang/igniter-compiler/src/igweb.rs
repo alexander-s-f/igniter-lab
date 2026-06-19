@@ -960,4 +960,89 @@ mod tests {
         assert!(err.message.contains("unclosed `resource"), "got {err:?}");
         assert_eq!(err.line, 3);
     }
+
+    // ---- P18: nested resources by composition (`scope` wraps `resource`, no new keyword) ----
+
+    const NESTED: &str = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      index      GET                  -> AccountTodosIndex\n      create     POST                 -> AccountTodoCreate requires idempotency\n      show       GET \"/:todo_id\"        -> AccountTodoShow\n      member     POST \"/:todo_id/done\"  -> AccountTodoDone requires idempotency\n      collection GET \"/overdue\"         -> AccountTodosOverdue\n    }\n  }\n}\n";
+
+    /// Test 4 — `index` + `create` share one composed `/accounts/:account_id/todos` group (GET/POST → 405).
+    #[test]
+    fn nested_index_create_same_path_group() {
+        let ig = lower_igweb(NESTED).unwrap();
+        assert_eq!(
+            ig.matches("matches(req.path, \"^/accounts/([^/]+)/todos$\")")
+                .count(),
+            1
+        );
+        assert!(ig.contains("if req.method == \"GET\""));
+        assert!(ig.contains("if req.method == \"POST\""));
+        assert!(ig.contains("status: 405"));
+        assert!(ig.contains("status: 404"));
+    }
+
+    /// Test 3 — collection (static suffix) and member (param suffix) lower correctly under nesting.
+    #[test]
+    fn nested_collection_and_member_suffixes() {
+        let ig = lower_igweb(NESTED).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/accounts/([^/]+)/todos/overdue$\")"));
+        assert!(ig.contains("call_contract(\"AccountTodosOverdue\", req, capture(req.path, \"^/accounts/([^/]+)/todos/overdue$\", 1))"));
+        assert!(ig.contains("matches(req.path, \"^/accounts/([^/]+)/todos/([^/]+)/done$\")"));
+        assert!(ig.contains("call_contract(\"AccountTodoDone\", req, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)/done$\", 1), capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)/done$\", 2))"));
+    }
+
+    /// Test 5 — scoped resource mutating actions keep the keyless 400 idempotency guard.
+    #[test]
+    fn nested_idempotency_guard_preserved() {
+        let ig = lower_igweb(NESTED).unwrap();
+        assert!(ig.contains("if req.idempotency_key == \"\""));
+        assert!(ig.contains("status: 400"));
+    }
+
+    /// Test 6 — a duplicate param across scope + resource suffix is refused (P16/P17 path).
+    #[test]
+    fn nested_duplicate_param_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:id\" {\n    resource todos \"/todos\" {\n      show GET \"/:id\" -> BadShow\n    }\n  }\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("duplicate"), "got {err:?}");
+    }
+
+    /// Test 7 — authored order decides priority; IgWeb does NOT auto-rank static vs param suffixes.
+    /// collection-before-show emits the static `/overdue` arm first; show-before-collection reverses it.
+    #[test]
+    fn nested_authored_order_decides_priority() {
+        let coll_first = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      collection GET \"/overdue\" -> AccountTodosOverdue\n      show       GET \"/:todo_id\" -> AccountTodoShow\n    }\n  }\n}\n";
+        let ig1 = lower_igweb(coll_first).unwrap();
+        let i_overdue = ig1.find("^/accounts/([^/]+)/todos/overdue$").unwrap();
+        let i_show = ig1.find("^/accounts/([^/]+)/todos/([^/]+)$").unwrap();
+        assert!(
+            i_overdue < i_show,
+            "collection authored first → its static arm is checked first"
+        );
+
+        let show_first = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      show       GET \"/:todo_id\" -> AccountTodoShow\n      collection GET \"/overdue\" -> AccountTodosOverdue\n    }\n  }\n}\n";
+        let ig2 = lower_igweb(show_first).unwrap();
+        let j_show = ig2.find("^/accounts/([^/]+)/todos/([^/]+)$").unwrap();
+        let j_overdue = ig2.find("^/accounts/([^/]+)/todos/overdue$").unwrap();
+        assert!(
+            j_show < j_overdue,
+            "show authored first → its param arm is checked first (shadowing /overdue)"
+        );
+    }
+
+    /// Test 8 — nested resource keeps source order among sibling plain routes.
+    #[test]
+    fn nested_preserves_source_order_with_siblings() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/health\" -> Health\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      index GET -> AccountTodosIndex\n    }\n  }\n  route GET \"/version\" -> Version\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        let ih = ig.find("^/health$").unwrap();
+        let it = ig.find("^/accounts/([^/]+)/todos$").unwrap();
+        let iv = ig.find("^/version$").unwrap();
+        assert!(ih < it && it < iv, "arm order must follow source order");
+    }
+
+    /// Test 11 — nested lowering is deterministic (byte-identical across two calls).
+    #[test]
+    fn nested_lowering_is_deterministic() {
+        assert_eq!(lower_igweb(NESTED).unwrap(), lower_igweb(NESTED).unwrap());
+    }
 }
