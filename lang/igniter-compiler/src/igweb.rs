@@ -49,6 +49,17 @@ struct Route {
     params: Vec<String>,
     /// anchored regex for the path; `:name` segments become `([^/]+)`.
     regex: String,
+    /// optional route-level guard (`via Guard(args) as name`); P20.
+    via: Option<Via>,
+}
+
+/// A route-level guard clause `via <Contract>(<param,...>) as <name>` (P20). `arg_indices` are the
+/// 1-based capture positions the named args resolve to in the composed pattern; the guard's success
+/// context binds to the built-in `Result`'s fixed `Ok { value }` payload, so `as <name>` is author-
+/// facing only (runtime binding stays positional).
+struct Via {
+    contract: String,
+    arg_indices: Vec<usize>,
 }
 
 /// Compose a `scope` prefix with a child path (prefix or route pattern), joining with exactly one `/`
@@ -99,6 +110,60 @@ fn pattern_to_regex(pattern: &str) -> (String, Vec<String>) {
     (regex, params)
 }
 
+/// Is this trimmed line a block delimiter or directive (never a `->` statement, never a continuation)?
+fn is_block_or_directive(t: &str) -> bool {
+    t == "}"
+        || t.starts_with("app ")
+        || t.starts_with("scope ")
+        || t.starts_with("resource ")
+        || t.starts_with("handlers ")
+}
+
+/// Fold physical lines into logical statements, dropping comments/blank lines and keeping each
+/// statement's first physical line number for diagnostics. A `route`/resource-action statement may span
+/// several physical lines (e.g. a multi-line `via` clause): any non-block line lacking `->` greedily
+/// joins following non-block lines until `->` appears (or a block delimiter stops it). Single-line
+/// statements (which already contain `->`) are returned unchanged, so P16/P17/P18 output is unaffected.
+fn fold_logical_lines(src: &str) -> Vec<(usize, String)> {
+    let phys: Vec<&str> = src.lines().collect();
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut i = 0;
+    while i < phys.len() {
+        let t = phys[i].trim();
+        let start = i + 1;
+        if t.is_empty() || t.starts_with("--") || t.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if is_block_or_directive(t) || t.contains("->") {
+            out.push((start, t.to_string()));
+            i += 1;
+            continue;
+        }
+        // Statement that still needs its `->`: join continuation lines until one provides it.
+        let mut buf = t.to_string();
+        i += 1;
+        while i < phys.len() {
+            let ct = phys[i].trim();
+            if ct.is_empty() || ct.starts_with("--") || ct.starts_with('#') {
+                i += 1;
+                continue;
+            }
+            if is_block_or_directive(ct) {
+                break; // do not absorb a delimiter; leave `buf` incomplete to error downstream.
+            }
+            buf.push(' ');
+            buf.push_str(ct);
+            i += 1;
+            if buf.contains("->") {
+                break;
+            }
+        }
+        out.push((start, buf));
+    }
+    out
+}
+
 /// Lower `.igweb` source into an explicit `AppRoutes` `.ig` module. Deterministic: routes keep source
 /// order, patterns are grouped in first-seen order, and there is no map iteration in the output.
 pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
@@ -113,12 +178,8 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
     // plus the header line for line-positioned unclosed-block diagnostics.
     let mut in_resource: Option<(String, usize)> = None;
 
-    for (i, raw) in src.lines().enumerate() {
-        let line = i + 1;
-        let t = raw.trim();
-        if t.is_empty() || t.starts_with("--") || t.starts_with('#') {
-            continue;
-        }
+    for (line, logical) in fold_logical_lines(src) {
+        let t = logical.as_str();
         if let Some(rest) = t.strip_prefix("app ") {
             // app <Name> entry <Serve> {
             let rest = rest.trim_end_matches('{').trim();
@@ -431,35 +492,106 @@ fn parse_resource_action(t: &str, line: usize, base: &str) -> Result<Route, Igwe
         Some((m, r)) => (m, r.trim()),
         None => (head, ""),
     };
-    let suffix = if rest_head.is_empty() {
-        None
+    // `mid` is whatever sits between the (optional) suffix and `->` — i.e. an optional `via` clause,
+    // forwarded verbatim to route parsing so resource actions reuse the same `via` lowering.
+    let (suffix, mid) = if rest_head.is_empty() {
+        (None, "")
     } else if rest_head.starts_with('"') {
         let inner = &rest_head[1..];
         let close = inner.find('"').ok_or(IgwebError {
             line,
             message: "unterminated resource suffix string".into(),
         })?;
-        if !inner[close + 1..].trim().is_empty() {
-            return Err(IgwebError {
-                line,
-                message: "unexpected tokens after the resource suffix".into(),
-            });
-        }
-        Some(&inner[..close])
+        (Some(&inner[..close]), inner[close + 1..].trim())
     } else {
-        return Err(IgwebError {
-            line,
-            message: "expected a quoted \"<suffix>\" or `->` after the method".into(),
-        });
+        // no quoted suffix; the remainder (e.g. a `via ...` clause) is forwarded to route parsing.
+        (None, rest_head)
     };
     let effective = resource_action_suffix(action, method, suffix, line)?;
-    let route_tail = format!("{} \"{}\" -> {}", method, effective, contract_part.trim());
+    let route_tail = format!(
+        "{} \"{}\" {} -> {}",
+        method,
+        effective,
+        mid,
+        contract_part.trim()
+    );
     parse_route(&route_tail, line, base)
 }
 
-/// Parse `<METHOD> "<pattern>" -> <Contract> [requires idempotency]` (the part after `route `).
-/// `prefix` is the enclosing scope's absolute path (empty at top level); the route pattern is composed
-/// onto it before regex/param generation, so the lowered route is identical to the hand-written flat one.
+/// `capture(req.path, "<regex>", <idx>)` — a single positional path-capture expression.
+fn capture_expr(regex: &str, idx: usize) -> String {
+    format!("capture(req.path, \"{}\", {})", regex, idx)
+}
+
+/// If `s` starts with the keyword `kw` followed by whitespace, return the trimmed remainder.
+/// (`strip_keyword("via Load", "via") == Some("Load")`; `strip_keyword("viaduct", "via") == None`.)
+fn strip_keyword<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
+    let rest = s.strip_prefix(kw)?;
+    match rest.chars().next() {
+        Some(c) if c.is_whitespace() => Some(rest.trim_start()),
+        _ => None,
+    }
+}
+
+/// Parse a route-level `via <Contract>(<arg,...>) as <name>` clause (text AFTER the `via ` keyword).
+/// Returns `(contract, arg_names, remaining)` where `remaining` should begin with `->`. `<name>` is
+/// validated but discarded (P20 binds the built-in `Ok { value }` payload; runtime stays positional).
+fn parse_via_inner(s: &str, line: usize) -> Result<(String, Vec<String>, &str), IgwebError> {
+    let (contract, after_name) = s.split_once('(').ok_or(IgwebError {
+        line,
+        message: "expected `(` after the via guard name".into(),
+    })?;
+    let contract = contract.trim().to_string();
+    if contract.is_empty() || contract.split_whitespace().count() != 1 {
+        return Err(IgwebError {
+            line,
+            message: "via guard name must be a single contract name".into(),
+        });
+    }
+    let (args_str, after_paren) = after_name.split_once(')').ok_or(IgwebError {
+        line,
+        message: "expected `)` to close the via guard arguments".into(),
+    })?;
+    let args: Vec<String> = if args_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        args_str.split(',').map(|a| a.trim().to_string()).collect()
+    };
+    for a in &args {
+        if a.is_empty() || a.split_whitespace().count() != 1 {
+            return Err(IgwebError {
+                line,
+                message: "via guard argument must be a single path-param name".into(),
+            });
+        }
+    }
+    if let Some(dup) = first_duplicate(&args) {
+        return Err(IgwebError {
+            line,
+            message: format!("duplicate via guard argument `{}`", dup),
+        });
+    }
+    let after_as = strip_keyword(after_paren.trim_start(), "as").ok_or(IgwebError {
+        line,
+        message: "expected `as <name>` after the via guard arguments".into(),
+    })?;
+    let (name, remaining) = match after_as.split_once(char::is_whitespace) {
+        Some((n, r)) => (n.trim(), r.trim_start()),
+        None => (after_as.trim(), ""),
+    };
+    if name.is_empty() || name == "->" {
+        return Err(IgwebError {
+            line,
+            message: "expected a context name after `as`".into(),
+        });
+    }
+    Ok((contract, args, remaining))
+}
+
+/// Parse `<METHOD> "<pattern>" [via <Guard>(args) as name] -> <Contract> [requires idempotency]`
+/// (the part after `route `). `prefix` is the enclosing scope's absolute path (empty at top level); the
+/// route pattern is composed onto it before regex/param generation, so the lowered route is identical to
+/// the hand-written flat one. The optional `via` clause lowers to a static `call_contract + match` guard.
 fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebError> {
     // METHOD
     let rest = rest.trim();
@@ -483,6 +615,15 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
     })?;
     let pattern = after_open[..close].to_string();
     let rest = after_open[close + 1..].trim_start();
+    // optional route-level `via <Guard>(args) as name` before the `->` (P20).
+    let mut via_parsed: Option<(String, Vec<String>)> = None;
+    let rest = if let Some(after_via) = strip_keyword(rest, "via") {
+        let (contract, args, remaining) = parse_via_inner(after_via, line)?;
+        via_parsed = Some((contract, args));
+        remaining
+    } else {
+        rest
+    };
     // ->
     let rest = rest
         .strip_prefix("->")
@@ -538,6 +679,24 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
             ),
         });
     }
+    // Resolve via guard arg names → positional capture indices in the composed pattern.
+    let via = match via_parsed {
+        None => None,
+        Some((contract, args)) => {
+            let mut arg_indices = Vec::with_capacity(args.len());
+            for a in &args {
+                let pos = params.iter().position(|p| p == a).ok_or(IgwebError {
+                    line,
+                    message: format!("via guard arg `{}` is not a path param of `{}`", a, pattern),
+                })?;
+                arg_indices.push(pos + 1);
+            }
+            Some(Via {
+                contract,
+                arg_indices,
+            })
+        }
+    };
     Ok(Route {
         method,
         pattern,
@@ -545,6 +704,7 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
         requires_idem,
         params,
         regex,
+        via,
     })
 }
 
@@ -629,25 +789,51 @@ fn method_chain(group: &[&Route], indent: usize) -> String {
     s
 }
 
-/// A single route's body: an idempotency 400-guard (if `requires idempotency`) wrapping a static
-/// `call_contract` with regexp-captured params (as `Option[String]`).
+/// A single route's body: an idempotency 400-guard (if `requires idempotency`) wrapping either a static
+/// handler `call_contract` (regexp-captured params as `Option[String]`), or — when the route carries a
+/// `via` guard — a `match call_contract("Guard", …) { Ok { value } => <handler> Err { error } => error }`.
 fn handler_arm(r: &Route) -> String {
-    let mut call = format!("call_contract(\"{}\", req", r.contract);
-    for (idx, _name) in r.params.iter().enumerate() {
-        call.push_str(&format!(
-            ", capture(req.path, \"{}\", {})",
-            r.regex,
-            idx + 1
-        ));
-    }
-    call.push(')');
+    let body = if let Some(via) = &r.via {
+        // guard call: req + the named args resolved to their positional captures.
+        let mut guard = format!("call_contract(\"{}\", req", via.contract);
+        for &idx in &via.arg_indices {
+            guard.push_str(&format!(", {}", capture_expr(&r.regex, idx)));
+        }
+        guard.push(')');
+        // handler call: req, the guard's success context `value`, then captures NOT consumed by the
+        // guard, in path order.
+        let mut hcall = format!("call_contract(\"{}\", req, value", r.contract);
+        for idx in 1..=r.params.len() {
+            if !via.arg_indices.contains(&idx) {
+                hcall.push_str(&format!(", {}", capture_expr(&r.regex, idx)));
+            }
+        }
+        hcall.push(')');
+        // Built-in sealed `Result`: success arm `Ok { value }`, error arm `Err { error }` (the
+        // short-circuit `Decision`). The guard passes its `value` to the handler; `Err` forwards `error`.
+        format!(
+            "match {} {{ Ok {{ value }} => {} Err {{ error }} => error }}",
+            guard, hcall
+        )
+    } else {
+        let mut call = format!("call_contract(\"{}\", req", r.contract);
+        for (idx, _name) in r.params.iter().enumerate() {
+            call.push_str(&format!(
+                ", capture(req.path, \"{}\", {})",
+                r.regex,
+                idx + 1
+            ));
+        }
+        call.push(')');
+        call
+    };
     if r.requires_idem {
         format!(
             "if req.idempotency_key == \"\" {{ Respond {{ status: 400, body: \"missing idempotency-key\" }} }} else {{ {} }}",
-            call
+            body
         )
     } else {
-        call
+        body
     }
 }
 
@@ -1044,5 +1230,106 @@ mod tests {
     #[test]
     fn nested_lowering_is_deterministic() {
         assert_eq!(lower_igweb(NESTED).unwrap(), lower_igweb(NESTED).unwrap());
+    }
+
+    // ---- P20: route-level single `via` guard ----
+
+    /// Tests 1 + 2 + 7 — a route-level `via` lowers to the static `call_contract + match` shape over the
+    /// built-in `Result`, with the guard arg resolved to capture 1 and the exact `Err { error } => error`
+    /// passthrough.
+    #[test]
+    fn via_lowers_to_guard_match() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos\" via LoadAccount(account_id) as account -> AccountTodosIndex\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "match call_contract(\"LoadAccount\", req, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1)) { Ok { value } => call_contract(\"AccountTodosIndex\", req, value) Err { error } => error }"
+        ), "got:\n{ig}");
+    }
+
+    /// Test 3 — handler receives `req`, the guard context `value`, then only UNCONSUMED captures
+    /// (account_id consumed by the guard, todo_id passed through as capture 2).
+    #[test]
+    fn via_handler_gets_value_then_unconsumed_captures() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos/:todo_id\" via LoadAccount(account_id) as account -> AccountTodoShow\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "Ok { value } => call_contract(\"AccountTodoShow\", req, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2))"
+        ), "got:\n{ig}");
+        // the consumed capture (account_id = index 1) is NOT re-passed to the handler.
+        assert!(
+            !ig.contains("req, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)")
+        );
+    }
+
+    /// Test 4 — an unknown guard arg name is refused, line-positioned.
+    #[test]
+    fn via_unknown_arg_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos\" via LoadAccount(nope) as a -> H\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("not a path param"), "got {err:?}");
+        assert_eq!(err.line, 3);
+    }
+
+    /// Test 5 — bad `via` shapes are rejected (missing `as`, missing parens, missing name, `via` after
+    /// `->`, and a second `via`).
+    #[test]
+    fn via_bad_shapes_refused() {
+        let cases = [
+            "route GET \"/x/:p\" via A(p) -> H",      // missing `as`
+            "route GET \"/x/:p\" via A as a -> H",    // missing parens
+            "route GET \"/x/:p\" via (p) as a -> H",  // missing guard name
+            "route GET \"/x/:p\" via A(p) as -> H",   // missing context name
+            "route GET \"/x/:p\" -> H via A(p) as a", // via after ->
+            "route GET \"/x/:p\" via A(p) as a via B(p) as b -> H", // second via
+        ];
+        for c in cases {
+            let src = format!("app X entry Serve {{\n  handlers H\n  {c}\n}}\n");
+            assert!(lower_igweb(&src).is_err(), "should reject: {c}");
+        }
+    }
+
+    /// Test 6 — `requires idempotency` keeps the keyless 400 guard OUTERMOST, wrapping the via match.
+    #[test]
+    fn via_idempotency_guard_is_outermost() {
+        let src = "app X entry Serve {\n  handlers H\n  route POST \"/accounts/:account_id/todos\" via LoadAccount(account_id) as account -> AccountTodoCreate requires idempotency\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "if req.idempotency_key == \"\" { Respond { status: 400, body: \"missing idempotency-key\" } } else { match call_contract(\"LoadAccount\", req"
+        ), "got:\n{ig}");
+    }
+
+    /// Test 8 + 9 — `via` works through a resource action, composing with scope + nesting.
+    #[test]
+    fn via_through_scoped_resource_action() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      show GET \"/:todo_id\" via LoadAccount(account_id) as account -> AccountTodoShow\n    }\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "match call_contract(\"LoadAccount\", req, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)) { Ok { value } => call_contract(\"AccountTodoShow\", req, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2)) Err { error } => error }"
+        ), "got:\n{ig}");
+    }
+
+    /// The multi-line `via` authoring form folds to the same `.ig` as the single-line form.
+    #[test]
+    fn via_multiline_equals_single_line() {
+        let single = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos\" via LoadAccount(account_id) as account -> AccountTodosIndex\n}\n";
+        let multi = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos\"\n    via LoadAccount(account_id) as account\n    -> AccountTodosIndex\n}\n";
+        assert_eq!(lower_igweb(single).unwrap(), lower_igweb(multi).unwrap());
+    }
+
+    /// Test 13 — via lowering is deterministic (byte-identical across two calls).
+    #[test]
+    fn via_lowering_is_deterministic() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos/:todo_id\" via LoadAccount(account_id) as account -> AccountTodoShow\n}\n";
+        assert_eq!(lower_igweb(src).unwrap(), lower_igweb(src).unwrap());
+    }
+
+    /// A guard with no args lowers to `call_contract("Guard", req)` (req-only guard, e.g. auth).
+    #[test]
+    fn via_zero_arg_guard() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/me\" via RequireAuth() as session -> Me\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "match call_contract(\"RequireAuth\", req) { Ok { value } => call_contract(\"Me\", req, value) Err { error } => error }"
+        ), "got:\n{ig}");
     }
 }

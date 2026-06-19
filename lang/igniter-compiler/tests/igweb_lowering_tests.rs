@@ -235,6 +235,87 @@ fn nested_resource_is_byte_identical_to_flat_and_compiles() {
     );
 }
 
+// P20: route-level `via` guard. A guard returning `Result[Account, Decision]` + handlers taking the
+// loaded context (and an unconsumed capture) must compile clean through the real multifile compiler —
+// the end-to-end proof that the generated `match call_contract(...) { Ok {value} => … Err {error} => error }`
+// typechecks against the built-in `Result`.
+const VIA_HANDLERS: &str = include_str!("fixtures/igweb_via/handlers.ig");
+
+const VIA_IGWEB: &str = "\
+app AccountsWeb entry Serve {
+  handlers ViaHandlers
+  route GET \"/accounts/:account_id/todos\" via LoadAccount(account_id) as account -> AccountTodosIndex
+  route GET \"/accounts/:account_id/todos/:todo_id\" via LoadAccount(account_id) as account -> AccountTodoShow
+  route POST \"/accounts/:account_id/todos\" via LoadAccount(account_id) as account -> AccountTodoCreate requires idempotency
+}
+";
+
+#[test]
+fn via_project_compiles_clean() {
+    let routes = lower_igweb(VIA_IGWEB).expect("lower via");
+    // sanity: the generated artifact is the static guard-match shape over the built-in Result.
+    assert!(routes.contains("match call_contract(\"LoadAccount\", req,"));
+    assert!(routes.contains("Ok { value } => call_contract(\"AccountTodoShow\", req, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2))"));
+    assert!(routes.contains("Err { error } => error"));
+    assert!(!routes.contains("call_contract(req"), "no dynamic dispatch");
+
+    let stdout = compile_with_handlers(VIA_HANDLERS, &routes, "via");
+    assert!(
+        !stdout.contains("OOF-RE1"),
+        "generated regexp must be valid (no OOF-RE1).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        routes,
+        stdout
+    );
+    assert!(
+        !stdout.contains("OOF-TY0"),
+        "generated guard-match must typecheck against Result (no OOF-TY0).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        routes, stdout
+    );
+}
+
+#[test]
+fn via_guard_returning_non_result_fails_typecheck() {
+    // `Health` returns `Decision`, not `Result[_, Decision]`. The generated `match { Ok … Err … }`
+    // against a `Decision` must FAIL the normal typecheck — proving P20 added no custom `.igweb`
+    // typechecker and relies on the real compiler to reject a bad guard shape.
+    let bad = "app TodoWeb entry Serve {\n  handlers TodoHandlers\n  route GET \"/x\" via Health() as h -> TodoIndex\n}\n";
+    let routes = lower_igweb(bad).expect("lower (lowering itself is shape-agnostic)");
+    assert!(routes.contains("match call_contract(\"Health\", req)"));
+
+    // compile with the ordinary Todo handlers (Health returns Decision) — expect a NON-clean build.
+    let dir = std::env::temp_dir().join(format!("igweb_via_bad_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pl = dir.join("prelude.ig");
+    let hd = dir.join("handlers.ig");
+    let rt = dir.join("routes.ig");
+    std::fs::write(&pl, PRELUDE_SOURCE).unwrap();
+    std::fs::write(&hd, HANDLERS).unwrap();
+    std::fs::write(&rt, &routes).unwrap();
+    let out = dir.join("out.igapp");
+    let output = Command::new(bin())
+        .args([
+            "compile",
+            pl.to_str().unwrap(),
+            hd.to_str().unwrap(),
+            rt.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run igniter_compiler");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success() || combined.contains("OOF"),
+        "matching a non-Result guard must fail the real typecheck.\n--- routes.ig ---\n{}\n--- output ---\n{}",
+        routes,
+        combined
+    );
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
