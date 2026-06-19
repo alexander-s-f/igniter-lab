@@ -316,6 +316,70 @@ fn via_guard_returning_non_result_fails_typecheck() {
     );
 }
 
+// P22: composite-context guard. ONE P20 `via` whose guard internally chains LoadAccount → LoadProject
+// and returns one `ProjectTodoCtx` record. The generated route still has exactly one P20 `match` over
+// the built-in `Result`; the chain lives in the authored guard (no `.igweb` lowering change).
+const COMPOSITE_GUARD_HANDLERS: &str = include_str!("fixtures/igweb_composite_guard/handlers.ig");
+
+const COMPOSITE_GUARD_IGWEB: &str = "\
+app ProjectsWeb entry Serve {
+  handlers CompositeGuardHandlers
+  route GET \"/accounts/:account_id/projects/:project_id/todos/:todo_id\" via LoadProjectTodoContext(account_id, project_id) as ctx -> ProjectTodoShow
+  route POST \"/accounts/:account_id/projects/:project_id/todos\" via LoadProjectTodoContext(account_id, project_id) as ctx -> ProjectTodoCreate requires idempotency
+}
+";
+
+#[test]
+fn composite_guard_app_compiles_clean_and_stays_p20_shaped() {
+    let routes = lower_igweb(COMPOSITE_GUARD_IGWEB).expect("lower composite-guard app");
+
+    // (test 2) the generated route is exactly the P20 single-`match` shape — no syntax-chain expansion.
+    let re = "^/accounts/([^/]+)/projects/([^/]+)/todos/([^/]+)$";
+    assert!(
+        routes.contains(&format!(
+            "match call_contract(\"LoadProjectTodoContext\", req, capture(req.path, \"{re}\", 1), capture(req.path, \"{re}\", 2)) {{ Ok {{ value }} => call_contract(\"ProjectTodoShow\", req, value, capture(req.path, \"{re}\", 3)) Err {{ error }} => error }}"
+        )),
+        "GET route must be P20-shaped.\n{routes}"
+    );
+    // one match per route (GET + POST) — no extra/nested guard matches injected by the lowering.
+    assert_eq!(
+        routes
+            .matches("match call_contract(\"LoadProjectTodoContext\"")
+            .count(),
+        2
+    );
+    assert!(!routes.contains("via via"));
+
+    // (test 5) the mutating route keeps the keyless 400 guard OUTERMOST, wrapping the P20 match.
+    assert!(
+        routes.contains(
+            "if req.idempotency_key == \"\" { Respond { status: 400, body: \"missing idempotency-key\" } } else { match call_contract(\"LoadProjectTodoContext\", req"
+        ),
+        "POST route must keep idempotency outermost.\n{routes}"
+    );
+
+    // (test 1) the whole app — generated routes + the chaining guard fixture — compiles clean.
+    let stdout = compile_with_handlers(COMPOSITE_GUARD_HANDLERS, &routes, "composite_guard");
+    assert!(
+        !stdout.contains("OOF-RE1") && !stdout.contains("OOF-TY0"),
+        "composite-guard app must compile clean.\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        routes,
+        stdout
+    );
+}
+
+#[test]
+fn composite_guard_fixture_uses_live_record_and_internal_chain() {
+    // (test 3) the context is a bare `{ field: value }` record (the live form), NOT `ProjectTodoCtx { … }`.
+    assert!(COMPOSITE_GUARD_HANDLERS.contains("{ account_id: account_id, project_id: project_id }"));
+    assert!(!COMPOSITE_GUARD_HANDLERS.contains("ProjectTodoCtx { account_id:"));
+    // (test 4) the chain + guard-owned short-circuit live INSIDE the authored guard: two load calls and
+    // an intermediate `Err { error } => err(error)` pass-through.
+    assert!(COMPOSITE_GUARD_HANDLERS.contains("call_contract(\"LoadAccount\""));
+    assert!(COMPOSITE_GUARD_HANDLERS.contains("call_contract(\"LoadProject\""));
+    assert!(COMPOSITE_GUARD_HANDLERS.contains("Err { error } => err(error)"));
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
