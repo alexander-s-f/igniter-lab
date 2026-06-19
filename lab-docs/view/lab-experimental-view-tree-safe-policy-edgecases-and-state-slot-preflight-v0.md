@@ -12,7 +12,7 @@ Under this track, we resolved remaining edge cases in our Safe Renderer Policy t
 
 ### 1.1 Multi-Child Style Blocks (VEDGE-1)
 *   **Problem:** Our previous style tag content check sanitized only the first child node. In trees generated with multiple text nodes under a single `<style>` element, remote stylesheets could still be imported in subsequent children.
-*   **Resolution:** Modified [safe_renderer_policy.ts](../../igniter-ide/src/lib/safe_renderer_policy.ts) and the Ruby simulation [run_vsafe_proof.rb](../../igniter-view-engine/run_vsafe_proof.rb) to iterate over *all* children. Every child string or text node is now scanned and stripped of `@import` and `url()` directives.
+*   **Resolution:** Modified [safe_renderer_policy.ts](../../ide/igniter-ide/src/lib/safe_renderer_policy.ts) and the Ruby simulation [run_vsafe_proof.rb](../../frame-ui/igniter-view-engine/run_vsafe_proof.rb) to iterate over *all* children. Every child string or text node is now scanned and stripped of `@import` and `url()` directives.
 
 ### 1.2 Spaced and Case-Insensitive CSS Injection (VEDGE-2)
 *   **Problem:** Attackers can bypass substring checks by injecting spaces (e.g. `url   ( ... )`) or altering casing (e.g. `@ImPoRt` or `UrL(`).

@@ -59,15 +59,15 @@ This section classifies the readiness of the primary view engine modules. The la
 
 | Module | Location | Primary Role | Readiness Tier | Status Summary |
 |:---|:---|:---|:---|:---|
-| **ViewArtifact** | [view_artifact.rb](../../igniter-view-engine/lib/view_artifact.rb) | Isomorphic view artifact definition. Content-addressed. UIState, slots, elements, collections representation. | **Proven-Lab** | 100% test coverage. Enforces slot read-only rules and opcode whitelist. |
-| **SSRRenderer** | [ssr_renderer.rb](../../igniter-view-engine/lib/ssr_renderer.rb) | Server-side renderer. Emits HTML and injections. Renders collection templates for client-side cloning. | **Proven-Lab** | Supports server-side evaluation of conditional display rules. No external framework dependencies. |
-| **IgvCompiler** | [igv_compiler.rb](../../igniter-view-engine/lib/igv_compiler.rb) | Lexical Ruby DSL compiler. Produces isomorphic ViewArtifact JSON files. | **Proven-Lab** | Emits validation warnings for undeclared slots/states. Whitelists mutation opcodes. |
-| **SlotTypeLinker** | [slot_type_linker.rb](../../igniter-view-engine/lib/slot_type_linker.rb) | Validates view slots against contract schemas. | **Proven-Lab** | Attributes typed diagnostics (errors/warnings) to slots and collections. |
-| **CompiledContractExtractor** | [compiled_contract_extractor.rb](../../igniter-view-engine/lib/compiled_contract_extractor.rb) | Normalizes compiled contract output ports to contract schemas. | **Proven-Lab** | Direct type tag mapping to schema types. Generates missing_item_fields warning for collection types. |
-| **ContractSchemaSupplement** | [contract_schema_supplement.rb](../../igniter-view-engine/lib/contract_schema_supplement.rb) | Merges hand-authored overrides to supplement compile-time type omissions. | **Proven-Lab** | Safeguards scalar output types from mutation. Attributes warnings for stale schemas. |
-| **LinkageReport** | [linkage_report.rb](../../igniter-view-engine/lib/linkage_report.rb) | Consolidated report model and text/JSON formatters. | **Proven-Lab** | Excludes absolute machine paths for portable CI validation. |
-| **JS Micro-runtime** | [igniter_view_runtime.js](../../igniter-view-engine/igniter_view_runtime.js) | Client-side engine. Hydrates HTML, evaluates rules, patches attributes. | **Proven-Lab** | Vanilla JS, zero-dependency. Strictly blocks innerHTML and eval. Tested via JSDOM. |
-| **EBNF Grammar Sketch** | [igv-grammar-sketch-v0.ebnf](../../igniter-view-engine/docs/igv-grammar-sketch-v0.ebnf) | Language-agnostic DSL definition. | **Draft-Lab** | Documented sketch. No parsing engine currently implements it. |
+| **ViewArtifact** | [view_artifact.rb](../../frame-ui/igniter-view-engine/lib/view_artifact.rb) | Isomorphic view artifact definition. Content-addressed. UIState, slots, elements, collections representation. | **Proven-Lab** | 100% test coverage. Enforces slot read-only rules and opcode whitelist. |
+| **SSRRenderer** | [ssr_renderer.rb](../../frame-ui/igniter-view-engine/lib/ssr_renderer.rb) | Server-side renderer. Emits HTML and injections. Renders collection templates for client-side cloning. | **Proven-Lab** | Supports server-side evaluation of conditional display rules. No external framework dependencies. |
+| **IgvCompiler** | [igv_compiler.rb](../../frame-ui/igniter-view-engine/lib/igv_compiler.rb) | Lexical Ruby DSL compiler. Produces isomorphic ViewArtifact JSON files. | **Proven-Lab** | Emits validation warnings for undeclared slots/states. Whitelists mutation opcodes. |
+| **SlotTypeLinker** | [slot_type_linker.rb](../../frame-ui/igniter-view-engine/lib/slot_type_linker.rb) | Validates view slots against contract schemas. | **Proven-Lab** | Attributes typed diagnostics (errors/warnings) to slots and collections. |
+| **CompiledContractExtractor** | [compiled_contract_extractor.rb](../../frame-ui/igniter-view-engine/lib/compiled_contract_extractor.rb) | Normalizes compiled contract output ports to contract schemas. | **Proven-Lab** | Direct type tag mapping to schema types. Generates missing_item_fields warning for collection types. |
+| **ContractSchemaSupplement** | [contract_schema_supplement.rb](../../frame-ui/igniter-view-engine/lib/contract_schema_supplement.rb) | Merges hand-authored overrides to supplement compile-time type omissions. | **Proven-Lab** | Safeguards scalar output types from mutation. Attributes warnings for stale schemas. |
+| **LinkageReport** | [linkage_report.rb](../../frame-ui/igniter-view-engine/lib/linkage_report.rb) | Consolidated report model and text/JSON formatters. | **Proven-Lab** | Excludes absolute machine paths for portable CI validation. |
+| **JS Micro-runtime** | [igniter_view_runtime.js](../../frame-ui/igniter-view-engine/igniter_view_runtime.js) | Client-side engine. Hydrates HTML, evaluates rules, patches attributes. | **Proven-Lab** | Vanilla JS, zero-dependency. Strictly blocks innerHTML and eval. Tested via JSDOM. |
+| **EBNF Grammar Sketch** | [igv-grammar-sketch-v0.ebnf](../../frame-ui/igniter-view-engine/docs/igv-grammar-sketch-v0.ebnf) | Language-agnostic DSL definition. | **Draft-Lab** | Documented sketch. No parsing engine currently implements it. |
 
 ---
 
@@ -77,14 +77,14 @@ All structural and dynamic features are covered by localized, offline Ruby and J
 
 | Proof Runner | Focus Area | Checks | Status | Verified Assertions |
 |:---|:---|:---:|:---:|:---|
-| [`run_ivf_proof.rb`](../../igniter-view-engine/run_ivf_proof.rb) | P1 MVP Baseline | 37 | ✅ PASS | ViewArtifact structure, SSR HTML output, JS runtime security limits (no eval, no innerHTML), deterministic output. |
-| [`run_ivf_proof_p2.rb`](../../igniter-view-engine/run_ivf_proof_p2.rb) | Live Slot Injection & Hydration | 33 | ✅ PASS | Slot updates, dataset hydration write-backs, parameter validation, warning console logs on digest mismatch. Includes 15 dynamic JSDOM checks. |
-| [`run_ivf_proof_p3.rb`](../../igniter-view-engine/run_ivf_proof_p3.rb) | Compiler Pipeline & DSL | 42 | ✅ PASS | DSL parsing, compile-time opcode checks, invalid/malformed source handling, warning flags. |
-| [`run_ivf_proof_p5.rb`](../../igniter-view-engine/run_ivf_proof_p5.rb) | Collection Rendering | 57 | ✅ PASS | Repeater loop rendering, template cloning without innerHTML, P1 tabs digest compatibility. Includes 19 JS DOM tests. |
-| [`run_ivf_proof_p6.rb`](../../igniter-view-engine/run_ivf_proof_p6.rb) | Slot-Contract Type Linkage | 55 | ✅ PASS | Type compatibility, required fields check, extra/missing fields warnings. |
-| [`run_ivf_proof_p7.rb`](../../igniter-view-engine/run_ivf_proof_p7.rb) | Compiled Contract Extraction | 57 | ✅ PASS | Normalization table mapping, malformed artifact recovery, drift reports against reference fixtures. |
-| [`run_ivf_proof_p8.rb`](../../igniter-view-engine/run_ivf_proof_p8.rb) | Supplement Overlay merge | 66 | ✅ PASS | Hand-authored item_fields merge rules, scalar override rejection, stale entry warnings. |
-| [`run_ivf_proof_p9.rb`](../../igniter-view-engine/run_ivf_proof_p9.rb) | Unified Diagnostic LinkageReport | 58 | ✅ PASS | Attributions to extractor/overlay/linker layers, portable JSON output (no paths), stable text formatter. |
+| [`run_ivf_proof.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof.rb) | P1 MVP Baseline | 37 | ✅ PASS | ViewArtifact structure, SSR HTML output, JS runtime security limits (no eval, no innerHTML), deterministic output. |
+| [`run_ivf_proof_p2.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p2.rb) | Live Slot Injection & Hydration | 33 | ✅ PASS | Slot updates, dataset hydration write-backs, parameter validation, warning console logs on digest mismatch. Includes 15 dynamic JSDOM checks. |
+| [`run_ivf_proof_p3.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p3.rb) | Compiler Pipeline & DSL | 42 | ✅ PASS | DSL parsing, compile-time opcode checks, invalid/malformed source handling, warning flags. |
+| [`run_ivf_proof_p5.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p5.rb) | Collection Rendering | 57 | ✅ PASS | Repeater loop rendering, template cloning without innerHTML, P1 tabs digest compatibility. Includes 19 JS DOM tests. |
+| [`run_ivf_proof_p6.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p6.rb) | Slot-Contract Type Linkage | 55 | ✅ PASS | Type compatibility, required fields check, extra/missing fields warnings. |
+| [`run_ivf_proof_p7.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p7.rb) | Compiled Contract Extraction | 57 | ✅ PASS | Normalization table mapping, malformed artifact recovery, drift reports against reference fixtures. |
+| [`run_ivf_proof_p8.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p8.rb) | Supplement Overlay merge | 66 | ✅ PASS | Hand-authored item_fields merge rules, scalar override rejection, stale entry warnings. |
+| [`run_ivf_proof_p9.rb`](../../frame-ui/igniter-view-engine/run_ivf_proof_p9.rb) | Unified Diagnostic LinkageReport | 58 | ✅ PASS | Attributions to extractor/overlay/linker layers, portable JSON output (no paths), stable text formatter. |
 
 ---
 

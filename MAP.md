@@ -15,7 +15,8 @@ Navigation only, ~1 screen. Cross-repo master: `igniter-gov/MAP.md`.
 
 | category | path |
 |---|---|
-| **Implemented surface (per crate)** | `<crate>/IMPLEMENTED_SURFACE.md` — verify-first answer (pilot: `igniter-vm/`) |
+| **Implemented surface (per crate)** | `<umbrella>/<crate>/IMPLEMENTED_SURFACE.md` — verify-first answer (pilot: `lang/igniter-vm/`) |
+| **Domain umbrellas** | `lang/`, `runtime/`, `server/`, `frame-ui/`, `ide/`, `apps/`, `archive/` |
 | **Search protocol** | `SEARCH.md` + `.rgignore` (active-first firewall) |
 | **Lab status board** | `lab-docs/STATUS.md` ← live |
 | **Lab roadmap** | `lab-docs/ROADMAP.md` |

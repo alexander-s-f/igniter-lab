@@ -1,0 +1,28 @@
+[package]
+name = "igniter_server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# The default build is PROTOCOL-ONLY and stays machine-free (serde only): protocol.rs, host.rs,
+# fixture.rs, and the loopback binary never touch `igniter-machine`. The `machine` feature is the ONLY
+# thing that pulls the machine + a tokio runtime in — it gates `effect_host.rs`, where the server
+# protocol's `InvokeEffect` is executed through the proven `igniter-machine` wire-to-effect contour
+# (LAB-MACHINE-IGNITER-SERVER-EFFECT-P3). This keeps protocol consumers from depending on the kernel.
+igniter_machine = { path = "../../runtime/igniter-machine", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+
+[features]
+default = []
+machine = ["dep:igniter_machine", "dep:tokio"]
+
+[dev-dependencies]
+serde_json = "1.0"
+# LAB-IGNITER-WEB-CRATE-P8: test-only — the IgWeb adapter/builder proofs consume the builder from its
+# lab crate `igniter-web` (which owns the compiler+machine weight). DEV-only: the default server lib
+# build stays serde-only (`cargo tree -e normal` shows no web/compiler/machine/tokio). The
+# igniter-server →(dev) igniter-web →(normal) igniter-server cycle is allowed via the dev-dependency.
+igniter_web = { path = "../igniter-web" }

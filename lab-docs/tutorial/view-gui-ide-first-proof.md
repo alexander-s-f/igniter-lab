@@ -15,9 +15,9 @@ Start with these files:
 
 | File | Why It Matters |
 | --- | --- |
-| [View engine README](../../igniter-view-engine/README.md) | DSL parser, SSR renderer, and static view tree representation. |
+| [View engine README](../../frame-ui/igniter-view-engine/README.md) | DSL parser, SSR renderer, and static view tree representation. |
 | [GUI engine README](../../igniter-gui-engine/README.md) | Headless layout solver, scene tree validation, and Mermaid introspection export. |
-| [IDE README](../../igniter-ide/README.md) | SvelteKit/Tauri shell used to visualize views, trace events, and diagnostic reports. |
+| [IDE README](../../ide/igniter-ide/README.md) | SvelteKit/Tauri shell used to visualize views, trace events, and diagnostic reports. |
 
 ## Try
 

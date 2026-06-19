@@ -13,18 +13,18 @@ accepts them.
 
 ## Workspace Map
 
-| Component | Stack | Role |
+The lab is grouped by flat domain umbrellas. Crates remain standalone unless a
+later workspace-root card changes that; run checks from each package directory.
+
+| Umbrella | Stack | Role |
 | --- | --- | --- |
-| [`igniter-compiler`](./igniter-compiler/) | Rust | Experimental compiler and proof fixtures for `.ig` source, SemanticIR, forms, capabilities, and `.igapp` bundle generation. |
-| [`igniter-vm`](./igniter-vm/) | Rust | Experimental VM candidate and loader/capability proof surface. |
-| [`igniter-stdlib`](./igniter-stdlib/) | Rust | Experimental stdlib and capability/effect proof surface. |
-| [`igniter-runtime`](./igniter-runtime/) | Ruby | Runtime playground and proof runners for adapters, capability delegation, and dry-run boundaries. |
-| [`igniter-ide`](./igniter-ide/) | Svelte / Tauri | Lab IDE for diagnostics, debugger experiments, view preview, and trace inspection. |
-| [`igniter-view-engine`](./igniter-view-engine/) | Ruby / JS | Experimental Igniter view artifact and safe preview work. |
-| [`igniter-gui-engine`](./igniter-gui-engine/) | Ruby | Headless GUI scene/layout/rendering proof surface. |
-| [`igniter-design-system`](./igniter-design-system/) | HTML/assets | Lab design-system sketches and visual direction. |
-| [`igniter-tbackend`](./igniter-tbackend/) | Rust / Ruby | Experimental temporal backend and storage pressure surface. |
-| [`igniter-apps`](./igniter-apps/) | Mixed | Small lab applications and product-pressure sketches. |
+| [`lang/`](./lang/) | Rust / docs | Experimental compiler, VM, stdlib, and language research. |
+| [`runtime/`](./runtime/) | Rust / Ruby | Machine runtime, temporal backend, and runtime/storage adapters. |
+| [`server/`](./server/) | Rust | `igniter-server`, `igniter-web`, IgWeb runner, and server/app protocol work. |
+| [`frame-ui/`](./frame-ui/) | Rust / JS / Ruby / assets | Frame runtime, UI kit, console, 3D/GUI proofs, design-system sketches, and live view-engine IDE backend. |
+| [`ide/`](./ide/) | Kotlin / Svelte / Tauri | JetBrains plugin and lab IDE. |
+| [`apps/`](./apps/) | Mixed | Small lab applications and product-pressure sketches. |
+| [`archive/`](./archive/) | Mixed | Stale or parked lab stubs kept for explicit later disposition. |
 | [`lab-docs`](./lab-docs/) | Markdown | Frontier notes, proof summaries, status reports, pressure packages, and research packets. |
 | [`lab-docs/tutorial`](./lab-docs/tutorial/) | Markdown | Guided learning path for understanding lab packages, proof evidence, and safety boundaries. |
 | [`.agents`](./.agents/) | Markdown | Lab agent handoff cards and return packets. |
@@ -33,24 +33,24 @@ accepts them.
 
 Install the toolchains needed for the package you are working on:
 
-- Rust and Cargo for `igniter-compiler`, `igniter-vm`, `igniter-stdlib`, and
-  other Rust experiments.
+- Rust and Cargo for `lang/*`, `runtime/*`, `server/*`, and `frame-ui/*` Rust
+  packages.
 - Ruby 3.x for proof runners and runtime playgrounds.
-- Node.js and npm for `igniter-ide` and browser-facing view experiments.
+- Node.js and npm for `ide/igniter-ide` and browser-facing view experiments.
 
 Common local checks:
 
 ```bash
-ruby igniter-compiler/verify_compiler.rb
-ruby igniter-compiler/verify_loops.rb
-ruby igniter-gui-engine/run_proof.rb
-ruby igniter-stdlib/proofs/experimental_io_stdlib_candidate_proof.rb
+ruby lang/igniter-compiler/verify_compiler.rb
+ruby lang/igniter-compiler/verify_loops.rb
+ruby frame-ui/igniter-gui-engine/run_proof.rb
+ruby lang/igniter-stdlib/proofs/experimental_io_stdlib_candidate_proof.rb
 ```
 
 IDE development:
 
 ```bash
-cd igniter-ide
+cd ide/igniter-ide
 npm install
 npm run tauri dev
 ```
@@ -58,7 +58,7 @@ npm run tauri dev
 Rust package checks are package-local, for example:
 
 ```bash
-cd igniter-compiler
+cd lang/igniter-compiler
 cargo test
 ```
 
