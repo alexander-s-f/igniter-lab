@@ -36,7 +36,7 @@ tokio-rustls   = { version = "=0.24.1", optional = true }
 rustls-pemfile = { version = "=1.0.4", optional = true }
 # Real local Postgres adapter (LAB-MACHINE-POSTGRES-LOCAL-READ-P6) — opt-in only; the default
 # build stays fake-only and DB-dependency-free (the fake P2/P3/P4 adapters are pure Rust).
-tokio-postgres = { version = "0.7", optional = true }
+tokio-postgres = { version = "0.7", optional = true, features = ["with-serde_json-1"] }
 
 [features]
 # Default build is the pure machine (no Ruby FFI — removed 2026-06-17 as a dead rudiment).

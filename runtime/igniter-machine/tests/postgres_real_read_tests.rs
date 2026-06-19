@@ -302,3 +302,105 @@ fn real_db_error_is_permanent() {
         assert_eq!(adapter.query_count(), 1);
     });
 }
+
+// ── P10: typed reads — projection decodes per host-declared field kind (gated, local-only) ───
+//
+// Requires a dedicated local test DB in `IGNITER_PG_DSN` containing a pre-seeded fixture table.
+// One-time developer setup (NOT run by this test; never against SparkCRM/dev business tables):
+//
+//   CREATE TABLE igniter_typed_read (
+//     id         bigint  PRIMARY KEY,
+//     active     boolean,
+//     meta       jsonb,
+//     tags       jsonb,
+//     created_at timestamptz,
+//     amount     numeric,
+//     note       text
+//   );
+//   INSERT INTO igniter_typed_read VALUES
+//     (7, true, '{"k":"v"}'::jsonb, '["a","b"]'::jsonb, '2026-06-19T00:00:00Z', 1234.56, NULL);
+//
+// Skips cleanly when IGNITER_PG_DSN is unset (the same pattern as the other real tests).
+#[test]
+fn real_typed_read_decodes_by_kind() {
+    use igniter_machine::postgres_read::PostgresReadValueKind::*;
+    rt().block_on(async {
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
+        let pol = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
+            "igniter_typed_read",
+            &[
+                ("id", Integer),
+                ("active", Boolean),
+                ("meta", Json),
+                ("tags", Array),
+                ("created_at", Timestamp),
+                ("amount", DecimalString),
+                ("note", Text),
+            ],
+        );
+        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec);
+        let store = receipts();
+
+        let out = run_effect(
+            &reg,
+            &store,
+            &req(
+                "typed-real",
+                json!({
+                    "source": "igniter_typed_read", "op": "select",
+                    "projection": ["id", "active", "meta", "tags", "created_at", "amount", "note"],
+                    "limit": 1
+                }),
+            ),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+
+        // If the fixture table is absent the SELECT errors (42P01) — surface that as a setup hint.
+        assert_eq!(
+            out.kind,
+            OutcomeKind::Succeeded,
+            "expected the `igniter_typed_read` fixture table to exist (see the test header SQL)"
+        );
+        let rows = out.result["rows"].as_array().expect("rows array");
+        if rows.is_empty() {
+            eprintln!("SKIP-ASSERT: igniter_typed_read present but empty — seed one row to assert types");
+            return;
+        }
+        // STRUCTURAL type assertions (P10): each field decodes to its declared JSON kind.
+        let r = &rows[0];
+        assert!(r["id"].is_i64(), "Integer → JSON number, got {:?}", r["id"]);
+        assert!(r["active"].is_boolean(), "Boolean → JSON bool, got {:?}", r["active"]);
+        assert!(
+            r["meta"].is_object() || r["meta"].is_array() || r["meta"].is_null(),
+            "Json → decoded value, got {:?}",
+            r["meta"]
+        );
+        assert!(
+            r["tags"].is_array() || r["tags"].is_null(),
+            "Array (json) → JSON array, got {:?}",
+            r["tags"]
+        );
+        assert!(
+            r["created_at"].is_string() || r["created_at"].is_null(),
+            "Timestamp → lossless string, got {:?}",
+            r["created_at"]
+        );
+        assert!(
+            r["amount"].is_string() || r["amount"].is_null(),
+            "Decimal → String, never f64, got {:?}",
+            r["amount"]
+        );
+        assert!(
+            r["note"].is_string() || r["note"].is_null(),
+            "Text/NULL → string or null, got {:?}",
+            r["note"]
+        );
+        assert_eq!(adapter.query_count(), 1);
+    });
+}

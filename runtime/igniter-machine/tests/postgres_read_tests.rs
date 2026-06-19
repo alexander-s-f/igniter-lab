@@ -13,7 +13,7 @@ use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectRequest, OutcomeKind, RunMode, RECEIPTS_STORE,
 };
 use igniter_machine::postgres_read::{
-    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy, PostgresReadValueKind,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -337,6 +337,82 @@ fn adapter_unavailable_maps_to_unknown_and_transient_to_retryable() {
         .await
         .unwrap();
         assert_eq!(out2.kind, OutcomeKind::Retryable);
+    });
+}
+
+// ── P10: fake adapter preserves typed JSON values through projection + receipt ─
+
+#[test]
+fn fake_typed_values_survive_projection_and_receipt() {
+    use PostgresReadValueKind::*;
+    rt().block_on(async {
+        // one fake row with every value kind the typed policy declares.
+        let rows = vec![json!({
+            "id": 7,                                   // Integer  → JSON number
+            "active": true,                            // Boolean  → JSON bool
+            "meta": {"k": "v", "n": 3},                // Json     → JSON object
+            "tags": ["a", "b"],                        // Array    → JSON array
+            "created_at": "2026-06-19T00:00:00Z",      // Timestamp→ lossless string
+            "amount": "1234.5678901234567890",         // Decimal  → String (never f64)
+            "note": serde_json::Value::Null            // NULL     → null for any kind
+        })];
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("typed_todos", rows));
+        let policy = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
+            "typed_todos",
+            &[
+                ("id", Integer),
+                ("active", Boolean),
+                ("meta", Json),
+                ("tags", Array),
+                ("created_at", Timestamp),
+                ("amount", DecimalString),
+                ("note", Text),
+            ],
+        );
+        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy));
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec);
+        let store = receipts();
+
+        let out = run_effect(
+            &reg,
+            &store,
+            &req(
+                "typed",
+                json!({
+                    "source": "typed_todos", "op": "select",
+                    "projection": ["id", "active", "meta", "tags", "created_at", "amount", "note"]
+                }),
+            ),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.kind, OutcomeKind::Succeeded);
+        let r = &out.result["rows"][0];
+        // the fake passes typed values through UNCHANGED (P10: types preserved end-to-end).
+        assert_eq!(r["id"], json!(7));
+        assert!(r["id"].is_i64());
+        assert_eq!(r["active"], json!(true));
+        assert!(r["active"].is_boolean());
+        assert_eq!(r["meta"], json!({"k": "v", "n": 3}));
+        assert!(r["meta"].is_object());
+        assert_eq!(r["tags"], json!(["a", "b"]));
+        assert!(r["tags"].is_array());
+        assert_eq!(r["created_at"], json!("2026-06-19T00:00:00Z"));
+        assert_eq!(r["amount"], json!("1234.5678901234567890")); // decimal stays a String
+        assert!(r["amount"].is_string());
+        assert_eq!(r["note"], serde_json::Value::Null);
+
+        // and the typed values are preserved in the persisted receipt fact.
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, &format!("{CAP}:typed"), f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fact.value["result"]["rows"][0]["id"], json!(7));
+        assert_eq!(fact.value["result"]["rows"][0]["active"], json!(true));
     });
 }
 

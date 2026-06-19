@@ -140,6 +140,27 @@ fn is_mutating_op(op: &str) -> bool {
 
 // ── Host-owned read policy (the allowlist gates) ───────────────────────────────
 
+/// How an allowlisted field is decoded into a JSON row value (P10). This is HOST policy — the
+/// schema authority — NOT contract input and NOT DB introspection. The contract still emits only a
+/// typed `QueryPlan`; it never names SQL casts or DB types. `Text` is the default for any field
+/// without a declared kind (so untyped `allow_source` keeps the old all-text behaviour).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PostgresReadValueKind {
+    #[default]
+    Text,
+    Integer,
+    Boolean,
+    /// `json` / `jsonb` decoded to a `serde_json::Value` (object or array).
+    Json,
+    /// date/time rendered as a lossless string (RFC3339-ish), never an epoch number.
+    Timestamp,
+    /// arbitrary-precision `numeric` kept as a String — NEVER a lossy `f64`.
+    DecimalString,
+    /// v0 narrow support: a JSON/JSONB array field decoded to a `Value::Array`. Native PG arrays
+    /// (`int[]`) are deferred — see the proof doc.
+    Array,
+}
+
 /// The host-owned read policy. This is the schema/allowlist authority for v0 — hand-written
 /// host config, NOT contract input and NOT live DB introspection. Everything a contract can read
 /// is bounded here.
@@ -151,6 +172,8 @@ pub struct PostgresReadPolicy {
     /// Per-source field allowlist. A source with no entry can only be selected whole (empty
     /// projection, no filters); any named field then refuses.
     pub allowed_fields: HashMap<String, Vec<String>>,
+    /// Per-source field DECODE kind (P10). A field absent here decodes as `Text` (back-compat).
+    pub field_kinds: HashMap<String, HashMap<String, PostgresReadValueKind>>,
     /// Hard server-side row cap. A plan limit above this is CLAMPED (not denied).
     pub row_limit: i64,
 }
@@ -161,9 +184,11 @@ impl PostgresReadPolicy {
             allowed_sources: vec![],
             allowed_ops: vec!["select".to_string()],
             allowed_fields: HashMap::new(),
+            field_kinds: HashMap::new(),
             row_limit,
         }
     }
+    /// Allowlist a source + its fields, all decoded as `Text` (the pre-P10 behaviour, unchanged).
     pub fn allow_source(mut self, source: &str, fields: &[&str]) -> Self {
         self.allowed_sources.push(source.to_string());
         self.allowed_fields.insert(
@@ -172,9 +197,35 @@ impl PostgresReadPolicy {
         );
         self
     }
+    /// Allowlist a source + its fields WITH a per-field decode kind (P10). Populates BOTH the
+    /// allowlist gate and the decode map, so the gate and the typing stay in one host declaration.
+    pub fn allow_source_typed(
+        mut self,
+        source: &str,
+        fields: &[(&str, PostgresReadValueKind)],
+    ) -> Self {
+        self.allowed_sources.push(source.to_string());
+        self.allowed_fields.insert(
+            source.to_string(),
+            fields.iter().map(|(f, _)| f.to_string()).collect(),
+        );
+        self.field_kinds.insert(
+            source.to_string(),
+            fields.iter().map(|(f, k)| (f.to_string(), *k)).collect(),
+        );
+        self
+    }
     pub fn allow_ops(mut self, ops: &[&str]) -> Self {
         self.allowed_ops = ops.iter().map(|o| o.to_string()).collect();
         self
+    }
+    /// The decode kind for `source.field`, defaulting to `Text` (back-compat for untyped sources).
+    pub fn field_kind(&self, source: &str, field: &str) -> PostgresReadValueKind {
+        self.field_kinds
+            .get(source)
+            .and_then(|m| m.get(field))
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -190,12 +241,18 @@ pub enum PostgresReadResult {
     QueryError(String),
 }
 
-/// The host-side read port. The real implementation (later, opt-in) will hold a connection pool
-/// and render an allowlisted parameterised statement. The plan it receives is already
-/// gate-checked and the limit already clamped.
+/// The host-side read port. The real implementation holds a connection and renders an allowlisted
+/// parameterised statement. The plan it receives is already gate-checked and the limit clamped;
+/// `kinds[i]` is the host-declared decode kind for `plan.projection[i]` (P10). The fake adapter
+/// already carries typed `serde_json::Value` rows and ignores `kinds`.
 #[async_trait]
 pub trait PostgresReadAdapter: Send + Sync {
-    async fn query(&self, plan: &QueryPlan, effective_limit: i64) -> PostgresReadResult;
+    async fn query(
+        &self,
+        plan: &QueryPlan,
+        effective_limit: i64,
+        kinds: &[PostgresReadValueKind],
+    ) -> PostgresReadResult;
 }
 
 // ── The executor ───────────────────────────────────────────────────────────────
@@ -276,8 +333,15 @@ impl<A: PostgresReadAdapter + 'static> CapabilityExecutor for PostgresReadExecut
         let effective_limit = requested.clamp(0, self.policy.row_limit);
         let clamped = requested > self.policy.row_limit;
 
+        // Per-projected-field decode kinds from host policy (P10; Text where unspecified).
+        let kinds: Vec<PostgresReadValueKind> = plan
+            .projection
+            .iter()
+            .map(|f| self.policy.field_kind(&plan.source, f))
+            .collect();
+
         // Adapter call (the ONLY place the external port is reached). Everything above gated it.
-        match self.adapter.query(&plan, effective_limit).await {
+        match self.adapter.query(&plan, effective_limit, &kinds).await {
             PostgresReadResult::Rows(rows) => {
                 let count = rows.len();
                 let kind = if count == 0 { "empty" } else { "rows" };
@@ -363,7 +427,14 @@ impl FakePostgresAdapter {
 
 #[async_trait]
 impl PostgresReadAdapter for FakePostgresAdapter {
-    async fn query(&self, plan: &QueryPlan, effective_limit: i64) -> PostgresReadResult {
+    // The fake stores already-typed `serde_json::Value` rows, so it preserves int/bool/json/null
+    // types through projection-shaping unchanged and ignores the decode `kinds` (P10).
+    async fn query(
+        &self,
+        plan: &QueryPlan,
+        effective_limit: i64,
+        _kinds: &[PostgresReadValueKind],
+    ) -> PostgresReadResult {
         self.queries.fetch_add(1, Ordering::SeqCst);
         match self.sources.get(&plan.source) {
             Some(SourceBehavior::Unavailable(m)) => PostgresReadResult::Unavailable(m.clone()),

@@ -17,7 +17,9 @@
 //! - identifiers come ONLY from the already-allowlisted plan and are quoted (defence in depth);
 //! - the clamped `effective_limit` is the `LIMIT`.
 
-use crate::postgres_read::{PostgresReadAdapter, PostgresReadResult, QueryPlan};
+use crate::postgres_read::{
+    PostgresReadAdapter, PostgresReadResult, PostgresReadValueKind, QueryPlan,
+};
 use crate::postgres_write::{
     PostgresReceiptLookup, PostgresWriteAdapter, PostgresWriteIntent, PostgresWriteReceiptResolver,
     PostgresWriteResult,
@@ -72,12 +74,58 @@ impl TokioPostgresReadAdapter {
     }
 }
 
+/// The SQL projection expression for a field, per its host-declared decode kind (P10). Text-like
+/// kinds keep the `::text` cast (uniform, lossless for timestamp/decimal); int/bool cast to a
+/// native scalar; json/array cast to `jsonb` for a `serde_json::Value` decode. Identifiers are
+/// already allowlisted and are quoted (defence in depth).
+fn projection_expr(col: &str, kind: PostgresReadValueKind) -> String {
+    let q = quote_ident(col);
+    match kind {
+        PostgresReadValueKind::Text
+        | PostgresReadValueKind::Timestamp
+        | PostgresReadValueKind::DecimalString => format!("{q}::text"),
+        PostgresReadValueKind::Integer => format!("{q}::bigint"),
+        PostgresReadValueKind::Boolean => format!("{q}::bool"),
+        PostgresReadValueKind::Json | PostgresReadValueKind::Array => format!("{q}::jsonb"),
+    }
+}
+
+/// Decode the `i`-th column of a returned row into a typed JSON value, per its decode kind. NULL of
+/// any kind → `Value::Null`. `numeric`/timestamp stay String (lossless); int/bool become JSON
+/// scalars; json/jsonb (and narrow json arrays) become the decoded `serde_json::Value`.
+fn decode_value(row: &tokio_postgres::Row, i: usize, kind: PostgresReadValueKind) -> Value {
+    match kind {
+        PostgresReadValueKind::Text
+        | PostgresReadValueKind::Timestamp
+        | PostgresReadValueKind::DecimalString => row
+            .get::<_, Option<String>>(i)
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        PostgresReadValueKind::Integer => row
+            .get::<_, Option<i64>>(i)
+            .map(|n| Value::Number(n.into()))
+            .unwrap_or(Value::Null),
+        PostgresReadValueKind::Boolean => row
+            .get::<_, Option<bool>>(i)
+            .map(Value::Bool)
+            .unwrap_or(Value::Null),
+        PostgresReadValueKind::Json | PostgresReadValueKind::Array => {
+            row.get::<_, Option<Value>>(i).unwrap_or(Value::Null)
+        }
+    }
+}
+
 #[async_trait]
 impl PostgresReadAdapter for TokioPostgresReadAdapter {
-    async fn query(&self, plan: &QueryPlan, effective_limit: i64) -> PostgresReadResult {
+    async fn query(
+        &self,
+        plan: &QueryPlan,
+        effective_limit: i64,
+        kinds: &[PostgresReadValueKind],
+    ) -> PostgresReadResult {
         self.queries.fetch_add(1, Ordering::SeqCst);
 
-        // v0 requires an explicit projection (keeps the value→JSON mapping bounded to TEXT).
+        // v0 requires an explicit projection (keeps the value→JSON mapping bounded + allowlisted).
         if plan.projection.is_empty() {
             return PostgresReadResult::QueryError(
                 "real adapter v0 requires an explicit projection".to_string(),
@@ -86,7 +134,8 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
         let cols: Vec<String> = plan
             .projection
             .iter()
-            .map(|c| format!("{}::text", quote_ident(c)))
+            .enumerate()
+            .map(|(i, c)| projection_expr(c, kinds.get(i).copied().unwrap_or_default()))
             .collect();
 
         // eq-only filters; values bound as $1..$n; column cast ::text for a uniform text compare.
@@ -129,8 +178,8 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
                     .map(|row| {
                         let mut obj = Map::new();
                         for (i, field) in plan.projection.iter().enumerate() {
-                            let v: Option<String> = row.get(i);
-                            obj.insert(field.clone(), v.map(Value::String).unwrap_or(Value::Null));
+                            let kind = kinds.get(i).copied().unwrap_or_default();
+                            obj.insert(field.clone(), decode_value(row, i, kind));
                         }
                         Value::Object(obj)
                     })
