@@ -51,6 +51,37 @@ struct Route {
     regex: String,
 }
 
+/// Compose a `scope` prefix with a child path (prefix or route pattern), joining with exactly one `/`
+/// and dropping any trailing slash so the composed pattern is canonical (two spellings that mean the
+/// same path produce the same `pattern` string, which keeps first-seen pattern grouping / 405 intact).
+/// Both inputs start with `/`. `compose_path("/todos", "/")` → `/todos`; `compose_path("/", "/x")` → `/x`.
+fn compose_path(prefix: &str, suffix: &str) -> String {
+    let joined = format!(
+        "{}/{}",
+        prefix.trim_end_matches('/'),
+        suffix.trim_start_matches('/')
+    );
+    let trimmed = joined.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// First param name that repeats, in path order (`["a","b","a"]` → `Some("a")`). Positional capture
+/// means a duplicate name is silent ambiguity for the reader, so the lowering refuses it.
+fn first_duplicate(names: &[String]) -> Option<String> {
+    let mut seen: Vec<&String> = Vec::new();
+    for n in names {
+        if seen.iter().any(|s| *s == n) {
+            return Some(n.clone());
+        }
+        seen.push(n);
+    }
+    None
+}
+
 /// Convert a route pattern (`/todos/:id/done`) into an anchored regex (`^/todos/([^/]+)/done$`) plus
 /// the ordered param names. v0 assumes literal segments are regex-safe (alphanumeric / `-` / `_`).
 fn pattern_to_regex(pattern: &str) -> (String, Vec<String>) {
@@ -76,6 +107,8 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
     let mut routes: Vec<Route> = Vec::new();
     let mut in_app = false;
     let mut closed = false;
+    // Stack of absolute (already-composed) scope prefixes; the innermost is `last()`. Empty = top level.
+    let mut scope_stack: Vec<String> = Vec::new();
 
     for (i, raw) in src.lines().enumerate() {
         let line = i + 1;
@@ -98,8 +131,35 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             continue;
         }
         if t == "}" {
-            closed = true;
-            in_app = false;
+            // `}` closes the innermost open block: a scope if one is open, else the app.
+            if scope_stack.pop().is_some() {
+                continue;
+            }
+            if in_app {
+                in_app = false;
+                closed = true;
+                continue;
+            }
+            return Err(IgwebError {
+                line,
+                message: "unexpected `}` (no open `app` or `scope` block)".into(),
+            });
+        }
+        if let Some(rest) = t.strip_prefix("scope ") {
+            if !in_app {
+                return Err(IgwebError {
+                    line,
+                    message: "`scope` outside an `app { ... }` block".into(),
+                });
+            }
+            let raw_prefix = parse_scope_prefix(rest, line)?;
+            let base = scope_stack.last().map(String::as_str).unwrap_or("");
+            let composed = if base.is_empty() {
+                raw_prefix
+            } else {
+                compose_path(base, &raw_prefix)
+            };
+            scope_stack.push(composed);
             continue;
         }
         if let Some(rest) = t.strip_prefix("handlers ") {
@@ -132,7 +192,8 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                     message: "`route` outside an `app { ... }` block".into(),
                 });
             }
-            let r = parse_route(rest, line)?;
+            let prefix = scope_stack.last().map(String::as_str).unwrap_or("");
+            let r = parse_route(rest, line, prefix)?;
             routes.push(r);
             continue;
         }
@@ -150,6 +211,12 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
         line: 0,
         message: "missing `handlers <ModuleName>` directive".into(),
     })?;
+    if !scope_stack.is_empty() {
+        return Err(IgwebError {
+            line: 0,
+            message: "unclosed `scope { ... }` block (missing `}`)".into(),
+        });
+    }
     if !closed {
         return Err(IgwebError {
             line: 0,
@@ -166,8 +233,42 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
     Ok(generate_ig(&entry, &handlers, &routes))
 }
 
+/// Parse `scope "<prefix>" {` (the part after `scope `) into the raw prefix string. The prefix must be
+/// a quoted path starting with `/`; the line must end with the opening `{`.
+fn parse_scope_prefix(rest: &str, line: usize) -> Result<String, IgwebError> {
+    let rest = rest.trim_start();
+    if !rest.starts_with('"') {
+        return Err(IgwebError {
+            line,
+            message: "expected a quoted \"<prefix>\" after `scope`".into(),
+        });
+    }
+    let after_open = &rest[1..];
+    let close = after_open.find('"').ok_or(IgwebError {
+        line,
+        message: "unterminated scope prefix string".into(),
+    })?;
+    let prefix = after_open[..close].to_string();
+    let tail = after_open[close + 1..].trim();
+    if tail != "{" {
+        return Err(IgwebError {
+            line,
+            message: "expected `{` after the scope prefix".into(),
+        });
+    }
+    if prefix.is_empty() || !prefix.starts_with('/') {
+        return Err(IgwebError {
+            line,
+            message: "scope prefix must start with `/`".into(),
+        });
+    }
+    Ok(prefix)
+}
+
 /// Parse `<METHOD> "<pattern>" -> <Contract> [requires idempotency]` (the part after `route `).
-fn parse_route(rest: &str, line: usize) -> Result<Route, IgwebError> {
+/// `prefix` is the enclosing scope's absolute path (empty at top level); the route pattern is composed
+/// onto it before regex/param generation, so the lowered route is identical to the hand-written flat one.
+fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebError> {
     // METHOD
     let rest = rest.trim();
     let (method, rest) = rest.split_once(char::is_whitespace).ok_or(IgwebError {
@@ -227,7 +328,24 @@ fn parse_route(rest: &str, line: usize) -> Result<Route, IgwebError> {
             message: "route pattern must start with `/`".into(),
         });
     }
+    // Compose the enclosing scope prefix (if any) onto the route's own pattern, then lower as flat.
+    let pattern = if prefix.is_empty() {
+        pattern
+    } else {
+        compose_path(prefix, &pattern)
+    };
     let (regex, params) = pattern_to_regex(&pattern);
+    // Duplicate param names in the composed pattern are ambiguity, not data (P16). This also
+    // retroactively refuses a flat `/a/:id/b/:id`.
+    if let Some(dup) = first_duplicate(&params) {
+        return Err(IgwebError {
+            line,
+            message: format!(
+                "duplicate path param `:{}` in composed pattern `{}`",
+                dup, pattern
+            ),
+        });
+    }
     Ok(Route {
         method,
         pattern,
@@ -396,5 +514,108 @@ mod tests {
         assert!(ig.contains("matches(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\")"));
         assert!(ig.contains("capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)"));
         assert!(ig.contains("capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2)"));
+    }
+
+    // ---- P16: scope prefix lowering ----
+
+    /// Test 1 — a scoped route lowers byte-identically to the equivalent hand-written flat route.
+    #[test]
+    fn scope_prefix_is_byte_identical_to_flat() {
+        let scoped = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    route GET \"/todos\" -> AccountTodosIndex\n  }\n}\n";
+        let flat = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos\" -> AccountTodosIndex\n}\n";
+        assert_eq!(lower_igweb(scoped).unwrap(), lower_igweb(flat).unwrap());
+    }
+
+    /// Test 2 — composed regex + captures are in path order (prefix param first, route param second).
+    #[test]
+    fn scope_positional_param_merge() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    route GET \"/todos/:todo_id\" -> AccountTodoShow\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\")"));
+        assert!(ig.contains("call_contract(\"AccountTodoShow\", req, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1), capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2))"));
+    }
+
+    /// Test 3 — nested `scope` composes prefixes outer→inner.
+    #[test]
+    fn nested_scope_composes_prefixes() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/a/:x\" {\n    scope \"/b/:y\" {\n      route GET \"/c\" -> Deep\n    }\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/a/([^/]+)/b/([^/]+)/c$\")"));
+        assert!(ig.contains("call_contract(\"Deep\", req, capture(req.path, \"^/a/([^/]+)/b/([^/]+)/c$\", 1), capture(req.path, \"^/a/([^/]+)/b/([^/]+)/c$\", 2))"));
+    }
+
+    /// Test 4 — duplicate param name across scope+route is refused, line-positioned.
+    #[test]
+    fn scope_duplicate_param_is_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/x/:id\" {\n    route GET \"/y/:id\" -> Dup\n  }\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("duplicate"), "got {err:?}");
+        assert_eq!(err.line, 4); // the route line carries the composed-pattern ambiguity
+    }
+
+    /// Test 4b — the same refusal retroactively covers a flat duplicate (no scope).
+    #[test]
+    fn flat_duplicate_param_is_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/a/:id/b/:id\" -> Dup\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("duplicate"), "got {err:?}");
+        assert_eq!(err.line, 3);
+    }
+
+    /// Test 5 — interleaved plain/scope/plain routes preserve authored arm order.
+    #[test]
+    fn scope_preserves_source_order() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/a\" -> A\n  scope \"/s\" {\n    route GET \"/b\" -> B\n  }\n  route GET \"/c\" -> C\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        let ia = ig.find("^/a$").expect("a");
+        let ib = ig.find("^/s/b$").expect("s/b");
+        let ic = ig.find("^/c$").expect("c");
+        assert!(ia < ib && ib < ic, "arm order must follow source order");
+    }
+
+    /// Test 6 — a scoped GET-only path still yields method-mismatch 405 and unmatched-path 404.
+    #[test]
+    fn scope_preserves_404_405() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/s\" {\n    route GET \"/todos\" -> Idx\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/s/todos$\")"));
+        assert!(ig.contains("if req.method == \"GET\""));
+        assert!(ig.contains("status: 405")); // method mismatch inside the matched pattern
+        assert!(ig.contains("status: 404")); // trailing no-pattern-matched arm
+    }
+
+    /// Test 7 — a scoped mutating route still emits the keyless idempotency 400 guard.
+    #[test]
+    fn scope_preserves_idempotency_guard() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/s\" {\n    route POST \"/x\" -> Do requires idempotency\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/s/x$\")"));
+        assert!(ig.contains("status: 400")); // keyless guard before the call
+        assert!(ig.contains("if req.idempotency_key == \"\""));
+    }
+
+    /// Test 10 — same `.igweb` lowers to byte-identical `.ig` across two calls (with scopes).
+    #[test]
+    fn scope_lowering_is_deterministic() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/a/:x\" {\n    route GET \"/todos\" -> Idx\n    route POST \"/todos\" -> Make requires idempotency\n  }\n}\n";
+        assert_eq!(lower_igweb(src).unwrap(), lower_igweb(src).unwrap());
+    }
+
+    /// Malformed scope line (no quotes) is line-positioned.
+    #[test]
+    fn malformed_scope_line_is_line_positioned() {
+        let src =
+            "app X entry Serve {\n  handlers H\n  scope /s {\n    route GET \"/x\" -> A\n  }\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert_eq!(err.line, 3);
+    }
+
+    /// Unclosed scope is reported (missing `}`).
+    #[test]
+    fn unclosed_scope_is_reported() {
+        let src =
+            "app X entry Serve {\n  handlers H\n  scope \"/s\" {\n    route GET \"/x\" -> A\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("unclosed"), "got {err:?}");
     }
 }

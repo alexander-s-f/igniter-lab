@@ -91,6 +91,46 @@ fn generated_todo_project_compiles_clean() {
     );
 }
 
+// P16: the same 5-route Todo app authored with a `scope "/todos"` block. It MUST lower byte-identically
+// to the flat `TODO_IGWEB` above, and the generated project must still compile clean.
+const TODO_IGWEB_SCOPED: &str = "\
+app TodoWeb entry Serve {
+  handlers TodoHandlers
+  route GET \"/health\" -> Health
+  scope \"/todos\" {
+    route GET  \"/\"        -> TodoIndex
+    route POST \"/\"        -> TodoCreate requires idempotency
+    route GET  \"/:id\"     -> TodoShow
+    route POST \"/:id/done\" -> TodoDone requires idempotency
+  }
+}
+";
+
+#[test]
+fn scoped_todo_is_byte_identical_to_flat_and_compiles() {
+    let flat = lower_igweb(TODO_IGWEB).expect("lower flat");
+    let scoped = lower_igweb(TODO_IGWEB_SCOPED).expect("lower scoped");
+    // scope is pure authoring typography: the generated `.ig` is identical to the hand-written flat form.
+    assert_eq!(
+        flat, scoped,
+        "scoped authoring must lower byte-identically to flat routes"
+    );
+
+    // and the scoped-authored project still compiles clean through the real multifile compiler.
+    let stdout = compile_generated(&scoped, "todo_scoped");
+    assert!(
+        !stdout.contains("OOF-RE1"),
+        "generated regexp must be valid (no OOF-RE1).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        scoped,
+        stdout
+    );
+    assert!(
+        !stdout.contains("OOF-TY0"),
+        "generated call_contract/regexp must typecheck (no OOF-TY0).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        scoped, stdout
+    );
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
