@@ -976,6 +976,43 @@ impl Emitter {
                     );
                     return Value::Object(node);
                 }
+                // LAB-IGNITER-WEB-COMPOSITE-GUARD-RUNTIME-P24: built-in sealed constructors
+                // (ok/err/some/none) must lower to a tagged `variant_construct` in EVERY position. At a
+                // compute-decl top level the typechecker supplies this via `annotated_expr`; but inside an
+                // `if`/`match` branch the emitter falls here, so recognize them directly (mirroring
+                // typechecker::infer_sealed_construct) instead of emitting an untagged `{ ok: x }` record.
+                if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
+                    if let Some((arm, variant, field)) =
+                        map.get("fn").and_then(|f| f.as_str()).and_then(|f| match f {
+                            "ok" => Some(("Ok", "Result", Some("value"))),
+                            "err" => Some(("Err", "Result", Some("error"))),
+                            "some" => Some(("Some", "Option", Some("value"))),
+                            "none" => Some(("None", "Option", None)),
+                            _ => None,
+                        })
+                    {
+                        let mut fields = Map::new();
+                        if let Some(fld) = field {
+                            let arg = map
+                                .get("args")
+                                .and_then(|a| a.as_array())
+                                .and_then(|a| a.first())
+                                .cloned()
+                                .unwrap_or(Value::Null);
+                            fields.insert(fld.to_string(), self.semantic_expr(&arg));
+                        }
+                        let mut node = Map::new();
+                        node.insert(
+                            "kind".to_string(),
+                            Value::String("variant_construct".to_string()),
+                        );
+                        node.insert("arm".to_string(), Value::String(arm.to_string()));
+                        node.insert("variant".to_string(), Value::String(variant.to_string()));
+                        node.insert("fields".to_string(), Value::Object(fields));
+                        node.insert("sealed".to_string(), Value::Bool(true));
+                        return Value::Object(node);
+                    }
+                }
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call")
                     && map.get("fn").and_then(|f| f.as_str()) == Some("stdlib.numeric.add")
                 {

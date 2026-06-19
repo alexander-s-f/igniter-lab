@@ -1,0 +1,18 @@
+-- igniter-web example app v2 — account-scoped Todo routes (the `.igweb` Projection Dialect, authored).
+-- Exercises the full proven routing stack with NO new syntax: scope + resource + route-level `via`
+-- (composite guard) + idempotent mutating routes + account-scoped path params. Lowers deterministically
+-- to an explicit Serve(Request) -> Decision .ig contract; igniter-server stays route-free.
+app TodoV2Web entry Serve {
+  handlers TodoV2Handlers
+
+  route GET "/health" -> Health
+
+  scope "/accounts/:account_id" {
+    resource todos "/todos" {
+      index  GET                    via LoadAccountTodos(account_id) as ctx        -> AccountTodoIndex
+      show   GET    "/:todo_id"      via LoadProjectTodoContext(account_id, todo_id) as ctx -> AccountTodoShow
+      create POST                   via LoadAccountTodos(account_id) as ctx        -> AccountTodoCreate requires idempotency
+      member POST   "/:todo_id/done" via LoadProjectTodoContext(account_id, todo_id) as ctx -> AccountTodoDone requires idempotency
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# igweb.toml — account-scoped IgWeb Todo v2 (LAB-IGNITER-WEB-TODO-V2-APP-P23). Same no-Rust authoring
+# path as todo_app: `[app]` is author-owned; `[server]`/`[middleware]` are host policy. No routes, bind
+# address, secrets, or effect identity live here.
+
+[app]
+entry = "Serve"
+# sources omitted → all *.ig + *.igweb in this directory (deterministic): todo_handlers.ig + routes.igweb.
+
+[server]
+mode = "loopback"
+max_requests = 16
+
+[middleware]
+trace = true
+body_limit_bytes = 65536
