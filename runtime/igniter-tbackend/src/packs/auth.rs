@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TokenConfig {
     pub token: String,
-    pub role: String, // admin, read_only, write_only, peer
+    pub role: String,                // admin, read_only, write_only, peer
     pub allowed_stores: Vec<String>, // e.g. ["*"] or specific whitelists
     #[serde(default)]
     pub persist: bool,
@@ -23,7 +23,9 @@ pub struct TokenRegistry {
 
 impl TokenRegistry {
     pub fn new() -> Self {
-        Self { tokens: HashMap::new() }
+        Self {
+            tokens: HashMap::new(),
+        }
     }
 }
 
@@ -40,7 +42,11 @@ pub struct AuthMiddleware {
 }
 
 impl crate::kernel::RequestMiddleware for AuthMiddleware {
-    fn before_request(&self, req: &mut serde_json::Value, _kernel: &ServerKernel) -> Result<(), String> {
+    fn before_request(
+        &self,
+        req: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) -> Result<(), String> {
         if !_kernel.auth_enabled {
             return Ok(());
         }
@@ -54,7 +60,9 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
         };
 
         let reg = self.registry.read();
-        let config = reg.tokens.get(token_val)
+        let config = reg
+            .tokens
+            .get(token_val)
             .ok_or_else(|| "Authentication failed: invalid token".to_string())?;
 
         // 1. Verify Role Permissions (RBAC)
@@ -64,25 +72,44 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
             }
             "read_only" => {
                 let allowed_ops = [
-                    "ping", "latest_for", "facts_for", "query_scope", "size", "stores",
-                    "diagnostics_summary", "diagnostics_stores", "query_slice",
-                    "analytics_aggregate", "analytics_calculate", "analytics_metrics",
-                    "cross_store_query", "cross_store_join"
+                    "ping",
+                    "latest_for",
+                    "facts_for",
+                    "query_scope",
+                    "size",
+                    "stores",
+                    "diagnostics_summary",
+                    "diagnostics_stores",
+                    "query_slice",
+                    "analytics_aggregate",
+                    "analytics_calculate",
+                    "analytics_metrics",
+                    "cross_store_query",
+                    "cross_store_join",
                 ];
                 if !allowed_ops.contains(&op) {
-                    return Err(format!("Access denied: role 'read_only' cannot execute operation '{}'", op));
+                    return Err(format!(
+                        "Access denied: role 'read_only' cannot execute operation '{}'",
+                        op
+                    ));
                 }
             }
             "write_only" => {
                 let allowed_ops = ["ping", "write_fact"];
                 if !allowed_ops.contains(&op) {
-                    return Err(format!("Access denied: role 'write_only' cannot execute operation '{}'", op));
+                    return Err(format!(
+                        "Access denied: role 'write_only' cannot execute operation '{}'",
+                        op
+                    ));
                 }
             }
             "peer" => {
                 let allowed_ops = ["ping", "mesh_ping", "mesh_gossip", "mesh_sync_pull"];
                 if !allowed_ops.contains(&op) {
-                    return Err(format!("Access denied: role 'peer' cannot execute operation '{}'", op));
+                    return Err(format!(
+                        "Access denied: role 'peer' cannot execute operation '{}'",
+                        op
+                    ));
                 }
             }
             _ => return Err(format!("Access denied: unknown role '{}'", config.role)),
@@ -98,18 +125,30 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
             for q in qs {
                 if let Some(s) = q.get("store").and_then(|v| v.as_str()) {
                     if !has_store_access(s, config) {
-                        return Err(format!("Access denied: token not authorized for store '{}'", s));
+                        return Err(format!(
+                            "Access denied: token not authorized for store '{}'",
+                            s
+                        ));
                     }
                 }
             }
             None
-        } else if let (Some(ls), Some(rs)) = (req.get("left_store").and_then(|v| v.as_str()), req.get("right_store").and_then(|v| v.as_str())) {
+        } else if let (Some(ls), Some(rs)) = (
+            req.get("left_store").and_then(|v| v.as_str()),
+            req.get("right_store").and_then(|v| v.as_str()),
+        ) {
             // Check both stores in a cross-store join
             if !has_store_access(ls, config) {
-                return Err(format!("Access denied: token not authorized for left store '{}'", ls));
+                return Err(format!(
+                    "Access denied: token not authorized for left store '{}'",
+                    ls
+                ));
             }
             if !has_store_access(rs, config) {
-                return Err(format!("Access denied: token not authorized for right store '{}'", rs));
+                return Err(format!(
+                    "Access denied: token not authorized for right store '{}'",
+                    rs
+                ));
             }
             None
         } else {
@@ -118,14 +157,23 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
 
         if let Some(store) = target_store {
             if !has_store_access(store, config) {
-                return Err(format!("Access denied: token not authorized for store '{}'", store));
+                return Err(format!(
+                    "Access denied: token not authorized for store '{}'",
+                    store
+                ));
             }
         }
 
         Ok(())
     }
 
-    fn after_response(&self, _req: &serde_json::Value, _resp: &mut serde_json::Value, _kernel: &ServerKernel) {}
+    fn after_response(
+        &self,
+        _req: &serde_json::Value,
+        _resp: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) {
+    }
 }
 
 // ── Persistent Preloading Scanner ────────────────────────────────────────────
@@ -141,7 +189,10 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
             if path.extension().map_or(false, |ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(mut config) = serde_json::from_str::<TokenConfig>(&content) {
-                        println!("[Security Preloader] Preloaded token '{}' (role: {})", config.token, config.role);
+                        println!(
+                            "[Security Preloader] Preloaded token '{}' (role: {})",
+                            config.token, config.role
+                        );
                         config.persist = true;
                         map.insert(config.token.clone(), config);
                     }
@@ -162,7 +213,10 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
         if let Ok(content) = serde_json::to_string_pretty(&default_admin) {
             let _ = std::fs::write(&file_path, content);
         }
-        println!("[Security Preloader] Generated default administrator token 'admin_default' at: {}", file_path);
+        println!(
+            "[Security Preloader] Generated default administrator token 'admin_default' at: {}",
+            file_path
+        );
         map.insert(default_admin.token.clone(), default_admin);
     }
 
@@ -206,7 +260,10 @@ impl ServerPack for AuthPack {
                 allowed_stores: vec!["*".to_string()],
                 persist: false,
             };
-            self.registry.write().tokens.insert(default_admin.token.clone(), default_admin);
+            self.registry
+                .write()
+                .tokens
+                .insert(default_admin.token.clone(), default_admin);
             println!("[Security Preloader] Ephemeral in-memory default administrator token 'admin_default' generated.");
         }
 
@@ -253,11 +310,14 @@ impl ServerPack for AuthPack {
 
         // 3. Register "auth_token_list" Route
         let registry_c = self.registry.clone();
-        command_reg.register("auth_token_list", Arc::new(move |_req, _kernel| {
-            let map = registry_c.read();
-            let list: Vec<TokenConfig> = map.tokens.values().cloned().collect();
-            serde_json::json!({ "ok": true, "tokens": list })
-        }));
+        command_reg.register(
+            "auth_token_list",
+            Arc::new(move |_req, _kernel| {
+                let map = registry_c.read();
+                let list: Vec<TokenConfig> = map.tokens.values().cloned().collect();
+                serde_json::json!({ "ok": true, "tokens": list })
+            }),
+        );
 
         // 4. Register "auth_token_delete" Route
         let registry_c = self.registry.clone();
@@ -291,9 +351,12 @@ impl ServerPack for AuthPack {
         }));
 
         // 5. Mount AuthMiddleware at the FRONT of the middleware chain
-        kernel.middleware_chain.write().register(Arc::new(AuthMiddleware {
-            registry: self.registry.clone(),
-        }));
+        kernel
+            .middleware_chain
+            .write()
+            .register(Arc::new(AuthMiddleware {
+                registry: self.registry.clone(),
+            }));
 
         Ok(())
     }

@@ -62,9 +62,15 @@ fn receipt_timestamp_comes_from_injected_clock() {
         let store = receipts();
         let clock: Arc<dyn ClockProvider> = Arc::new(FixedClock::new(1234.5));
 
-        run_effect_with_clock(&reg, &store, &clock, &req("echo", "k1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &clock,
+            &req("echo", "k1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(receipt_tt(&store, "echo:k1").await, 1234.5);
     });
@@ -82,22 +88,44 @@ fn replay_does_not_rewrite_receipt_timestamp() {
 
         // live write at t=100
         let clock_live: Arc<dyn ClockProvider> = Arc::new(FixedClock::new(100.0));
-        run_effect_with_clock(&reg, &store, &clock_live, &req("echo", "same", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &clock_live,
+            &req("echo", "same", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(receipt_tt(&store, "echo:same").await, 100.0);
 
         // a later LIVE call with the same key at t=999 → replays the receipt, no new write
         let clock_late: Arc<dyn ClockProvider> = Arc::new(FixedClock::new(999.0));
-        run_effect_with_clock(&reg, &store, &clock_late, &req("echo", "same", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
-        assert_eq!(receipt_tt(&store, "echo:same").await, 100.0, "timestamp must not be rewritten");
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &clock_late,
+            &req("echo", "same", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            receipt_tt(&store, "echo:same").await,
+            100.0,
+            "timestamp must not be rewritten"
+        );
 
         // explicit Replay at t=999 also must not rewrite it
-        run_effect_with_clock(&reg, &store, &clock_late, &req("echo", "same", json!(1)), RunMode::Replay)
-            .await
-            .unwrap();
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &clock_late,
+            &req("echo", "same", json!(1)),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(receipt_tt(&store, "echo:same").await, 100.0);
         assert_eq!(echo.call_count(), 1, "executor still ran exactly once");
     });
@@ -118,12 +146,24 @@ fn distinct_effects_carry_their_own_timestamps() {
 
         let c10: Arc<dyn ClockProvider> = Arc::new(FixedClock::new(10.0));
         let c20: Arc<dyn ClockProvider> = Arc::new(FixedClock::new(20.0));
-        run_effect_with_clock(&reg, &store, &c10, &req("kv", "ra", json!({"key": "a"})), RunMode::Live)
-            .await
-            .unwrap();
-        run_effect_with_clock(&reg, &store, &c20, &req("kv", "rb", json!({"key": "b"})), RunMode::Live)
-            .await
-            .unwrap();
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &c10,
+            &req("kv", "ra", json!({"key": "a"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        run_effect_with_clock(
+            &reg,
+            &store,
+            &c20,
+            &req("kv", "rb", json!({"key": "b"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(receipt_tt(&store, "kv:ra").await, 10.0);
         assert_eq!(receipt_tt(&store, "kv:rb").await, 20.0);
@@ -137,7 +177,10 @@ fn system_clock_produces_real_epoch() {
     let clock = SystemClock::new();
     let t = clock.now();
     // sometime after 2021-01-01 (1_600_000_000) — proves the real host clock is wired
-    assert!(t > 1_600_000_000.0, "system clock should return a real epoch, got {t}");
+    assert!(
+        t > 1_600_000_000.0,
+        "system clock should return a real epoch, got {t}"
+    );
 }
 
 // ── the clock is consulted only at the boundary, never by the contract ─────────
@@ -148,7 +191,10 @@ struct CountingClock {
 }
 impl CountingClock {
     fn new(t: f64) -> Self {
-        Self { t, calls: AtomicU64::new(0) }
+        Self {
+            t,
+            calls: AtomicU64::new(0),
+        }
     }
     fn count(&self) -> u64 {
         self.calls.load(Ordering::SeqCst)
@@ -165,7 +211,8 @@ impl ClockProvider for CountingClock {
 fn clock_consulted_only_at_boundary_not_by_contract() {
     rt().block_on(async {
         let m = IgniterMachine::new(None, "in_memory").unwrap();
-        m.load_program(&[FIXTURE.to_string()], "ExecuteQuery").unwrap();
+        m.load_program(&[FIXTURE.to_string()], "ExecuteQuery")
+            .unwrap();
 
         let mut kv = HashMap::new();
         kv.insert("x".to_string(), json!(1));
@@ -178,7 +225,11 @@ fn clock_consulted_only_at_boundary_not_by_contract() {
 
         // dispatching the contract runs only the VM — it has no clock, so `now()` is never read
         let _ = m.dispatch("ExecuteQuery", json!({"plan": {}})).await;
-        assert_eq!(counting.count(), 0, "contract execution must not read the clock");
+        assert_eq!(
+            counting.count(),
+            0,
+            "contract execution must not read the clock"
+        );
 
         // the host boundary reads the clock exactly once to stamp the receipt
         let hr = HostRequest {
@@ -191,7 +242,14 @@ fn clock_consulted_only_at_boundary_not_by_contract() {
         run_service_with_clock(&m, &reg, &clock, &hr, RunMode::Live)
             .await
             .unwrap();
-        assert_eq!(counting.count(), 1, "clock read exactly once, at the boundary");
-        assert_eq!(receipt_tt(&m.storage, "IO.StorageCapability:c1").await, 500.0);
+        assert_eq!(
+            counting.count(),
+            1,
+            "clock read exactly once, at the boundary"
+        );
+        assert_eq!(
+            receipt_tt(&m.storage, "IO.StorageCapability:c1").await,
+            500.0
+        );
     });
 }

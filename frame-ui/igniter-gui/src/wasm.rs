@@ -15,7 +15,9 @@ pub struct WasmGui {
 impl WasmGui {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmGui {
-        WasmGui { inner: GuiRuntime::new() }
+        WasmGui {
+            inner: GuiRuntime::new(),
+        }
     }
 
     /// Forward a real pointer click (CSS coords). Returns `true` iff a widget intent fired.

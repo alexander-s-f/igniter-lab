@@ -17,7 +17,10 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -28,9 +31,20 @@ fn hub() -> (CoordinationHub, Arc<dyn TBackend>) {
 }
 
 const SCOPES: &[&str] = &[
-    "create_pool", "import_capsule", "list_capsules", "activate_capsule", "fork_capsule",
-    "export_capsule", "grant_access", "admin_pool", "accept_recipe", "invoke",
-    "propose_transfer", "accept_transfer", "reject_transfer", "revoke_transfer",
+    "create_pool",
+    "import_capsule",
+    "list_capsules",
+    "activate_capsule",
+    "fork_capsule",
+    "export_capsule",
+    "grant_access",
+    "admin_pool",
+    "accept_recipe",
+    "invoke",
+    "propose_transfer",
+    "accept_transfer",
+    "reject_transfer",
+    "revoke_transfer",
 ];
 
 fn passport(subject: &str) -> CapabilityPassport {
@@ -46,7 +60,15 @@ fn passport(subject: &str) -> CapabilityPassport {
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 
 /// A REAL capsule: a machine with the `Add` contract, checkpointed to `.igm` bytes.
@@ -76,7 +98,14 @@ fn recipe(digest: &str, created_by: &str) -> ServiceRecipe {
 }
 
 async fn audit_events(audit: &Arc<dyn TBackend>) -> Vec<Value> {
-    audit.all_facts().await.unwrap().into_iter().filter(|f| f.store == COORD_AUDIT_STORE).map(|f| f.value).collect()
+    audit
+        .all_facts()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|f| f.store == COORD_AUDIT_STORE)
+        .map(|f| f.value)
+        .collect()
 }
 
 /// Register alice/dev/vendor, alice builds pool `svc` with a real Add capsule, returns digest.
@@ -84,9 +113,19 @@ async fn setup(h: &mut CoordinationHub) -> String {
     register(h, "alice", AgentKind::Agent).await;
     register(h, "dev", AgentKind::Developer).await;
     register(h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&passport("alice"), "svc", bytes, vec![]).await.unwrap();
+    let cref = h
+        .add_capsule(&passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
     cref.capsule_id
 }
 
@@ -96,7 +135,9 @@ fn dev_signs_recipe_promotes_to_production() {
     rt().block_on(async {
         let (mut h, _a) = hub();
         let digest = setup(&mut h).await;
-        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
+        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+            .await
+            .unwrap();
 
         let pool = h.pool("svc").unwrap();
         assert_eq!(pool.visibility, PoolVisibility::Production);
@@ -112,15 +153,29 @@ fn vendor_can_invoke_production_service() {
     rt().block_on(async {
         let (mut h, audit) = hub();
         let digest = setup(&mut h).await;
-        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
-        h.grant(&passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+            .await
+            .unwrap();
+        h.grant(
+            &passport("dev"),
+            "svc",
+            "vendor:acme",
+            PoolRight::ActivateCapsule,
+        )
+        .await
+        .unwrap();
 
         // real capsule activation: resume + dispatch("Add", {2,3}) → 5
-        let out = h.invoke(&passport("vendor:acme"), "svc", json!({ "a": 2, "b": 3 })).await.unwrap();
+        let out = h
+            .invoke(&passport("vendor:acme"), "svc", json!({ "a": 2, "b": 3 }))
+            .await
+            .unwrap();
         assert_eq!(out, json!(5));
 
         let evs = audit_events(&audit).await;
-        assert!(evs.iter().any(|e| e["operation"] == "invoke" && e["actor"] == "vendor:acme" && e["outcome"] == "allowed"));
+        assert!(evs.iter().any(|e| e["operation"] == "invoke"
+            && e["actor"] == "vendor:acme"
+            && e["outcome"] == "allowed"));
     });
 }
 
@@ -130,10 +185,17 @@ fn agent_without_invoke_grant_refused() {
     rt().block_on(async {
         let (mut h, _a) = hub();
         let digest = setup(&mut h).await;
-        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
+        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+            .await
+            .unwrap();
         register(&mut h, "mallory", AgentKind::Agent).await;
 
-        assert_eq!(h.invoke(&passport("mallory"), "svc", json!({ "a": 1, "b": 1 })).await.unwrap_err(), PoolRefusal::NotGranted);
+        assert_eq!(
+            h.invoke(&passport("mallory"), "svc", json!({ "a": 1, "b": 1 }))
+                .await
+                .unwrap_err(),
+            PoolRefusal::NotGranted
+        );
     });
 }
 
@@ -144,17 +206,33 @@ fn homogeneous_replicas_same_digest() {
         let (mut h, _a) = hub();
         register(&mut h, "alice", AgentKind::Agent).await;
         register(&mut h, "dev", AgentKind::Developer).await;
-        h.create_pool(&passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+        h.create_pool(
+            &passport("alice"),
+            "svc",
+            "candidate",
+            PoolVisibility::Private,
+        )
+        .await
+        .unwrap();
         let bytes = add_capsule_bytes().await;
         // three replicas of the SAME image
         for _ in 0..3 {
-            h.add_capsule(&passport("alice"), "svc", bytes.clone(), vec![]).await.unwrap();
+            h.add_capsule(&passport("alice"), "svc", bytes.clone(), vec![])
+                .await
+                .unwrap();
         }
         let pool = h.pool("svc").unwrap();
         assert_eq!(pool.capsule_refs.len(), 3);
         let d0 = &pool.capsule_refs[0].content_digest;
-        assert!(pool.capsule_refs.iter().all(|r| &r.content_digest == d0), "all replicas share one digest");
-        assert_eq!(h.content_count(), 1, "identical replicas store ONE image (content-addressed)");
+        assert!(
+            pool.capsule_refs.iter().all(|r| &r.content_digest == d0),
+            "all replicas share one digest"
+        );
+        assert_eq!(
+            h.content_count(),
+            1,
+            "identical replicas store ONE image (content-addressed)"
+        );
     });
 }
 
@@ -165,7 +243,12 @@ fn capsule_digest_mismatch_refused() {
         let (mut h, _a) = hub();
         let _digest = setup(&mut h).await;
         let bad = recipe("deadbeef-not-in-pool", "alice");
-        assert!(matches!(h.accept_recipe(&passport("dev"), "svc", bad).await.unwrap_err(), PoolRefusal::Invalid(_)));
+        assert!(matches!(
+            h.accept_recipe(&passport("dev"), "svc", bad)
+                .await
+                .unwrap_err(),
+            PoolRefusal::Invalid(_)
+        ));
     });
 }
 
@@ -175,9 +258,20 @@ fn invocation_is_activation_not_messenger() {
     rt().block_on(async {
         let (mut h, audit) = hub();
         let digest = setup(&mut h).await;
-        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
-        h.grant(&passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
-        h.invoke(&passport("vendor:acme"), "svc", json!({ "a": 10, "b": 7 })).await.unwrap();
+        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+            .await
+            .unwrap();
+        h.grant(
+            &passport("dev"),
+            "svc",
+            "vendor:acme",
+            PoolRight::ActivateCapsule,
+        )
+        .await
+        .unwrap();
+        h.invoke(&passport("vendor:acme"), "svc", json!({ "a": 10, "b": 7 }))
+            .await
+            .unwrap();
 
         let all = audit.all_facts().await.unwrap();
         // no messenger facts and no capability-IO receipts were produced by serving
@@ -196,20 +290,60 @@ fn full_handoff_via_transfer_then_invoke() {
         register(&mut h, "dev", AgentKind::Developer).await;
         register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
         // alice builds the candidate in her pool
-        h.create_pool(&passport("alice"), "candidate", "c", PoolVisibility::Private).await.unwrap();
+        h.create_pool(
+            &passport("alice"),
+            "candidate",
+            "c",
+            PoolVisibility::Private,
+        )
+        .await
+        .unwrap();
         let bytes = add_capsule_bytes().await;
-        let cref = h.add_capsule(&passport("alice"), "candidate", bytes, vec![]).await.unwrap();
+        let cref = h
+            .add_capsule(&passport("alice"), "candidate", bytes, vec![])
+            .await
+            .unwrap();
         // developer's production pool
-        h.create_pool(&passport("dev"), "prod", "prod", PoolVisibility::Private).await.unwrap();
+        h.create_pool(&passport("dev"), "prod", "prod", PoolVisibility::Private)
+            .await
+            .unwrap();
 
         // P4 transfer carries the recipe digest; dev accepts the transfer (capsule lands in prod)
-        let xid = h.propose_transfer(&passport("alice"), "dev", "candidate", "prod", &cref.capsule_id, vec![], "handoff", Some("recipe-digest".into())).await.unwrap();
+        let xid = h
+            .propose_transfer(
+                &passport("alice"),
+                "dev",
+                "candidate",
+                "prod",
+                &cref.capsule_id,
+                vec![],
+                "handoff",
+                Some("recipe-digest".into()),
+            )
+            .await
+            .unwrap();
         h.accept_transfer(&passport("dev"), &xid).await.unwrap();
 
         // dev signs the recipe → prod becomes production; vendor invokes
-        h.accept_recipe(&passport("dev"), "prod", recipe(&cref.capsule_id, "alice")).await.unwrap();
-        h.grant(&passport("dev"), "prod", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
-        let out = h.invoke(&passport("vendor:acme"), "prod", json!({ "a": 20, "b": 22 })).await.unwrap();
+        h.accept_recipe(&passport("dev"), "prod", recipe(&cref.capsule_id, "alice"))
+            .await
+            .unwrap();
+        h.grant(
+            &passport("dev"),
+            "prod",
+            "vendor:acme",
+            PoolRight::ActivateCapsule,
+        )
+        .await
+        .unwrap();
+        let out = h
+            .invoke(
+                &passport("vendor:acme"),
+                "prod",
+                json!({ "a": 20, "b": 22 }),
+            )
+            .await
+            .unwrap();
         assert_eq!(out, json!(42));
     });
 }

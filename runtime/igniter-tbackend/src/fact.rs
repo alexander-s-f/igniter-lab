@@ -1,7 +1,7 @@
 #[cfg(feature = "ffi")]
 use magnus::{
-    r_hash::ForEach, prelude::*, Error, Float as RbFloat, IntoValue, Integer as RbInteger,
-    RArray, RHash, Ruby, Symbol, Value,
+    prelude::*, r_hash::ForEach, Error, Float as RbFloat, Integer as RbInteger, IntoValue, RArray,
+    RHash, Ruby, Symbol, Value,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -21,32 +21,47 @@ pub struct FactData {
     pub derivation: Option<serde_json::Value>,
 }
 
-#[cfg_attr(feature = "ffi", magnus::wrap(class = "Igniter::TBackendPlayground::Fact", free_immediately, size))]
+#[cfg_attr(
+    feature = "ffi",
+    magnus::wrap(class = "Igniter::TBackendPlayground::Fact", free_immediately, size)
+)]
 pub struct Fact(pub FactData);
 
 #[cfg(feature = "ffi")]
 impl Fact {
-    pub fn rb_id(&self) -> String { self.0.id.clone() }
-    pub fn rb_store(&self) -> String { self.0.store.clone() }
-    pub fn rb_key(&self) -> String { self.0.key.clone() }
-    pub fn rb_value_hash(&self) -> String { self.0.value_hash.clone() }
-    pub fn rb_transaction_time(&self) -> f64 { self.0.transaction_time }
+    pub fn rb_id(&self) -> String {
+        self.0.id.clone()
+    }
+    pub fn rb_store(&self) -> String {
+        self.0.store.clone()
+    }
+    pub fn rb_key(&self) -> String {
+        self.0.key.clone()
+    }
+    pub fn rb_value_hash(&self) -> String {
+        self.0.value_hash.clone()
+    }
+    pub fn rb_transaction_time(&self) -> f64 {
+        self.0.transaction_time
+    }
     pub fn rb_valid_time(&self) -> Value {
         let ruby = unsafe { Ruby::get_unchecked() };
         match self.0.valid_time {
             Some(v) => v.into_value_with(&ruby),
-            None    => ruby.qnil().as_value(),
+            None => ruby.qnil().as_value(),
         }
     }
     pub fn rb_causation(&self) -> Value {
         let ruby = unsafe { Ruby::get_unchecked() };
         match &self.0.causation {
             Some(s) => s.as_str().into_value_with(&ruby),
-            None    => ruby.qnil().as_value(),
+            None => ruby.qnil().as_value(),
         }
     }
-    pub fn rb_schema_version(&self) -> i64 { self.0.schema_version }
-    
+    pub fn rb_schema_version(&self) -> i64 {
+        self.0.schema_version
+    }
+
     pub fn rb_value(&self) -> Value {
         let ruby = unsafe { Ruby::get_unchecked() };
         json_to_ruby_value(&ruby, &self.0.value)
@@ -55,21 +70,24 @@ impl Fact {
     pub fn rb_to_h(&self) -> Result<RHash, Error> {
         let ruby = unsafe { Ruby::get_unchecked() };
         let h = RHash::new();
-        h.aset(Symbol::new("id"),               self.0.id.as_str())?;
-        h.aset(Symbol::new("store"),            Symbol::new(self.0.store.as_str()))?;
-        h.aset(Symbol::new("key"),              self.0.key.as_str())?;
-        h.aset(Symbol::new("value"),            json_to_ruby_value(&ruby, &self.0.value))?;
-        h.aset(Symbol::new("value_hash"),       self.0.value_hash.as_str())?;
+        h.aset(Symbol::new("id"), self.0.id.as_str())?;
+        h.aset(Symbol::new("store"), Symbol::new(self.0.store.as_str()))?;
+        h.aset(Symbol::new("key"), self.0.key.as_str())?;
+        h.aset(
+            Symbol::new("value"),
+            json_to_ruby_value(&ruby, &self.0.value),
+        )?;
+        h.aset(Symbol::new("value_hash"), self.0.value_hash.as_str())?;
         match &self.0.causation {
             Some(s) => h.aset(Symbol::new("causation"), s.as_str())?,
-            None    => h.aset(Symbol::new("causation"), ruby.qnil())?,
+            None => h.aset(Symbol::new("causation"), ruby.qnil())?,
         }
         h.aset(Symbol::new("transaction_time"), self.0.transaction_time)?;
         match self.0.valid_time {
             Some(v) => h.aset(Symbol::new("valid_time"), v)?,
-            None    => h.aset(Symbol::new("valid_time"), ruby.qnil())?,
+            None => h.aset(Symbol::new("valid_time"), ruby.qnil())?,
         }
-        h.aset(Symbol::new("schema_version"),   self.0.schema_version)?;
+        h.aset(Symbol::new("schema_version"), self.0.schema_version)?;
         Ok(h)
     }
 
@@ -172,9 +190,9 @@ pub fn ruby_hash_to_json_sorted(val: Value) -> serde_json::Value {
         return serde_json::Value::String(s);
     }
     match val.inspect().as_str() {
-        "true"  => serde_json::Value::Bool(true),
+        "true" => serde_json::Value::Bool(true),
         "false" => serde_json::Value::Bool(false),
-        other   => serde_json::Value::String(other.to_string()),
+        other => serde_json::Value::String(other.to_string()),
     }
 }
 
@@ -183,7 +201,11 @@ pub fn json_to_ruby_value(ruby: &Ruby, val: &serde_json::Value) -> Value {
     match val {
         serde_json::Value::Null => ruby.qnil().as_value(),
         serde_json::Value::Bool(b) => {
-            if *b { ruby.qtrue().as_value() } else { ruby.qfalse().as_value() }
+            if *b {
+                ruby.qtrue().as_value()
+            } else {
+                ruby.qfalse().as_value()
+            }
         }
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {

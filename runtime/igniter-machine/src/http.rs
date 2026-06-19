@@ -51,7 +51,10 @@ impl HttpMethod {
     }
     /// Idempotent methods may be safely retried after a timeout (no mutation guarantee).
     pub fn idempotent(&self) -> bool {
-        matches!(self, HttpMethod::Get | HttpMethod::Head | HttpMethod::Put | HttpMethod::Delete)
+        matches!(
+            self,
+            HttpMethod::Get | HttpMethod::Head | HttpMethod::Put | HttpMethod::Delete
+        )
     }
 }
 
@@ -106,10 +109,16 @@ fn header_get<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str
 
 /// Default redaction set — header names whose VALUES must never be recorded.
 pub fn default_redaction() -> Vec<String> {
-    ["authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "proxy-authorization",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 fn is_redacted(redact: &[String], name: &str) -> bool {
@@ -128,7 +137,13 @@ pub fn http_request_digest(req: &HttpRequest, redact: &[String]) -> String {
         .collect();
     pairs.sort();
     let body_digest = blake3::hash(req.body.as_bytes()).to_hex().to_string();
-    let material = format!("{}\n{}\n{}\n{}", req.method.as_str(), req.url, body_digest, pairs.join("\n"));
+    let material = format!(
+        "{}\n{}\n{}\n{}",
+        req.method.as_str(),
+        req.url,
+        body_digest,
+        pairs.join("\n")
+    );
     blake3::hash(material.as_bytes()).to_hex().to_string()
 }
 
@@ -228,14 +243,21 @@ impl HttpCapabilityExecutor {
     /// P14 external-substrate profile: a vetted host allowlist + https-only + read-only (no
     /// external mutation). The constrained first step past the loopback glass box.
     pub fn external_profile(self, hosts: &[&str]) -> Self {
-        self.with_allowed_hosts(hosts).require_https().forbid_mutations()
+        self.with_allowed_hosts(hosts)
+            .require_https()
+            .forbid_mutations()
     }
     /// How many times the transport was actually invoked (a replay must not increment this).
     pub fn sends(&self) -> u64 {
         self.sends.load(Ordering::SeqCst)
     }
 
-    fn base_result(&self, req: &HttpRequest, status: Option<u16>, content_type: Option<&str>) -> Value {
+    fn base_result(
+        &self,
+        req: &HttpRequest,
+        status: Option<u16>,
+        content_type: Option<&str>,
+    ) -> Value {
         // Records identity + correlation + status only — NEVER request secrets/header values.
         let redacted: Vec<&String> = req
             .headers
@@ -271,7 +293,8 @@ impl HttpCapabilityExecutor {
             200..=299 => EffectOutcome::succeeded(with(json!({ "body": resp.body }))),
             // P14: redirects are NOT auto-followed (could escape the allowlist or leak creds).
             300..=399 => {
-                let mut o = EffectOutcome::permanent("redirect not followed (auto-follow disabled)");
+                let mut o =
+                    EffectOutcome::permanent("redirect not followed (auto-follow disabled)");
                 o.result = base;
                 o
             }
@@ -321,7 +344,9 @@ impl HttpCapabilityExecutor {
                 if req.method.idempotent() {
                     EffectOutcome::retryable("timeout on idempotent method")
                 } else {
-                    EffectOutcome::unknown("timeout after sending non-idempotent request — mutation unknown")
+                    EffectOutcome::unknown(
+                        "timeout after sending non-idempotent request — mutation unknown",
+                    )
                 }
             }
         };
@@ -338,9 +363,16 @@ impl CapabilityExecutor for HttpCapabilityExecutor {
 
     async fn execute(&self, req: &EffectRequest) -> EffectOutcome {
         // parse the HTTP request out of the effect args
-        let method = match req.args.get("method").and_then(|m| m.as_str()).and_then(HttpMethod::from_str) {
+        let method = match req
+            .args
+            .get("method")
+            .and_then(|m| m.as_str())
+            .and_then(HttpMethod::from_str)
+        {
             Some(m) => m,
-            None => return EffectOutcome::permanent("malformed HTTP request: missing/invalid method"),
+            None => {
+                return EffectOutcome::permanent("malformed HTTP request: missing/invalid method")
+            }
         };
         let url = match req.args.get("url").and_then(|u| u.as_str()) {
             Some(u) if !u.is_empty() => u.to_string(),
@@ -350,12 +382,22 @@ impl CapabilityExecutor for HttpCapabilityExecutor {
             .args
             .get("headers")
             .and_then(|h| h.as_object())
-            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())).collect())
+            .map(|o| {
+                o.iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         let body = req
             .args
             .get("body")
-            .map(|b| if let Some(s) = b.as_str() { s.to_string() } else { b.to_string() })
+            .map(|b| {
+                if let Some(s) = b.as_str() {
+                    s.to_string()
+                } else {
+                    b.to_string()
+                }
+            })
             .unwrap_or_default();
         let correlation_id = req
             .args
@@ -393,7 +435,13 @@ impl CapabilityExecutor for HttpCapabilityExecutor {
             Err(e) => return EffectOutcome::permanent(&e),
         };
 
-        let http_req = HttpRequest { method, url, headers: resolved, body, correlation_id };
+        let http_req = HttpRequest {
+            method,
+            url,
+            headers: resolved,
+            body,
+            correlation_id,
+        };
 
         self.sends.fetch_add(1, Ordering::SeqCst);
         match self.transport.send(&http_req).await {
@@ -415,12 +463,19 @@ pub struct FakeHttpTransport {
 
 impl FakeHttpTransport {
     pub fn new(programmed: Result<HttpResponse, HttpTransportError>) -> Self {
-        Self { programmed: Mutex::new(programmed), last: Mutex::new(None), sends: AtomicU64::new(0) }
+        Self {
+            programmed: Mutex::new(programmed),
+            last: Mutex::new(None),
+            sends: AtomicU64::new(0),
+        }
     }
     pub fn ok(status: u16, body: &str, headers: Vec<(&str, &str)>) -> Self {
         Self::new(Ok(HttpResponse {
             status,
-            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             body: body.to_string(),
         }))
     }
@@ -451,7 +506,12 @@ pub struct MapSecretProvider {
 
 impl MapSecretProvider {
     pub fn new(pairs: &[(&str, &str)]) -> Self {
-        Self { map: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() }
+        Self {
+            map: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
     }
 }
 
@@ -489,9 +549,16 @@ fn parse_response(buf: &[u8]) -> Option<HttpResponse> {
     let status_line = lines.next()?;
     let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
     let headers = lines
-        .filter_map(|l| l.split_once(": ").map(|(k, v)| (k.to_string(), v.to_string())))
+        .filter_map(|l| {
+            l.split_once(": ")
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+        })
         .collect();
-    Some(HttpResponse { status, headers, body })
+    Some(HttpResponse {
+        status,
+        headers,
+        body,
+    })
 }
 
 /// A REAL HTTP/1.1 transport over a TCP socket — used only against a loopback test server in
@@ -532,13 +599,22 @@ impl HttpTransport for LoopbackHttpTransport {
         }
         head.push_str(&format!("Content-Length: {}\r\n\r\n", req.body.len()));
 
-        stream.write_all(head.as_bytes()).await.map_err(|_| HttpTransportError::Connect)?;
-        stream.write_all(req.body.as_bytes()).await.map_err(|_| HttpTransportError::Connect)?;
+        stream
+            .write_all(head.as_bytes())
+            .await
+            .map_err(|_| HttpTransportError::Connect)?;
+        stream
+            .write_all(req.body.as_bytes())
+            .await
+            .map_err(|_| HttpTransportError::Connect)?;
 
         let mut buf = Vec::new();
         // server closes the connection after responding (Connection: close); an empty read =
         // no response (lost response) → Timeout.
-        stream.read_to_end(&mut buf).await.map_err(|_| HttpTransportError::Timeout)?;
+        stream
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|_| HttpTransportError::Timeout)?;
         parse_response(&buf).ok_or(HttpTransportError::Timeout)
     }
 }
@@ -590,7 +666,9 @@ impl TlsLoopbackHttpTransport {
             .with_safe_defaults()
             .with_root_certificates(roots)
             .with_no_client_auth();
-        Self { config: std::sync::Arc::new(config) }
+        Self {
+            config: std::sync::Arc::new(config),
+        }
     }
 
     /// Trust nothing extra (empty roots) — a self-signed server cert → `CertInvalid`
@@ -601,7 +679,9 @@ impl TlsLoopbackHttpTransport {
             .with_safe_defaults()
             .with_root_certificates(RootCertStore::empty())
             .with_no_client_auth();
-        Self { config: std::sync::Arc::new(config) }
+        Self {
+            config: std::sync::Arc::new(config),
+        }
     }
 }
 
@@ -609,7 +689,10 @@ impl TlsLoopbackHttpTransport {
 fn classify_tls_io_error(e: &std::io::Error) -> HttpTransportError {
     if let Some(inner) = e.get_ref() {
         if let Some(rustls_err) = inner.downcast_ref::<tokio_rustls::rustls::Error>() {
-            if matches!(rustls_err, tokio_rustls::rustls::Error::InvalidCertificate(_)) {
+            if matches!(
+                rustls_err,
+                tokio_rustls::rustls::Error::InvalidCertificate(_)
+            ) {
                 return HttpTransportError::CertInvalid;
             }
         }
@@ -629,7 +712,8 @@ impl HttpTransport for TlsLoopbackHttpTransport {
         let tcp = TcpStream::connect((host.as_str(), port))
             .await
             .map_err(|_| HttpTransportError::Connect)?;
-        let server_name = ServerName::try_from(host.as_str()).map_err(|_| HttpTransportError::Tls)?;
+        let server_name =
+            ServerName::try_from(host.as_str()).map_err(|_| HttpTransportError::Tls)?;
         let connector = TlsConnector::from(self.config.clone());
         let mut stream = match connector.connect(server_name, tcp).await {
             Ok(s) => s,
@@ -637,9 +721,15 @@ impl HttpTransport for TlsLoopbackHttpTransport {
         };
 
         let bytes = serialize_request(req, &host, &path);
-        stream.write_all(&bytes).await.map_err(|_| HttpTransportError::Tls)?;
+        stream
+            .write_all(&bytes)
+            .await
+            .map_err(|_| HttpTransportError::Tls)?;
         let mut buf = Vec::new();
-        stream.read_to_end(&mut buf).await.map_err(|_| HttpTransportError::Timeout)?;
+        stream
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|_| HttpTransportError::Timeout)?;
         parse_response(&buf).ok_or(HttpTransportError::Timeout)
     }
 }

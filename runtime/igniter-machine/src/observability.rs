@@ -75,7 +75,9 @@ fn latest_by_key(all: &[crate::fact::Fact], store: &str) -> HashMap<String, Valu
         if f.store != store {
             continue;
         }
-        let e = latest.entry(f.key.clone()).or_insert((f64::NEG_INFINITY, Value::Null));
+        let e = latest
+            .entry(f.key.clone())
+            .or_insert((f64::NEG_INFINITY, Value::Null));
         if f.transaction_time >= e.0 {
             *e = (f.transaction_time, f.value.clone());
         }
@@ -135,16 +137,36 @@ pub async fn observe(facts: &Arc<dyn TBackend>) -> Result<ObservabilitySnapshot,
 
     let mut inbox = DeadLetterInbox::default();
     for (_k, v) in latest_by_key(&all, DEAD_LETTER_STORE) {
-        let key = v.get("key").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        let kind = v.get("kind").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        let reason = v.get("reason").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        let key = v
+            .get("key")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        let kind = v
+            .get("kind")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        let reason = v
+            .get("reason")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
         let correlation = corr_by_key.get(&key).cloned();
         *inbox.by_reason.entry(reason.clone()).or_insert(0) += 1;
-        inbox.entries.push(DeadLetter { key, kind, reason, correlation });
+        inbox.entries.push(DeadLetter {
+            key,
+            kind,
+            reason,
+            correlation,
+        });
     }
     inbox.entries.sort_by(|a, b| a.key.cmp(&b.key));
     inbox.total = inbox.entries.len();
     m.dead_letters = inbox.total;
 
-    Ok(ObservabilitySnapshot { metrics: m, dead_letters: inbox })
+    Ok(ObservabilitySnapshot {
+        metrics: m,
+        dead_letters: inbox,
+    })
 }

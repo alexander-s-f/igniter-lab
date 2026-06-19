@@ -12,14 +12,19 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectRequest, OutcomeKind, RunMode, RECEIPTS_STORE,
 };
-use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+use igniter_machine::postgres_read::{
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+};
 use serde_json::json;
 use std::sync::Arc;
 
 const CAP: &str = "IO.PostgresRead";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn receipts() -> Arc<dyn TBackend> {
@@ -65,7 +70,10 @@ fn allowlisted_source_succeeds_and_returns_rows() {
         let out = run_effect(
             &reg,
             &store,
-            &req("q1", json!({"source": "leads", "op": "select", "projection": ["id", "name"]})),
+            &req(
+                "q1",
+                json!({"source": "leads", "op": "select", "projection": ["id", "name"]}),
+            ),
             RunMode::Live,
         )
         .await
@@ -79,7 +87,11 @@ fn allowlisted_source_succeeds_and_returns_rows() {
         assert_eq!(adapter.query_count(), 1);
 
         // receipt persisted as a fact through the existing machinery.
-        let fact = store.read_as_of(RECEIPTS_STORE, &format!("{CAP}:q1"), f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, &format!("{CAP}:q1"), f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["outcome_kind"], json!("succeeded"));
     });
 }
@@ -96,11 +108,20 @@ fn empty_result_is_success_empty() {
         reg.register(exec);
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("q-empty", json!({"source": "leads"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("q-empty", json!({"source": "leads"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(out.kind, OutcomeKind::Succeeded, "empty is success, not failure");
+        assert_eq!(
+            out.kind,
+            OutcomeKind::Succeeded,
+            "empty is success, not failure"
+        );
         assert_eq!(out.result["kind"], json!("empty"));
         assert_eq!(out.result["count"], json!(0));
         assert_eq!(adapter.query_count(), 1);
@@ -121,7 +142,10 @@ fn raw_sql_input_refused_structurally() {
         let out = run_effect(
             &reg,
             &store,
-            &req("q-sql", json!({"sql": "SELECT * FROM leads; DROP TABLE leads;"})),
+            &req(
+                "q-sql",
+                json!({"sql": "SELECT * FROM leads; DROP TABLE leads;"}),
+            ),
             RunMode::Live,
         )
         .await
@@ -129,7 +153,11 @@ fn raw_sql_input_refused_structurally() {
 
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
         assert!(out.failure_kind.unwrap().contains("raw SQL refused"));
-        assert_eq!(adapter.query_count(), 0, "adapter must never see a raw-SQL request");
+        assert_eq!(
+            adapter.query_count(),
+            0,
+            "adapter must never see a raw-SQL request"
+        );
     });
 }
 
@@ -144,9 +172,14 @@ fn unknown_source_refused_before_adapter() {
         reg.register(exec);
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("q-bad-src", json!({"source": "secrets"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("q-bad-src", json!({"source": "secrets"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert!(out.failure_kind.unwrap().contains("source not allowed"));
@@ -169,7 +202,10 @@ fn forbidden_field_refused_before_adapter() {
         let out = run_effect(
             &reg,
             &store,
-            &req("q-bad-field", json!({"source": "leads", "projection": ["id", "ssn"]})),
+            &req(
+                "q-bad-field",
+                json!({"source": "leads", "projection": ["id", "ssn"]}),
+            ),
             RunMode::Live,
         )
         .await
@@ -183,7 +219,10 @@ fn forbidden_field_refused_before_adapter() {
         let out2 = run_effect(
             &reg,
             &store,
-            &req("q-bad-filter", json!({"source": "leads", "filters": [{"field": "ssn", "op": "eq", "value": "x"}]})),
+            &req(
+                "q-bad-filter",
+                json!({"source": "leads", "filters": [{"field": "ssn", "op": "eq", "value": "x"}]}),
+            ),
             RunMode::Live,
         )
         .await
@@ -214,7 +253,10 @@ fn mutation_attempt_refused_before_adapter() {
         .unwrap();
 
         assert_eq!(out.kind, OutcomeKind::Denied);
-        assert!(out.failure_kind.unwrap().contains("read-only: mutation refused"));
+        assert!(out
+            .failure_kind
+            .unwrap()
+            .contains("read-only: mutation refused"));
         assert_eq!(adapter.query_count(), 0);
     });
 }
@@ -226,7 +268,9 @@ fn row_limit_clamped_and_reflected() {
     rt().block_on(async {
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("leads", lead_rows()));
         // tight cap of 2 so the 3-row table is clamped.
-        let pol = PostgresReadPolicy::new(2).allow_ops(&["select"]).allow_source("leads", &["id", "name", "status"]);
+        let pol = PostgresReadPolicy::new(2)
+            .allow_ops(&["select"])
+            .allow_source("leads", &["id", "name", "status"]);
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -244,10 +288,18 @@ fn row_limit_clamped_and_reflected() {
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(out.result["effective_limit"], json!(2));
         assert_eq!(out.result["row_limit_clamped"], json!(true));
-        assert_eq!(out.result["count"], json!(2), "only the clamped number of rows returned");
+        assert_eq!(
+            out.result["count"],
+            json!(2),
+            "only the clamped number of rows returned"
+        );
 
         // the clamp is also visible in the persisted receipt.
-        let fact = store.read_as_of(RECEIPTS_STORE, &format!("{CAP}:q-clamp"), f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, &format!("{CAP}:q-clamp"), f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["result"]["row_limit_clamped"], json!(true));
         assert_eq!(fact.value["result"]["effective_limit"], json!(2));
     });
@@ -263,17 +315,27 @@ fn adapter_unavailable_maps_to_unknown_and_transient_to_retryable() {
         let down = Arc::new(FakePostgresAdapter::new().unavailable("leads", "connection refused"));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(Arc::new(PostgresReadExecutor::new(CAP, down, policy())));
-        let out = run_effect(&reg, &store, &req("q-down", json!({"source": "leads"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("q-down", json!({"source": "leads"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::UnknownExternalState);
 
         let flaky = Arc::new(FakePostgresAdapter::new().transient("leads", "pool exhausted"));
         let mut reg2 = CapabilityExecutorRegistry::new();
         reg2.register(Arc::new(PostgresReadExecutor::new(CAP, flaky, policy())));
-        let out2 = run_effect(&reg2, &store, &req("q-flaky", json!({"source": "leads"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out2 = run_effect(
+            &reg2,
+            &store,
+            &req("q-flaky", json!({"source": "leads"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out2.kind, OutcomeKind::Retryable);
     });
 }
@@ -297,7 +359,14 @@ fn replay_same_key_bypasses_adapter() {
 
         assert_eq!(first.kind, OutcomeKind::Succeeded);
         assert_eq!(second.kind, OutcomeKind::Succeeded);
-        assert_eq!(first.result, second.result, "replay returns the receipt result");
-        assert_eq!(adapter.query_count(), 1, "adapter must run exactly once for one idempotency key");
+        assert_eq!(
+            first.result, second.result,
+            "replay returns the receipt result"
+        );
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "adapter must run exactly once for one idempotency key"
+        );
     });
 }

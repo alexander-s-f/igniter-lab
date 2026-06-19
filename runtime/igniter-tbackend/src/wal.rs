@@ -9,7 +9,11 @@ struct FileBackendInner {
     writer: BufWriter<File>,
 }
 
-#[magnus::wrap(class = "Igniter::TBackendPlayground::FileBackend", free_immediately, size)]
+#[magnus::wrap(
+    class = "Igniter::TBackendPlayground::FileBackend",
+    free_immediately,
+    size
+)]
 pub struct FileBackend(Mutex<FileBackendInner>);
 
 impl FileBackend {
@@ -26,10 +30,7 @@ impl FileBackend {
     }
 
     pub fn new_pure(path: &str) -> Result<Self, std::io::Error> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(FileBackend(Mutex::new(FileBackendInner {
             path: path.to_string(),
             writer: BufWriter::new(file),
@@ -75,18 +76,18 @@ impl FileBackend {
         Ok(results)
     }
 
-
     pub fn rb_write_fact(&self, rb_fact: &Fact) -> Result<(), Error> {
         self.write_fact_data(&rb_fact.0)
             .map_err(|e| Error::new(magnus::exception::runtime_error(), e))
     }
 
     pub fn write_fact_data(&self, data: &FactData) -> Result<(), String> {
-        let body = rmp_serde::to_vec_named(data)
-            .map_err(|e| e.to_string())?;
+        let body = rmp_serde::to_vec_named(data).map_err(|e| e.to_string())?;
         let crc = crc32fast::hash(&body);
         let mut inner = self.0.lock();
-        inner.writer.write_all(&(body.len() as u32).to_be_bytes())
+        inner
+            .writer
+            .write_all(&(body.len() as u32).to_be_bytes())
             .and_then(|_| inner.writer.write_all(&body))
             .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
             .and_then(|_| inner.writer.flush())
@@ -108,7 +109,12 @@ impl FileBackend {
             match file.read_exact(&mut len_buf) {
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(Error::new(magnus::exception::runtime_error(), e.to_string())),
+                Err(e) => {
+                    return Err(Error::new(
+                        magnus::exception::runtime_error(),
+                        e.to_string(),
+                    ))
+                }
             }
             let body_len = u32::from_be_bytes(len_buf) as usize;
 
@@ -136,7 +142,10 @@ impl FileBackend {
     }
 
     pub fn rb_close(&self) -> Result<(), Error> {
-        self.0.lock().writer.flush()
+        self.0
+            .lock()
+            .writer
+            .flush()
             .map_err(|e| Error::new(magnus::exception::runtime_error(), e.to_string()))
     }
 }

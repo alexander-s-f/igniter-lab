@@ -61,15 +61,26 @@ impl ServiceEffectBridge<'_> {
         pool_id: &str,
         webhook: &IngressRequest,
     ) -> BridgeOutcome {
-        let correlation = webhook.header("x-correlation-id").unwrap_or("cid-none").to_string();
+        let correlation = webhook
+            .header("x-correlation-id")
+            .unwrap_or("cid-none")
+            .to_string();
         let idem = webhook.header("idempotency-key").unwrap_or("").to_string();
 
         // 1. Activate the served capsule (coordination authority: pool ACL + recipe + production).
-        let intent = match hub.invoke(serving_passport, pool_id, webhook.body.clone()).await {
+        let intent = match hub
+            .invoke(serving_passport, pool_id, webhook.body.clone())
+            .await
+        {
             Ok(v) => v,
             Err(e) => {
                 let (status, body) = map_refusal(&e);
-                return BridgeOutcome { status, body, write_state: None, correlation_id: correlation };
+                return BridgeOutcome {
+                    status,
+                    body,
+                    write_state: None,
+                    correlation_id: correlation,
+                };
             }
         };
 
@@ -115,14 +126,27 @@ impl ServiceEffectBridge<'_> {
 
         // 4. Map the effect outcome → HTTP (the epistemic taxonomy reaches the edge).
         let (status, body) = match outcome.state {
-            WriteState::Committed => (200, json!({ "status": "committed", "result": outcome.result })),
+            WriteState::Committed => (
+                200,
+                json!({ "status": "committed", "result": outcome.result }),
+            ),
             // accepted but the external fate is unknown → 202; resolve later via reconcile (P7/P13).
-            WriteState::UnknownExternalState => (202, json!({ "status": "accepted_unknown", "correlation_id": correlation })),
+            WriteState::UnknownExternalState => (
+                202,
+                json!({ "status": "accepted_unknown", "correlation_id": correlation }),
+            ),
             WriteState::Denied => (403, json!({ "status": "denied", "detail": outcome.detail })),
             WriteState::Retryable => (503, json!({ "status": "retry_later" })),
-            WriteState::PermanentFailure => (502, json!({ "status": "failed", "detail": outcome.detail })),
+            WriteState::PermanentFailure => {
+                (502, json!({ "status": "failed", "detail": outcome.detail }))
+            }
             other => (500, json!({ "status": format!("{other:?}") })),
         };
-        BridgeOutcome { status, body, write_state: Some(outcome.state), correlation_id: correlation }
+        BridgeOutcome {
+            status,
+            body,
+            write_state: Some(outcome.state),
+            correlation_id: correlation,
+        }
     }
 }

@@ -1,7 +1,7 @@
 // src/temporal.rs
 // Temporal and scheduling helper candidates for lab proofs
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 // Computes available slots based on dynamic geo-signals and schedule facts
 pub fn compute_availability(geo_signals: &Value, schedule: &Value) -> Result<Value, String> {
@@ -41,7 +41,10 @@ pub fn compute_availability(geo_signals: &Value, schedule: &Value) -> Result<Val
             .find(|s| s.get("hour").and_then(|v| v.as_i64()) == Some(hour));
 
         let status = match sig {
-            Some(s) => s.get("signal").and_then(|v| v.as_str()).unwrap_or("available"),
+            Some(s) => s
+                .get("signal")
+                .and_then(|v| v.as_str())
+                .unwrap_or("available"),
             None => "available",
         };
 

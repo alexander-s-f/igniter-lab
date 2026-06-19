@@ -40,7 +40,11 @@ impl ServerResponse {
     pub fn json(status: u16, body: Value) -> Self {
         let mut headers = BTreeMap::new();
         headers.insert("content-type".to_string(), "application/json".to_string());
-        Self { status, headers, body }
+        Self {
+            status,
+            headers,
+            body,
+        }
     }
 }
 
@@ -53,9 +57,7 @@ impl ServerResponse {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ServerDecision {
     /// App answers directly — no machine touch (health, validation, 404).
-    Respond {
-        response: ServerResponse,
-    },
+    Respond { response: ServerResponse },
     /// Host activates one capsule replica (pure, `CoordinationHub::invoke` / `select_replica`).
     Invoke {
         target: String,
@@ -85,8 +87,16 @@ pub struct AppIdentity {
 }
 
 impl AppIdentity {
-    pub fn new(name: impl Into<String>, version: impl Into<String>, digest: impl Into<String>) -> Self {
-        Self { name: name.into(), version: version.into(), digest: digest.into() }
+    pub fn new(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        digest: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            version: version.into(),
+            digest: digest.into(),
+        }
     }
 }
 
@@ -121,7 +131,8 @@ mod tests {
     #[test]
     fn request_round_trips_as_json() {
         let mut req = ServerRequest::new("POST", "/webhook/callrail", json!({"event": "call"}));
-        req.headers.insert("authorization".into(), "Bearer redacted".into());
+        req.headers
+            .insert("authorization".into(), "Bearer redacted".into());
         req.correlation_id = Some("corr-1".into());
         req.idempotency_key = Some("event-1".into());
 
@@ -178,6 +189,9 @@ mod tests {
         let response = ServerResponse::json(202, json!({"accepted": true}));
 
         assert_eq!(response.status, 202);
-        assert_eq!(response.headers.get("content-type").map(String::as_str), Some("application/json"));
+        assert_eq!(
+            response.headers.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
     }
 }

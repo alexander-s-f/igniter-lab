@@ -7,8 +7,8 @@
 use async_trait::async_trait;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest,
-    RunMode, RECEIPTS_STORE,
+    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome,
+    EffectRequest, RunMode, RECEIPTS_STORE,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::fact::Fact;
@@ -21,7 +21,10 @@ use std::sync::Arc;
 const CAP: &str = "IO.AtomicCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -59,7 +62,12 @@ struct ProbeExecutor {
 }
 impl ProbeExecutor {
     fn new() -> Self {
-        Self { cap: CAP.into(), attempts: AtomicU64::new(0), in_flight: AtomicU64::new(0), max_in_flight: AtomicU64::new(0) }
+        Self {
+            cap: CAP.into(),
+            attempts: AtomicU64::new(0),
+            in_flight: AtomicU64::new(0),
+            max_in_flight: AtomicU64::new(0),
+        }
     }
     fn attempts(&self) -> u64 {
         self.attempts.load(Ordering::SeqCst)
@@ -99,14 +107,24 @@ fn concurrent_same_key_performs_one_effect() {
         let req = write_req("same", json!(1));
         let c = clock();
 
-        let f1 = run_write_effect_atomic(&sf, &reg, &receipts, &c, &p, "write", &req, RunMode::Live);
-        let f2 = run_write_effect_atomic(&sf, &reg, &receipts, &c, &p, "write", &req, RunMode::Live);
+        let f1 =
+            run_write_effect_atomic(&sf, &reg, &receipts, &c, &p, "write", &req, RunMode::Live);
+        let f2 =
+            run_write_effect_atomic(&sf, &reg, &receipts, &c, &p, "write", &req, RunMode::Live);
         let (r1, r2) = tokio::join!(f1, f2);
 
         assert_eq!(r1.unwrap().state, WriteState::Committed);
         assert_eq!(r2.unwrap().state, WriteState::Committed);
-        assert_eq!(probe.attempts(), 1, "two concurrent same-key requests → exactly one effect");
-        assert_eq!(probe.max_in_flight(), 1, "same-key effects never overlap (serialized)");
+        assert_eq!(
+            probe.attempts(),
+            1,
+            "two concurrent same-key requests → exactly one effect"
+        );
+        assert_eq!(
+            probe.max_in_flight(),
+            1,
+            "same-key effects never overlap (serialized)"
+        );
     });
 }
 
@@ -131,8 +149,16 @@ fn concurrent_different_keys_run_in_parallel() {
 
         assert_eq!(r1.unwrap().state, WriteState::Committed);
         assert_eq!(r2.unwrap().state, WriteState::Committed);
-        assert_eq!(probe.attempts(), 2, "different keys both perform their effect");
-        assert_eq!(probe.max_in_flight(), 2, "different keys run concurrently — the lock is per-key");
+        assert_eq!(
+            probe.attempts(),
+            2,
+            "different keys both perform their effect"
+        );
+        assert_eq!(
+            probe.max_in_flight(),
+            2,
+            "different keys run concurrently — the lock is per-key"
+        );
     });
 }
 
@@ -157,7 +183,10 @@ fn concurrent_same_key_different_payload_one_wins() {
 
         let states = [r1.unwrap().state, r2.unwrap().state];
         assert!(states.contains(&WriteState::Committed), "one payload wins");
-        assert!(states.contains(&WriteState::Denied), "the conflicting payload is refused");
+        assert!(
+            states.contains(&WriteState::Denied),
+            "the conflicting payload is refused"
+        );
         assert_eq!(probe.attempts(), 1, "only one effect performed");
     });
 }

@@ -53,7 +53,10 @@ fn run(entry: &str, overlays: &[(&str, &str)], out_name: &str) -> Value {
     args.push("--out".into());
     args.push(out.to_string_lossy().to_string());
 
-    let output = Command::new(bin()).args(&args).output().expect("run binary");
+    let output = Command::new(bin())
+        .args(&args)
+        .output()
+        .expect("run binary");
     let stdout = String::from_utf8_lossy(&output.stdout);
     serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("bad JSON: {e}\n{stdout}"))
 }
@@ -101,7 +104,9 @@ fn no_overlay_matches_p1() {
     let result = run("Over.Main", &[], "acc1");
     assert_eq!(result["status"], "ok");
     // Disk paths, no overlay temp paths.
-    assert!(source_units("acc1").iter().all(|(_, p)| p.contains("/base/")));
+    assert!(source_units("acc1")
+        .iter()
+        .all(|(_, p)| p.contains("/base/")));
 }
 
 // ── Acceptance 2: overlay content wins over disk for the mapped file ─────────
@@ -110,7 +115,10 @@ fn no_overlay_matches_p1() {
 fn overlay_content_wins() {
     let result = run(
         "Over.Main",
-        &[(&format!("{BASE}/main.ig"), &format!("{BUF}/main_add_extra.ig"))],
+        &[(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_add_extra.ig"),
+        )],
         "acc2",
     );
     assert_eq!(result["status"], "ok", "result: {result}");
@@ -131,15 +139,24 @@ fn overlay_adds_import_extends_closure() {
     let paths = project::resolve_entry_with_overlays(
         Path::new(BASE),
         "Over.Main",
-        &[overlay(&format!("{BASE}/main.ig"), &format!("{BUF}/main_add_extra.ig"))],
+        &[overlay(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_add_extra.ig"),
+        )],
     )
     .unwrap();
     // Disk main.ig imports only Types; the overlay adds Extra.
-    assert_eq!(module_names(&paths), vec!["extra.ig", "main_add_extra.ig", "types.ig"]);
+    assert_eq!(
+        module_names(&paths),
+        vec!["extra.ig", "main_add_extra.ig", "types.ig"]
+    );
 
     let result = run(
         "Over.Main",
-        &[(&format!("{BASE}/main.ig"), &format!("{BUF}/main_add_extra.ig"))],
+        &[(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_add_extra.ig"),
+        )],
         "acc3",
     );
     assert_eq!(result["status"], "ok");
@@ -154,7 +171,10 @@ fn overlay_removes_import_shrinks_closure() {
     let paths = project::resolve_entry_with_overlays(
         Path::new(BASE),
         "Over.Main",
-        &[overlay(&format!("{BASE}/main.ig"), &format!("{BUF}/main_no_import.ig"))],
+        &[overlay(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_no_import.ig"),
+        )],
     )
     .unwrap();
     // Disk main.ig imports Types; overlay drops it → closure is the single file.
@@ -162,7 +182,10 @@ fn overlay_removes_import_shrinks_closure() {
 
     let result = run(
         "Over.Main",
-        &[(&format!("{BASE}/main.ig"), &format!("{BUF}/main_no_import.ig"))],
+        &[(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_no_import.ig"),
+        )],
         "acc4",
     );
     assert_eq!(result["status"], "ok");
@@ -177,11 +200,17 @@ fn overlay_body_change_reflected_in_diagnostics() {
     // Disk main.ig is valid; the overlay references a nonexistent field.
     let result = run(
         "Over.Main",
-        &[(&format!("{BASE}/main.ig"), &format!("{BUF}/main_bad_field.ig"))],
+        &[(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_bad_field.ig"),
+        )],
         "acc5",
     );
     assert_eq!(result["status"], "oof");
-    assert!(rules(&result).contains(&"OOF-P1".to_string()), "result: {result}");
+    assert!(
+        rules(&result).contains(&"OOF-P1".to_string()),
+        "result: {result}"
+    );
 }
 
 // ── Acceptance 6: missing overlay file → deterministic diagnostic, no panic ──
@@ -216,7 +245,10 @@ fn overlay_original_outside_roots_refused() {
         Path::new(BASE),
         "Over.Main",
         // original lives under buffers/, which is NOT inside the base/ root.
-        &[overlay(&format!("{BUF}/main_no_import.ig"), &format!("{BUF}/main_no_import.ig"))],
+        &[overlay(
+            &format!("{BUF}/main_no_import.ig"),
+            &format!("{BUF}/main_no_import.ig"),
+        )],
     )
     .unwrap_err();
     match err {
@@ -233,8 +265,14 @@ fn overlay_original_outside_roots_refused() {
 #[test]
 fn multiple_overlays_are_deterministic() {
     let ov = [
-        (format!("{BASE}/main.ig"), format!("{BUF}/main_add_extra.ig")),
-        (format!("{BASE}/extra.ig"), format!("{BUF}/extra_variant.ig")),
+        (
+            format!("{BASE}/main.ig"),
+            format!("{BUF}/main_add_extra.ig"),
+        ),
+        (
+            format!("{BASE}/extra.ig"),
+            format!("{BUF}/extra_variant.ig"),
+        ),
     ];
     let pairs: Vec<(&str, &str)> = ov.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
 
@@ -246,8 +284,12 @@ fn multiple_overlays_are_deterministic() {
 
     // Both overlay buffers are reflected in the evidence.
     let units = source_units("acc8a");
-    assert!(units.iter().any(|(m, p)| m == "Over.Main" && p.contains("main_add_extra.ig")));
-    assert!(units.iter().any(|(m, p)| m == "Over.Extra" && p.contains("extra_variant.ig")));
+    assert!(units
+        .iter()
+        .any(|(m, p)| m == "Over.Main" && p.contains("main_add_extra.ig")));
+    assert!(units
+        .iter()
+        .any(|(m, p)| m == "Over.Extra" && p.contains("extra_variant.ig")));
 }
 
 // ── Acceptance 9: duplicate module via overlay content still detected ────────
@@ -259,7 +301,10 @@ fn duplicate_module_from_overlay_detected() {
     let err = project::resolve_entry_with_overlays(
         Path::new(BASE),
         "Over.Types",
-        &[overlay(&format!("{BASE}/main.ig"), &format!("{BUF}/main_as_types_dup.ig"))],
+        &[overlay(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_as_types_dup.ig"),
+        )],
     )
     .unwrap_err();
     match err {
@@ -273,7 +318,10 @@ fn duplicate_module_from_overlay_detected() {
 
     let result = run(
         "Over.Types",
-        &[(&format!("{BASE}/main.ig"), &format!("{BUF}/main_as_types_dup.ig"))],
+        &[(
+            &format!("{BASE}/main.ig"),
+            &format!("{BUF}/main_as_types_dup.ig"),
+        )],
         "acc9",
     );
     assert_eq!(result["status"], "oof");
@@ -288,14 +336,20 @@ fn overlay_injects_new_unsaved_file() {
         Path::new(BASE),
         "Over.New",
         // base/new_module.ig is NOT on disk; the overlay injects it.
-        &[overlay(&format!("{BASE}/new_module.ig"), &format!("{BUF}/new_module.ig"))],
+        &[overlay(
+            &format!("{BASE}/new_module.ig"),
+            &format!("{BUF}/new_module.ig"),
+        )],
     )
     .unwrap();
     assert_eq!(module_names(&paths), vec!["new_module.ig"]);
 
     let result = run(
         "Over.New",
-        &[(&format!("{BASE}/new_module.ig"), &format!("{BUF}/new_module.ig"))],
+        &[(
+            &format!("{BASE}/new_module.ig"),
+            &format!("{BUF}/new_module.ig"),
+        )],
         "accN",
     );
     assert_eq!(result["status"], "ok", "result: {result}");

@@ -65,22 +65,42 @@ pub struct EffectOutcome {
 
 impl EffectOutcome {
     pub fn succeeded(result: Value) -> Self {
-        Self { kind: OutcomeKind::Succeeded, result, failure_kind: None }
+        Self {
+            kind: OutcomeKind::Succeeded,
+            result,
+            failure_kind: None,
+        }
     }
     pub fn denied(reason: &str) -> Self {
-        Self { kind: OutcomeKind::Denied, result: json!({ "denied": reason }), failure_kind: Some(reason.to_string()) }
+        Self {
+            kind: OutcomeKind::Denied,
+            result: json!({ "denied": reason }),
+            failure_kind: Some(reason.to_string()),
+        }
     }
     pub fn unknown(reason: &str) -> Self {
-        Self { kind: OutcomeKind::UnknownExternalState, result: Value::Null, failure_kind: Some(reason.to_string()) }
+        Self {
+            kind: OutcomeKind::UnknownExternalState,
+            result: Value::Null,
+            failure_kind: Some(reason.to_string()),
+        }
     }
     pub fn permanent(reason: &str) -> Self {
-        Self { kind: OutcomeKind::PermanentFailure, result: Value::Null, failure_kind: Some(reason.to_string()) }
+        Self {
+            kind: OutcomeKind::PermanentFailure,
+            result: Value::Null,
+            failure_kind: Some(reason.to_string()),
+        }
     }
     /// A transient failure where the executor KNOWS no mutation occurred (e.g. it failed
     /// before sending the write). Distinct from `unknown` — safe to retry. Executors must only
     /// return this when no-mutation is guaranteed; otherwise return `unknown`.
     pub fn retryable(reason: &str) -> Self {
-        Self { kind: OutcomeKind::Retryable, result: Value::Null, failure_kind: Some(reason.to_string()) }
+        Self {
+            kind: OutcomeKind::Retryable,
+            result: Value::Null,
+            failure_kind: Some(reason.to_string()),
+        }
     }
 }
 
@@ -108,7 +128,9 @@ pub struct CapabilityExecutorRegistry {
 
 impl CapabilityExecutorRegistry {
     pub fn new() -> Self {
-        Self { execs: HashMap::new() }
+        Self {
+            execs: HashMap::new(),
+        }
     }
     pub fn register(&mut self, exec: Arc<dyn CapabilityExecutor>) {
         self.execs.insert(exec.capability_id().to_string(), exec);
@@ -207,14 +229,23 @@ fn passport_material(p: &CapabilityPassport) -> String {
         Some(t) => t.to_string(),
         None => "none".to_string(),
     };
-    format!("{}|{}|{}|{}|{}", p.subject, p.capability_id, scopes.join(","), p.issued_at, exp)
+    format!(
+        "{}|{}|{}|{}|{}",
+        p.subject,
+        p.capability_id,
+        scopes.join(","),
+        p.issued_at,
+        exp
+    )
 }
 
 /// Sign a passport's evidence with an issuer key — a local keyed-hash MAC (blake3), NOT
 /// asymmetric PKI / OAuth / JWT (those are later slices). The returned hex goes in
 /// `CapabilityPassport.evidence_digest`.
 pub fn sign_passport(issuer_key: &[u8; 32], passport: &CapabilityPassport) -> String {
-    blake3::keyed_hash(issuer_key, passport_material(passport).as_bytes()).to_hex().to_string()
+    blake3::keyed_hash(issuer_key, passport_material(passport).as_bytes())
+        .to_hex()
+        .to_string()
 }
 
 /// A set of trusted issuer keys. A passport is authentic iff its `evidence_digest` is a valid
@@ -272,7 +303,11 @@ fn receipt_key(req: &EffectRequest) -> String {
 
 fn outcome_from_receipt(value: &Value) -> EffectOutcome {
     EffectOutcome {
-        kind: OutcomeKind::from_str(value["outcome_kind"].as_str().unwrap_or("unknown_external_state")),
+        kind: OutcomeKind::from_str(
+            value["outcome_kind"]
+                .as_str()
+                .unwrap_or("unknown_external_state"),
+        ),
         result: value.get("result").cloned().unwrap_or(Value::Null),
         failure_kind: value["failure_kind"].as_str().map(|s| s.to_string()),
     }
@@ -360,7 +395,15 @@ async fn run_effect_core(
     // Live: call the executor exactly once, then record the receipt fact. The clock is read
     // here and only here — at the boundary, never inside a contract.
     let outcome = exec.execute(req).await;
-    write_receipt(receipts, clock.now(), &rkey, req, authority_digest, &outcome).await?;
+    write_receipt(
+        receipts,
+        clock.now(),
+        &rkey,
+        req,
+        authority_digest,
+        &outcome,
+    )
+    .await?;
     Ok(outcome)
 }
 
@@ -419,7 +462,13 @@ pub async fn run_effect_with_verified_passport(
     req: &EffectRequest,
     mode: RunMode,
 ) -> Result<EffectOutcome, EngineError> {
-    let digest = match verify_passport_signed(verifier, passport, &req.capability_id, required_scope, clock) {
+    let digest = match verify_passport_signed(
+        verifier,
+        passport,
+        &req.capability_id,
+        required_scope,
+        clock,
+    ) {
         Ok(d) => d,
         Err(reason) => {
             return Ok(EffectOutcome::denied(&format!(
@@ -456,7 +505,10 @@ pub struct EchoCapabilityExecutor {
 
 impl EchoCapabilityExecutor {
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_string(), calls: AtomicU64::new(0) }
+        Self {
+            id: id.to_string(),
+            calls: AtomicU64::new(0),
+        }
     }
     pub fn call_count(&self) -> u64 {
         self.calls.load(Ordering::SeqCst)
@@ -485,7 +537,11 @@ pub struct KvReadExecutor {
 
 impl KvReadExecutor {
     pub fn new(id: &str, kv: HashMap<String, Value>) -> Self {
-        Self { id: id.to_string(), kv, calls: AtomicU64::new(0) }
+        Self {
+            id: id.to_string(),
+            kv,
+            calls: AtomicU64::new(0),
+        }
     }
     pub fn call_count(&self) -> u64 {
         self.calls.load(Ordering::SeqCst)

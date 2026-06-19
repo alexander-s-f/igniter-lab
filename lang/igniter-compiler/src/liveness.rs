@@ -216,7 +216,11 @@ impl EmPipelineGuard {
         EM_PIPE_CUR.with(|d| {
             let new = d.get() + 1;
             d.set(new);
-            EM_PIPE_MAX.with(|m| if new > m.get() { m.set(new) });
+            EM_PIPE_MAX.with(|m| {
+                if new > m.get() {
+                    m.set(new)
+                }
+            });
             let thr = log_threshold();
             if new == thr + 1 {
                 eprintln!(
@@ -242,7 +246,11 @@ pub fn record_import_step() {
     IMPORT_STEPS_CUR.with(|s| {
         let new = s.get() + 1;
         s.set(new);
-        IMPORT_STEPS_MAX.with(|m| if new > m.get() { m.set(new) });
+        IMPORT_STEPS_MAX.with(|m| {
+            if new > m.get() {
+                m.set(new)
+            }
+        });
     });
 }
 
@@ -257,9 +265,9 @@ pub fn start_import() {
 /// Call after all compiler passes complete.
 #[derive(Debug, Clone)]
 pub struct LivenessStats {
-    pub tc_infer_max_depth:    usize,
-    pub fr_walk_max_depth:     usize,
-    pub em_lower_max_depth:    usize,
+    pub tc_infer_max_depth: usize,
+    pub fr_walk_max_depth: usize,
+    pub em_lower_max_depth: usize,
     pub em_pipeline_max_depth: usize,
     pub parse_import_max_steps: usize,
     pub log_threshold: usize,
@@ -277,13 +285,17 @@ impl LivenessStats {
     }
 
     pub fn to_json(&self) -> serde_json::Value {
-        let breaches_json: Vec<serde_json::Value> = self.budget_breaches.iter().map(|b| {
-            serde_json::json!({
-                "counter": b.counter,
-                "depth":   b.depth,
-                "limit":   b.limit,
+        let breaches_json: Vec<serde_json::Value> = self
+            .budget_breaches
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "counter": b.counter,
+                    "depth":   b.depth,
+                    "limit":   b.limit,
+                })
             })
-        }).collect();
+            .collect();
 
         serde_json::json!({
             "kind":      "liveness_instrumentation",
@@ -334,10 +346,10 @@ impl LivenessStats {
 pub fn collect_stats() -> LivenessStats {
     let breaches = BUDGET_BREACHES.with(|b| b.borrow().clone());
     LivenessStats {
-        tc_infer_max_depth:     TC_INFER_MAX.with(|m| m.get()),
-        fr_walk_max_depth:      FR_WALK_MAX.with(|m| m.get()),
-        em_lower_max_depth:     EM_LOWER_MAX.with(|m| m.get()),
-        em_pipeline_max_depth:  EM_PIPE_MAX.with(|m| m.get()),
+        tc_infer_max_depth: TC_INFER_MAX.with(|m| m.get()),
+        fr_walk_max_depth: FR_WALK_MAX.with(|m| m.get()),
+        em_lower_max_depth: EM_LOWER_MAX.with(|m| m.get()),
+        em_pipeline_max_depth: EM_PIPE_MAX.with(|m| m.get()),
         parse_import_max_steps: IMPORT_STEPS_MAX.with(|m| m.get()),
         log_threshold: log_threshold(),
         tc_infer_budget: tc_infer_budget(),

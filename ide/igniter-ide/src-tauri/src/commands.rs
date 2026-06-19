@@ -2,20 +2,20 @@ use igniter_machine::fact::Fact;
 use igniter_machine::machine::IgniterMachine;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use std::collections::HashMap;
 use tauri::State;
 
-use sha2::{Sha256, Digest};
-use igniter_compiler::lexer::Lexer;
-use igniter_compiler::parser::Parser;
-use igniter_compiler::classifier::Classifier;
-use igniter_compiler::typechecker::TypeChecker;
-use igniter_compiler::emitter::Emitter;
 use igniter_compiler::assembler::Assembler;
+use igniter_compiler::classifier::Classifier;
+use igniter_compiler::emitter::Emitter;
+use igniter_compiler::lexer::Lexer;
 use igniter_compiler::monomorphizer::monomorphize_program;
+use igniter_compiler::parser::Parser;
+use igniter_compiler::typechecker::TypeChecker;
+use sha2::{Digest, Sha256};
 
 pub struct MachineState(pub Arc<Mutex<IgniterMachine>>);
 
@@ -144,10 +144,13 @@ fn do_compile_contract(
         let emit_res = emitter.emit_typed(&typed);
 
         let assembler = Assembler::new();
-        let temp_dir = std::env::temp_dir().join(format!("igniter_compile_{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        let temp_dir =
+            std::env::temp_dir().join(format!("igniter_compile_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_dir)
+            .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
-        let _manifest_val = assembler.assemble(&emit_res, temp_dir.to_str().unwrap())
+        let _manifest_val = assembler
+            .assemble(&emit_res, temp_dir.to_str().unwrap())
             .map_err(|e| {
                 error_stage = Some("emit".to_string());
                 let _ = fs::remove_dir_all(&temp_dir);
@@ -155,11 +158,16 @@ fn do_compile_contract(
             })?;
 
         let contract_id = contract_name.to_string();
-        let contract_file_path = temp_dir.join("contracts").join(format!("{}.json", contract_id));
+        let contract_file_path = temp_dir
+            .join("contracts")
+            .join(format!("{}.json", contract_id));
         if !contract_file_path.exists() {
             error_stage = Some("emit".to_string());
             let _ = fs::remove_dir_all(&temp_dir);
-            return Err(format!("Compiled contract file not found for {}", contract_id));
+            return Err(format!(
+                "Compiled contract file not found for {}",
+                contract_id
+            ));
         }
 
         let content = fs::read_to_string(&contract_file_path).map_err(|e| {
@@ -172,7 +180,8 @@ fn do_compile_contract(
         })?;
 
         // Determine fragment_class
-        let fragment_class = contract_json.get("fragment_class")
+        let fragment_class = contract_json
+            .get("fragment_class")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
@@ -181,14 +190,20 @@ fn do_compile_contract(
         if let Some(ref dst_path) = artifact_dir {
             let _ = copy_dir_all(&temp_dir, dst_path);
             if let Some(obj) = contract_json.as_object_mut() {
-                obj.insert("artifact_dir".to_string(), serde_json::Value::String(dst_path.to_string_lossy().to_string()));
+                obj.insert(
+                    "artifact_dir".to_string(),
+                    serde_json::Value::String(dst_path.to_string_lossy().to_string()),
+                );
             }
         }
 
         let _ = fs::remove_dir_all(&temp_dir);
 
         let machine = state.0.lock();
-        machine.registry.write().register(contract_id, contract_json);
+        machine
+            .registry
+            .write()
+            .register(contract_id, contract_json);
 
         Ok(format!("Compiled: {} [{}]", contract_name, fragment_class))
     };
@@ -229,9 +244,18 @@ fn do_compile_contract(
                     "diagnostics": diagnostics_list
                 });
 
-                let _ = fs::write(dst_path.join("diagnostics.json"), serde_json::to_string_pretty(&diagnostics_json).unwrap_or_default());
-                let _ = fs::write(dst_path.join("manifest.json"), serde_json::to_string_pretty(&manifest_json).unwrap_or_default());
-                let _ = fs::write(dst_path.join("compilation_report.json"), serde_json::to_string_pretty(&report_json).unwrap_or_default());
+                let _ = fs::write(
+                    dst_path.join("diagnostics.json"),
+                    serde_json::to_string_pretty(&diagnostics_json).unwrap_or_default(),
+                );
+                let _ = fs::write(
+                    dst_path.join("manifest.json"),
+                    serde_json::to_string_pretty(&manifest_json).unwrap_or_default(),
+                );
+                let _ = fs::write(
+                    dst_path.join("compilation_report.json"),
+                    serde_json::to_string_pretty(&report_json).unwrap_or_default(),
+                );
             }
             (false, err)
         }
@@ -244,7 +268,10 @@ fn do_compile_contract(
         source_length,
         source_hash,
         artifact_dir: artifact_dir.map(|p| p.to_string_lossy().to_string()),
-        diagnostics_count: diagnostics_list.iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error")).count(),
+        diagnostics_count: diagnostics_list
+            .iter()
+            .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error"))
+            .count(),
         error_stage,
     }
 }
@@ -320,13 +347,11 @@ pub fn dispatch_contract(
     let inputs: serde_json::Value = if inputs_json.trim().is_empty() {
         serde_json::json!({})
     } else {
-        serde_json::from_str(&inputs_json)
-            .map_err(|e| format!("Invalid JSON inputs: {}", e))?
+        serde_json::from_str(&inputs_json).map_err(|e| format!("Invalid JSON inputs: {}", e))?
     };
 
     let machine = state.0.lock();
-    futures::executor::block_on(machine.dispatch(&contract_name, inputs))
-        .map_err(|e| e.to_string())
+    futures::executor::block_on(machine.dispatch(&contract_name, inputs)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -360,8 +385,8 @@ pub fn write_fact(
     key: String,
     value_json: String,
 ) -> Result<String, String> {
-    let value: serde_json::Value = serde_json::from_str(&value_json)
-        .unwrap_or(serde_json::json!({}));
+    let value: serde_json::Value =
+        serde_json::from_str(&value_json).unwrap_or(serde_json::json!({}));
 
     let fact = Fact {
         id: uuid::Uuid::new_v4().to_string(),
@@ -379,8 +404,7 @@ pub fn write_fact(
 
     let fact_id = fact.id.clone();
     let machine = state.0.lock();
-    futures::executor::block_on(machine.write_fact(fact))
-        .map_err(|e| e.to_string())?;
+    futures::executor::block_on(machine.write_fact(fact)).map_err(|e| e.to_string())?;
 
     Ok(format!("Written fact {} to {}/{}", fact_id, store, key))
 }
@@ -393,9 +417,8 @@ pub fn read_facts(
     as_of: Option<f64>,
 ) -> Result<Vec<FactInfo>, String> {
     let machine = state.0.lock();
-    let facts =
-        futures::executor::block_on(machine.storage.facts_for(&store, &key, None, as_of))
-            .map_err(|e| e.to_string())?;
+    let facts = futures::executor::block_on(machine.storage.facts_for(&store, &key, None, as_of))
+        .map_err(|e| e.to_string())?;
 
     let infos = facts
         .into_iter()
@@ -546,12 +569,15 @@ pub struct DiagnosticInfo {
 pub fn open_workspace(dir: String) -> Result<WorkspaceConfig, String> {
     let config_path = Path::new(&dir).join(".igniter").join("workspace.json");
     if !config_path.exists() {
-        return Err(format!("No workspace found at {}. Create one first.", config_path.display()));
+        return Err(format!(
+            "No workspace found at {}. Create one first.",
+            config_path.display()
+        ));
     }
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read workspace: {}", e))?;
-    let mut config: WorkspaceConfig = serde_json::from_str(&content)
-        .map_err(|e| format!("Invalid workspace.json: {}", e))?;
+    let content =
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read workspace: {}", e))?;
+    let mut config: WorkspaceConfig =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid workspace.json: {}", e))?;
     config.root_dir = dir;
     Ok(config)
 }
@@ -575,8 +601,7 @@ pub fn create_workspace(dir: String, name: String) -> Result<WorkspaceConfig, St
         root_dir: dir.clone(),
     };
 
-    let json = serde_json::to_string_pretty(&config)
-        .map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(igniter_dir.join("workspace.json"), json)
         .map_err(|e| format!("Failed to write workspace.json: {}", e))?;
 
@@ -591,7 +616,9 @@ pub fn list_ig_files(dir: String) -> Result<Vec<String>, String> {
 }
 
 fn collect_ig_files(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<String>) {
-    if depth > max_depth { return }
+    if depth > max_depth {
+        return;
+    }
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -629,8 +656,10 @@ pub fn load_workspace_contracts(
         let full_path = if Path::new(contract_path).is_absolute() {
             contract_path.clone()
         } else {
-            Path::new(&config.root_dir).join(contract_path)
-                .to_string_lossy().to_string()
+            Path::new(&config.root_dir)
+                .join(contract_path)
+                .to_string_lossy()
+                .to_string()
         };
 
         let contract_name = Path::new(&full_path)
@@ -675,9 +704,16 @@ pub fn check_source(
 ) -> Result<Vec<DiagnosticInfo>, String> {
     let _ = contract_name;
     let raw = IgniterMachine::check_source(&source_code);
-    let diags = raw.into_iter().map(|(rule, message, severity, line, col)| DiagnosticInfo {
-        rule, message, severity, line, col,
-    }).collect();
+    let diags = raw
+        .into_iter()
+        .map(|(rule, message, severity, line, col)| DiagnosticInfo {
+            rule,
+            message,
+            severity,
+            line,
+            col,
+        })
+        .collect();
     Ok(diags)
 }
 
@@ -713,38 +749,55 @@ pub fn get_system_graph(state: State<'_, MachineState>) -> Result<SystemGraph, S
     let mut nodes = Vec::new();
 
     for (name, ir) in registry.contracts.iter() {
-        let fragment_class = ir.get("fragment_class")
+        let fragment_class = ir
+            .get("fragment_class")
             .or_else(|| ir.get("modifier"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
 
         // input_ports / compute_nodes / output_ports are the real field names
-        let inputs: Vec<String> = ir.get("input_ports").or_else(|| ir.get("inputs"))
+        let inputs: Vec<String> = ir
+            .get("input_ports")
+            .or_else(|| ir.get("inputs"))
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|i| {
-                    let t = i.get("type_tag").and_then(|t| t.as_str())
-                        .or_else(|| i.get("type").and_then(|t| t.get("name")).and_then(|n| n.as_str()));
-                    let n = i.get("name").and_then(|n| n.as_str());
-                    n.map(|name| format!("{}:{}", name, t.unwrap_or("?")))
-                })
-                .collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|i| {
+                        let t = i.get("type_tag").and_then(|t| t.as_str()).or_else(|| {
+                            i.get("type")
+                                .and_then(|t| t.get("name"))
+                                .and_then(|n| n.as_str())
+                        });
+                        let n = i.get("name").and_then(|n| n.as_str());
+                        n.map(|name| format!("{}:{}", name, t.unwrap_or("?")))
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let outputs: Vec<String> = ir.get("output_ports").or_else(|| ir.get("outputs"))
+        let outputs: Vec<String> = ir
+            .get("output_ports")
+            .or_else(|| ir.get("outputs"))
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|o| {
-                    let t = o.get("type_tag").and_then(|t| t.as_str())
-                        .or_else(|| o.get("type").and_then(|t| t.get("name")).and_then(|n| n.as_str()));
-                    let n = o.get("name").and_then(|n| n.as_str());
-                    n.map(|name| format!("{}:{}", name, t.unwrap_or("?")))
-                })
-                .collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|o| {
+                        let t = o.get("type_tag").and_then(|t| t.as_str()).or_else(|| {
+                            o.get("type")
+                                .and_then(|t| t.get("name"))
+                                .and_then(|n| n.as_str())
+                        });
+                        let n = o.get("name").and_then(|n| n.as_str());
+                        n.map(|name| format!("{}:{}", name, t.unwrap_or("?")))
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let node_count = ir.get("compute_nodes").or_else(|| ir.get("nodes"))
+        let node_count = ir
+            .get("compute_nodes")
+            .or_else(|| ir.get("nodes"))
             .and_then(|v| v.as_array())
             .map(|a| a.len())
             .unwrap_or(0);
@@ -763,14 +816,20 @@ pub fn get_system_graph(state: State<'_, MachineState>) -> Result<SystemGraph, S
     let mut edges = Vec::new();
     for i in 0..nodes.len() {
         for j in 0..nodes.len() {
-            if i == j { continue }
+            if i == j {
+                continue;
+            }
             let a = &nodes[i];
             let b = &nodes[j];
 
-            let a_out_types: Vec<&str> = a.outputs.iter()
+            let a_out_types: Vec<&str> = a
+                .outputs
+                .iter()
                 .filter_map(|s| s.split(':').nth(1))
                 .collect();
-            let b_in_types: Vec<&str> = b.inputs.iter()
+            let b_in_types: Vec<&str> = b
+                .inputs
+                .iter()
                 .filter_map(|s| s.split(':').nth(1))
                 .collect();
 
@@ -831,13 +890,17 @@ pub fn dispatch_traced(
     let ir = {
         let machine = state.0.lock();
         let registry = machine.registry.read();
-        registry.contracts
+        registry
+            .contracts
             .get(&contract_name)
             .cloned()
             .ok_or_else(|| format!("Contract '{}' not found", contract_name))?
     };
 
-    let artifact_dir = ir.get("artifact_dir").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let artifact_dir = ir
+        .get("artifact_dir")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // 2. Load static compilation diagnostics if available
     let mut diagnostics = Vec::new();
@@ -849,7 +912,8 @@ pub fn dispatch_traced(
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(arr) = val.get("diagnostics").and_then(|a| a.as_array()) {
                         for item in arr {
-                            if let Ok(info) = serde_json::from_value::<DiagnosticInfo>(item.clone()) {
+                            if let Ok(info) = serde_json::from_value::<DiagnosticInfo>(item.clone())
+                            {
                                 diagnostics.push(info);
                             }
                         }
@@ -863,18 +927,25 @@ pub fn dispatch_traced(
     let mut steps: Vec<TraceStep> = Vec::new();
     let mut order = 0;
 
-    for inp in ir.get("input_ports").or_else(|| ir.get("inputs"))
-        .and_then(|v| v.as_array()).unwrap_or(&vec![])
+    for inp in ir
+        .get("input_ports")
+        .or_else(|| ir.get("inputs"))
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
     {
         let name = inp.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-        let preview = inputs.get(name)
+        let preview = inputs
+            .get(name)
             .map(|v| v.to_string())
             .unwrap_or_else(|| "\u{2014}".to_string());
         steps.push(TraceStep {
             node: name.to_string(),
             kind: "input".to_string(),
-            fragment_class: ir.get("fragment_class")
-                .and_then(|v| v.as_str()).unwrap_or("core").to_string(),
+            fragment_class: ir
+                .get("fragment_class")
+                .and_then(|v| v.as_str())
+                .unwrap_or("core")
+                .to_string(),
             deps: vec![],
             order,
             value_preview: preview,
@@ -882,20 +953,31 @@ pub fn dispatch_traced(
         order += 1;
     }
 
-    for node in ir.get("compute_nodes").or_else(|| ir.get("nodes"))
-        .and_then(|v| v.as_array()).unwrap_or(&vec![])
+    for node in ir
+        .get("compute_nodes")
+        .or_else(|| ir.get("nodes"))
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
     {
         let name = node.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("compute");
-        let frag = node.get("fragment_class")
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("compute");
+        let frag = node
+            .get("fragment_class")
             .or_else(|| node.get("fragment"))
-            .and_then(|f| f.as_str()).unwrap_or("core");
-        let deps: Vec<String> = node.get("dependencies")
+            .and_then(|f| f.as_str())
+            .unwrap_or("core");
+        let deps: Vec<String> = node
+            .get("dependencies")
             .or_else(|| node.get("deps"))
             .and_then(|d| d.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|d| d.as_str().map(|s| s.to_string()))
-                .collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|d| d.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
 
         steps.push(TraceStep {
@@ -909,15 +991,21 @@ pub fn dispatch_traced(
         order += 1;
     }
 
-    for out in ir.get("output_ports").or_else(|| ir.get("outputs"))
-        .and_then(|v| v.as_array()).unwrap_or(&vec![])
+    for out in ir
+        .get("output_ports")
+        .or_else(|| ir.get("outputs"))
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
     {
         let name = out.get("name").and_then(|n| n.as_str()).unwrap_or("?");
         steps.push(TraceStep {
             node: name.to_string(),
             kind: "output".to_string(),
-            fragment_class: ir.get("fragment_class")
-                .and_then(|v| v.as_str()).unwrap_or("core").to_string(),
+            fragment_class: ir
+                .get("fragment_class")
+                .and_then(|v| v.as_str())
+                .unwrap_or("core")
+                .to_string(),
             deps: vec![name.to_string()],
             order,
             value_preview: "\u{27f3}".to_string(),
@@ -928,14 +1016,19 @@ pub fn dispatch_traced(
     // 4. Parse capability bindings and active grants from inputs
     let mut active_grants = HashMap::new();
     if let Some(grants_val) = inputs.get("active_grants") {
-        if let Ok(grants_map) = serde_json::from_value::<HashMap<String, igniter_vm::passport::CapabilityGrant>>(grants_val.clone()) {
+        if let Ok(grants_map) = serde_json::from_value::<
+            HashMap<String, igniter_vm::passport::CapabilityGrant>,
+        >(grants_val.clone())
+        {
             active_grants = grants_map;
         }
     }
 
     let mut caller_bindings = HashMap::new();
     if let Some(bindings_val) = inputs.get("caller_bindings") {
-        if let Ok(bindings_map) = serde_json::from_value::<HashMap<String, String>>(bindings_val.clone()) {
+        if let Ok(bindings_map) =
+            serde_json::from_value::<HashMap<String, String>>(bindings_val.clone())
+        {
             caller_bindings = bindings_map;
         }
     }
@@ -955,7 +1048,11 @@ pub fn dispatch_traced(
                 }
             }
 
-            match igniter_vm::passport::load_and_verify_passport(path, &active_grants, &caller_bindings) {
+            match igniter_vm::passport::load_and_verify_passport(
+                path,
+                &active_grants,
+                &caller_bindings,
+            ) {
                 Ok(grants) => {
                     resolved_grants = grants;
                     loader_decision = Some("approved".to_string());
@@ -1013,19 +1110,33 @@ pub fn dispatch_traced(
     }
 
     let mut temporal_context = HashMap::new();
-    let modifier = ir.get("modifier").and_then(|m| m.as_str()).unwrap_or("pure");
-    temporal_context.insert("contract_modifier".to_string(), igniter_vm::value::Value::String(std::sync::Arc::from(modifier)));
+    let modifier = ir
+        .get("modifier")
+        .and_then(|m| m.as_str())
+        .unwrap_or("pure");
+    temporal_context.insert(
+        "contract_modifier".to_string(),
+        igniter_vm::value::Value::String(std::sync::Arc::from(modifier)),
+    );
 
     // 7. Get storage and observations from state to build adapter
     let (storage, machine_observations) = {
         let machine = state.0.lock();
         (machine.storage.clone(), machine.observations.clone())
     };
-    let adapter = std::sync::Arc::new(igniter_machine::bridge::MachineVMBackendAdapter::new(storage, machine_observations));
+    let adapter = std::sync::Arc::new(igniter_machine::bridge::MachineVMBackendAdapter::new(
+        storage,
+        machine_observations,
+    ));
     let vm = igniter_vm::vm::VM::new(Some(adapter));
 
     // 8. Execute VM bytecode
-    let result_val = futures::executor::block_on(vm.execute_with_grants(&bytecode, &vm_inputs, &temporal_context, &resolved_grants));
+    let result_val = futures::executor::block_on(vm.execute_with_grants(
+        &bytecode,
+        &vm_inputs,
+        &temporal_context,
+        &resolved_grants,
+    ));
 
     let total_ms = start.elapsed().as_millis() as u64;
 
@@ -1039,13 +1150,19 @@ pub fn dispatch_traced(
     let mut observations = Vec::new();
     for obs in vm_obs {
         ffi_observations.push(obs.clone());
-        let kind = obs.get("kind").and_then(|v| v.as_str()).unwrap_or("generic");
+        let kind = obs
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("generic");
         let path = obs.get("path").and_then(|v| v.as_str()).unwrap_or("?");
         if kind == "io_read_observation" {
             let bytes = obs.get("bytes_read").and_then(|v| v.as_u64()).unwrap_or(0);
             observations.push(format!("read_text: read {} bytes from {}", bytes, path));
         } else if kind == "io_write_receipt" {
-            let bytes = obs.get("bytes_written").and_then(|v| v.as_u64()).unwrap_or(0);
+            let bytes = obs
+                .get("bytes_written")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             observations.push(format!("write_text: wrote {} bytes to {}", bytes, path));
         } else {
             observations.push(format!("{}: {}", kind, path));
@@ -1080,22 +1197,20 @@ pub fn dispatch_traced(
                 ffi_observations,
             })
         }
-        Err(err) => {
-            Ok(TracedResult {
-                result: serde_json::json!({}),
-                trace: steps,
-                total_ms,
-                observations,
-                contract_name,
-                success: false,
-                boundary_phase: "execution".to_string(),
-                error_message: Some(format!("VMExecutionError: {}", err)),
-                diagnostics,
-                passport_summary,
-                loader_decision,
-                ffi_observations,
-            })
-        }
+        Err(err) => Ok(TracedResult {
+            result: serde_json::json!({}),
+            trace: steps,
+            total_ms,
+            observations,
+            contract_name,
+            success: false,
+            boundary_phase: "execution".to_string(),
+            error_message: Some(format!("VMExecutionError: {}", err)),
+            diagnostics,
+            passport_summary,
+            loader_decision,
+            ffi_observations,
+        }),
     }
 }
 
@@ -1120,13 +1235,15 @@ pub struct AppConfig {
 }
 
 fn to_pascal_case(s: &str) -> String {
-    s.split('-').map(|w| {
-        let mut c = w.chars();
-        match c.next() {
-            None => String::new(),
-            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        }
-    }).collect()
+    s.split('-')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1182,7 +1299,13 @@ pub struct FileEntry {
 }
 
 const SKIP_NAMES: &[&str] = &[
-    "target", "node_modules", ".git", ".svelte-kit", "build", "dist", "coverage",
+    "target",
+    "node_modules",
+    ".git",
+    ".svelte-kit",
+    "build",
+    "dist",
+    "coverage",
 ];
 
 fn collect_tree(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<FileEntry>) {
@@ -1223,7 +1346,10 @@ fn collect_tree(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<FileEn
                 extension: None,
             });
         } else {
-            let ext = path.extension().and_then(|e| e.to_str()).map(|s| s.to_string());
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_string());
             out.push(FileEntry {
                 name,
                 path: path.to_string_lossy().to_string(),
@@ -1246,8 +1372,7 @@ pub fn list_dir_tree(dir: String) -> Result<Vec<FileEntry>, String> {
 pub fn create_file(path: String, content: String) -> Result<(), String> {
     let p = Path::new(&path);
     if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
     }
     fs::write(&path, &content).map_err(|e| format!("Failed to create '{}': {}", path, e))
 }
@@ -1265,14 +1390,15 @@ pub fn delete_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn rename_file(from: String, to: String) -> Result<(), String> {
-    fs::rename(&from, &to)
-        .map_err(|e| format!("Failed to rename '{}' to '{}': {}", from, to, e))
+    fs::rename(&from, &to).map_err(|e| format!("Failed to rename '{}' to '{}': {}", from, to, e))
 }
 
 #[tauri::command]
 pub fn list_apps(dir: String) -> Result<Vec<AppConfig>, String> {
     let apps_dir = std::path::Path::new(&dir).join("apps");
-    if !apps_dir.exists() { return Ok(vec![]) }
+    if !apps_dir.exists() {
+        return Ok(vec![]);
+    }
 
     let mut apps = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&apps_dir) {
@@ -1330,25 +1456,34 @@ pub struct LoadedArtifact {
 
 pub fn load_all_artifacts() -> Result<Vec<LoadedArtifact>, String> {
     let out_dir = resolve_workspace_path("frame-ui/igniter-view-engine/out");
-    let entries = std::fs::read_dir(&out_dir)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries =
+        std::fs::read_dir(&out_dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut artifacts = Vec::new();
     let mut seen_view_ids = std::collections::HashSet::new();
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_file() && path.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.ends_with("_artifact.json")) {
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map_or(false, |s| s.ends_with("_artifact.json"))
+        {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(artifact_val) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(view_id) = artifact_val.get("view_id").and_then(|v| v.as_str()) {
                         let view_id = view_id.to_string();
                         // Duplicate view_id check (TIVF-P7-4)
                         if !seen_view_ids.insert(view_id.clone()) {
-                            return Err(format!("Duplicate view_id '{}' detected in artifacts", view_id));
+                            return Err(format!(
+                                "Duplicate view_id '{}' detected in artifacts",
+                                view_id
+                            ));
                         }
 
-                        let digest = artifact_val.get("artifact_digest")
+                        let digest = artifact_val
+                            .get("artifact_digest")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
@@ -1356,8 +1491,11 @@ pub fn load_all_artifacts() -> Result<Vec<LoadedArtifact>, String> {
                         let mut contracts = Vec::new();
                         if let Some(slots) = artifact_val.get("slots").and_then(|s| s.as_object()) {
                             for slot_def in slots.values() {
-                                if let Some(ref_str) = slot_def.get("contract_ref").and_then(|r| r.as_str()) {
-                                    let contract_part = ref_str.split('.').next().unwrap_or(ref_str).to_string();
+                                if let Some(ref_str) =
+                                    slot_def.get("contract_ref").and_then(|r| r.as_str())
+                                {
+                                    let contract_part =
+                                        ref_str.split('.').next().unwrap_or(ref_str).to_string();
                                     if !contracts.contains(&contract_part) {
                                         contracts.push(contract_part);
                                     }
@@ -1399,11 +1537,17 @@ pub fn resolve_view_id_from_contract(contract_id: &str) -> Result<String, String
     }
 
     if matches.is_empty() {
-        return Err(format!("No view artifact found mapping to contract_id '{}'", contract_id));
+        return Err(format!(
+            "No view artifact found mapping to contract_id '{}'",
+            contract_id
+        ));
     }
     if matches.len() > 1 {
         // Ambiguous match (TIVF-P7-5)
-        return Err(format!("Ambiguous contract mapping for '{}': maps to multiple views {:?}", contract_id, matches));
+        return Err(format!(
+            "Ambiguous contract mapping for '{}': maps to multiple views {:?}",
+            contract_id, matches
+        ));
     }
 
     Ok(matches[0].clone())
@@ -1420,7 +1564,11 @@ pub fn inject_slot_values(
     let receipt_id = uuid::Uuid::new_v4().to_string();
 
     // Alphanumeric + dot + underscore check on view_id to prevent injection
-    if payload.view_id.chars().any(|c| !c.is_alphanumeric() && c != '.' && c != '_') {
+    if payload
+        .view_id
+        .chars()
+        .any(|c| !c.is_alphanumeric() && c != '.' && c != '_')
+    {
         let receipt = CommandReceipt {
             success: false,
             message: "Payload rejected: view_id contains illegal characters".to_string(),
@@ -1477,7 +1625,10 @@ pub fn inject_slot_values(
         Err(e) => {
             let receipt = CommandReceipt {
                 success: false,
-                message: format!("Payload rejected: view_id '{}' is unknown ({})", payload.view_id, e),
+                message: format!(
+                    "Payload rejected: view_id '{}' is unknown ({})",
+                    payload.view_id, e
+                ),
                 view_id: payload.view_id.clone(),
                 rejected_keys: Vec::new(),
                 accepted_keys: Vec::new(),
@@ -1490,8 +1641,14 @@ pub fn inject_slot_values(
         }
     };
 
-    let expected_view_id = artifact.get("view_id").and_then(|v| v.as_str()).unwrap_or_default();
-    let expected_digest = artifact.get("artifact_digest").and_then(|v| v.as_str()).unwrap_or_default();
+    let expected_view_id = artifact
+        .get("view_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let expected_digest = artifact
+        .get("artifact_digest")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
 
     // 4. Validate view_id
     if payload.view_id != expected_view_id {
@@ -1513,7 +1670,10 @@ pub fn inject_slot_values(
     if payload.artifact_digest != expected_digest {
         let receipt = CommandReceipt {
             success: false,
-            message: format!("Payload rejected: artifact digest mismatch (Expected '{}', Received '{}')", expected_digest, payload.artifact_digest),
+            message: format!(
+                "Payload rejected: artifact digest mismatch (Expected '{}', Received '{}')",
+                expected_digest, payload.artifact_digest
+            ),
             view_id: payload.view_id.clone(),
             rejected_keys: Vec::new(),
             accepted_keys: Vec::new(),
@@ -1547,7 +1707,10 @@ pub fn inject_slot_values(
     if !rejected_keys.is_empty() {
         let receipt = CommandReceipt {
             success: false,
-            message: format!("Payload rejected: contains undeclared slot keys: {:?}", rejected_keys),
+            message: format!(
+                "Payload rejected: contains undeclared slot keys: {:?}",
+                rejected_keys
+            ),
             view_id: payload.view_id.clone(),
             rejected_keys,
             accepted_keys: Vec::new(),
@@ -1567,9 +1730,7 @@ pub fn inject_slot_values(
             "if (window.IgniterView && window.IgniterView.components[{}]) {{ \
                window.IgniterView.components[{}].updateSlots({}); \
              }}",
-            view_id_json,
-            view_id_json,
-            sanitized_slots
+            view_id_json, view_id_json, sanitized_slots
         );
 
         if let Err(e) = window.eval(&js) {
@@ -1649,7 +1810,10 @@ pub fn simulate_trace_observation(
     // 2. Play the observation using play_trace_playback helper
     let playback = play_trace_playback(app, vec![observation], None, history_state)?;
     if !playback.success || playback.steps.is_empty() {
-        return Err(format!("Trace observation simulation failed: {}", playback.message));
+        return Err(format!(
+            "Trace observation simulation failed: {}",
+            playback.message
+        ));
     }
 
     // Return the last step receipt
@@ -1695,7 +1859,10 @@ pub fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
     hasher2.finalize().to_vec()
 }
 
-pub fn verify_envelope_hmac(envelope: &VmTraceAdapterEnvelopeV0, session_token: &str) -> Result<(), String> {
+pub fn verify_envelope_hmac(
+    envelope: &VmTraceAdapterEnvelopeV0,
+    session_token: &str,
+) -> Result<(), String> {
     let provided_sig = match envelope.passport_signature.as_deref() {
         Some(sig) => sig,
         None => return Err("Missing passport_signature".to_string()),
@@ -1714,12 +1881,18 @@ pub fn verify_envelope_hmac(envelope: &VmTraceAdapterEnvelopeV0, session_token: 
         .map_err(|e| format!("Failed to serialize canonical JSON: {}", e))?;
 
     let expected_sig_bytes = hmac_sha256(session_token.as_bytes(), canonical_json.as_bytes());
-    let expected_sig = expected_sig_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let expected_sig = expected_sig_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     if provided_sig == expected_sig {
         Ok(())
     } else {
-        Err(format!("Invalid signature: expected '{}', got '{}'", expected_sig, provided_sig))
+        Err(format!(
+            "Invalid signature: expected '{}', got '{}'",
+            expected_sig, provided_sig
+        ))
     }
 }
 
@@ -1819,7 +1992,8 @@ fn write_trace_receipt(
     let _ = write_telemetry_history_summary(&history_snapshot);
 
     if let Some(true) = generate_proof_fixture {
-        let fixture_path = resolve_workspace_path("frame-ui/igniter-view-engine/fixtures/raw_trace_receipt.json");
+        let fixture_path =
+            resolve_workspace_path("frame-ui/igniter-view-engine/fixtures/raw_trace_receipt.json");
         let raw_json = serde_json::to_string_pretty(observation).unwrap_or_default();
         let _ = std::fs::write(fixture_path, raw_json);
     }
@@ -1950,7 +2124,11 @@ pub fn play_trace_playback(
         playback_id,
         timestamp,
         success: overall_success,
-        message: if overall_success { "Playback successfully applied all steps".to_string() } else { format!("Playback failed: {}", error_msg) },
+        message: if overall_success {
+            "Playback successfully applied all steps".to_string()
+        } else {
+            format!("Playback failed: {}", error_msg)
+        },
         steps,
     };
 
@@ -2032,7 +2210,10 @@ pub fn record_trigger_intent(
         Err(e) => {
             let receipt = TriggerIntentReceipt {
                 success: false,
-                message: format!("Intent rejected: view_id '{}' is unknown ({})", intent.view_id, e),
+                message: format!(
+                    "Intent rejected: view_id '{}' is unknown ({})",
+                    intent.view_id, e
+                ),
                 view_id: intent.view_id.clone(),
                 element_id: intent.element_id.clone(),
                 action_id: intent.action_id.clone(),
@@ -2047,11 +2228,17 @@ pub fn record_trigger_intent(
     };
 
     // 3. Validate artifact_digest (fail-closed)
-    let expected_digest = artifact.get("artifact_digest").and_then(|v| v.as_str()).unwrap_or_default();
+    let expected_digest = artifact
+        .get("artifact_digest")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
     if intent.artifact_digest != expected_digest {
         let receipt = TriggerIntentReceipt {
             success: false,
-            message: format!("Intent rejected: digest mismatch (Expected '{}', Received '{}')", expected_digest, intent.artifact_digest),
+            message: format!(
+                "Intent rejected: digest mismatch (Expected '{}', Received '{}')",
+                expected_digest, intent.artifact_digest
+            ),
             view_id: intent.view_id.clone(),
             element_id: intent.element_id.clone(),
             action_id: intent.action_id.clone(),
@@ -2097,7 +2284,10 @@ pub fn record_trigger_intent(
         None => {
             let receipt = TriggerIntentReceipt {
                 success: false,
-                message: format!("Intent rejected: element_id '{}' is not declared in view", intent.element_id),
+                message: format!(
+                    "Intent rejected: element_id '{}' is not declared in view",
+                    intent.element_id
+                ),
                 view_id: intent.view_id.clone(),
                 element_id: intent.element_id.clone(),
                 action_id: intent.action_id.clone(),
@@ -2118,7 +2308,10 @@ pub fn record_trigger_intent(
     if let Some(rules) = interaction_rules {
         for rule in rules {
             if let Some(rule_arr) = rule.as_array() {
-                if rule_arr.len() >= 2 && rule_arr[0].as_str() == Some("on") && rule_arr[1].as_str() == Some(&intent.action_id) {
+                if rule_arr.len() >= 2
+                    && rule_arr[0].as_str() == Some("on")
+                    && rule_arr[1].as_str() == Some(&intent.action_id)
+                {
                     action_valid = true;
                     break;
                 }
@@ -2129,7 +2322,10 @@ pub fn record_trigger_intent(
     if !action_valid {
         let receipt = TriggerIntentReceipt {
             success: false,
-            message: format!("Intent rejected: action_id '{}' is not whitelisted for element '{}'", intent.action_id, intent.element_id),
+            message: format!(
+                "Intent rejected: action_id '{}' is not whitelisted for element '{}'",
+                intent.action_id, intent.element_id
+            ),
             view_id: intent.view_id.clone(),
             element_id: intent.element_id.clone(),
             action_id: intent.action_id.clone(),
@@ -2168,12 +2364,13 @@ fn write_trigger_intent_receipt(receipt: &TriggerIntentReceipt) -> std::io::Resu
 
 #[tauri::command]
 pub fn read_playback_receipt() -> Result<serde_json::Value, String> {
-    let path = resolve_workspace_path("frame-ui/igniter-view-engine/out/tauri_playback_receipt.json");
+    let path =
+        resolve_workspace_path("frame-ui/igniter-view-engine/out/tauri_playback_receipt.json");
     if !path.exists() {
         return Err("Playback receipt file not found".to_string());
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read receipt: {}", e))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read receipt: {}", e))?;
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse receipt JSON: {}", e))?;
     Ok(json)
@@ -2193,7 +2390,9 @@ pub struct VmTraceReceipt {
 pub fn adapt_vm_trace(receipt: VmTraceReceipt) -> Result<MockObservation, String> {
     // 1. Validate basic receipt fields
     if receipt.transaction_id.is_empty() || receipt.contract_name.is_empty() {
-        return Err("Malformed VM trace receipt: transaction_id or contract_name is empty".to_string());
+        return Err(
+            "Malformed VM trace receipt: transaction_id or contract_name is empty".to_string(),
+        );
     }
 
     // 2. Resolve target views with validation and deduplication (TIVF-P9-6, TIVF-P9-7)
@@ -2205,7 +2404,10 @@ pub fn adapt_vm_trace(receipt: VmTraceReceipt) -> Result<MockObservation, String
             let mut unique_views = Vec::new();
             for v in views {
                 if v.trim().is_empty() {
-                    return Err("Malformed VM trace receipt: target_views contains empty view ID".to_string());
+                    return Err(
+                        "Malformed VM trace receipt: target_views contains empty view ID"
+                            .to_string(),
+                    );
                 }
                 if !unique_views.contains(v) {
                     unique_views.push(v.clone());
@@ -2299,15 +2501,22 @@ pub fn simulate_vm_trace_adapter(
     let _ = write_redacted_receipt(&redacted);
 
     // 7. Run playback for the normalized observation (TIVF-P10-3, TIVF-P10-4, TIVF-P10-5)
-    let playback_res = play_trace_playback(app, vec![observation], generate_proof_fixture, history_state)?;
+    let playback_res = play_trace_playback(
+        app,
+        vec![observation],
+        generate_proof_fixture,
+        history_state,
+    )?;
 
     // 8. Generate and write out/trace_adapter_projection_summary.json (TIVF-P9-3)
-    let projections: Vec<ProjectionSummaryEntry> = playback_res.steps.iter().map(|step| {
-        ProjectionSummaryEntry {
+    let projections: Vec<ProjectionSummaryEntry> = playback_res
+        .steps
+        .iter()
+        .map(|step| ProjectionSummaryEntry {
             view_id: step.view_id.clone(),
             projected_keys: step.accepted_keys.clone(),
-        }
-    }).collect();
+        })
+        .collect();
 
     let summary = TraceAdapterProjectionSummary {
         playback_id: playback_res.playback_id.clone(),
@@ -2502,9 +2711,18 @@ pub fn ingest_external_trace_event_inner<R: tauri::Runtime>(
         }
     };
 
-    let trace_id = envelope.trace_id.clone().unwrap_or_else(|| "missing_trace_id".to_string());
-    let contract_id = envelope.contract_id.clone().unwrap_or_else(|| "missing_contract_id".to_string());
-    let status = envelope.status.clone().unwrap_or_else(|| "failed".to_string());
+    let trace_id = envelope
+        .trace_id
+        .clone()
+        .unwrap_or_else(|| "missing_trace_id".to_string());
+    let contract_id = envelope
+        .contract_id
+        .clone()
+        .unwrap_or_else(|| "missing_contract_id".to_string());
+    let status = envelope
+        .status
+        .clone()
+        .unwrap_or_else(|| "failed".to_string());
 
     // 3. Signature & Producer Verification (fail-closed)
     let is_unauthorized_producer = match envelope.producer_id.as_deref() {
@@ -2543,20 +2761,23 @@ pub fn ingest_external_trace_event_inner<R: tauri::Runtime>(
     }
 
     // 4. Redaction of raw data
-    let outputs_str = serde_json::to_string(&envelope.outputs.unwrap_or(serde_json::Value::Null)).unwrap_or_default();
+    let outputs_str = serde_json::to_string(&envelope.outputs.unwrap_or(serde_json::Value::Null))
+        .unwrap_or_default();
     let mut hasher_out = sha2::Sha256::new();
     hasher_out.update(outputs_str.as_bytes());
     let outputs_digest = format!("sha256:{:x}", hasher_out.finalize());
 
-    let diag_str = serde_json::to_string(&envelope.diagnostics.unwrap_or(serde_json::Value::Null)).unwrap_or_default();
+    let diag_str = serde_json::to_string(&envelope.diagnostics.unwrap_or(serde_json::Value::Null))
+        .unwrap_or_default();
     let mut hasher_diag = sha2::Sha256::new();
     hasher_diag.update(diag_str.as_bytes());
     let diagnostics_digest = format!("sha256:{:x}", hasher_diag.finalize());
 
-    let selected_slot_keys: Vec<String> = match envelope.slot_values.as_ref().and_then(|v| v.as_object()) {
-        Some(obj) => obj.keys().cloned().collect(),
-        None => Vec::new(),
-    };
+    let selected_slot_keys: Vec<String> =
+        match envelope.slot_values.as_ref().and_then(|v| v.as_object()) {
+            Some(obj) => obj.keys().cloned().collect(),
+            None => Vec::new(),
+        };
 
     let event_type = if status == "success" {
         "applied_trace_events".to_string()
@@ -2664,9 +2885,18 @@ pub fn ingest_adapted_vm_trace_inner<R: tauri::Runtime>(
         }
     };
 
-    let transaction_id = envelope.transaction_id.clone().unwrap_or_else(|| "missing_transaction_id".to_string());
-    let contract_name = envelope.contract_name.clone().unwrap_or_else(|| "missing_contract_name".to_string());
-    let incoming_status = envelope.status.clone().unwrap_or_else(|| "unknown".to_string());
+    let transaction_id = envelope
+        .transaction_id
+        .clone()
+        .unwrap_or_else(|| "missing_transaction_id".to_string());
+    let contract_name = envelope
+        .contract_name
+        .clone()
+        .unwrap_or_else(|| "missing_contract_name".to_string());
+    let incoming_status = envelope
+        .status
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
 
     // 3. Status vocabulary check and mapping (fail-closed for ingress_rejected and unknown status)
     let mapped_status = match incoming_status.as_str() {
@@ -2748,7 +2978,8 @@ pub fn build_mock_vm_runner_trace_payload(
         "diagnostics": { "warnings": ["mock-runner-warning"] },
         "slot_values": { "key_a": "value_a", "key_b": "value_b" },
         "passport_signature": signature
-    }).to_string()
+    })
+    .to_string()
 }
 
 pub fn run_mock_vm_runner_dispatch_inner<R: tauri::Runtime>(
@@ -2759,7 +2990,8 @@ pub fn run_mock_vm_runner_dispatch_inner<R: tauri::Runtime>(
     signature: String,
     history_state: &TelemetryHistoryState,
 ) -> Result<RedactedTraceReceipt, String> {
-    let payload = build_mock_vm_runner_trace_payload(&transaction_id, &status, &producer_id, &signature);
+    let payload =
+        build_mock_vm_runner_trace_payload(&transaction_id, &status, &producer_id, &signature);
     ingest_adapted_vm_trace_inner(app, payload, history_state)
 }
 
@@ -2772,7 +3004,14 @@ pub fn run_mock_vm_runner_dispatch(
     signature: String,
     history_state: tauri::State<'_, TelemetryHistoryState>,
 ) -> Result<RedactedTraceReceipt, String> {
-    run_mock_vm_runner_dispatch_inner(app, transaction_id, status, producer_id, signature, &history_state)
+    run_mock_vm_runner_dispatch_inner(
+        app,
+        transaction_id,
+        status,
+        producer_id,
+        signature,
+        &history_state,
+    )
 }
 
 #[tauri::command]
@@ -2803,8 +3042,10 @@ pub fn run_session_telemetry_dispatch_inner<R: tauri::Runtime>(
     }
 
     // 2. Spawn local Ruby mock runner proof script synchronously
-    let ruby_script_path = resolve_workspace_path("frame-ui/igniter-view-engine/run_mock_session_runner_hmac_proof.rb");
-    
+    let ruby_script_path = resolve_workspace_path(
+        "frame-ui/igniter-view-engine/run_mock_session_runner_hmac_proof.rb",
+    );
+
     // Determine if status is 'oversized' or other flags
     let is_oversized = status == "oversized";
     let status_arg = if is_oversized { "applied" } else { &status };
@@ -2847,8 +3088,9 @@ pub fn run_session_telemetry_dispatch_inner<R: tauri::Runtime>(
     let _ = std::fs::remove_file(envelope_path);
 
     // 4. Validate and ingest
-    let result = validate_and_ingest_session_envelope(app, payload_json, history_state, session_state);
-    
+    let result =
+        validate_and_ingest_session_envelope(app, payload_json, history_state, session_state);
+
     // 5. Invalidate/Clear session state in all code paths (ensured by returning result)
     {
         let mut session = session_state.0.lock();
@@ -2903,20 +3145,34 @@ pub fn read_introspection_receipt_inner(
     path: String,
     workspace_dir: String,
 ) -> Result<IntrospectionReceipt, String> {
-    let ws_path = Path::new(&workspace_dir).canonicalize()
-        .map_err(|e| format!("Failed to resolve workspace path '{}': {}", workspace_dir, e))?;
-    let file_path = Path::new(&path).canonicalize()
-        .map_err(|e| format!("Failed to resolve introspection receipt path '{}': {}", path, e))?;
+    let ws_path = Path::new(&workspace_dir).canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve workspace path '{}': {}",
+            workspace_dir, e
+        )
+    })?;
+    let file_path = Path::new(&path).canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve introspection receipt path '{}': {}",
+            path, e
+        )
+    })?;
 
     if !file_path.starts_with(&ws_path) {
-        return Err("Path traversal check failed: receipt file lies outside workspace boundary.".to_string());
+        return Err(
+            "Path traversal check failed: receipt file lies outside workspace boundary."
+                .to_string(),
+        );
     }
 
     let metadata = fs::metadata(&file_path)
         .map_err(|e| format!("Failed to get receipt file metadata: {}", e))?;
     let size = metadata.len();
     if size > 65536 {
-        return Err(format!("Oversized receipt payload ({} > 65536 bytes)", size));
+        return Err(format!(
+            "Oversized receipt payload ({} > 65536 bytes)",
+            size
+        ));
     }
 
     let content = fs::read_to_string(&file_path)
@@ -2927,16 +3183,28 @@ pub fn read_introspection_receipt_inner(
 
     for (node_id, node) in &receipt.nodes {
         if node.id != *node_id {
-            return Err(format!("Mismatched node ID in metadata keys for '{}'", node_id));
+            return Err(format!(
+                "Mismatched node ID in metadata keys for '{}'",
+                node_id
+            ));
         }
         if !["contained", "overflow", "N/A"].contains(&node.containment.as_str()) {
-            return Err(format!("Invalid containment value in '{}': '{}'", node_id, node.containment));
+            return Err(format!(
+                "Invalid containment value in '{}': '{}'",
+                node_id, node.containment
+            ));
         }
         if !["allow", "clip", "none"].contains(&node.overflow_allowance.as_str()) {
-            return Err(format!("Invalid overflow_allowance value in '{}': '{}'", node_id, node.overflow_allowance));
+            return Err(format!(
+                "Invalid overflow_allowance value in '{}': '{}'",
+                node_id, node.overflow_allowance
+            ));
         }
         if !["active", "skip"].contains(&node.status.as_str()) {
-            return Err(format!("Invalid status value in '{}': '{}'", node_id, node.status));
+            return Err(format!(
+                "Invalid status value in '{}': '{}'",
+                node_id, node.status
+            ));
         }
     }
 
@@ -2993,9 +3261,18 @@ pub fn validate_and_ingest_session_envelope<R: tauri::Runtime>(
         }
     };
 
-    let transaction_id = envelope.transaction_id.clone().unwrap_or_else(|| "missing_transaction_id".to_string());
-    let contract_name = envelope.contract_name.clone().unwrap_or_else(|| "missing_contract_name".to_string());
-    let incoming_status = envelope.status.clone().unwrap_or_else(|| "unknown".to_string());
+    let transaction_id = envelope
+        .transaction_id
+        .clone()
+        .unwrap_or_else(|| "missing_transaction_id".to_string());
+    let contract_name = envelope
+        .contract_name
+        .clone()
+        .unwrap_or_else(|| "missing_contract_name".to_string());
+    let incoming_status = envelope
+        .status
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
 
     // 3. Verify Session State (existence, transaction_id, timeout)
     let session = session_state.0.lock().clone();
@@ -3127,7 +3404,6 @@ pub fn validate_and_ingest_session_envelope<R: tauri::Runtime>(
     ingest_external_trace_event_inner(app, serialized_ext_payload, history_state)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3139,7 +3415,11 @@ mod tests {
 
         // 1. Generate 11 trace events to verify capacity = 10 and FIFO eviction
         for i in 0..11 {
-            let status = if i % 2 == 0 { "success".to_string() } else { "failed".to_string() };
+            let status = if i % 2 == 0 {
+                "success".to_string()
+            } else {
+                "failed".to_string()
+            };
             let obs = MockObservation {
                 trace_id: format!("tx_mock_trace_{}", i),
                 contract_id: "test_contract".to_string(),
@@ -3291,8 +3571,10 @@ mod tests {
             "outputs": {},
             "diagnostics": {},
             "slot_values": {}
-        }).to_string();
-        let res = ingest_external_trace_event_inner(handle.clone(), missing_sig_payload, &*history_state);
+        })
+        .to_string();
+        let res =
+            ingest_external_trace_event_inner(handle.clone(), missing_sig_payload, &*history_state);
         assert!(res.is_err());
 
         // TIVF-P14-3: invalid signature fails closed
@@ -3306,8 +3588,10 @@ mod tests {
             "outputs": {},
             "diagnostics": {},
             "slot_values": {}
-        }).to_string();
-        let res = ingest_external_trace_event_inner(handle.clone(), invalid_sig_payload, &*history_state);
+        })
+        .to_string();
+        let res =
+            ingest_external_trace_event_inner(handle.clone(), invalid_sig_payload, &*history_state);
         assert!(res.is_err());
 
         // TIVF-P14-4: unauthorized producer fails closed
@@ -3321,27 +3605,43 @@ mod tests {
             "outputs": {},
             "diagnostics": {},
             "slot_values": {}
-        }).to_string();
-        let res = ingest_external_trace_event_inner(handle.clone(), unauthorized_prod_payload, &*history_state);
+        })
+        .to_string();
+        let res = ingest_external_trace_event_inner(
+            handle.clone(),
+            unauthorized_prod_payload,
+            &*history_state,
+        );
         assert!(res.is_err());
 
         // TIVF-P14-5: malformed envelope fails closed with no state mutation
         let prev_len = history_state.0.lock().len();
         let malformed_payload = "{ malformed json }".to_string();
-        let res = ingest_external_trace_event_inner(handle.clone(), malformed_payload, &*history_state);
+        let res =
+            ingest_external_trace_event_inner(handle.clone(), malformed_payload, &*history_state);
         assert!(res.is_err());
         assert_eq!(history_state.0.lock().len(), prev_len + 1);
-        assert_eq!(history_state.0.lock().last().unwrap().event_type, "attempted_trace_events");
+        assert_eq!(
+            history_state.0.lock().last().unwrap().event_type,
+            "attempted_trace_events"
+        );
 
         // TIVF-P14-6: payload over 65536 bytes fails closed before redaction
         let mut oversized_payload = String::new();
         for _ in 0..70000 {
             oversized_payload.push('a');
         }
-        let res = ingest_external_trace_event_inner(handle.clone(), oversized_payload, &*history_state);
+        let res =
+            ingest_external_trace_event_inner(handle.clone(), oversized_payload, &*history_state);
         assert!(res.is_err());
-        assert_eq!(history_state.0.lock().last().unwrap().event_type, "attempted_trace_events");
-        assert_eq!(history_state.0.lock().last().unwrap().trace_id, "oversized_trace");
+        assert_eq!(
+            history_state.0.lock().last().unwrap().event_type,
+            "attempted_trace_events"
+        );
+        assert_eq!(
+            history_state.0.lock().last().unwrap().trace_id,
+            "oversized_trace"
+        );
 
         // TIVF-P14-10: burst backpressure keeps bounded latest history
         for i in 0..15 {
@@ -3355,7 +3655,8 @@ mod tests {
                 "outputs": {},
                 "diagnostics": {},
                 "slot_values": {}
-            }).to_string();
+            })
+            .to_string();
             let _ = ingest_external_trace_event_inner(handle.clone(), p, &*history_state);
         }
         {
@@ -3379,8 +3680,10 @@ mod tests {
             "outputs": {},
             "diagnostics": {},
             "slot_values": {}
-        }).to_string();
-        let res = ingest_external_trace_event_inner(handle.clone(), failed_payload, &*history_state);
+        })
+        .to_string();
+        let res =
+            ingest_external_trace_event_inner(handle.clone(), failed_payload, &*history_state);
         assert!(res.is_ok());
         let failed_receipt = res.unwrap();
         assert_eq!(failed_receipt.event_type, "attempted_trace_events");
@@ -3416,7 +3719,8 @@ mod tests {
             "diagnostics": { "warnings": [] },
             "slot_values": { "key_val": "secret-value" },
             "passport_signature": "valid-mock-signature"
-        }).to_string();
+        })
+        .to_string();
 
         let res = ingest_adapted_vm_trace_inner(handle.clone(), valid_payload, &*history_state);
         assert!(res.is_ok());
@@ -3433,8 +3737,16 @@ mod tests {
 
         // Status Vocabulary Mappings
         let mappings = vec![
-            ("execution_failed", "failed: execution_failed", "attempted_trace_events"),
-            ("diagnostic_only", "failed: diagnostic_only", "attempted_trace_events"),
+            (
+                "execution_failed",
+                "failed: execution_failed",
+                "attempted_trace_events",
+            ),
+            (
+                "diagnostic_only",
+                "failed: diagnostic_only",
+                "attempted_trace_events",
+            ),
             ("partial", "failed: partial", "attempted_trace_events"),
         ];
 
@@ -3449,7 +3761,8 @@ mod tests {
                 "diagnostics": {},
                 "slot_values": {},
                 "passport_signature": "valid-mock-signature"
-            }).to_string();
+            })
+            .to_string();
 
             let res = ingest_adapted_vm_trace_inner(handle.clone(), payload, &*history_state);
             assert!(res.is_ok());
@@ -3469,7 +3782,8 @@ mod tests {
             "diagnostics": {},
             "slot_values": {},
             "passport_signature": "valid-mock-signature"
-        }).to_string();
+        })
+        .to_string();
         let res = ingest_adapted_vm_trace_inner(handle.clone(), rejected_payload, &*history_state);
         assert!(res.is_err());
         {
@@ -3491,7 +3805,8 @@ mod tests {
             "diagnostics": {},
             "slot_values": {},
             "passport_signature": "valid-mock-signature"
-        }).to_string();
+        })
+        .to_string();
         let res = ingest_adapted_vm_trace_inner(handle.clone(), unknown_payload, &*history_state);
         assert!(res.is_err());
 
@@ -3515,8 +3830,10 @@ mod tests {
             "diagnostics": {},
             "slot_values": {},
             "passport_signature": "invalid-sig"
-        }).to_string();
-        let res = ingest_adapted_vm_trace_inner(handle.clone(), invalid_sig_payload, &*history_state);
+        })
+        .to_string();
+        let res =
+            ingest_adapted_vm_trace_inner(handle.clone(), invalid_sig_payload, &*history_state);
         assert!(res.is_err());
 
         // Burst backpressure & FIFO capacity-10 eviction
@@ -3531,7 +3848,8 @@ mod tests {
                 "diagnostics": {},
                 "slot_values": {},
                 "passport_signature": "valid-mock-signature"
-            }).to_string();
+            })
+            .to_string();
             let _ = ingest_adapted_vm_trace_inner(handle.clone(), payload, &*history_state);
         }
 
@@ -3713,8 +4031,13 @@ mod tests {
         let handle = app.handle();
         let history_state = handle.state::<TelemetryHistoryState>();
 
-        let envelope_path = resolve_workspace_path("frame-ui/igniter-view-engine/out/ruby_telemetry_ingress_envelope.json");
-        assert!(envelope_path.exists(), "Preflight envelope file must exist. Run the ruby script first.");
+        let envelope_path = resolve_workspace_path(
+            "frame-ui/igniter-view-engine/out/ruby_telemetry_ingress_envelope.json",
+        );
+        assert!(
+            envelope_path.exists(),
+            "Preflight envelope file must exist. Run the ruby script first."
+        );
 
         let payload_json = std::fs::read_to_string(envelope_path).unwrap();
 
@@ -3739,8 +4062,14 @@ mod tests {
         let key = b"test-secret-token-123";
         let message = b"{\"contract_name\":\"test_contract\",\"diagnostics\":{},\"outputs\":{},\"producer_id\":\"ruby-vm-runner-v1.0\",\"slot_values\":{},\"status\":\"applied\",\"target_views\":[\"test_view\"],\"timestamp\":\"2026-06-06T12:00:00Z\",\"transaction_id\":\"tx_test_123\"}";
         let sig_bytes = hmac_sha256(key, message);
-        let sig_hex = sig_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-        assert_eq!(sig_hex, "dae26cc34b75477fc3fff817426cd8b7b063bde73cf501749459c5229548df23");
+        let sig_hex = sig_bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+        assert_eq!(
+            sig_hex,
+            "dae26cc34b75477fc3fff817426cd8b7b063bde73cf501749459c5229548df23"
+        );
     }
 
     #[test]
@@ -3753,10 +4082,15 @@ mod tests {
         let session_state = handle.state::<ActiveSessionState>();
 
         // TIVF-P20-1: Successful session execution
-        let res = run_session_telemetry_dispatch_inner(handle.clone(), "applied".to_string(), &history_state, &session_state);
+        let res = run_session_telemetry_dispatch_inner(
+            handle.clone(),
+            "applied".to_string(),
+            &history_state,
+            &session_state,
+        );
         assert!(res.is_ok(), "Session dispatch failed: {:?}", res.err());
         let receipt = res.unwrap();
-        
+
         assert_eq!(receipt.status, "success");
         assert_eq!(receipt.event_type, "applied_trace_events");
 
@@ -3777,7 +4111,9 @@ mod tests {
 
         // Helper to trigger Ruby runner directly and return the payload json
         let run_ruby = |token: &str, tx_id: &str, status: &str, oversized: bool| -> String {
-            let ruby_script_path = resolve_workspace_path("frame-ui/igniter-view-engine/run_mock_session_runner_hmac_proof.rb");
+            let ruby_script_path = resolve_workspace_path(
+                "frame-ui/igniter-view-engine/run_mock_session_runner_hmac_proof.rb",
+            );
             let output = std::process::Command::new("ruby")
                 .arg(&ruby_script_path)
                 .arg(token)
@@ -3789,7 +4125,8 @@ mod tests {
                 .unwrap();
             assert!(output.status.success());
             let filename = format!("ruby_session_ingress_envelope_{}.json", tx_id);
-            let envelope_path = resolve_workspace_path("frame-ui/igniter-view-engine/out").join(filename);
+            let envelope_path =
+                resolve_workspace_path("frame-ui/igniter-view-engine/out").join(filename);
             let content = std::fs::read_to_string(&envelope_path).unwrap();
             let _ = std::fs::remove_file(envelope_path);
             content
@@ -3808,7 +4145,12 @@ mod tests {
 
             // Ruby signs with wrong token
             let payload = run_ruby("wrong-token", &transaction_id, "applied", false);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Invalid signature"));
         }
@@ -3826,7 +4168,12 @@ mod tests {
 
             // Ruby payload contains wrong transaction_id
             let payload = run_ruby(&session_token, "tx_session_wrong", "applied", false);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Transaction ID mismatch"));
         }
@@ -3844,7 +4191,12 @@ mod tests {
             }
 
             let payload = run_ruby(&session_token, &transaction_id, "applied", false);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Session timed out"));
         }
@@ -3861,9 +4213,14 @@ mod tests {
             }
 
             let payload = run_ruby(&session_token, &transaction_id, "applied", false);
-            
+
             // First ingest passes
-            let res1 = validate_and_ingest_session_envelope(handle.clone(), payload.clone(), &history_state, &session_state);
+            let res1 = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload.clone(),
+                &history_state,
+                &session_state,
+            );
             assert!(res1.is_ok());
 
             // Clear session state
@@ -3873,7 +4230,12 @@ mod tests {
             }
 
             // Second ingest fails
-            let res2 = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res2 = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res2.is_err());
             assert!(res2.unwrap_err().contains("Stale or missing session"));
         }
@@ -3890,7 +4252,12 @@ mod tests {
             }
 
             let payload = run_ruby(&session_token, &transaction_id, "applied", true);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Payload size exceeds"));
         }
@@ -3907,7 +4274,12 @@ mod tests {
             }
 
             let payload = run_ruby(&session_token, &transaction_id, "crash_and_burn", false);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Unknown status"));
         }
@@ -3924,7 +4296,12 @@ mod tests {
             }
 
             let payload = run_ruby(&session_token, &transaction_id, "unsigned", false);
-            let res = validate_and_ingest_session_envelope(handle.clone(), payload, &history_state, &session_state);
+            let res = validate_and_ingest_session_envelope(
+                handle.clone(),
+                payload,
+                &history_state,
+                &session_state,
+            );
             assert!(res.is_err());
             assert!(res.unwrap_err().contains("Missing passport_signature"));
         }
@@ -3936,11 +4313,17 @@ mod tests {
         let ws_dir_str = ws_dir.to_string_lossy().to_string();
 
         // 1. Success path
-        let receipt_path = resolve_workspace_path("frame-ui/igniter-gui-engine/out/scene_introspection_receipt.json");
+        let receipt_path = resolve_workspace_path(
+            "frame-ui/igniter-gui-engine/out/scene_introspection_receipt.json",
+        );
         let receipt_path_str = receipt_path.to_string_lossy().to_string();
 
         let res = read_introspection_receipt_inner(receipt_path_str, ws_dir_str.clone());
-        assert!(res.is_ok(), "Failed to read scene_introspection_receipt: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Failed to read scene_introspection_receipt: {:?}",
+            res.err()
+        );
         let receipt = res.unwrap();
         assert_eq!(receipt.view_id, "igniter.lab.dashboard");
         assert_eq!(receipt.node_count, 7);
@@ -3954,37 +4337,48 @@ mod tests {
         if let Ok(canon_outside) = outside_file.canonicalize() {
             let res_traversal = read_introspection_receipt_inner(
                 canon_outside.to_string_lossy().to_string(),
-                ws_dir_str.clone()
+                ws_dir_str.clone(),
             );
             assert!(res_traversal.is_err());
-            assert!(res_traversal.unwrap_err().contains("Path traversal check failed"));
+            assert!(res_traversal
+                .unwrap_err()
+                .contains("Path traversal check failed"));
         }
         let _ = fs::remove_file(outside_file);
 
         // 3. Oversized payload rejection (> 65KB)
-        let oversized_path = resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_oversized.json");
+        let oversized_path =
+            resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_oversized.json");
         let oversized_path_str = oversized_path.to_string_lossy().to_string();
         let mut large_content = String::new();
         for _ in 0..70000 {
             large_content.push('x');
         }
         let _ = fs::write(&oversized_path, large_content);
-        let res_oversized = read_introspection_receipt_inner(oversized_path_str, ws_dir_str.clone());
+        let res_oversized =
+            read_introspection_receipt_inner(oversized_path_str, ws_dir_str.clone());
         assert!(res_oversized.is_err());
-        assert!(res_oversized.unwrap_err().contains("Oversized receipt payload"));
+        assert!(res_oversized
+            .unwrap_err()
+            .contains("Oversized receipt payload"));
         let _ = fs::remove_file(oversized_path);
 
         // 4. Malformed JSON rejection
-        let malformed_path = resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_malformed.json");
+        let malformed_path =
+            resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_malformed.json");
         let malformed_path_str = malformed_path.to_string_lossy().to_string();
         let _ = fs::write(&malformed_path, "{ malformed json }");
-        let res_malformed = read_introspection_receipt_inner(malformed_path_str, ws_dir_str.clone());
+        let res_malformed =
+            read_introspection_receipt_inner(malformed_path_str, ws_dir_str.clone());
         assert!(res_malformed.is_err());
-        assert!(res_malformed.unwrap_err().contains("Malformed receipt JSON structure"));
+        assert!(res_malformed
+            .unwrap_err()
+            .contains("Malformed receipt JSON structure"));
         let _ = fs::remove_file(malformed_path);
 
         // 5. Schema validation rejection
-        let invalid_schema_path = resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_invalid_schema.json");
+        let invalid_schema_path =
+            resolve_workspace_path("frame-ui/igniter-gui-engine/out/temp_invalid_schema.json");
         let invalid_schema_path_str = invalid_schema_path.to_string_lossy().to_string();
         let invalid_json = serde_json::json!({
             "view_id": "test",
@@ -4007,11 +4401,15 @@ mod tests {
                 }
             },
             "non_claims": []
-        }).to_string();
+        })
+        .to_string();
         let _ = fs::write(&invalid_schema_path, invalid_json);
-        let res_schema = read_introspection_receipt_inner(invalid_schema_path_str, ws_dir_str.clone());
+        let res_schema =
+            read_introspection_receipt_inner(invalid_schema_path_str, ws_dir_str.clone());
         assert!(res_schema.is_err());
-        assert!(res_schema.unwrap_err().contains("Invalid containment value"));
+        assert!(res_schema
+            .unwrap_err()
+            .contains("Invalid containment value"));
         let _ = fs::remove_file(invalid_schema_path);
     }
 }

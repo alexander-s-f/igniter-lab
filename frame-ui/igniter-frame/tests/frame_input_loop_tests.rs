@@ -18,7 +18,10 @@ use serde_json::json;
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 /// An interactive entity carrying an `on_click` intent.
@@ -65,7 +68,12 @@ fn move_right_reducer() -> IntentReducer {
 }
 
 fn click(x: i64, y: i64) -> InputEvent {
-    InputEvent { kind: "click".to_string(), x, y, payload: json!(null) }
+    InputEvent {
+        kind: "click".to_string(),
+        x,
+        y,
+        payload: json!(null),
+    }
 }
 
 fn source(b: &Arc<dyn TBackend>) -> TBackendFrameSource {
@@ -78,9 +86,14 @@ fn hit_test_and_derive_intent() {
     rt().block_on(async {
         let b: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         b.write_fact(entity("e1", 0.0, true, 1.0)).await.unwrap(); // at screen (200,200)
-        let frame = project_frame(&source(&b), &Camera::default(), 0, None).await.unwrap();
+        let frame = project_frame(&source(&b), &Camera::default(), 0, None)
+            .await
+            .unwrap();
 
-        assert_eq!(hit_test(&frame, 200, 200).map(|n| n.id.as_str()), Some("e1"));
+        assert_eq!(
+            hit_test(&frame, 200, 200).map(|n| n.id.as_str()),
+            Some("e1")
+        );
         assert!(hit_test(&frame, 50, 50).is_none()); // miss
         let intent = derive_intent(&frame, &click(200, 200)).unwrap();
         assert_eq!(intent.action, "move_right");
@@ -95,17 +108,36 @@ fn intent_via_effect_not_frame_mutation() {
         let b: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         b.write_fact(entity("e1", 0.0, true, 1.0)).await.unwrap();
         let sink = TBackendIntentSink::new(b.clone(), move_right_reducer());
-        let fsink = TBackendFrameSink { backend: b.clone(), now: 999.0 };
+        let fsink = TBackendFrameSink {
+            backend: b.clone(),
+            now: 999.0,
+        };
 
-        let res = input_step(&source(&b), &sink, &fsink, &Camera::default(), &click(200, 200), 0, 10.0).await.unwrap();
+        let res = input_step(
+            &source(&b),
+            &sink,
+            &fsink,
+            &Camera::default(),
+            &click(200, 200),
+            0,
+            10.0,
+        )
+        .await
+        .unwrap();
 
         // frame was RE-PROJECTED from new state, not patched: e1 moved 0→1 ⇒ sx 200→250
         assert_eq!(res.frame_before.nodes[0].sx, 200);
         assert_eq!(res.frame_after.nodes[0].sx, 250);
-        assert_ne!(res.frame_before.render_digest(), res.frame_after.render_digest());
+        assert_ne!(
+            res.frame_before.render_digest(),
+            res.frame_after.render_digest()
+        );
         // the state change is a real new __world__ fact
         let world = source(&b).world().await.unwrap();
-        assert_eq!(world.iter().find(|(id, _)| id == "e1").unwrap().1["x"], json!(1.0));
+        assert_eq!(
+            world.iter().find(|(id, _)| id == "e1").unwrap().1["x"],
+            json!(1.0)
+        );
     });
 }
 
@@ -116,12 +148,37 @@ fn lineage_chain() {
         let b: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         b.write_fact(entity("e1", 0.0, true, 1.0)).await.unwrap();
         let sink = TBackendIntentSink::new(b.clone(), move_right_reducer());
-        let fsink = TBackendFrameSink { backend: b.clone(), now: 999.0 };
-        input_step(&source(&b), &sink, &fsink, &Camera::default(), &click(200, 200), 0, 10.0).await.unwrap();
+        let fsink = TBackendFrameSink {
+            backend: b.clone(),
+            now: 999.0,
+        };
+        input_step(
+            &source(&b),
+            &sink,
+            &fsink,
+            &Camera::default(),
+            &click(200, 200),
+            0,
+            10.0,
+        )
+        .await
+        .unwrap();
 
-        let inp = b.read_as_of(INPUT_STORE, "input:0", f64::MAX).await.unwrap().unwrap();
-        let eff = b.read_as_of(EFFECT_STORE, "effect:0", f64::MAX).await.unwrap().unwrap();
-        let frm = b.read_as_of("__frames__", "frame:1", f64::MAX).await.unwrap().unwrap();
+        let inp = b
+            .read_as_of(INPUT_STORE, "input:0", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
+        let eff = b
+            .read_as_of(EFFECT_STORE, "effect:0", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
+        let frm = b
+            .read_as_of("__frames__", "frame:1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(inp.value["kind"], json!("click"));
         assert_eq!(eff.causation.as_deref(), Some("input:0")); // effect ← input
         assert_eq!(frm.value["source_receipt_id"], json!("effect:0")); // frame ← effect
@@ -136,13 +193,33 @@ fn no_hit_no_effect() {
         let b: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         b.write_fact(entity("e1", 0.0, true, 1.0)).await.unwrap();
         let sink = TBackendIntentSink::new(b.clone(), move_right_reducer());
-        let fsink = TBackendFrameSink { backend: b.clone(), now: 999.0 };
+        let fsink = TBackendFrameSink {
+            backend: b.clone(),
+            now: 999.0,
+        };
 
-        let res = input_step(&source(&b), &sink, &fsink, &Camera::default(), &click(50, 50), 0, 10.0).await.unwrap();
+        let res = input_step(
+            &source(&b),
+            &sink,
+            &fsink,
+            &Camera::default(),
+            &click(50, 50),
+            0,
+            10.0,
+        )
+        .await
+        .unwrap();
         assert!(res.intent.is_none());
         assert!(res.effect_receipt_id.is_none());
-        assert_eq!(res.frame_before.render_digest(), res.frame_after.render_digest()); // no state change
-        assert!(b.read_as_of(EFFECT_STORE, "effect:0", f64::MAX).await.unwrap().is_none());
+        assert_eq!(
+            res.frame_before.render_digest(),
+            res.frame_after.render_digest()
+        ); // no state change
+        assert!(b
+            .read_as_of(EFFECT_STORE, "effect:0", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -157,10 +234,23 @@ fn deterministic_replay_input_log() {
             let b: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
             b.write_fact(entity("e1", 0.0, true, 1.0)).await.unwrap();
             let sink = TBackendIntentSink::new(b.clone(), move_right_reducer());
-            let fsink = TBackendFrameSink { backend: b.clone(), now: 999.0 };
+            let fsink = TBackendFrameSink {
+                backend: b.clone(),
+                now: 999.0,
+            };
             let mut digs = vec![];
             for (i, ev) in log.iter().enumerate() {
-                let res = input_step(&source(&b), &sink, &fsink, &Camera::default(), ev, i as u64, 10.0 + i as f64).await.unwrap();
+                let res = input_step(
+                    &source(&b),
+                    &sink,
+                    &fsink,
+                    &Camera::default(),
+                    ev,
+                    i as u64,
+                    10.0 + i as f64,
+                )
+                .await
+                .unwrap();
                 digs.push(res.frame_after.render_digest());
             }
             digs

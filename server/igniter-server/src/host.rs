@@ -32,19 +32,30 @@ use std::net::{TcpListener, TcpStream};
 pub fn execute(decision: ServerDecision) -> ServerResponse {
     match decision {
         ServerDecision::Respond { response } => response,
-        ServerDecision::Invoke { target, correlation_id, idempotency_key, .. } => {
-            observed("invoke", &target, correlation_id, idempotency_key)
-        }
-        ServerDecision::InvokeEffect { target, correlation_id, idempotency_key, .. } => {
-            observed("invoke_effect", &target, correlation_id, idempotency_key)
-        }
+        ServerDecision::Invoke {
+            target,
+            correlation_id,
+            idempotency_key,
+            ..
+        } => observed("invoke", &target, correlation_id, idempotency_key),
+        ServerDecision::InvokeEffect {
+            target,
+            correlation_id,
+            idempotency_key,
+            ..
+        } => observed("invoke_effect", &target, correlation_id, idempotency_key),
     }
 }
 
 /// A decision the host observed but does not execute in P2. 202 = accepted-for-processing; the body
 /// names the decision kind + logical target so a test (or P3 executor) can read exactly what the app
 /// decided. It deliberately carries no effect identity — there is none in the protocol to leak.
-fn observed(kind: &str, target: &str, correlation_id: Option<String>, idempotency_key: Option<String>) -> ServerResponse {
+fn observed(
+    kind: &str,
+    target: &str,
+    correlation_id: Option<String>,
+    idempotency_key: Option<String>,
+) -> ServerResponse {
     ServerResponse::json(
         202,
         json!({
@@ -69,7 +80,11 @@ pub fn serve_once(listener: &TcpListener, app: &dyn ServerApp) -> std::io::Resul
 
 /// Serve a bounded number of connections, then return. The ONLY exit is the count — there is no
 /// daemon and no unbounded loop.
-pub fn serve_bounded(listener: &TcpListener, app: &dyn ServerApp, max_requests: usize) -> std::io::Result<usize> {
+pub fn serve_bounded(
+    listener: &TcpListener,
+    app: &dyn ServerApp,
+    max_requests: usize,
+) -> std::io::Result<usize> {
     let mut served = 0;
     while served < max_requests {
         serve_once(listener, app)?;
@@ -82,7 +97,10 @@ pub fn serve_bounded(listener: &TcpListener, app: &dyn ServerApp, max_requests: 
 /// then serve that exact instance. A `swap` between requests is picked up by the next snapshot; an
 /// in-flight request keeps the instance it snapshotted. The host still never inspects `(method, path)`
 /// — routing is entirely the snapshotted app's `call`.
-pub fn serve_once_reloadable(listener: &TcpListener, app: &crate::reload::ReloadableApp) -> std::io::Result<()> {
+pub fn serve_once_reloadable(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+) -> std::io::Result<()> {
     serve_once_reloadable_observed(listener, app).map(|_| ())
 }
 
@@ -106,7 +124,11 @@ pub fn serve_once_reloadable_observed(
 
 /// Reloadable variant of `serve_bounded`. Each served request re-snapshots, so a swap performed
 /// between two requests on the same listener takes effect for the later request.
-pub fn serve_bounded_reloadable(listener: &TcpListener, app: &crate::reload::ReloadableApp, max_requests: usize) -> std::io::Result<usize> {
+pub fn serve_bounded_reloadable(
+    listener: &TcpListener,
+    app: &crate::reload::ReloadableApp,
+    max_requests: usize,
+) -> std::io::Result<usize> {
     let mut served = 0;
     while served < max_requests {
         serve_once_reloadable(listener, app)?;

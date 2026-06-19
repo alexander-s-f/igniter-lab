@@ -1,11 +1,11 @@
 // src/decimal.rs
 // Fixed-point Decimal arithmetic candidate for lab VM proofs
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decimal {
-    pub value: i64,  // Scaled integer: value = real_value * 10^scale
+    pub value: i64, // Scaled integer: value = real_value * 10^scale
     pub scale: u32,
 }
 
@@ -21,7 +21,10 @@ impl Decimal {
     pub fn from_f64(val: f64, scale: u32) -> Self {
         let factor = 10f64.powi(scale as i32);
         let int_val = (val * factor).round() as i64;
-        Decimal { value: int_val, scale }
+        Decimal {
+            value: int_val,
+            scale,
+        }
     }
 
     // OOF-TC5: Addition requires matching scales
@@ -62,6 +65,9 @@ impl Decimal {
                 self.scale, other.scale
             ));
         }
-        Ok(Decimal::new(self.value / other.value, self.scale - other.scale))
+        Ok(Decimal::new(
+            self.value / other.value,
+            self.scale - other.scale,
+        ))
     }
 }

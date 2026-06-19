@@ -28,9 +28,12 @@ fn req(method: &str, path: &str, headers: &[(&str, &str)], body: Value) -> Serve
 
 fn invoke_effect(d: &ServerDecision) -> (&str, &Value, &Option<String>, &Option<String>) {
     match d {
-        ServerDecision::InvokeEffect { target, input, correlation_id, idempotency_key } => {
-            (target.as_str(), input, correlation_id, idempotency_key)
-        }
+        ServerDecision::InvokeEffect {
+            target,
+            input,
+            correlation_id,
+            idempotency_key,
+        } => (target.as_str(), input, correlation_id, idempotency_key),
         other => panic!("expected InvokeEffect, got {other:?}"),
     }
 }
@@ -59,7 +62,11 @@ fn post_tickets_with_key_is_invoke_effect() {
     let (target, input, correlation_id, idempotency_key) = invoke_effect(&d);
     assert_eq!(target, "ticket-create");
     assert_eq!(idempotency_key.as_deref(), Some("tkt-1001"));
-    assert_eq!(correlation_id.as_deref(), Some("corr-1"), "correlation propagated");
+    assert_eq!(
+        correlation_id.as_deref(),
+        Some("corr-1"),
+        "correlation propagated"
+    );
     // sanitized input: only the declared clean fields, app-controlled defaults.
     assert_eq!(input["title"], json!("printer jam"));
     assert_eq!(input["priority"], json!("high"));
@@ -68,7 +75,11 @@ fn post_tickets_with_key_is_invoke_effect() {
 #[test]
 fn keyless_post_tickets_is_400_no_effect() {
     let d = ExampleApp.call(req("POST", "/tickets", &[], json!({ "title": "no key" })));
-    assert_eq!(respond_status(&d), 400, "keyless → 400, never a silent fresh effect");
+    assert_eq!(
+        respond_status(&d),
+        400,
+        "keyless → 400, never a silent fresh effect"
+    );
 }
 
 #[test]
@@ -79,7 +90,12 @@ fn unknown_route_is_404() {
 
 #[test]
 fn decision_carries_no_privileged_effect_identity() {
-    let d = ExampleApp.call(req("POST", "/tickets", &[("idempotency-key", "tkt-9")], json!({ "title": "x" })));
+    let d = ExampleApp.call(req(
+        "POST",
+        "/tickets",
+        &[("idempotency-key", "tkt-9")],
+        json!({ "title": "x" }),
+    ));
     let encoded = serde_json::to_value(&d).unwrap();
     assert_eq!(encoded["kind"], json!("invoke_effect"));
     assert!(encoded.get("capability_id").is_none());
@@ -103,11 +119,19 @@ fn composes_with_p8_middleware() {
     assert_eq!(respond_status(&unauth), 401);
 
     // valid token → flows through Trace + app; /health is 200 and Trace decorated the correlation id.
-    let ok = stack.call(req("GET", "/health", &[("authorization", "Bearer demo-secret")], Value::Null));
+    let ok = stack.call(req(
+        "GET",
+        "/health",
+        &[("authorization", "Bearer demo-secret")],
+        Value::Null,
+    ));
     match ok {
         ServerDecision::Respond { response } => {
             assert_eq!(response.status, 200);
-            assert!(response.headers.contains_key("x-correlation-id"), "TraceApp decorated the response");
+            assert!(
+                response.headers.contains_key("x-correlation-id"),
+                "TraceApp decorated the response"
+            );
         }
         other => panic!("expected Respond, got {other:?}"),
     }
@@ -123,12 +147,18 @@ fn health_over_real_loopback_host() {
     });
 
     let mut stream = TcpStream::connect(&addr).unwrap();
-    stream.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n").unwrap();
+    stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n")
+        .unwrap();
     stream.flush().unwrap();
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).unwrap();
     let text = String::from_utf8_lossy(&raw);
-    let status: u16 = text.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let status: u16 = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
 
     server.join().unwrap();
     assert_eq!(status, 200);

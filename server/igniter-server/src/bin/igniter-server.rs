@@ -21,7 +21,9 @@ fn main() -> std::io::Result<()> {
     // loopback ONLY — never a public address.
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     let addr = listener.local_addr()?;
-    println!("igniter-server listening on http://{addr} (loopback, {max_requests} request(s) then exit)");
+    println!(
+        "igniter-server listening on http://{addr} (loopback, {max_requests} request(s) then exit)"
+    );
 
     let app = DemoApp;
     let served = serve_bounded(&listener, &app, max_requests)?;

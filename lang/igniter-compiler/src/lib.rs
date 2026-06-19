@@ -1,13 +1,13 @@
-pub mod lexer;
-pub mod parser;
+pub mod assembler;
 pub mod classifier;
-pub mod typechecker;
+pub mod emitter;
 pub mod form_registry;
 pub mod form_resolver;
-pub mod emitter;
-pub mod assembler;
+pub mod lexer;
 pub mod monomorphizer;
 pub mod multifile;
+pub mod parser;
+pub mod typechecker;
 // LAB-IGNITER-WEB-ROUTING-LOWERING-P4: `.igweb` route sugar → explicit `.ig` Serve (lab tooling)
 pub mod igweb;
 // LAB-COMPILER-PROJECT-MODE-COMPILE-P1: project-root assembly + import closure

@@ -26,9 +26,11 @@ fn compile_multifile(files: &[&str], out_name: &str) -> (Value, Value) {
     args.push("--out".into());
     args.push(out.to_string_lossy().to_string());
 
-    let output = Command::new(bin()).args(&args).output().expect("run binary");
-    let result: Value =
-        serde_json::from_slice(&output.stdout).expect("result json");
+    let output = Command::new(bin())
+        .args(&args)
+        .output()
+        .expect("run binary");
+    let result: Value = serde_json::from_slice(&output.stdout).expect("result json");
     let report = read_report(&out, out_name);
     (result, report)
 }
@@ -36,7 +38,8 @@ fn compile_multifile(files: &[&str], out_name: &str) -> (Value, Value) {
 /// Read the compilation report from whichever layout was produced.
 fn read_report(out_igapp: &PathBuf, out_name: &str) -> Value {
     let inside = out_igapp.join("compilation_report.json");
-    let sibling = std::env::temp_dir().join(format!("igc_slm_{}.compilation_report.json", out_name));
+    let sibling =
+        std::env::temp_dir().join(format!("igc_slm_{}.compilation_report.json", out_name));
     for p in [inside, sibling] {
         if let Ok(s) = std::fs::read_to_string(&p) {
             return serde_json::from_str(&s).unwrap();
@@ -90,7 +93,10 @@ fn valid_multifile_maps_lines_back_to_units() {
         .filter_map(|e| e["original_line"].as_u64())
         .min()
         .unwrap();
-    assert_eq!(min_b, 3, "header lines must not compact original line numbers");
+    assert_eq!(
+        min_b, 3,
+        "header lines must not compact original line numbers"
+    );
 }
 
 #[test]
@@ -110,7 +116,10 @@ fn line_map_present_in_semantic_ir() {
         &std::fs::read_to_string(out.join("semantic_ir_program.json")).unwrap(),
     )
     .unwrap();
-    assert!(ir.get("source_line_map").and_then(|v| v.as_array()).is_some());
+    assert!(ir
+        .get("source_line_map")
+        .and_then(|v| v.as_array())
+        .is_some());
 }
 
 // ── Acceptance 7 (positive): parse diagnostics carry a merged line → enriched ─
@@ -119,14 +128,20 @@ fn line_map_present_in_semantic_ir() {
 fn parse_error_diagnostic_is_enriched_with_origin() {
     let (result, report) = compile_multifile(&["a.ig", "b_parse_error.ig"], "parse");
     assert_eq!(result["status"], "error", "result: {result}");
-    assert!(report.get("source_line_map").is_some(), "map attached on parse-error path");
+    assert!(
+        report.get("source_line_map").is_some(),
+        "map attached on parse-error path"
+    );
 
     let diags = result["diagnostics"].as_array().unwrap();
     let enriched = diags
         .iter()
         .find(|d| d.get("original_line").is_some())
         .expect("a parse diagnostic enriched with origin");
-    assert!(enriched["source_path"].as_str().unwrap().ends_with("b_parse_error.ig"));
+    assert!(enriched["source_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("b_parse_error.ig"));
     assert_eq!(enriched["module_path"], "Map.B");
     // `input @@@ bad` is original line 5 of b_parse_error.ig.
     assert_eq!(enriched["original_line"].as_u64(), Some(5));
@@ -141,12 +156,24 @@ fn typecheck_oof_has_null_line_and_is_not_enriched() {
     let (result, report) = compile_multifile(&["a.ig", "b_typecheck_oof.ig"], "tc");
     assert_eq!(result["status"], "oof", "result: {result}");
     // The map is still emitted as evidence...
-    assert!(!line_map(&report).is_empty(), "source_line_map emitted even when diags can't be enriched");
+    assert!(
+        !line_map(&report).is_empty(),
+        "source_line_map emitted even when diags can't be enriched"
+    );
     // ...but the OOF-P1 diagnostic has line:null and therefore no origin fields.
     let diags = result["diagnostics"].as_array().unwrap();
-    let oof = diags.iter().find(|d| d["rule"] == "OOF-P1").expect("OOF-P1 present");
-    assert!(oof["line"].is_null(), "merged typecheck diag currently has line:null");
-    assert!(oof.get("original_line").is_none(), "cannot enrich a null-line diagnostic");
+    let oof = diags
+        .iter()
+        .find(|d| d["rule"] == "OOF-P1")
+        .expect("OOF-P1 present");
+    assert!(
+        oof["line"].is_null(),
+        "merged typecheck diag currently has line:null"
+    );
+    assert!(
+        oof.get("original_line").is_none(),
+        "cannot enrich a null-line diagnostic"
+    );
 }
 
 // ── Acceptance 8: single-file builds have no line map (no regression) ────────
@@ -155,7 +182,12 @@ fn typecheck_oof_has_null_line_and_is_not_enriched() {
 fn single_file_has_no_source_line_map() {
     let out = std::env::temp_dir().join("igc_slm_single.igapp");
     let output = Command::new(bin())
-        .args(["compile", &format!("{FIX}/a.ig"), "--out", out.to_str().unwrap()])
+        .args([
+            "compile",
+            &format!("{FIX}/a.ig"),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -164,7 +196,10 @@ fn single_file_has_no_source_line_map() {
         &std::fs::read_to_string(out.join("compilation_report.json")).unwrap(),
     )
     .unwrap();
-    assert!(report.get("source_line_map").is_none(), "single-file must not emit a line map");
+    assert!(
+        report.get("source_line_map").is_none(),
+        "single-file must not emit a line map"
+    );
 }
 
 // ── Acceptance 6: overlay honesty — map source_path is the overlay buffer path ─
@@ -197,11 +232,17 @@ fn overlay_line_map_uses_buffer_path() {
     )
     .unwrap();
     let map = line_map(&report);
-    let over_main: Vec<&Value> = map.iter().filter(|e| e["module_path"] == "Over.Main").collect();
+    let over_main: Vec<&Value> = map
+        .iter()
+        .filter(|e| e["module_path"] == "Over.Main")
+        .collect();
     assert!(!over_main.is_empty(), "Over.Main lines mapped");
     for e in over_main {
         assert!(
-            e["source_path"].as_str().unwrap().ends_with("buffers/main_add_extra.ig"),
+            e["source_path"]
+                .as_str()
+                .unwrap()
+                .ends_with("buffers/main_add_extra.ig"),
             "overlaid unit must carry the overlay buffer path, got {}",
             e["source_path"]
         );

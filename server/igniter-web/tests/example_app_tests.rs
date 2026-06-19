@@ -14,19 +14,32 @@ fn example_sources() -> Vec<PathBuf> {
     // P10: no `web_types.ig` — the builder injects the shared IgWebPrelude.
     ["todo_handlers.ig", "routes.igweb"]
         .iter()
-        .map(|f| PathBuf::from(format!("{}/examples/todo_app/{}", env!("CARGO_MANIFEST_DIR"), f)))
+        .map(|f| {
+            PathBuf::from(format!(
+                "{}/examples/todo_app/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                f
+            ))
+        })
         .collect()
 }
 
 fn build() -> Arc<dyn ServerApp + Send + Sync> {
-    build_igweb_app(IgWebBuildInput { sources: example_sources(), entry: "Serve".into() })
-        .expect("build example todo app from authored files")
+    build_igweb_app(IgWebBuildInput {
+        sources: example_sources(),
+        entry: "Serve".into(),
+    })
+    .expect("build example todo app from authored files")
 }
 
 #[test]
 fn example_files_exist_on_disk() {
     for p in example_sources() {
-        assert!(p.exists(), "authored example file must exist: {}", p.display());
+        assert!(
+            p.exists(),
+            "authored example file must exist: {}",
+            p.display()
+        );
     }
 }
 
@@ -42,7 +55,11 @@ fn example_route_param() {
     let app = build();
     let (status, body) = roundtrip(&*app, "GET", "/todos/42", &[], "");
     assert_eq!(status, 200);
-    assert_eq!(body["body"], json!("42"), "path param via generated regexp/capture");
+    assert_eq!(
+        body["body"],
+        json!("42"),
+        "path param via generated regexp/capture"
+    );
 }
 
 #[test]
@@ -54,11 +71,20 @@ fn example_keyless_mutation_is_400() {
 #[test]
 fn example_keyed_mutation_is_invoke_effect() {
     let app = build();
-    let (status, body) = roundtrip(&*app, "POST", "/todos/42/done", &[("idempotency-key", "evt-1")], "{}");
+    let (status, body) = roundtrip(
+        &*app,
+        "POST",
+        "/todos/42/done",
+        &[("idempotency-key", "evt-1")],
+        "{}",
+    );
     assert_eq!(status, 202);
     assert_eq!(body["target"], json!("todo-done"));
     assert_eq!(body["idempotency_key"], json!("evt-1"));
-    assert!(body.get("capability_id").is_none(), "no privileged effect identity");
+    assert!(
+        body.get("capability_id").is_none(),
+        "no privileged effect identity"
+    );
     assert!(body.get("scope").is_none());
 }
 
@@ -73,6 +99,20 @@ fn example_unknown_and_method_refusals() {
 fn example_composes_with_middleware() {
     // the example app composes under P8 wrappers like any ServerApp.
     let stack = build().with_auth("tok");
-    assert_eq!(roundtrip(&stack, "GET", "/health", &[], "").0, 401, "auth short-circuits");
-    assert_eq!(roundtrip(&stack, "GET", "/health", &[("authorization", "Bearer tok")], "").0, 200);
+    assert_eq!(
+        roundtrip(&stack, "GET", "/health", &[], "").0,
+        401,
+        "auth short-circuits"
+    );
+    assert_eq!(
+        roundtrip(
+            &stack,
+            "GET",
+            "/health",
+            &[("authorization", "Bearer tok")],
+            ""
+        )
+        .0,
+        200
+    );
 }

@@ -308,9 +308,9 @@ fn build_module_index(
                 by_module.insert(module, scanned);
             }
             Some(existing) => {
-                let entry = dup_acc.entry(module.clone()).or_insert_with(|| {
-                    vec![existing.source_path.to_string_lossy().to_string()]
-                });
+                let entry = dup_acc
+                    .entry(module.clone())
+                    .or_insert_with(|| vec![existing.source_path.to_string_lossy().to_string()]);
                 entry.push(this_path);
                 entry.sort();
                 entry.dedup();

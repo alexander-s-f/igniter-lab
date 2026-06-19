@@ -55,7 +55,9 @@ impl PostgresWriteIntent {
     pub fn from_args(args: &Value) -> Result<PostgresWriteIntent, String> {
         for raw in ["sql", "raw_sql", "query"] {
             if args.get(raw).and_then(|v| v.as_str()).is_some() {
-                return Err(format!("raw SQL refused (`{raw}`): contracts emit typed intents, not SQL"));
+                return Err(format!(
+                    "raw SQL refused (`{raw}`): contracts emit typed intents, not SQL"
+                ));
             }
         }
         let operation = args
@@ -77,8 +79,17 @@ impl PostgresWriteIntent {
             .ok_or_else(|| "missing `key`".to_string())?
             .to_string();
         let values = args.get("values").cloned().unwrap_or_else(|| json!({}));
-        let correlation_id = args.get("correlation_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-        Ok(PostgresWriteIntent { operation, target, key, values, correlation_id })
+        let correlation_id = args
+            .get("correlation_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        Ok(PostgresWriteIntent {
+            operation,
+            target,
+            key,
+            values,
+            correlation_id,
+        })
     }
 }
 
@@ -130,7 +141,11 @@ pub enum PostgresWriteResult {
 /// it receives is already gate-checked.
 #[async_trait]
 pub trait PostgresWriteAdapter: Send + Sync {
-    async fn transact(&self, intent: &PostgresWriteIntent, idempotency_key: &str) -> PostgresWriteResult;
+    async fn transact(
+        &self,
+        intent: &PostgresWriteIntent,
+        idempotency_key: &str,
+    ) -> PostgresWriteResult;
 }
 
 // ── The executor ───────────────────────────────────────────────────────────────
@@ -147,7 +162,11 @@ pub struct PostgresWriteExecutor<A: PostgresWriteAdapter> {
 
 impl<A: PostgresWriteAdapter> PostgresWriteExecutor<A> {
     pub fn new(capability_id: &str, adapter: Arc<A>, policy: PostgresWritePolicy) -> Self {
-        Self { capability_id: capability_id.to_string(), adapter, policy }
+        Self {
+            capability_id: capability_id.to_string(),
+            adapter,
+            policy,
+        }
     }
 }
 
@@ -166,11 +185,21 @@ impl<A: PostgresWriteAdapter + 'static> CapabilityExecutor for PostgresWriteExec
         };
 
         // (gate) target allowlist — refused before the adapter (denial-as-data).
-        if !self.policy.allowed_targets.iter().any(|t| t == &intent.target) {
+        if !self
+            .policy
+            .allowed_targets
+            .iter()
+            .any(|t| t == &intent.target)
+        {
             return EffectOutcome::denied(&format!("target not allowed: {}", intent.target));
         }
         // (gate) operation allowlist.
-        if !self.policy.allowed_ops.iter().any(|o| o == &intent.operation) {
+        if !self
+            .policy
+            .allowed_ops
+            .iter()
+            .any(|o| o == &intent.operation)
+        {
             return EffectOutcome::denied(&format!("op not allowed: {}", intent.operation));
         }
 
@@ -194,9 +223,15 @@ impl<A: PostgresWriteAdapter + 'static> CapabilityExecutor for PostgresWriteExec
                 "correlation_id": corr,
             })),
             PostgresWriteResult::Denied(m) => EffectOutcome::denied(&m),
-            PostgresWriteResult::ConstraintViolation(m) => EffectOutcome::permanent(&format!("constraint violation: {m}")),
-            PostgresWriteResult::SerializationFailure(m) => EffectOutcome::retryable(&format!("serialization failure (rolled back): {m}")),
-            PostgresWriteResult::Unknown(m) => EffectOutcome::unknown(&format!("commit state unknown: {m}")),
+            PostgresWriteResult::ConstraintViolation(m) => {
+                EffectOutcome::permanent(&format!("constraint violation: {m}"))
+            }
+            PostgresWriteResult::SerializationFailure(m) => {
+                EffectOutcome::retryable(&format!("serialization failure (rolled back): {m}"))
+            }
+            PostgresWriteResult::Unknown(m) => {
+                EffectOutcome::unknown(&format!("commit state unknown: {m}"))
+            }
         }
     }
 }
@@ -264,24 +299,39 @@ impl FakePostgresWriteAdapter {
         self.effect_receipts.lock().unwrap().len()
     }
     pub fn has_effect_receipt(&self, idempotency_key: &str) -> bool {
-        self.effect_receipts.lock().unwrap().contains_key(idempotency_key)
+        self.effect_receipts
+            .lock()
+            .unwrap()
+            .contains_key(idempotency_key)
     }
 }
 
 #[async_trait]
 impl PostgresWriteAdapter for FakePostgresWriteAdapter {
-    async fn transact(&self, intent: &PostgresWriteIntent, idempotency_key: &str) -> PostgresWriteResult {
+    async fn transact(
+        &self,
+        intent: &PostgresWriteIntent,
+        idempotency_key: &str,
+    ) -> PostgresWriteResult {
         self.attempts.fetch_add(1, Ordering::SeqCst);
         match self.behavior {
             FakeWriteBehavior::Commit => {
                 // PG-side idempotency: the unique key blocks a second mutation even if the machine
                 // receipt is absent/lost.
-                if self.effect_receipts.lock().unwrap().contains_key(idempotency_key) {
+                if self
+                    .effect_receipts
+                    .lock()
+                    .unwrap()
+                    .contains_key(idempotency_key)
+                {
                     return PostgresWriteResult::DuplicateKey;
                 }
                 // ONE transaction: business mutation + effect-receipt upsert, both or neither.
                 let row_key = format!("{}/{}", intent.target, intent.key);
-                self.business_rows.lock().unwrap().insert(row_key, intent.values.clone());
+                self.business_rows
+                    .lock()
+                    .unwrap()
+                    .insert(row_key, intent.values.clone());
                 self.effect_receipts.lock().unwrap().insert(
                     idempotency_key.to_string(),
                     json!({
@@ -294,11 +344,19 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
             }
             FakeWriteBehavior::CommitButLost => {
                 // The commit lands (row + effect receipt) but the ack is lost → report unknown.
-                if self.effect_receipts.lock().unwrap().contains_key(idempotency_key) {
+                if self
+                    .effect_receipts
+                    .lock()
+                    .unwrap()
+                    .contains_key(idempotency_key)
+                {
                     return PostgresWriteResult::DuplicateKey;
                 }
                 let row_key = format!("{}/{}", intent.target, intent.key);
-                self.business_rows.lock().unwrap().insert(row_key, intent.values.clone());
+                self.business_rows
+                    .lock()
+                    .unwrap()
+                    .insert(row_key, intent.values.clone());
                 self.effect_receipts.lock().unwrap().insert(
                     idempotency_key.to_string(),
                     json!({
@@ -310,12 +368,12 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
                 PostgresWriteResult::Unknown("response lost after commit".to_string())
             }
             // The remaining behaviours roll back — no mutation, nothing recorded.
-            FakeWriteBehavior::ConstraintViolation => {
-                PostgresWriteResult::ConstraintViolation("duplicate value violates unique constraint".to_string())
-            }
-            FakeWriteBehavior::SerializationFailure => {
-                PostgresWriteResult::SerializationFailure("could not serialize access due to concurrent update".to_string())
-            }
+            FakeWriteBehavior::ConstraintViolation => PostgresWriteResult::ConstraintViolation(
+                "duplicate value violates unique constraint".to_string(),
+            ),
+            FakeWriteBehavior::SerializationFailure => PostgresWriteResult::SerializationFailure(
+                "could not serialize access due to concurrent update".to_string(),
+            ),
             FakeWriteBehavior::Unknown => {
                 // Lost-after-send: the response never came back. v0 records nothing and refuses to
                 // guess; the landed-but-unknown case is resolved by reconcile (P4), not here.
@@ -341,7 +399,11 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PostgresReceiptLookup {
     /// The effect-receipt row exists → the transaction committed. Carries the recorded identity.
-    Found { correlation_id: Option<String>, target: String, key: String },
+    Found {
+        correlation_id: Option<String>,
+        target: String,
+        key: String,
+    },
     /// No effect-receipt row → the transaction did not commit.
     NotFound,
     /// The lookup could not be performed (resolver down) → fate undetermined.
@@ -361,13 +423,26 @@ impl PostgresWriteReceiptResolver for FakePostgresWriteAdapter {
     async fn lookup_effect_receipt(&self, idempotency_key: &str) -> PostgresReceiptLookup {
         // READ ONLY: this path never touches `attempts`/`business_rows` — no mutation.
         if self.resolver_down.load(Ordering::SeqCst) {
-            return PostgresReceiptLookup::Unavailable("effect-receipt lookup unavailable".to_string());
+            return PostgresReceiptLookup::Unavailable(
+                "effect-receipt lookup unavailable".to_string(),
+            );
         }
         match self.effect_receipts.lock().unwrap().get(idempotency_key) {
             Some(rec) => PostgresReceiptLookup::Found {
-                correlation_id: rec.get("correlation_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                target: rec.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                key: rec.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                correlation_id: rec
+                    .get("correlation_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                target: rec
+                    .get("target")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                key: rec
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             },
             None => PostgresReceiptLookup::NotFound,
         }
@@ -439,19 +514,43 @@ pub async fn reconcile_postgres_unknown_write(
     let v = &fact.value;
     let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
     // `unknown` OR a dangling `prepared` (crash before the terminal receipt, P19) is reconcilable.
-    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
+    if !matches!(
+        state,
+        WriteState::UnknownExternalState | WriteState::Prepared
+    ) {
         return Ok(PostgresReconcileResult::NotApplicable(state));
     }
 
     // Exact lookup by the idempotency key (== the PG effect-receipt identity). NOT a value match.
     match resolver.lookup_effect_receipt(idempotency_key).await {
-        PostgresReceiptLookup::Found { correlation_id, target, key } => {
-            let evidence = json!({ "correlation_id": correlation_id, "target": target, "key": key });
-            write_pg_resolved(receipts, clock.now(), &rkey, v, WriteState::Committed, Some(evidence)).await?;
+        PostgresReceiptLookup::Found {
+            correlation_id,
+            target,
+            key,
+        } => {
+            let evidence =
+                json!({ "correlation_id": correlation_id, "target": target, "key": key });
+            write_pg_resolved(
+                receipts,
+                clock.now(),
+                &rkey,
+                v,
+                WriteState::Committed,
+                Some(evidence),
+            )
+            .await?;
             Ok(PostgresReconcileResult::ResolvedCommitted)
         }
         PostgresReceiptLookup::NotFound => {
-            write_pg_resolved(receipts, clock.now(), &rkey, v, WriteState::PermanentFailure, None).await?;
+            write_pg_resolved(
+                receipts,
+                clock.now(),
+                &rkey,
+                v,
+                WriteState::PermanentFailure,
+                None,
+            )
+            .await?;
             Ok(PostgresReconcileResult::ResolvedPermanentFailure)
         }
         PostgresReceiptLookup::Unavailable(_) => Ok(PostgresReconcileResult::StillUnknown),

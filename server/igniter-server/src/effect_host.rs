@@ -40,14 +40,24 @@ pub struct MachineEffectHost<'a> {
 }
 
 impl<'a> MachineEffectHost<'a> {
-    pub fn new(router: &'a IngressRouter, hub: &'a CoordinationHub, cfg: &'a EffectBridgeConfig<'a>) -> Self {
-        Self { router, hub, cfg, target_routes: BTreeMap::new() }
+    pub fn new(
+        router: &'a IngressRouter,
+        hub: &'a CoordinationHub,
+        cfg: &'a EffectBridgeConfig<'a>,
+    ) -> Self {
+        Self {
+            router,
+            hub,
+            cfg,
+            target_routes: BTreeMap::new(),
+        }
     }
 
     /// Bind a logical app target to an existing machine ingress route. INFRA binding (topology), not
     /// product meaning — the app already decided the request maps to this `target`.
     pub fn bind_target(&mut self, target: &str, machine_route: &str) {
-        self.target_routes.insert(target.to_string(), machine_route.to_string());
+        self.target_routes
+            .insert(target.to_string(), machine_route.to_string());
     }
 
     /// Execute one `InvokeEffect` decision through the machine. Builds the `IngressRequest` the
@@ -67,16 +77,25 @@ impl<'a> MachineEffectHost<'a> {
             None => {
                 // unbound target = infra misconfiguration, not a product 404. The app routed fine;
                 // the host has no machine route for this target.
-                return ServerResponse::json(502, json!({ "error": "unbound target", "target": target }));
+                return ServerResponse::json(
+                    502,
+                    json!({ "error": "unbound target", "target": target }),
+                );
             }
         };
 
         // Carry the original request headers (already lower-cased by the parser): Authorization
         // (bearer passport) and any raw vendor headers pass through to the machine's auth gate. The
         // app never sees or sets these.
-        let mut headers: HashMap<String, String> = req.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut headers: HashMap<String, String> = req
+            .headers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         if let Some(c) = &correlation_id {
-            headers.entry("x-correlation-id".to_string()).or_insert_with(|| c.clone());
+            headers
+                .entry("x-correlation-id".to_string())
+                .or_insert_with(|| c.clone());
         }
         // The decision's `idempotency_key` is the CANONICAL duplicate key the app extracted (vendor
         // normalization lives in the app; the machine duplicate policy stays generic with
@@ -93,22 +112,40 @@ impl<'a> MachineEffectHost<'a> {
             body: input.clone(),
         };
 
-        let resp = self.router.handle_effect(self.hub, &ingress, self.cfg).await;
+        let resp = self
+            .router
+            .handle_effect(self.hub, &ingress, self.cfg)
+            .await;
 
         let mut out_headers = BTreeMap::new();
         out_headers.insert("content-type".to_string(), "application/json".to_string());
         out_headers.insert("x-correlation-id".to_string(), resp.correlation_id.clone());
-        ServerResponse { status: resp.status, headers: out_headers, body: resp.body }
+        ServerResponse {
+            status: resp.status,
+            headers: out_headers,
+            body: resp.body,
+        }
     }
 }
 
 /// Dispatch a `ServerDecision` against a machine-backed effect host. `Respond` / `Invoke` reuse the
 /// protocol-only `host::execute` (Invoke stays observed — the app still names no effect identity);
 /// `InvokeEffect` runs through the machine contour.
-pub async fn dispatch(req: &ServerRequest, decision: ServerDecision, effect_host: &MachineEffectHost<'_>) -> ServerResponse {
+pub async fn dispatch(
+    req: &ServerRequest,
+    decision: ServerDecision,
+    effect_host: &MachineEffectHost<'_>,
+) -> ServerResponse {
     match decision {
-        ServerDecision::InvokeEffect { target, input, correlation_id, idempotency_key } => {
-            effect_host.run_invoke_effect(req, &target, &input, correlation_id, idempotency_key).await
+        ServerDecision::InvokeEffect {
+            target,
+            input,
+            correlation_id,
+            idempotency_key,
+        } => {
+            effect_host
+                .run_invoke_effect(req, &target, &input, correlation_id, idempotency_key)
+                .await
         }
         other => host::execute(other),
     }
@@ -165,7 +202,9 @@ pub async fn serve_once_effect_reloadable(
     app: &crate::reload::ReloadableApp,
     effect_host: &MachineEffectHost<'_>,
 ) -> std::io::Result<()> {
-    serve_once_effect_reloadable_observed(listener, app, effect_host).await.map(|_| ())
+    serve_once_effect_reloadable_observed(listener, app, effect_host)
+        .await
+        .map(|_| ())
 }
 
 /// Same as `serve_once_effect_reloadable`, but returns the snapshotted app's `AppIdentity` so the

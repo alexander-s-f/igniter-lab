@@ -20,9 +20,9 @@ pub enum TokenType {
     Colon,
     Arrow,    // ->
     FatArrow, // =>
-    Op,    // +, -, *, /, ==, !=, <, >, <=, >=, &&, ||, ++
-    Assign, // =
-    Pipe,   // |
+    Op,       // +, -, *, /, ==, !=, <, >, <=, >=, &&, ||, ++
+    Assign,   // =
+    Pipe,     // |
     Question, // ?
     Bang,     // !
     At,       // @
@@ -56,16 +56,73 @@ pub struct Lexer<'a> {
 }
 
 const KEYWORDS: &[&str] = &[
-    "module", "import", "contract", "contract_shape", "type", "def", "trait", "impl",
-    "input", "output", "compute", "read", "snapshot", "window", "escape",
-    "stream", "fold_stream", "assumptions", "assumption", "uses",
-    "olap_point", "invariant", "predicate", "severity", "label", "message", "overridable_with",
-    "from", "lifecycle", "using", "implements", "capability", "effect",
-    "pipeline", "step", "scoped_by", "cardinality", "schema_version", "tenant_free",
-    "variant", "match",
-    "if", "else", "let", "true", "false", "nil", "and", "or", "not",
-    "loop", "in", "max_steps", "decreases", "fuel", "clock", "every", "seconds", "minutes", "hours", "break",
-    "form", "priority", "associativity", "no_form", "hiding", "overriding"
+    "module",
+    "import",
+    "contract",
+    "contract_shape",
+    "type",
+    "def",
+    "trait",
+    "impl",
+    "input",
+    "output",
+    "compute",
+    "read",
+    "snapshot",
+    "window",
+    "escape",
+    "stream",
+    "fold_stream",
+    "assumptions",
+    "assumption",
+    "uses",
+    "olap_point",
+    "invariant",
+    "predicate",
+    "severity",
+    "label",
+    "message",
+    "overridable_with",
+    "from",
+    "lifecycle",
+    "using",
+    "implements",
+    "capability",
+    "effect",
+    "pipeline",
+    "step",
+    "scoped_by",
+    "cardinality",
+    "schema_version",
+    "tenant_free",
+    "variant",
+    "match",
+    "if",
+    "else",
+    "let",
+    "true",
+    "false",
+    "nil",
+    "and",
+    "or",
+    "not",
+    "loop",
+    "in",
+    "max_steps",
+    "decreases",
+    "fuel",
+    "clock",
+    "every",
+    "seconds",
+    "minutes",
+    "hours",
+    "break",
+    "form",
+    "priority",
+    "associativity",
+    "no_form",
+    "hiding",
+    "overriding",
 ];
 
 impl<'a> Lexer<'a> {
@@ -110,7 +167,10 @@ impl<'a> Lexer<'a> {
                 self.advance();
             }
             // skip -- line comments
-            if self.pos + 1 < self.chars.len() && self.chars[self.pos] == '-' && self.chars[self.pos + 1] == '-' {
+            if self.pos + 1 < self.chars.len()
+                && self.chars[self.pos] == '-'
+                && self.chars[self.pos + 1] == '-'
+            {
                 while self.pos < self.chars.len() && self.chars[self.pos] != '\n' {
                     self.advance();
                 }
@@ -151,105 +211,292 @@ impl<'a> Lexer<'a> {
             ':' => Some(self.read_symbol_or_colon(l, c)),
             '-' => {
                 if self.peek(1) == Some('>') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Arrow, value: "->".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Arrow,
+                        value: "->".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "-".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "-".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '+' => {
                 if self.peek(1) == Some('+') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "++".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "++".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "+".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "+".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '*' => {
                 self.advance();
-                Some(Token { token_type: TokenType::Op, value: "*".to_string(), line: l, col: c })
+                Some(Token {
+                    token_type: TokenType::Op,
+                    value: "*".to_string(),
+                    line: l,
+                    col: c,
+                })
             }
             '/' => {
                 self.advance();
-                Some(Token { token_type: TokenType::Op, value: "/".to_string(), line: l, col: c })
+                Some(Token {
+                    token_type: TokenType::Op,
+                    value: "/".to_string(),
+                    line: l,
+                    col: c,
+                })
             }
             '=' => {
                 if self.peek(1) == Some('=') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "==".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "==".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else if self.peek(1) == Some('>') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::FatArrow, value: "=>".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::FatArrow,
+                        value: "=>".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Assign, value: "=".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Assign,
+                        value: "=".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '!' => {
                 if self.peek(1) == Some('=') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "!=".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "!=".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Bang, value: "!".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Bang,
+                        value: "!".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '<' => {
                 if self.peek(1) == Some('=') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "<=".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "<=".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "<".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "<".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '>' => {
                 if self.peek(1) == Some('=') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: ">=".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: ">=".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Op, value: ">".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: ">".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '&' => {
                 if self.peek(1) == Some('&') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "&&".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "&&".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "&".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "&".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
             '|' => {
                 if self.peek(1) == Some('|') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::Op, value: "||".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Op,
+                        value: "||".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Pipe, value: "|".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Pipe,
+                        value: "|".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
-            '{' => { self.advance(); Some(Token { token_type: TokenType::LBrace, value: "{".to_string(), line: l, col: c }) }
-            '}' => { self.advance(); Some(Token { token_type: TokenType::RBrace, value: "}".to_string(), line: l, col: c }) }
-            '(' => { self.advance(); Some(Token { token_type: TokenType::LParen, value: "(".to_string(), line: l, col: c }) }
-            ')' => { self.advance(); Some(Token { token_type: TokenType::RParen, value: ")".to_string(), line: l, col: c }) }
-            '[' => { self.advance(); Some(Token { token_type: TokenType::LBracket, value: "[".to_string(), line: l, col: c }) }
-            ']' => { self.advance(); Some(Token { token_type: TokenType::RBracket, value: "]".to_string(), line: l, col: c }) }
+            '{' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::LBrace,
+                    value: "{".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            '}' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::RBrace,
+                    value: "}".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            '(' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::LParen,
+                    value: "(".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            ')' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::RParen,
+                    value: ")".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            '[' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::LBracket,
+                    value: "[".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            ']' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::RBracket,
+                    value: "]".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
             '.' => {
                 if self.peek(1) == Some('.') {
-                    self.advance(); self.advance();
-                    Some(Token { token_type: TokenType::DotDot, value: "..".to_string(), line: l, col: c })
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::DotDot,
+                        value: "..".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 } else {
                     self.advance();
-                    Some(Token { token_type: TokenType::Dot, value: ".".to_string(), line: l, col: c })
+                    Some(Token {
+                        token_type: TokenType::Dot,
+                        value: ".".to_string(),
+                        line: l,
+                        col: c,
+                    })
                 }
             }
-            ',' => { self.advance(); Some(Token { token_type: TokenType::Comma, value: ",".to_string(), line: l, col: c }) }
-            '@' => { self.advance(); Some(Token { token_type: TokenType::At, value: "@".to_string(), line: l, col: c }) }
-            '?' => { self.advance(); Some(Token { token_type: TokenType::Question, value: "?".to_string(), line: l, col: c }) }
+            ',' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::Comma,
+                    value: ",".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            '@' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::At,
+                    value: "@".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
+            '?' => {
+                self.advance();
+                Some(Token {
+                    token_type: TokenType::Question,
+                    value: "?".to_string(),
+                    line: l,
+                    col: c,
+                })
+            }
             ch if ch.is_ascii_alphabetic() || ch == '_' => Some(self.read_ident_or_keyword(l, c)),
             _ => {
                 self.advance();
@@ -268,7 +515,12 @@ impl<'a> Lexer<'a> {
             buf.push(self.advance().unwrap());
         }
         self.advance(); // consume closing "
-        Token { token_type: TokenType::StringLit, value: buf, line: l, col: c }
+        Token {
+            token_type: TokenType::StringLit,
+            value: buf,
+            line: l,
+            col: c,
+        }
     }
 
     fn read_number(&mut self, l: usize, c: usize) -> Token {
@@ -291,11 +543,21 @@ impl<'a> Lexer<'a> {
                             break;
                         }
                     }
-                    return Token { token_type: TokenType::FloatLit, value: buf, line: l, col: c };
+                    return Token {
+                        token_type: TokenType::FloatLit,
+                        value: buf,
+                        line: l,
+                        col: c,
+                    };
                 }
             }
         }
-        Token { token_type: TokenType::IntLit, value: buf, line: l, col: c }
+        Token {
+            token_type: TokenType::IntLit,
+            value: buf,
+            line: l,
+            col: c,
+        }
     }
 
     fn read_symbol_or_colon(&mut self, l: usize, c: usize) -> Token {
@@ -310,10 +572,20 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                return Token { token_type: TokenType::SymbolLit, value: buf, line: l, col: c };
+                return Token {
+                    token_type: TokenType::SymbolLit,
+                    value: buf,
+                    line: l,
+                    col: c,
+                };
             }
         }
-        Token { token_type: TokenType::Colon, value: ":".to_string(), line: l, col: c }
+        Token {
+            token_type: TokenType::Colon,
+            value: ":".to_string(),
+            line: l,
+            col: c,
+        }
     }
 
     fn read_ident_or_keyword(&mut self, l: usize, c: usize) -> Token {
@@ -321,7 +593,9 @@ impl<'a> Lexer<'a> {
         while let Some(ch) = self.peek(0) {
             if ch == '.' {
                 if let Some(next) = self.peek(1) {
-                    if next.is_ascii_uppercase() || (buf.starts_with("stdlib.IO") && next.is_ascii_lowercase()) {
+                    if next.is_ascii_uppercase()
+                        || (buf.starts_with("stdlib.IO") && next.is_ascii_lowercase())
+                    {
                         buf.push(self.advance().unwrap()); // consume '.'
                         continue;
                     }
@@ -345,6 +619,11 @@ impl<'a> Lexer<'a> {
         } else {
             TokenType::Ident
         };
-        Token { token_type: t_type, value: buf, line: l, col: c }
+        Token {
+            token_type: t_type,
+            value: buf,
+            line: l,
+            col: c,
+        }
     }
 }

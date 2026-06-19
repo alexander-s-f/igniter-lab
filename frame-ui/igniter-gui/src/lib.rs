@@ -32,10 +32,22 @@ const CANVAS: i64 = 400;
 /// The initial widget world: an "add" button, two task rows, and a counter display.
 pub fn initial_world() -> Vec<(String, Value)> {
     vec![
-        ("ctrl_add".to_string(), json!({ "role": "button", "label": "+ add task", "on_click": { "action": "add" } })),
-        ("task_1".to_string(), json!({ "role": "row", "label": "task 1", "done": false, "on_click": { "action": "toggle" } })),
-        ("task_2".to_string(), json!({ "role": "row", "label": "task 2", "done": false, "on_click": { "action": "toggle" } })),
-        ("counter".to_string(), json!({ "role": "display", "label": "0 / 2 done" })),
+        (
+            "ctrl_add".to_string(),
+            json!({ "role": "button", "label": "+ add task", "on_click": { "action": "add" } }),
+        ),
+        (
+            "task_1".to_string(),
+            json!({ "role": "row", "label": "task 1", "done": false, "on_click": { "action": "toggle" } }),
+        ),
+        (
+            "task_2".to_string(),
+            json!({ "role": "row", "label": "task 2", "done": false, "on_click": { "action": "toggle" } }),
+        ),
+        (
+            "counter".to_string(),
+            json!({ "role": "display", "label": "0 / 2 done" }),
+        ),
     ]
 }
 
@@ -51,7 +63,15 @@ fn role_rank(role: &str) -> u8 {
 fn world_digest(world: &[(String, Value)]) -> String {
     let mut sorted = world.to_vec();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    format!("sha256:{}", blake3::hash(serde_json::to_string(&sorted).unwrap_or_default().as_bytes()).to_hex())
+    format!(
+        "sha256:{}",
+        blake3::hash(
+            serde_json::to_string(&sorted)
+                .unwrap_or_default()
+                .as_bytes()
+        )
+        .to_hex()
+    )
 }
 
 /// Orthographic box-layout projection: widgets are laid out as a vertical stack (buttons, then rows
@@ -61,7 +81,12 @@ fn world_digest(world: &[(String, Value)]) -> String {
 pub struct LayoutProjector;
 
 impl Projector for LayoutProjector {
-    fn project(&self, world: &[(String, Value)], frame_index: u64, source_receipt_id: Option<String>) -> Frame {
+    fn project(
+        &self,
+        world: &[(String, Value)],
+        frame_index: u64,
+        source_receipt_id: Option<String>,
+    ) -> Frame {
         let mut items: Vec<&(String, Value)> = world.iter().collect();
         items.sort_by(|a, b| {
             let ra = role_rank(a.1.get("role").and_then(|v| v.as_str()).unwrap_or(""));
@@ -88,12 +113,19 @@ impl Projector for LayoutProjector {
                 }
             })
             .collect();
-        Frame { frame_index, world_digest: world_digest(world), source_receipt_id, nodes }
+        Frame {
+            frame_index,
+            world_digest: world_digest(world),
+            source_receipt_id,
+            nodes,
+        }
     }
 }
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Render the widget boxes to SVG (rects + labels + a checkbox for rows). Implements igniter-frame's
@@ -110,7 +142,11 @@ impl RenderHost for GuiRenderHost {
             let (w, h) = (n.sw.unwrap_or(0), n.sh.unwrap_or(0));
             let role = n.data.get("role").and_then(|v| v.as_str()).unwrap_or("");
             let label = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            let done = n.data.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+            let done = n
+                .data
+                .get("done")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let fill = match role {
                 "button" => "#1f6feb",
                 "display" => "#161b22",
@@ -140,7 +176,11 @@ impl RenderHost for GuiRenderHost {
     }
 }
 
-fn recount(world: &[(String, Value)], toggle: Option<(&str, bool)>, adding: bool) -> (String, Value) {
+fn recount(
+    world: &[(String, Value)],
+    toggle: Option<(&str, bool)>,
+    adding: bool,
+) -> (String, Value) {
     let mut total = 0;
     let mut done = 0;
     for (id, v) in world {
@@ -160,7 +200,10 @@ fn recount(world: &[(String, Value)], toggle: Option<(&str, bool)>, adding: bool
     if adding {
         total += 1; // the new row is not done
     }
-    ("counter".to_string(), json!({ "role": "display", "label": format!("{} / {} done", done, total) }))
+    (
+        "counter".to_string(),
+        json!({ "role": "display", "label": format!("{} / {} done", done, total) }),
+    )
 }
 
 /// The GUI update reducer: `toggle` flips a row's done-state, `add` appends a new row; both recompute
@@ -168,18 +211,28 @@ fn recount(world: &[(String, Value)], toggle: Option<(&str, bool)>, adding: bool
 pub fn gui_reducer() -> IntentReducer {
     Box::new(|intent, world| match intent.action.as_str() {
         "toggle" => {
-            let Some(target) = &intent.target else { return vec![] };
-            let Some((_, cur)) = world.iter().find(|(k, _)| k == target) else { return vec![] };
+            let Some(target) = &intent.target else {
+                return vec![];
+            };
+            let Some((_, cur)) = world.iter().find(|(k, _)| k == target) else {
+                return vec![];
+            };
             if cur.get("role").and_then(|r| r.as_str()) != Some("row") {
                 return vec![];
             }
             let new_done = !cur.get("done").and_then(|b| b.as_bool()).unwrap_or(false);
             let mut row = cur.clone();
             row["done"] = json!(new_done);
-            vec![(target.clone(), row), recount(world, Some((target, new_done)), false)]
+            vec![
+                (target.clone(), row),
+                recount(world, Some((target, new_done)), false),
+            ]
         }
         "add" => {
-            let n = world.iter().filter(|(_, v)| v.get("role").and_then(|r| r.as_str()) == Some("row")).count();
+            let n = world
+                .iter()
+                .filter(|(_, v)| v.get("role").and_then(|r| r.as_str()) == Some("row"))
+                .count();
             let id = format!("task_{}", n + 1);
             let row = json!({ "role": "row", "label": format!("task {}", n + 1), "done": false, "on_click": { "action": "toggle" } });
             vec![(id, row), recount(world, None, true)]
@@ -201,8 +254,16 @@ impl GuiRuntime {
             initial_world(),
             gui_reducer(),
             Box::new(LayoutProjector),
-            Viewport { css_w: CANVAS as f64, css_h: CANVAS as f64, frame_w: CANVAS, frame_h: CANVAS },
-            Box::new(GuiRenderHost { width: CANVAS, height: CANVAS }),
+            Viewport {
+                css_w: CANVAS as f64,
+                css_h: CANVAS as f64,
+                frame_w: CANVAS,
+                frame_h: CANVAS,
+            },
+            Box::new(GuiRenderHost {
+                width: CANVAS,
+                height: CANVAS,
+            }),
         );
         Self { inner }
     }

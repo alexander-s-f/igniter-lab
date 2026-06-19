@@ -74,9 +74,11 @@ fn diag_rules(result: &Value) -> Vec<String> {
 
 #[test]
 fn project_mode_resolves_entry_and_imported_module() {
-    let paths =
-        project::resolve_entry(Path::new(&format!("{}/basic", FIX)), "SparkCRM.CallRouter.Webhook")
-            .expect("resolve");
+    let paths = project::resolve_entry(
+        Path::new(&format!("{}/basic", FIX)),
+        "SparkCRM.CallRouter.Webhook",
+    )
+    .expect("resolve");
     assert_eq!(modules(&paths), vec!["types.ig", "webhook.ig"]);
 }
 

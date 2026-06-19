@@ -88,7 +88,10 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             let rest = rest.trim_end_matches('{').trim();
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.len() != 3 || parts[1] != "entry" {
-                return Err(IgwebError { line, message: "expected `app <Name> entry <ServeContract> {`".into() });
+                return Err(IgwebError {
+                    line,
+                    message: "expected `app <Name> entry <ServeContract> {`".into(),
+                });
             }
             entry = Some(parts[2].to_string());
             in_app = true;
@@ -101,36 +104,63 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
         }
         if let Some(rest) = t.strip_prefix("handlers ") {
             if !in_app {
-                return Err(IgwebError { line, message: "`handlers` outside an `app { ... }` block".into() });
+                return Err(IgwebError {
+                    line,
+                    message: "`handlers` outside an `app { ... }` block".into(),
+                });
             }
             let name = rest.trim();
             if name.is_empty() || name.split_whitespace().count() != 1 {
-                return Err(IgwebError { line, message: "expected `handlers <ModuleName>`".into() });
+                return Err(IgwebError {
+                    line,
+                    message: "expected `handlers <ModuleName>`".into(),
+                });
             }
             if handlers.is_some() {
-                return Err(IgwebError { line, message: "duplicate `handlers` directive".into() });
+                return Err(IgwebError {
+                    line,
+                    message: "duplicate `handlers` directive".into(),
+                });
             }
             handlers = Some(name.to_string());
             continue;
         }
         if let Some(rest) = t.strip_prefix("route ") {
             if !in_app {
-                return Err(IgwebError { line, message: "`route` outside an `app { ... }` block".into() });
+                return Err(IgwebError {
+                    line,
+                    message: "`route` outside an `app { ... }` block".into(),
+                });
             }
             let r = parse_route(rest, line)?;
             routes.push(r);
             continue;
         }
-        return Err(IgwebError { line, message: format!("unrecognized line: `{}`", t) });
+        return Err(IgwebError {
+            line,
+            message: format!("unrecognized line: `{}`", t),
+        });
     }
 
-    let entry = entry.ok_or(IgwebError { line: 0, message: "missing `app <Name> entry <Serve> { ... }` header".into() })?;
-    let handlers = handlers.ok_or(IgwebError { line: 0, message: "missing `handlers <ModuleName>` directive".into() })?;
+    let entry = entry.ok_or(IgwebError {
+        line: 0,
+        message: "missing `app <Name> entry <Serve> { ... }` header".into(),
+    })?;
+    let handlers = handlers.ok_or(IgwebError {
+        line: 0,
+        message: "missing `handlers <ModuleName>` directive".into(),
+    })?;
     if !closed {
-        return Err(IgwebError { line: 0, message: "unclosed `app { ... }` block (missing `}`)".into() });
+        return Err(IgwebError {
+            line: 0,
+            message: "unclosed `app { ... }` block (missing `}`)".into(),
+        });
     }
     if routes.is_empty() {
-        return Err(IgwebError { line: 0, message: "no routes declared".into() });
+        return Err(IgwebError {
+            line: 0,
+            message: "no routes declared".into(),
+        });
     }
 
     Ok(generate_ig(&entry, &handlers, &routes))
@@ -140,34 +170,72 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
 fn parse_route(rest: &str, line: usize) -> Result<Route, IgwebError> {
     // METHOD
     let rest = rest.trim();
-    let (method, rest) = rest.split_once(char::is_whitespace)
-        .ok_or(IgwebError { line, message: "expected `route <METHOD> \"<pattern>\" -> <Contract>`".into() })?;
+    let (method, rest) = rest.split_once(char::is_whitespace).ok_or(IgwebError {
+        line,
+        message: "expected `route <METHOD> \"<pattern>\" -> <Contract>`".into(),
+    })?;
     let method = method.trim().to_string();
     // "pattern"
     let rest = rest.trim_start();
     if !rest.starts_with('"') {
-        return Err(IgwebError { line, message: "expected a quoted \"<pattern>\" after the method".into() });
+        return Err(IgwebError {
+            line,
+            message: "expected a quoted \"<pattern>\" after the method".into(),
+        });
     }
     let after_open = &rest[1..];
-    let close = after_open.find('"').ok_or(IgwebError { line, message: "unterminated route pattern string".into() })?;
+    let close = after_open.find('"').ok_or(IgwebError {
+        line,
+        message: "unterminated route pattern string".into(),
+    })?;
     let pattern = after_open[..close].to_string();
     let rest = after_open[close + 1..].trim_start();
     // ->
-    let rest = rest.strip_prefix("->").ok_or(IgwebError { line, message: "expected `->` before the handler contract".into() })?.trim_start();
+    let rest = rest
+        .strip_prefix("->")
+        .ok_or(IgwebError {
+            line,
+            message: "expected `->` before the handler contract".into(),
+        })?
+        .trim_start();
     // Contract [requires idempotency]
     let mut parts = rest.split_whitespace();
-    let contract = parts.next().ok_or(IgwebError { line, message: "missing handler contract name after `->`".into() })?.to_string();
+    let contract = parts
+        .next()
+        .ok_or(IgwebError {
+            line,
+            message: "missing handler contract name after `->`".into(),
+        })?
+        .to_string();
     let tail: Vec<&str> = parts.collect();
     let requires_idem = match tail.as_slice() {
         [] => false,
         ["requires", "idempotency"] => true,
-        _ => return Err(IgwebError { line, message: format!("unexpected trailing tokens: `{}` (only `requires idempotency` allowed)", tail.join(" ")) }),
+        _ => {
+            return Err(IgwebError {
+                line,
+                message: format!(
+                    "unexpected trailing tokens: `{}` (only `requires idempotency` allowed)",
+                    tail.join(" ")
+                ),
+            })
+        }
     };
     if pattern.is_empty() || !pattern.starts_with('/') {
-        return Err(IgwebError { line, message: "route pattern must start with `/`".into() });
+        return Err(IgwebError {
+            line,
+            message: "route pattern must start with `/`".into(),
+        });
     }
     let (regex, params) = pattern_to_regex(&pattern);
-    Ok(Route { method, pattern, contract, requires_idem, params, regex })
+    Ok(Route {
+        method,
+        pattern,
+        contract,
+        requires_idem,
+        params,
+        regex,
+    })
 }
 
 /// Distinct patterns in first-seen order.
@@ -204,14 +272,21 @@ fn pad(n: usize) -> String {
 /// Chain of `if matches(path, "<re>") { <methods> } else { <next> }`, terminating in `Respond 404`.
 fn route_chain(routes: &[Route], patterns: &[String], indent: usize) -> String {
     if patterns.is_empty() {
-        return format!("{}Respond {{ status: 404, body: \"not found\" }}", pad(indent));
+        return format!(
+            "{}Respond {{ status: 404, body: \"not found\" }}",
+            pad(indent)
+        );
     }
     let pat = &patterns[0];
     // routes for this pattern keep source order.
     let group: Vec<&Route> = routes.iter().filter(|r| &r.pattern == pat).collect();
     let regex = &group[0].regex;
     let mut s = String::new();
-    s.push_str(&format!("{}if matches(req.path, \"{}\") {{\n", pad(indent), regex));
+    s.push_str(&format!(
+        "{}if matches(req.path, \"{}\") {{\n",
+        pad(indent),
+        regex
+    ));
     s.push_str(&method_chain(&group, indent + 2));
     s.push('\n');
     s.push_str(&format!("{}}} else {{\n", pad(indent)));
@@ -224,11 +299,18 @@ fn route_chain(routes: &[Route], patterns: &[String], indent: usize) -> String {
 /// Chain of `if req.method == "M" { <arm> } else { <next> }`, terminating in `Respond 405`.
 fn method_chain(group: &[&Route], indent: usize) -> String {
     if group.is_empty() {
-        return format!("{}Respond {{ status: 405, body: \"method not allowed\" }}", pad(indent));
+        return format!(
+            "{}Respond {{ status: 405, body: \"method not allowed\" }}",
+            pad(indent)
+        );
     }
     let r = group[0];
     let mut s = String::new();
-    s.push_str(&format!("{}if req.method == \"{}\" {{\n", pad(indent), r.method));
+    s.push_str(&format!(
+        "{}if req.method == \"{}\" {{\n",
+        pad(indent),
+        r.method
+    ));
     s.push_str(&format!("{}{}\n", pad(indent + 2), handler_arm(r)));
     s.push_str(&format!("{}}} else {{\n", pad(indent)));
     s.push_str(&method_chain(&group[1..], indent + 2));
@@ -242,7 +324,11 @@ fn method_chain(group: &[&Route], indent: usize) -> String {
 fn handler_arm(r: &Route) -> String {
     let mut call = format!("call_contract(\"{}\", req", r.contract);
     for (idx, _name) in r.params.iter().enumerate() {
-        call.push_str(&format!(", capture(req.path, \"{}\", {})", r.regex, idx + 1));
+        call.push_str(&format!(
+            ", capture(req.path, \"{}\", {})",
+            r.regex,
+            idx + 1
+        ));
     }
     call.push(')');
     if r.requires_idem {
@@ -271,13 +357,15 @@ mod tests {
         assert!(a.contains("import IgWebPrelude"));
         assert!(a.contains("import TodoHandlers"));
         assert!(!a.contains("import WebTypes"));
-        assert!(a.contains("call_contract(\"TodoShow\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))"));
+        assert!(a.contains(
+            "call_contract(\"TodoShow\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))"
+        ));
         assert!(a.contains("call_contract(\"TodoIndex\", req)"));
         assert!(a.contains("matches(req.path, \"^/todos/([^/]+)/done$\")"));
         assert!(a.contains("status: 404"));
         assert!(a.contains("status: 405"));
         assert!(a.contains("status: 400")); // keyless guard
-        // no dynamic dispatch: every call_contract is on a string literal.
+                                            // no dynamic dispatch: every call_contract is on a string literal.
         assert!(!a.contains("call_contract(req"));
     }
 

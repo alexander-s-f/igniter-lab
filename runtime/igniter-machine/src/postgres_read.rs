@@ -55,7 +55,9 @@ impl QueryPlan {
     pub fn from_args(args: &Value) -> Result<QueryPlan, String> {
         for raw in ["sql", "raw_sql", "query"] {
             if args.get(raw).and_then(|v| v.as_str()).is_some() {
-                return Err(format!("raw SQL refused (`{raw}`): contracts emit typed plans, not SQL"));
+                return Err(format!(
+                    "raw SQL refused (`{raw}`): contracts emit typed plans, not SQL"
+                ));
             }
         }
         // Plan may sit at the top level of args or under a `plan` key.
@@ -66,11 +68,19 @@ impl QueryPlan {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| "missing `source`".to_string())?
             .to_string();
-        let op = p.get("op").and_then(|v| v.as_str()).unwrap_or("select").to_string();
+        let op = p
+            .get("op")
+            .and_then(|v| v.as_str())
+            .unwrap_or("select")
+            .to_string();
         let projection = p
             .get("projection")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         let filters = p
             .get("filters")
@@ -79,7 +89,11 @@ impl QueryPlan {
                 a.iter()
                     .filter_map(|f| {
                         let field = f.get("field").and_then(|v| v.as_str())?.to_string();
-                        let op = f.get("op").and_then(|v| v.as_str()).unwrap_or("eq").to_string();
+                        let op = f
+                            .get("op")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("eq")
+                            .to_string();
                         let value = f.get("value").cloned().unwrap_or(Value::Null);
                         Some(QueryFilter { field, op, value })
                     })
@@ -87,7 +101,13 @@ impl QueryPlan {
             })
             .unwrap_or_default();
         let limit = p.get("limit").and_then(|v| v.as_i64());
-        Ok(QueryPlan { source, op, projection, filters, limit })
+        Ok(QueryPlan {
+            source,
+            op,
+            projection,
+            filters,
+            limit,
+        })
     }
 
     /// All field names the plan touches (projection + filter fields) — the set the field
@@ -104,8 +124,17 @@ impl QueryPlan {
 fn is_mutating_op(op: &str) -> bool {
     matches!(
         op.to_ascii_lowercase().as_str(),
-        "insert" | "update" | "delete" | "upsert" | "merge" | "truncate" | "drop" | "alter"
-            | "create" | "replace" | "write"
+        "insert"
+            | "update"
+            | "delete"
+            | "upsert"
+            | "merge"
+            | "truncate"
+            | "drop"
+            | "alter"
+            | "create"
+            | "replace"
+            | "write"
     )
 }
 
@@ -128,12 +157,19 @@ pub struct PostgresReadPolicy {
 
 impl PostgresReadPolicy {
     pub fn new(row_limit: i64) -> Self {
-        Self { allowed_sources: vec![], allowed_ops: vec!["select".to_string()], allowed_fields: HashMap::new(), row_limit }
+        Self {
+            allowed_sources: vec![],
+            allowed_ops: vec!["select".to_string()],
+            allowed_fields: HashMap::new(),
+            row_limit,
+        }
     }
     pub fn allow_source(mut self, source: &str, fields: &[&str]) -> Self {
         self.allowed_sources.push(source.to_string());
-        self.allowed_fields
-            .insert(source.to_string(), fields.iter().map(|f| f.to_string()).collect());
+        self.allowed_fields.insert(
+            source.to_string(),
+            fields.iter().map(|f| f.to_string()).collect(),
+        );
         self
     }
     pub fn allow_ops(mut self, ops: &[&str]) -> Self {
@@ -175,7 +211,11 @@ pub struct PostgresReadExecutor<A: PostgresReadAdapter> {
 
 impl<A: PostgresReadAdapter> PostgresReadExecutor<A> {
     pub fn new(capability_id: &str, adapter: Arc<A>, policy: PostgresReadPolicy) -> Self {
-        Self { capability_id: capability_id.to_string(), adapter, policy }
+        Self {
+            capability_id: capability_id.to_string(),
+            adapter,
+            policy,
+        }
     }
 }
 
@@ -194,7 +234,12 @@ impl<A: PostgresReadAdapter + 'static> CapabilityExecutor for PostgresReadExecut
         };
 
         // (G1) source allowlist.
-        if !self.policy.allowed_sources.iter().any(|s| s == &plan.source) {
+        if !self
+            .policy
+            .allowed_sources
+            .iter()
+            .any(|s| s == &plan.source)
+        {
             return EffectOutcome::denied(&format!("source not allowed: {}", plan.source));
         }
 
@@ -218,7 +263,10 @@ impl<A: PostgresReadAdapter + 'static> CapabilityExecutor for PostgresReadExecut
                     }
                 }
                 None => {
-                    return EffectOutcome::denied(&format!("no field allowlist for source: {}", plan.source));
+                    return EffectOutcome::denied(&format!(
+                        "no field allowlist for source: {}",
+                        plan.source
+                    ));
                 }
             }
         }
@@ -242,9 +290,15 @@ impl<A: PostgresReadAdapter + 'static> CapabilityExecutor for PostgresReadExecut
                     "row_limit_clamped": clamped,
                 }))
             }
-            PostgresReadResult::Unavailable(m) => EffectOutcome::unknown(&format!("adapter unavailable: {m}")),
-            PostgresReadResult::Transient(m) => EffectOutcome::retryable(&format!("adapter transient: {m}")),
-            PostgresReadResult::QueryError(m) => EffectOutcome::permanent(&format!("query error: {m}")),
+            PostgresReadResult::Unavailable(m) => {
+                EffectOutcome::unknown(&format!("adapter unavailable: {m}"))
+            }
+            PostgresReadResult::Transient(m) => {
+                EffectOutcome::retryable(&format!("adapter transient: {m}"))
+            }
+            PostgresReadResult::QueryError(m) => {
+                EffectOutcome::permanent(&format!("query error: {m}"))
+            }
         }
     }
 }
@@ -276,19 +330,29 @@ impl FakePostgresAdapter {
         Self::default()
     }
     pub fn with_table(mut self, source: &str, rows: Vec<Value>) -> Self {
-        self.sources.insert(source.to_string(), SourceBehavior::Table(rows));
+        self.sources
+            .insert(source.to_string(), SourceBehavior::Table(rows));
         self
     }
     pub fn unavailable(mut self, source: &str, reason: &str) -> Self {
-        self.sources.insert(source.to_string(), SourceBehavior::Unavailable(reason.to_string()));
+        self.sources.insert(
+            source.to_string(),
+            SourceBehavior::Unavailable(reason.to_string()),
+        );
         self
     }
     pub fn transient(mut self, source: &str, reason: &str) -> Self {
-        self.sources.insert(source.to_string(), SourceBehavior::Transient(reason.to_string()));
+        self.sources.insert(
+            source.to_string(),
+            SourceBehavior::Transient(reason.to_string()),
+        );
         self
     }
     pub fn query_error(mut self, source: &str, reason: &str) -> Self {
-        self.sources.insert(source.to_string(), SourceBehavior::QueryError(reason.to_string()));
+        self.sources.insert(
+            source.to_string(),
+            SourceBehavior::QueryError(reason.to_string()),
+        );
         self
     }
     /// How many times the adapter actually ran a query (replay must keep this unchanged).
@@ -308,7 +372,11 @@ impl PostgresReadAdapter for FakePostgresAdapter {
             Some(SourceBehavior::Table(rows)) => {
                 // Apply projection-shaping (pure shaping, not predicate evaluation — v0 does NOT
                 // evaluate filters here) and the clamped limit.
-                let take = if effective_limit < 0 { 0 } else { effective_limit as usize };
+                let take = if effective_limit < 0 {
+                    0
+                } else {
+                    effective_limit as usize
+                };
                 let shaped: Vec<Value> = rows
                     .iter()
                     .take(take)

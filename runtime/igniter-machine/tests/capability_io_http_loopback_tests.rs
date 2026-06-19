@@ -10,7 +10,9 @@ use igniter_machine::capability::{
     EffectRequest, OutcomeKind, RunMode, RECEIPTS_STORE,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
-use igniter_machine::http::{HttpCapabilityExecutor, HttpTransport, LoopbackHttpTransport, MapSecretProvider, SecretProvider};
+use igniter_machine::http::{
+    HttpCapabilityExecutor, HttpTransport, LoopbackHttpTransport, MapSecretProvider, SecretProvider,
+};
 use igniter_machine::write::{run_write_effect, WriteRequest, WriteState};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -20,7 +22,10 @@ use tokio::net::TcpListener;
 const CAP: &str = "IO.HttpCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -97,7 +102,11 @@ async fn start_server(cfg: ServerCfg) -> (String, Arc<Mutex<Vec<Recorded>>>) {
                                 .find(|l| l.to_ascii_lowercase().starts_with("x-correlation-id:"))
                                 .and_then(|l| l.split(':').nth(1))
                                 .map(|v| v.trim().to_string());
-                            rec.lock().unwrap().push(Recorded { method, path, correlation_id });
+                            rec.lock().unwrap().push(Recorded {
+                                method,
+                                path,
+                                correlation_id,
+                            });
                             break;
                         }
                     }
@@ -109,7 +118,11 @@ async fn start_server(cfg: ServerCfg) -> (String, Arc<Mutex<Vec<Recorded>>>) {
                 for (k, v) in &cfg.headers {
                     resp.push_str(&format!("{k}: {v}\r\n"));
                 }
-                resp.push_str(&format!("Content-Length: {}\r\n\r\n{}", cfg.body.len(), cfg.body));
+                resp.push_str(&format!(
+                    "Content-Length: {}\r\n\r\n{}",
+                    cfg.body.len(),
+                    cfg.body
+                ));
                 let _ = sock.write_all(resp.as_bytes()).await;
             });
         }
@@ -119,8 +132,12 @@ async fn start_server(cfg: ServerCfg) -> (String, Arc<Mutex<Vec<Recorded>>>) {
 
 fn http_exec(secrets: Arc<dyn SecretProvider>) -> Arc<HttpCapabilityExecutor> {
     Arc::new(
-        HttpCapabilityExecutor::new(CAP, Arc::new(LoopbackHttpTransport::new()) as Arc<dyn HttpTransport>, secrets)
-            .loopback_only(),
+        HttpCapabilityExecutor::new(
+            CAP,
+            Arc::new(LoopbackHttpTransport::new()) as Arc<dyn HttpTransport>,
+            secrets,
+        )
+        .loopback_only(),
     )
 }
 fn no_secrets() -> Arc<dyn SecretProvider> {
@@ -153,14 +170,34 @@ fn post_req(url: &str, key: &str, corr: &str, headers: serde_json::Value) -> Wri
 #[test]
 fn get_200_succeeds_with_receipt() {
     rt().block_on(async {
-        let (base, _rec) = start_server(ServerCfg { status: 200, body: "pong".into(), headers: vec![("content-type".into(), "text/plain".into())], drop_no_response: false }).await;
+        let (base, _rec) = start_server(ServerCfg {
+            status: 200,
+            body: "pong".into(),
+            headers: vec![("content-type".into(), "text/plain".into())],
+            drop_no_response: false,
+        })
+        .await;
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let reg = registry(http_exec(no_secrets()));
 
-        let out = run_effect_with_passport(&reg, &receipts, &clock(), &passport(), "read", &get_req(&format!("{base}/ping"), "g1", "c1"), RunMode::Live).await.unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "read",
+            &get_req(&format!("{base}/ping"), "g1", "c1"),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(out.result["body"], json!("pong"));
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.HttpCapability:g1", f64::MAX).await.unwrap().unwrap();
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.HttpCapability:g1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["outcome_kind"], json!("succeeded"));
     });
 }
@@ -170,12 +207,28 @@ fn get_200_succeeds_with_receipt() {
 #[test]
 fn get_404_is_permanent_and_429_is_retryable() {
     rt().block_on(async {
-        let (b404, _) = start_server(ServerCfg { status: 404, body: "no".into(), headers: vec![], drop_no_response: false }).await;
-        let out = http_exec(no_secrets()).execute(&get_req(&format!("{b404}/x"), "k", "c")).await;
+        let (b404, _) = start_server(ServerCfg {
+            status: 404,
+            body: "no".into(),
+            headers: vec![],
+            drop_no_response: false,
+        })
+        .await;
+        let out = http_exec(no_secrets())
+            .execute(&get_req(&format!("{b404}/x"), "k", "c"))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
 
-        let (b429, _) = start_server(ServerCfg { status: 429, body: "slow".into(), headers: vec![("retry-after".into(), "12".into())], drop_no_response: false }).await;
-        let out = http_exec(no_secrets()).execute(&get_req(&format!("{b429}/x"), "k", "c")).await;
+        let (b429, _) = start_server(ServerCfg {
+            status: 429,
+            body: "slow".into(),
+            headers: vec![("retry-after".into(), "12".into())],
+            drop_no_response: false,
+        })
+        .await;
+        let out = http_exec(no_secrets())
+            .execute(&get_req(&format!("{b429}/x"), "k", "c"))
+            .await;
         assert_eq!(out.kind, OutcomeKind::Retryable);
         assert_eq!(out.result["retry_after"], json!("12"));
     });
@@ -186,11 +239,27 @@ fn get_404_is_permanent_and_429_is_retryable() {
 #[test]
 fn post_lost_response_is_unknown() {
     rt().block_on(async {
-        let (base, _) = start_server(ServerCfg { status: 0, body: "".into(), headers: vec![], drop_no_response: true }).await;
+        let (base, _) = start_server(ServerCfg {
+            status: 0,
+            body: "".into(),
+            headers: vec![],
+            drop_no_response: true,
+        })
+        .await;
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let reg = registry(http_exec(no_secrets()));
 
-        let out = run_write_effect(&reg, &receipts, &clock(), &passport(), "write", &post_req(&format!("{base}/orders"), "p1", "c1", json!({})), RunMode::Live).await.unwrap();
+        let out = run_write_effect(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &post_req(&format!("{base}/orders"), "p1", "c1", json!({})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.state, WriteState::UnknownExternalState);
     });
 }
@@ -219,16 +288,48 @@ fn missing_secret_refused_before_send() {
 #[test]
 fn authorization_is_redacted_from_receipt() {
     rt().block_on(async {
-        let (base, _) = start_server(ServerCfg { status: 200, body: "ok".into(), headers: vec![], drop_no_response: false }).await;
+        let (base, _) = start_server(ServerCfg {
+            status: 200,
+            body: "ok".into(),
+            headers: vec![],
+            drop_no_response: false,
+        })
+        .await;
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let secrets: Arc<dyn SecretProvider> = Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
+        let secrets: Arc<dyn SecretProvider> =
+            Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
         let reg = registry(http_exec(secrets));
 
-        run_write_effect(&reg, &receipts, &clock(), &passport(), "write", &post_req(&format!("{base}/orders"), "p6", "c6", json!({ "Authorization": "{{secret:tok}}" })), RunMode::Live).await.unwrap();
+        run_write_effect(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &post_req(
+                &format!("{base}/orders"),
+                "p6",
+                "c6",
+                json!({ "Authorization": "{{secret:tok}}" }),
+            ),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.HttpCapability:p6", f64::MAX).await.unwrap().unwrap();
-        assert!(!r.value.to_string().contains("s3cr3t"), "secret must not be in the receipt");
-        assert_eq!(r.value["result"]["redacted_headers"], json!(["Authorization"]));
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.HttpCapability:p6", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !r.value.to_string().contains("s3cr3t"),
+            "secret must not be in the receipt"
+        );
+        assert_eq!(
+            r.value["result"]["redacted_headers"],
+            json!(["Authorization"])
+        );
     });
 }
 
@@ -237,16 +338,46 @@ fn authorization_is_redacted_from_receipt() {
 #[test]
 fn replay_never_sends_second_request() {
     rt().block_on(async {
-        let (base, rec) = start_server(ServerCfg { status: 200, body: "created".into(), headers: vec![], drop_no_response: false }).await;
+        let (base, rec) = start_server(ServerCfg {
+            status: 200,
+            body: "created".into(),
+            headers: vec![],
+            drop_no_response: false,
+        })
+        .await;
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let reg = registry(http_exec(no_secrets()));
         let req = post_req(&format!("{base}/orders"), "p7", "c7", json!({}));
 
-        let a = run_write_effect(&reg, &receipts, &clock(), &passport(), "write", &req, RunMode::Live).await.unwrap();
-        let b = run_write_effect(&reg, &receipts, &clock(), &passport(), "write", &req, RunMode::Live).await.unwrap();
+        let a = run_write_effect(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let b = run_write_effect(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(a.state, WriteState::Committed);
         assert_eq!(b.state, WriteState::Committed);
-        assert_eq!(rec.lock().unwrap().len(), 1, "the server must receive exactly one request");
+        assert_eq!(
+            rec.lock().unwrap().len(),
+            1,
+            "the server must receive exactly one request"
+        );
     });
 }
 
@@ -274,16 +405,39 @@ fn post_without_key_refused_before_send() {
 #[test]
 fn correlation_id_sent_and_recorded() {
     rt().block_on(async {
-        let (base, rec) = start_server(ServerCfg { status: 200, body: "ok".into(), headers: vec![], drop_no_response: false }).await;
+        let (base, rec) = start_server(ServerCfg {
+            status: 200,
+            body: "ok".into(),
+            headers: vec![],
+            drop_no_response: false,
+        })
+        .await;
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let reg = registry(http_exec(no_secrets()));
 
-        run_write_effect(&reg, &receipts, &clock(), &passport(), "write", &post_req(&format!("{base}/orders"), "p9", "corr-xyz", json!({})), RunMode::Live).await.unwrap();
+        run_write_effect(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &post_req(&format!("{base}/orders"), "p9", "corr-xyz", json!({})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         // the server saw the correlation header
-        assert_eq!(rec.lock().unwrap()[0].correlation_id.as_deref(), Some("corr-xyz"));
+        assert_eq!(
+            rec.lock().unwrap()[0].correlation_id.as_deref(),
+            Some("corr-xyz")
+        );
         // and it is a first-class receipt field
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.HttpCapability:p9", f64::MAX).await.unwrap().unwrap();
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.HttpCapability:p9", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["correlation_id"], json!("corr-xyz"));
     });
 }
@@ -293,7 +447,9 @@ fn correlation_id_sent_and_recorded() {
 #[test]
 fn non_loopback_url_refused() {
     rt().block_on(async {
-        let out = http_exec(no_secrets()).execute(&get_req("http://example.com/x", "k", "c")).await;
+        let out = http_exec(no_secrets())
+            .execute(&get_req("http://example.com/x", "k", "c"))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
         assert!(out.failure_kind.unwrap().contains("host not allowed"));
     });

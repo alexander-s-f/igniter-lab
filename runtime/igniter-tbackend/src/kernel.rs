@@ -1,7 +1,7 @@
 // src/kernel.rs
 // TBackend Packet Profile and Kernel Modularization Core
 
-use crate::pure_core::{ShardedFactLog, FileBackend};
+use crate::pure_core::{FileBackend, ShardedFactLog};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,7 +14,9 @@ pub struct StoreEngine {
 }
 
 pub fn is_valid_store_name(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 // ── Service Extensibility Trait Primitives ──────────────────────────────────
@@ -26,14 +28,23 @@ pub trait BackgroundService: Send + Sync {
 }
 
 pub trait RequestMiddleware: Send + Sync {
-    fn before_request(&self, req: &mut serde_json::Value, kernel: &ServerKernel) -> Result<(), String>;
-    fn after_response(&self, req: &serde_json::Value, resp: &mut serde_json::Value, kernel: &ServerKernel);
+    fn before_request(
+        &self,
+        req: &mut serde_json::Value,
+        kernel: &ServerKernel,
+    ) -> Result<(), String>;
+    fn after_response(
+        &self,
+        req: &serde_json::Value,
+        resp: &mut serde_json::Value,
+        kernel: &ServerKernel,
+    );
 }
-
 
 // ── Registry Implementations ────────────────────────────────────────────────
 
-pub type CommandHandler = Arc<dyn Fn(&serde_json::Value, &ServerKernel) -> serde_json::Value + Send + Sync>;
+pub type CommandHandler =
+    Arc<dyn Fn(&serde_json::Value, &ServerKernel) -> serde_json::Value + Send + Sync>;
 
 #[derive(Clone)]
 pub struct CommandRegistry {
@@ -42,14 +53,21 @@ pub struct CommandRegistry {
 
 impl CommandRegistry {
     pub fn new() -> Self {
-        Self { routes: HashMap::new() }
+        Self {
+            routes: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, op: &str, handler: CommandHandler) {
         self.routes.insert(op.to_string(), handler);
     }
 
-    pub fn call(&self, op: &str, req: &serde_json::Value, kernel: &ServerKernel) -> Option<serde_json::Value> {
+    pub fn call(
+        &self,
+        op: &str,
+        req: &serde_json::Value,
+        kernel: &ServerKernel,
+    ) -> Option<serde_json::Value> {
         self.routes.get(op).map(|handler| handler(req, kernel))
     }
 }
@@ -61,7 +79,9 @@ pub struct MiddlewareChain {
 
 impl MiddlewareChain {
     pub fn new() -> Self {
-        Self { middlewares: Vec::new() }
+        Self {
+            middlewares: Vec::new(),
+        }
     }
 
     pub fn register(&mut self, middleware: Arc<dyn RequestMiddleware>) {
@@ -86,7 +106,13 @@ pub struct ServerKernel {
 }
 
 impl ServerKernel {
-    pub fn new(host: String, port: u16, data_dir: Option<String>, pool_size: usize, auth_enabled: bool) -> Self {
+    pub fn new(
+        host: String,
+        port: u16,
+        data_dir: Option<String>,
+        pool_size: usize,
+        auth_enabled: bool,
+    ) -> Self {
         Self {
             host,
             port,
@@ -130,7 +156,10 @@ impl ServerKernel {
                     Some(wal_arc)
                 }
                 Err(e) => {
-                    println!("[TBackend Server] Error initializing WAL file for {}: {}", store_name, e);
+                    println!(
+                        "[TBackend Server] Error initializing WAL file for {}: {}",
+                        store_name, e
+                    );
                     None
                 }
             }
@@ -174,21 +203,29 @@ pub struct ProfileAssembler {
 
 impl ProfileAssembler {
     pub fn new() -> Self {
-        Self { installed_packs: Vec::new() }
+        Self {
+            installed_packs: Vec::new(),
+        }
     }
 
     pub fn register_pack(&mut self, pack: Box<dyn ServerPack>) {
         self.installed_packs.push(pack);
     }
 
-    pub fn finalize(self, mut kernel: ServerKernel) -> Result<(ServerProfile, ServerKernel), String> {
+    pub fn finalize(
+        self,
+        mut kernel: ServerKernel,
+    ) -> Result<(ServerProfile, ServerKernel), String> {
         // 1. Recursive Dependency & Capabilities Completeness Verification
         for pack in &self.installed_packs {
             let manifest = pack.manifest();
-            
+
             // Validate required packs are loaded
             for req in &manifest.requires_packs {
-                let found = self.installed_packs.iter().any(|p| p.manifest().name == *req);
+                let found = self
+                    .installed_packs
+                    .iter()
+                    .any(|p| p.manifest().name == *req);
                 if !found {
                     return Err(format!(
                         "Completeness Error: Pack '{}' requires pack '{}', but it is missing from configuration.",
@@ -199,9 +236,10 @@ impl ProfileAssembler {
 
             // Validate required capabilities are supplied by at least one package
             for req_cap in &manifest.requires_capabilities {
-                let found = self.installed_packs.iter().any(|p| {
-                    p.manifest().provides_capabilities.contains(req_cap)
-                });
+                let found = self
+                    .installed_packs
+                    .iter()
+                    .any(|p| p.manifest().provides_capabilities.contains(req_cap));
                 if !found {
                     return Err(format!(
                         "Completeness Error: Pack '{}' requires capability '{}', but no registered pack provides it.",
@@ -219,14 +257,22 @@ impl ProfileAssembler {
         // 3. Compute Cryptographic Configuration Fingerprint (using blake3)
         let mut hasher = blake3::Hasher::new();
         // Add names of active packs deterministically
-        let mut sorted_packs: Vec<&'static str> = self.installed_packs.iter().map(|p| p.manifest().name).collect();
+        let mut sorted_packs: Vec<&'static str> = self
+            .installed_packs
+            .iter()
+            .map(|p| p.manifest().name)
+            .collect();
         sorted_packs.sort();
         for name in &sorted_packs {
             hasher.update(name.as_bytes());
         }
         let fingerprint = hasher.finalize().to_hex().to_string();
 
-        let active_packs = self.installed_packs.iter().map(|p| p.manifest().name).collect();
+        let active_packs = self
+            .installed_packs
+            .iter()
+            .map(|p| p.manifest().name)
+            .collect();
         let cmd_reg = kernel.command_registry.read().clone();
         let mid_chain = kernel.middleware_chain.read().clone();
 

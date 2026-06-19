@@ -57,8 +57,8 @@ pub enum FrameBindingEffectRefusal {
 pub struct FrameBindingEffectResult {
     pub invoke_result: Value,      // the real capsule activation output
     pub receipt_state: WriteState, // the capability-IO outcome (committed / unknown / denied / …)
-    pub receipt_key: String,       // "<capability_id>:<idempotency_key>" (the receipt id, no secret)
-    pub result: Value,             // the effect's returned value
+    pub receipt_key: String, // "<capability_id>:<idempotency_key>" (the receipt id, no secret)
+    pub result: Value,       // the effect's returned value
 }
 
 impl FrameBindingEffectResult {
@@ -74,7 +74,12 @@ impl FrameBindingEffectResult {
         idempotency_key: &str,
         correlation_id: &str,
     ) -> Value {
-        let hex = blake3::hash(serde_json::to_string(&self.invoke_result).unwrap_or_default().as_bytes()).to_hex();
+        let hex = blake3::hash(
+            serde_json::to_string(&self.invoke_result)
+                .unwrap_or_default()
+                .as_bytes(),
+        )
+        .to_hex();
         json!({
             "action_id": action_id,
             "action_name": action_name,
@@ -103,22 +108,40 @@ pub struct FrameBindingEffectBridge<'a> {
 
 impl FrameBindingEffectBridge<'_> {
     /// Validate the action's declared `effect` block (capability_id required; operation/scope default).
-    fn parse_effect(artifact_json: &str, action_name: &str) -> Result<EffectDecl, FrameBindingEffectRefusal> {
-        let v: Value = serde_json::from_str(artifact_json)
-            .map_err(|e| FrameBindingEffectRefusal::MalformedEffect(format!("bad artifact json: {e}")))?;
+    fn parse_effect(
+        artifact_json: &str,
+        action_name: &str,
+    ) -> Result<EffectDecl, FrameBindingEffectRefusal> {
+        let v: Value = serde_json::from_str(artifact_json).map_err(|e| {
+            FrameBindingEffectRefusal::MalformedEffect(format!("bad artifact json: {e}"))
+        })?;
         let eff = v
             .get("actions")
             .and_then(|a| a.get(action_name))
             .and_then(|a| a.get("effect"))
-            .ok_or_else(|| FrameBindingEffectRefusal::MalformedEffect(format!("actions.{action_name}.effect missing")))?;
+            .ok_or_else(|| {
+                FrameBindingEffectRefusal::MalformedEffect(format!(
+                    "actions.{action_name}.effect missing"
+                ))
+            })?;
         let cap = eff
             .get("capability_id")
             .and_then(|c| c.as_str())
-            .ok_or_else(|| FrameBindingEffectRefusal::MalformedEffect("effect.capability_id missing".into()))?;
+            .ok_or_else(|| {
+                FrameBindingEffectRefusal::MalformedEffect("effect.capability_id missing".into())
+            })?;
         Ok(EffectDecl {
             capability_id: cap.to_string(),
-            operation: eff.get("operation").and_then(|o| o.as_str()).unwrap_or("perform").to_string(),
-            scope: eff.get("scope").and_then(|s| s.as_str()).unwrap_or("write").to_string(),
+            operation: eff
+                .get("operation")
+                .and_then(|o| o.as_str())
+                .unwrap_or("perform")
+                .to_string(),
+            scope: eff
+                .get("scope")
+                .and_then(|s| s.as_str())
+                .unwrap_or("write")
+                .to_string(),
         })
     }
 
@@ -136,7 +159,13 @@ impl FrameBindingEffectBridge<'_> {
     ) -> Result<FrameBindingEffectResult, FrameBindingEffectRefusal> {
         // P17 gates 1-3 + real capsule activation under the SERVING passport
         let invoke_result = match FrameBindingBridge::handle_action(
-            artifact_json, action_name, invoke_payload, serving_passport, pool_id, hub, self.contracts,
+            artifact_json,
+            action_name,
+            invoke_payload,
+            serving_passport,
+            pool_id,
+            hub,
+            self.contracts,
         )
         .await
         {
@@ -147,7 +176,9 @@ impl FrameBindingEffectBridge<'_> {
         // validate the declared effect intent BEFORE the executor (no effect/receipt if malformed)
         let effect = Self::parse_effect(artifact_json, action_name)?;
         if idempotency_key.is_empty() {
-            return Err(FrameBindingEffectRefusal::MalformedEffect("missing idempotency_key".into()));
+            return Err(FrameBindingEffectRefusal::MalformedEffect(
+                "missing idempotency_key".into(),
+            ));
         }
 
         // the capsule output is DATA; the HOST performs the effect through capability-IO

@@ -30,16 +30,24 @@ pub fn resolve_field_as_value(fact: &FactData, path: &str) -> Option<serde_json:
         return fact.valid_time.map(|vt| serde_json::json!(vt));
     }
     if path == "producer" {
-        return fact.producer.as_ref().map(|p| serde_json::Value::String(p.clone()));
+        return fact
+            .producer
+            .as_ref()
+            .map(|p| serde_json::Value::String(p.clone()));
     }
     if path == "causation" {
-        return fact.causation.as_ref().map(|c| serde_json::Value::String(c.clone()));
+        return fact
+            .causation
+            .as_ref()
+            .map(|c| serde_json::Value::String(c.clone()));
     }
     if path.starts_with("value.") {
         let sub_path = &path[6..];
         let mut current = &fact.value;
         for part in sub_path.split('.') {
-            if part.is_empty() { continue; }
+            if part.is_empty() {
+                continue;
+            }
             current = current.get(part)?;
         }
         return Some(current.clone());
@@ -101,9 +109,9 @@ pub fn evaluate_slice_rule(rule: &SliceRule, fact: &FactData) -> bool {
 
 fn matches_filters(value: &serde_json::Value, filters: &serde_json::Value) -> bool {
     match (value, filters) {
-        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => {
-            f.iter().all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv))
-        }
+        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => f
+            .iter()
+            .all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv)),
         _ => false,
     }
 }

@@ -7,8 +7,8 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::CapabilityPassport;
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility, ServiceRecipe,
-    COORD_AUDIT_STORE,
+    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility,
+    ServiceRecipe, COORD_AUDIT_STORE,
 };
 use igniter_machine::frame_binding::{FrameBindingBridge, FrameBindingRefusal, FrameBindingResult};
 use igniter_machine::machine::IgniterMachine;
@@ -17,7 +17,10 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -28,8 +31,16 @@ fn hub() -> (CoordinationHub, Arc<dyn TBackend>) {
 }
 
 const SCOPES: &[&str] = &[
-    "create_pool", "import_capsule", "list_capsules", "activate_capsule", "fork_capsule",
-    "export_capsule", "grant_access", "admin_pool", "accept_recipe", "invoke",
+    "create_pool",
+    "import_capsule",
+    "list_capsules",
+    "activate_capsule",
+    "fork_capsule",
+    "export_capsule",
+    "grant_access",
+    "admin_pool",
+    "accept_recipe",
+    "invoke",
 ];
 
 fn passport(subject: &str) -> CapabilityPassport {
@@ -45,7 +56,15 @@ fn passport(subject: &str) -> CapabilityPassport {
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 
 async fn add_capsule_bytes() -> Vec<u8> {
@@ -78,17 +97,36 @@ async fn setup(h: &mut CoordinationHub) -> String {
     register(h, "alice", AgentKind::Agent).await;
     register(h, "dev", AgentKind::Developer).await;
     register(h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&passport("alice"), "svc", bytes, vec![]).await.unwrap();
+    let cref = h
+        .add_capsule(&passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
     cref.capsule_id
 }
 
 /// Promote `svc` to production with a signed recipe and grant the vendor activation. Ready to serve.
 async fn production_pool(h: &mut CoordinationHub) {
     let digest = setup(h).await;
-    h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
-    h.grant(&passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+        .await
+        .unwrap();
+    h.grant(
+        &passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
 }
 
 fn registry_with(names: &[&str]) -> ContractRegistry {
@@ -100,7 +138,13 @@ fn registry_with(names: &[&str]) -> ContractRegistry {
 }
 
 async fn count(audit: &Arc<dyn TBackend>, store: &str) -> usize {
-    audit.all_facts().await.unwrap().into_iter().filter(|f| f.store == store).count()
+    audit
+        .all_facts()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|f| f.store == store)
+        .count()
 }
 
 const ARTIFACT: &str = r#"{ "artifact":"view","version":0,"layout":"workbench",
@@ -116,11 +160,31 @@ fn declared_registered_action_invokes_real_capsule_and_audits_without_a_receipt(
         let registry = registry_with(&["Add"]);
 
         let audit_before = count(&audit, COORD_AUDIT_STORE).await;
-        let out = FrameBindingBridge::handle_action(ARTIFACT, "add", json!({ "a": 2, "b": 3 }), &passport("vendor:acme"), "svc", &h, &registry).await;
+        let out = FrameBindingBridge::handle_action(
+            ARTIFACT,
+            "add",
+            json!({ "a": 2, "b": 3 }),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
 
-        assert_eq!(out.ok(), Some(&json!(5)), "real capsule activation returned a+b=5");
-        assert!(count(&audit, COORD_AUDIT_STORE).await > audit_before, "the invoke wrote a coordination audit fact");
-        assert_eq!(count(&audit, "__receipts__").await, 0, "serving invoke produced NO capability-IO receipt");
+        assert_eq!(
+            out.ok(),
+            Some(&json!(5)),
+            "real capsule activation returned a+b=5"
+        );
+        assert!(
+            count(&audit, COORD_AUDIT_STORE).await > audit_before,
+            "the invoke wrote a coordination audit fact"
+        );
+        assert_eq!(
+            count(&audit, "__receipts__").await,
+            0,
+            "serving invoke produced NO capability-IO receipt"
+        );
     });
 }
 
@@ -132,9 +196,25 @@ fn missing_declaration_refuses_before_invoke() {
         let registry = registry_with(&["Add"]);
         let audit_before = count(&audit, COORD_AUDIT_STORE).await;
 
-        let out = FrameBindingBridge::handle_action(ARTIFACT, "not_declared", json!({}), &passport("vendor:acme"), "svc", &h, &registry).await;
-        assert!(matches!(out.refusal(), Some(FrameBindingRefusal::MissingDeclaration(_))));
-        assert_eq!(count(&audit, COORD_AUDIT_STORE).await, audit_before, "no invoke audit — refused before invoke");
+        let out = FrameBindingBridge::handle_action(
+            ARTIFACT,
+            "not_declared",
+            json!({}),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
+        assert!(matches!(
+            out.refusal(),
+            Some(FrameBindingRefusal::MissingDeclaration(_))
+        ));
+        assert_eq!(
+            count(&audit, COORD_AUDIT_STORE).await,
+            audit_before,
+            "no invoke audit — refused before invoke"
+        );
     });
 }
 
@@ -146,12 +226,25 @@ fn missing_registry_entry_refuses_before_invoke() {
         let registry = ContractRegistry::new(); // "Add" NOT registered
         let audit_before = count(&audit, COORD_AUDIT_STORE).await;
 
-        let out = FrameBindingBridge::handle_action(ARTIFACT, "add", json!({ "a": 2, "b": 3 }), &passport("vendor:acme"), "svc", &h, &registry).await;
+        let out = FrameBindingBridge::handle_action(
+            ARTIFACT,
+            "add",
+            json!({ "a": 2, "b": 3 }),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
         match out.refusal() {
             Some(FrameBindingRefusal::NotRegistered(c)) => assert_eq!(c, "Add"),
             other => panic!("expected NotRegistered, got {other:?}"),
         }
-        assert_eq!(count(&audit, COORD_AUDIT_STORE).await, audit_before, "refused before invoke");
+        assert_eq!(
+            count(&audit, COORD_AUDIT_STORE).await,
+            audit_before,
+            "refused before invoke"
+        );
     });
 }
 
@@ -160,13 +253,22 @@ fn recipe_entry_contract_mismatch_refuses_before_invoke() {
     rt().block_on(async {
         let (mut h, audit) = hub();
         production_pool(&mut h).await; // recipe.entry_contract == "Add"
-        // action declares (and registry registers) a DIFFERENT contract
+                                       // action declares (and registry registers) a DIFFERENT contract
         let mismatch = r#"{ "artifact":"view","layout":"workbench",
           "actions": { "add": { "contract": "Mul" } } }"#;
         let registry = registry_with(&["Mul"]);
         let audit_before = count(&audit, COORD_AUDIT_STORE).await;
 
-        let out = FrameBindingBridge::handle_action(mismatch, "add", json!({ "a": 2, "b": 3 }), &passport("vendor:acme"), "svc", &h, &registry).await;
+        let out = FrameBindingBridge::handle_action(
+            mismatch,
+            "add",
+            json!({ "a": 2, "b": 3 }),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
         match out.refusal() {
             Some(FrameBindingRefusal::RecipeMismatch { action, recipe }) => {
                 assert_eq!(action, "Mul");
@@ -174,7 +276,11 @@ fn recipe_entry_contract_mismatch_refuses_before_invoke() {
             }
             other => panic!("expected RecipeMismatch, got {other:?}"),
         }
-        assert_eq!(count(&audit, COORD_AUDIT_STORE).await, audit_before, "refused before invoke");
+        assert_eq!(
+            count(&audit, COORD_AUDIT_STORE).await,
+            audit_before,
+            "refused before invoke"
+        );
     });
 }
 
@@ -184,12 +290,27 @@ fn missing_grant_is_refused_by_the_coordination_gate() {
         let (mut h, _audit) = hub();
         // production pool + recipe but NO ActivateCapsule grant to the vendor
         let digest = setup(&mut h).await;
-        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice")).await.unwrap();
+        h.accept_recipe(&passport("dev"), "svc", recipe(&digest, "alice"))
+            .await
+            .unwrap();
         let registry = registry_with(&["Add"]);
 
-        let out = FrameBindingBridge::handle_action(ARTIFACT, "add", json!({ "a": 2, "b": 3 }), &passport("vendor:acme"), "svc", &h, &registry).await;
+        let out = FrameBindingBridge::handle_action(
+            ARTIFACT,
+            "add",
+            json!({ "a": 2, "b": 3 }),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
         // the real coordination gate refuses (the bridge passed its declared/registered/recipe gates)
-        assert!(matches!(out.refusal(), Some(FrameBindingRefusal::Pool(_))), "coordination gate refused: {:?}", out.refusal());
+        assert!(
+            matches!(out.refusal(), Some(FrameBindingRefusal::Pool(_))),
+            "coordination gate refused: {:?}",
+            out.refusal()
+        );
         assert!(out.ok().is_none());
     });
 }
@@ -200,7 +321,19 @@ fn bad_artifact_json_is_refused() {
         let (mut h, _audit) = hub();
         production_pool(&mut h).await;
         let registry = registry_with(&["Add"]);
-        let out = FrameBindingBridge::handle_action("{ not json", "add", json!({}), &passport("vendor:acme"), "svc", &h, &registry).await;
-        assert!(matches!(out.refusal(), Some(FrameBindingRefusal::BadArtifact(_))));
+        let out = FrameBindingBridge::handle_action(
+            "{ not json",
+            "add",
+            json!({}),
+            &passport("vendor:acme"),
+            "svc",
+            &h,
+            &registry,
+        )
+        .await;
+        assert!(matches!(
+            out.refusal(),
+            Some(FrameBindingRefusal::BadArtifact(_))
+        ));
     });
 }

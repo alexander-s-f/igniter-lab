@@ -15,7 +15,14 @@ pub struct SpanEntry {
 
 impl SpanEntry {
     fn at(node_id: String, kind: &str, line: usize, col: usize) -> Self {
-        Self { node_id, kind: kind.to_string(), start_line: line, start_col: col, end_line: 0, end_col: 0 }
+        Self {
+            node_id,
+            kind: kind.to_string(),
+            start_line: line,
+            start_col: col,
+            end_line: 0,
+            end_col: 0,
+        }
     }
 }
 
@@ -137,7 +144,9 @@ pub enum Associativity {
 }
 
 impl Default for Associativity {
-    fn default() -> Self { Associativity::Left }
+    fn default() -> Self {
+        Associativity::Left
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -300,15 +309,13 @@ pub enum BodyDecl {
         options: HashMap<String, WindowValue>,
     },
     #[serde(rename = "escape")]
-    Escape {
-        name: String,
-    },
+    Escape { name: String },
     #[serde(rename = "stream")]
     Stream {
         name: String,
         type_annotation: TypeRef,
-        fragment_class: String,      // "escape"
-        escape_capability: String,   // "stream_input"
+        fragment_class: String,    // "escape"
+        escape_capability: String, // "stream_input"
     },
     #[serde(rename = "fold_stream")]
     FoldStream {
@@ -332,9 +339,7 @@ pub enum BodyDecl {
         overridable_with: Option<String>,
     },
     #[serde(rename = "uses_assumptions")]
-    UsesAssumptions {
-        name: String,
-    },
+    UsesAssumptions { name: String },
     #[serde(rename = "loop")]
     Loop {
         name: String,
@@ -355,14 +360,10 @@ pub enum BodyDecl {
     },
     /// G2: `decreases <variant>` inside recursive contract body
     #[serde(rename = "decreases")]
-    Decreases {
-        variant: String,
-    },
+    Decreases { variant: String },
     /// G2: `max_steps <N>` inside fuel_bounded (or recursive + decreases fuel) contract body
     #[serde(rename = "max_steps")]
-    MaxSteps {
-        value: u64,
-    },
+    MaxSteps { value: u64 },
     /// PROP-039 gate 8: `lead name: Type = literal` inside loop body
     #[serde(rename = "lead")]
     Lead {
@@ -377,7 +378,6 @@ pub struct ClockInterval {
     pub value: u64,
     pub unit: String,
 }
-
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cardinality {
@@ -443,14 +443,9 @@ pub struct BlockBody {
 #[serde(tag = "kind")]
 pub enum Stmt {
     #[serde(rename = "let")]
-    Let {
-        name: String,
-        expr: Expr,
-    },
+    Let { name: String, expr: Expr },
     #[serde(rename = "expr_stmt")]
-    ExprStmt {
-        expr: Expr,
-    },
+    ExprStmt { expr: Expr },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -528,9 +523,7 @@ pub enum Expr {
         type_tag: String,
     },
     #[serde(rename = "ref")]
-    Ref {
-        name: String,
-    },
+    Ref { name: String },
     #[serde(rename = "binary_op")]
     BinaryOp {
         op: String,
@@ -538,24 +531,16 @@ pub enum Expr {
         right: Box<Expr>,
     },
     #[serde(rename = "unary_op")]
-    UnaryOp {
-        op: String,
-        operand: Box<Expr>,
-    },
+    UnaryOp { op: String, operand: Box<Expr> },
     #[serde(rename = "field_access")]
-    FieldAccess {
-        object: Box<Expr>,
-        field: String,
-    },
+    FieldAccess { object: Box<Expr>, field: String },
     #[serde(rename = "index_access")]
     IndexAccess {
         object: Box<Expr>,
         index: Box<Expr>, // Can also be SliceRecord
     },
     #[serde(rename = "slice_record")]
-    SliceRecord {
-        fields: HashMap<String, Expr>,
-    },
+    SliceRecord { fields: HashMap<String, Expr> },
     #[serde(rename = "call")]
     Call {
         #[serde(rename = "fn")]
@@ -575,17 +560,11 @@ pub enum Expr {
         body: Box<ExprOrBlock>,
     },
     #[serde(rename = "array_literal")]
-    ArrayLiteral {
-        items: Vec<Expr>,
-    },
+    ArrayLiteral { items: Vec<Expr> },
     #[serde(rename = "record_literal")]
-    RecordLiteral {
-        fields: HashMap<String, Expr>,
-    },
+    RecordLiteral { fields: HashMap<String, Expr> },
     #[serde(rename = "symbol")]
-    Symbol {
-        value: String,
-    },
+    Symbol { value: String },
     /// PROP-044 P3: variant construction expression — `ArmName { field: expr, ... }`
     #[serde(rename = "variant_construct")]
     VariantConstruct {
@@ -599,9 +578,7 @@ pub enum Expr {
         arms: Vec<MatchArm>,
     },
     #[serde(rename = "error")]
-    Error {
-        token: String,
-    },
+    Error { token: String },
 }
 
 impl Expr {
@@ -683,11 +660,14 @@ impl Parser {
     }
 
     fn peek_kw(&self, kw: &str) -> bool {
-        self.current().map_or(false, |t| t.token_type == TokenType::Keyword && t.value == kw)
+        self.current().map_or(false, |t| {
+            t.token_type == TokenType::Keyword && t.value == kw
+        })
     }
 
     fn peek_ident(&self) -> bool {
-        self.current().map_or(false, |t| t.token_type == TokenType::Ident)
+        self.current()
+            .map_or(false, |t| t.token_type == TokenType::Ident)
     }
 
     fn expect_type(&mut self, t_type: TokenType) -> Result<Token, String> {
@@ -695,7 +675,10 @@ impl Parser {
         if tok.token_type == t_type {
             Ok(tok.clone())
         } else {
-            Err(format!("Expected {:?}, got {:?}({}) at line {}, col {}", t_type, tok.token_type, tok.value, tok.line, tok.col))
+            Err(format!(
+                "Expected {:?}, got {:?}({}) at line {}, col {}",
+                t_type, tok.token_type, tok.value, tok.line, tok.col
+            ))
         }
     }
 
@@ -704,7 +687,10 @@ impl Parser {
         if tok.token_type == TokenType::Keyword && tok.value == kw {
             Ok(tok.clone())
         } else {
-            Err(format!("Expected keyword '{}', got '{}' at line {}, col {}", kw, tok.value, tok.line, tok.col))
+            Err(format!(
+                "Expected keyword '{}', got '{}' at line {}, col {}",
+                kw, tok.value, tok.line, tok.col
+            ))
         }
     }
 
@@ -713,7 +699,10 @@ impl Parser {
         if tok.value == val {
             Ok(tok.clone())
         } else {
-            Err(format!("Expected '{}', got '{}' at line {}, col {}", val, tok.value, tok.line, tok.col))
+            Err(format!(
+                "Expected '{}', got '{}' at line {}, col {}",
+                val, tok.value, tok.line, tok.col
+            ))
         }
     }
 
@@ -722,7 +711,10 @@ impl Parser {
         if tok.token_type == TokenType::Ident || tok.token_type == TokenType::Keyword {
             Ok(tok.value.clone())
         } else {
-            Err(format!("Expected name, got {:?}({})", tok.token_type, tok.value))
+            Err(format!(
+                "Expected name, got {:?}({})",
+                tok.token_type, tok.value
+            ))
         }
     }
 
@@ -744,7 +736,8 @@ impl Parser {
 
     /// LAB-SRCMAP-P1: record a source span entry for a named node.
     fn record_span(&mut self, node_id: String, kind: &str, line: usize, col: usize) {
-        self.span_table.push(SpanEntry::at(node_id, kind, line, col));
+        self.span_table
+            .push(SpanEntry::at(node_id, kind, line, col));
     }
 
     pub fn parse(&mut self) -> SourceFile {
@@ -813,7 +806,8 @@ impl Parser {
             }
         }
 
-        let grammar_version = self.determine_grammar_version(&contracts, &pipelines, &olap_points, &assumptions);
+        let grammar_version =
+            self.determine_grammar_version(&contracts, &pipelines, &olap_points, &assumptions);
 
         SourceFile {
             kind: "parsed_program".to_string(),
@@ -838,7 +832,13 @@ impl Parser {
         }
     }
 
-    fn determine_grammar_version(&self, contracts: &[ContractDecl], pipelines: &[PipelineDecl], olaps: &[OlapPointDecl], assumptions: &[AssumptionDecl]) -> String {
+    fn determine_grammar_version(
+        &self,
+        contracts: &[ContractDecl],
+        pipelines: &[PipelineDecl],
+        olaps: &[OlapPointDecl],
+        assumptions: &[AssumptionDecl],
+    ) -> String {
         let is_decimal = |tr: &TypeRef| -> bool {
             match tr {
                 TypeRef::Structured { name, .. } => name == "Decimal",
@@ -847,7 +847,9 @@ impl Parser {
         };
 
         let has_uses_assumptions = contracts.iter().any(|c| {
-            c.body.iter().any(|b| matches!(b, BodyDecl::UsesAssumptions { .. }))
+            c.body
+                .iter()
+                .any(|b| matches!(b, BodyDecl::UsesAssumptions { .. }))
         });
 
         if !assumptions.is_empty() || has_uses_assumptions {
@@ -860,10 +862,19 @@ impl Parser {
 
         let has_decimal = contracts.iter().any(|c| {
             c.body.iter().any(|b| match b {
-                BodyDecl::Input { type_annotation, .. } => is_decimal(type_annotation),
-                BodyDecl::Output { type_annotation, .. } => is_decimal(type_annotation),
-                BodyDecl::Read { type_annotation, .. } => is_decimal(type_annotation),
-                BodyDecl::Compute { type_annotation: Some(ta), .. } => is_decimal(ta),
+                BodyDecl::Input {
+                    type_annotation, ..
+                } => is_decimal(type_annotation),
+                BodyDecl::Output {
+                    type_annotation, ..
+                } => is_decimal(type_annotation),
+                BodyDecl::Read {
+                    type_annotation, ..
+                } => is_decimal(type_annotation),
+                BodyDecl::Compute {
+                    type_annotation: Some(ta),
+                    ..
+                } => is_decimal(ta),
                 _ => false,
             })
         });
@@ -874,7 +885,9 @@ impl Parser {
 
         let has_scoped = contracts.iter().any(|c| {
             c.body.iter().any(|b| match b {
-                BodyDecl::Read { scoped_by: Some(_), .. } => true,
+                BodyDecl::Read {
+                    scoped_by: Some(_), ..
+                } => true,
                 _ => false,
             })
         });
@@ -909,8 +922,13 @@ impl Parser {
         loop {
             // LAB-COMPILER-LIVENESS-P2: record each loop iteration as one step
             crate::liveness::record_import_step();
-            if self.peek_type(TokenType::Dot) && self.peek(1).map_or(false, |t| t.token_type == TokenType::LBrace) {
-                self.advance(); self.advance();
+            if self.peek_type(TokenType::Dot)
+                && self
+                    .peek(1)
+                    .map_or(false, |t| t.token_type == TokenType::LBrace)
+            {
+                self.advance();
+                self.advance();
                 let mut n_list = Vec::new();
                 while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
                     n_list.push(self.name_token()?);
@@ -921,7 +939,11 @@ impl Parser {
                 self.expect_type(TokenType::RBrace)?;
                 names = Some(n_list);
                 break;
-            } else if self.peek_type(TokenType::Dot) && self.peek(1).map_or(false, |t| t.token_type == TokenType::Ident) {
+            } else if self.peek_type(TokenType::Dot)
+                && self
+                    .peek(1)
+                    .map_or(false, |t| t.token_type == TokenType::Ident)
+            {
                 self.advance();
                 path_parts.push(self.name_token()?);
             } else {
@@ -939,7 +961,9 @@ impl Parser {
                 while !self.peek_type(TokenType::RBracket) && !self.peek_type(TokenType::Eof) {
                     let tok = self.advance().ok_or("EOF")?;
                     hiding.push(tok.value.clone());
-                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                    if self.peek_type(TokenType::Comma) {
+                        self.advance();
+                    }
                 }
                 let _ = self.expect_type(TokenType::RBracket);
             } else {
@@ -952,11 +976,19 @@ impl Parser {
             overriding.push(tok.value.clone());
         }
 
-        Ok(Import { module_path: path_parts.join("."), names, hiding, overriding })
+        Ok(Import {
+            module_path: path_parts.join("."),
+            names,
+            hiding,
+            overriding,
+        })
     }
 
     fn parse_top_decl(&mut self) -> Result<Option<TopDecl>, String> {
-        let tok = self.current().cloned().ok_or_else(|| "Unexpected EOF".to_string())?;
+        let tok = self
+            .current()
+            .cloned()
+            .ok_or_else(|| "Unexpected EOF".to_string())?;
         match tok.value.as_str() {
             "trait" => { self.advance(); self.parse_trait_decl().map(|t| Some(TopDecl::Trait(t))) }
             "impl" => { self.advance(); self.parse_impl_decl().map(|i| Some(TopDecl::Impl(i))) }
@@ -996,7 +1028,10 @@ impl Parser {
     /// PROP-ENTRYPOINT-P4: Parse top-level `entrypoint ContractName`.
     /// This is metadata only; it does not enter the dependency graph.
     fn parse_entrypoint_decl(&mut self) -> Result<EntrypointDecl, String> {
-        let tok = self.advance().ok_or_else(|| "Unexpected EOF".to_string())?.clone();
+        let tok = self
+            .advance()
+            .ok_or_else(|| "Unexpected EOF".to_string())?
+            .clone();
         let target_tok = self.current().cloned();
         if target_tok.as_ref().map_or(true, |t| {
             t.token_type != TokenType::Ident && t.token_type != TokenType::Keyword
@@ -1013,7 +1048,10 @@ impl Parser {
                 kind: "entrypoint".to_string(),
                 target: "".to_string(),
                 qualified: false,
-                source_span: SourceSpan { line: tok.line, col: tok.col },
+                source_span: SourceSpan {
+                    line: tok.line,
+                    col: tok.col,
+                },
             });
         }
 
@@ -1035,7 +1073,10 @@ impl Parser {
             kind: "entrypoint".to_string(),
             qualified: target.contains('.'),
             target,
-            source_span: SourceSpan { line: tok.line, col: tok.col },
+            source_span: SourceSpan {
+                line: tok.line,
+                col: tok.col,
+            },
         })
     }
 
@@ -1084,8 +1125,19 @@ impl Parser {
                     }
                 }
             } else {
-                let current_tok = self.current().cloned().unwrap_or_else(|| Token { token_type: TokenType::Eof, value: String::new(), line: 0, col: 0 });
-                self.add_parse_error("OOF-P0", "Expected 'assumption' declaration inside assumptions block", &current_tok.value, current_tok.line, current_tok.col);
+                let current_tok = self.current().cloned().unwrap_or_else(|| Token {
+                    token_type: TokenType::Eof,
+                    value: String::new(),
+                    line: 0,
+                    col: 0,
+                });
+                self.add_parse_error(
+                    "OOF-P0",
+                    "Expected 'assumption' declaration inside assumptions block",
+                    &current_tok.value,
+                    current_tok.line,
+                    current_tok.col,
+                );
                 self.advance();
             }
         }
@@ -1096,7 +1148,13 @@ impl Parser {
     fn parse_assumption_decl(&mut self, assumption_tok: Token) -> Result<AssumptionDecl, String> {
         if !self.peek_ident() {
             let val = self.current().map_or("", |t| &t.value).to_string();
-            self.add_parse_error("OOF-P28", "assumption declaration requires a name", &val, assumption_tok.line, assumption_tok.col);
+            self.add_parse_error(
+                "OOF-P28",
+                "assumption declaration requires a name",
+                &val,
+                assumption_tok.line,
+                assumption_tok.col,
+            );
             if self.peek_type(TokenType::LBrace) {
                 self.skip_balanced_block();
             }
@@ -1126,41 +1184,75 @@ impl Parser {
         })
     }
 
-    fn parse_assumption_field_value(&mut self, field: &str, field_tok: Token) -> Result<serde_json::Value, String> {
+    fn parse_assumption_field_value(
+        &mut self,
+        field: &str,
+        field_tok: Token,
+    ) -> Result<serde_json::Value, String> {
         match field {
             "kind" => {
                 if self.peek_type(TokenType::SymbolLit) {
-                    Ok(serde_json::Value::String(self.advance().unwrap().value.clone()))
+                    Ok(serde_json::Value::String(
+                        self.advance().unwrap().value.clone(),
+                    ))
                 } else {
-                    self.add_parse_error("OOF-P0", "assumption kind requires a symbol literal", field, field_tok.line, field_tok.col);
+                    self.add_parse_error(
+                        "OOF-P0",
+                        "assumption kind requires a symbol literal",
+                        field,
+                        field_tok.line,
+                        field_tok.col,
+                    );
                     Ok(serde_json::Value::Null)
                 }
             }
             "statement" | "source" => {
                 if self.peek_type(TokenType::StringLit) {
-                    Ok(serde_json::Value::String(self.advance().unwrap().value.clone()))
+                    Ok(serde_json::Value::String(
+                        self.advance().unwrap().value.clone(),
+                    ))
                 } else if self.peek_type(TokenType::NilLit) {
                     self.advance();
                     Ok(serde_json::Value::Null)
                 } else {
-                    self.add_parse_error("OOF-P0", &format!("assumption {} requires a string literal", field), field, field_tok.line, field_tok.col);
+                    self.add_parse_error(
+                        "OOF-P0",
+                        &format!("assumption {} requires a string literal", field),
+                        field,
+                        field_tok.line,
+                        field_tok.col,
+                    );
                     Ok(serde_json::Value::Null)
                 }
             }
             "strength" => {
                 if self.peek_type(TokenType::FloatLit) {
                     let val = self.advance().unwrap().value.parse::<f64>().unwrap_or(0.0);
-                    Ok(serde_json::Value::Number(serde_json::Number::from_f64(val).unwrap()))
+                    Ok(serde_json::Value::Number(
+                        serde_json::Number::from_f64(val).unwrap(),
+                    ))
                 } else if self.peek_type(TokenType::IntLit) {
                     let val = self.advance().unwrap().value.parse::<i64>().unwrap_or(0);
                     Ok(serde_json::Value::Number(serde_json::Number::from(val)))
                 } else {
-                    self.add_parse_error("OOF-P0", "assumption strength requires a numeric literal", "strength", field_tok.line, field_tok.col);
+                    self.add_parse_error(
+                        "OOF-P0",
+                        "assumption strength requires a numeric literal",
+                        "strength",
+                        field_tok.line,
+                        field_tok.col,
+                    );
                     Ok(serde_json::Value::Null)
                 }
             }
             _ => {
-                self.add_parse_error("OOF-P0", &format!("Unknown assumption field: {}", field), field, field_tok.line, field_tok.col);
+                self.add_parse_error(
+                    "OOF-P0",
+                    &format!("Unknown assumption field: {}", field),
+                    field,
+                    field_tok.line,
+                    field_tok.col,
+                );
                 Ok(serde_json::Value::Null)
             }
         }
@@ -1193,7 +1285,13 @@ impl Parser {
                         ref_path: Some(ref_path),
                     });
                 } else {
-                    self.add_parse_error("OOF-PG2", "step must reference a contract", &s_name, s_tok.line, s_tok.col);
+                    self.add_parse_error(
+                        "OOF-PG2",
+                        "step must reference a contract",
+                        &s_name,
+                        s_tok.line,
+                        s_tok.col,
+                    );
                     self.skip_optional_block_or_step_tail();
                     steps.push(StepDecl {
                         kind: "step".to_string(),
@@ -1203,13 +1301,25 @@ impl Parser {
                 }
             } else {
                 let tok = self.current().cloned().ok_or("EOF")?;
-                self.add_parse_error("OOF-P0", &format!("Expected 'step', got '{}'", tok.value), &tok.value, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-P0",
+                    &format!("Expected 'step', got '{}'", tok.value),
+                    &tok.value,
+                    tok.line,
+                    tok.col,
+                );
                 self.advance();
             }
         }
 
         if steps.is_empty() {
-            self.add_parse_error("OOF-PG1", "pipeline must contain at least one step", &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-PG1",
+                "pipeline must contain at least one step",
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
 
         self.expect_type(TokenType::RBrace)?;
@@ -1257,17 +1367,35 @@ impl Parser {
                     indexed = self.parse_olap_symbol_list()?;
                 }
                 _ => {
-                    self.add_parse_error("OOF-P0", &format!("Unknown olap_point clause: {}", clause), &clause, clause_tok.line, clause_tok.col);
+                    self.add_parse_error(
+                        "OOF-P0",
+                        &format!("Unknown olap_point clause: {}", clause),
+                        &clause,
+                        clause_tok.line,
+                        clause_tok.col,
+                    );
                     self.skip_until_olap_clause_boundary();
                 }
             }
         }
 
         if dimensions.is_empty() {
-            self.add_parse_error("OOF-P0", &format!("olap_point '{}' must declare dimensions", name), &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-P0",
+                &format!("olap_point '{}' must declare dimensions", name),
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
         if measure.is_none() {
-            self.add_parse_error("OOF-P0", &format!("olap_point '{}' must declare measure", name), &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-P0",
+                &format!("olap_point '{}' must declare measure", name),
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
 
         self.expect_type(TokenType::RBrace)?;
@@ -1330,7 +1458,10 @@ impl Parser {
 
     fn parse_olap_symbol_value(&mut self) -> Result<String, String> {
         let tok = self.advance().ok_or_else(|| "Unexpected EOF".to_string())?;
-        if tok.token_type == TokenType::SymbolLit || tok.token_type == TokenType::Ident || tok.token_type == TokenType::Keyword {
+        if tok.token_type == TokenType::SymbolLit
+            || tok.token_type == TokenType::Ident
+            || tok.token_type == TokenType::Keyword
+        {
             Ok(tok.value.clone())
         } else {
             Err("Expected symbol or identifier".to_string())
@@ -1341,14 +1472,21 @@ impl Parser {
         let mut tokens = Vec::new();
         let mut depth = 0;
         while let Some(tok) = self.current() {
-            if depth == 0 && (tok.token_type == TokenType::RBrace || self.is_olap_clause_boundary()) {
+            if depth == 0 && (tok.token_type == TokenType::RBrace || self.is_olap_clause_boundary())
+            {
                 break;
             }
             let tok = self.advance().cloned().ok_or("EOF")?;
-            if matches!(tok.token_type, TokenType::LBrace | TokenType::LParen | TokenType::LBracket) {
+            if matches!(
+                tok.token_type,
+                TokenType::LBrace | TokenType::LParen | TokenType::LBracket
+            ) {
                 depth += 1;
             }
-            if matches!(tok.token_type, TokenType::RBrace | TokenType::RParen | TokenType::RBracket) {
+            if matches!(
+                tok.token_type,
+                TokenType::RBrace | TokenType::RParen | TokenType::RBracket
+            ) {
                 depth -= 1;
             }
             tokens.push(tok.value.clone());
@@ -1380,11 +1518,16 @@ impl Parser {
     fn parse_contract_decl(&mut self, modifier: Option<String>) -> Result<ContractDecl, String> {
         self.in_contract_body = true;
         let name_line = self.current().map(|t| t.line).unwrap_or(0);
-        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
+        let name_col = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
         // LAB-SRCMAP-P1
         self.current_contract = name.clone();
-        self.record_span(format!("contract:{}", name), "contract", name_line, name_col);
+        self.record_span(
+            format!("contract:{}", name),
+            "contract",
+            name_line,
+            name_col,
+        );
         let type_params = if self.peek_type(TokenType::LBracket) {
             self.parse_contract_type_params()?
         } else {
@@ -1432,7 +1575,8 @@ impl Parser {
             if self.peek_type(TokenType::Colon) {
                 self.advance();
                 loop {
-                    let trait_ref = self.parse_type_ref_node(vec![TypeRef::Simple(name.clone())])?;
+                    let trait_ref =
+                        self.parse_type_ref_node(vec![TypeRef::Simple(name.clone())])?;
                     bounds.push(TypeParamBound { trait_ref });
                     if self.peek_value("&") {
                         self.advance();
@@ -1450,7 +1594,10 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_type_ref_node(&mut self, default_type_args: Vec<TypeRef>) -> Result<TypeRefNode, String> {
+    fn parse_type_ref_node(
+        &mut self,
+        default_type_args: Vec<TypeRef>,
+    ) -> Result<TypeRefNode, String> {
         let name = self.name_token()?;
         let mut type_args = Vec::new();
         if self.peek_type(TokenType::LBracket) {
@@ -1470,7 +1617,13 @@ impl Parser {
 
     /// LAB-COMPILER-LIVENESS-P5: helper — when a body-decl parser returns Err, record the
     /// error and skip to the next body boundary so the body loop makes guaranteed progress.
-    fn parse_body_decl_with_recovery<F>(&mut self, kw: &str, kw_line: usize, kw_col: usize, f: F) -> Option<BodyDecl>
+    fn parse_body_decl_with_recovery<F>(
+        &mut self,
+        kw: &str,
+        kw_line: usize,
+        kw_col: usize,
+        f: F,
+    ) -> Option<BodyDecl>
     where
         F: FnOnce(&mut Self) -> Result<BodyDecl, String>,
     {
@@ -1512,12 +1665,13 @@ impl Parser {
             // loop.  Arms with inner {} blocks (window, loop, for) are deferred
             // to P7 — they need skip_to_matching_brace to correctly recover
             // from mid-body failures without consuming the contract's closing }.
-
             "input" => {
                 self.advance();
-                let kw_line = tok.line; let kw_col = tok.col;
-                let result = self.parse_body_decl_with_recovery("input", kw_line, kw_col,
-                    |p| p.parse_input_decl());
+                let kw_line = tok.line;
+                let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("input", kw_line, kw_col, |p| {
+                    p.parse_input_decl()
+                });
                 // LAB-SRCMAP-P1
                 if let Some(BodyDecl::Input { name, .. }) = &result {
                     let id = format!("input:{}.{}", self.current_contract, name);
@@ -1527,19 +1681,23 @@ impl Parser {
             }
             "capability" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("capability", tok.line, tok.col,
-                    |p| p.parse_capability_decl())
+                self.parse_body_decl_with_recovery("capability", tok.line, tok.col, |p| {
+                    p.parse_capability_decl()
+                })
             }
             "effect" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("effect", tok.line, tok.col,
-                    |p| p.parse_effect_decl())
+                self.parse_body_decl_with_recovery("effect", tok.line, tok.col, |p| {
+                    p.parse_effect_decl()
+                })
             }
             "output" => {
                 self.advance();
-                let kw_line = tok.line; let kw_col = tok.col;
-                let result = self.parse_body_decl_with_recovery("output", kw_line, kw_col,
-                    |p| p.parse_output_decl());
+                let kw_line = tok.line;
+                let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("output", kw_line, kw_col, |p| {
+                    p.parse_output_decl()
+                });
                 // LAB-SRCMAP-P1
                 if let Some(BodyDecl::Output { name, .. }) = &result {
                     let id = format!("output:{}.{}", self.current_contract, name);
@@ -1549,9 +1707,11 @@ impl Parser {
             }
             "compute" => {
                 self.advance();
-                let kw_line = tok.line; let kw_col = tok.col;
-                let result = self.parse_body_decl_with_recovery("compute", kw_line, kw_col,
-                    |p| p.parse_compute_decl());
+                let kw_line = tok.line;
+                let kw_col = tok.col;
+                let result = self.parse_body_decl_with_recovery("compute", kw_line, kw_col, |p| {
+                    p.parse_compute_decl()
+                });
                 // LAB-SRCMAP-P1
                 if let Some(BodyDecl::Compute { name, .. }) = &result {
                     let id = format!("compute:{}.{}", self.current_contract, name);
@@ -1561,39 +1721,46 @@ impl Parser {
             }
             "read" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("read", tok.line, tok.col,
-                    |p| p.parse_read_decl())
+                self.parse_body_decl_with_recovery("read", tok.line, tok.col, |p| {
+                    p.parse_read_decl()
+                })
             }
             "snapshot" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("snapshot", tok.line, tok.col,
-                    |p| p.parse_snapshot_decl())
+                self.parse_body_decl_with_recovery("snapshot", tok.line, tok.col, |p| {
+                    p.parse_snapshot_decl()
+                })
             }
             "escape" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("escape", tok.line, tok.col,
-                    |p| p.parse_escape_decl())
+                self.parse_body_decl_with_recovery("escape", tok.line, tok.col, |p| {
+                    p.parse_escape_decl()
+                })
             }
             "stream" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("stream", tok.line, tok.col,
-                    |p| p.parse_stream_decl())
+                self.parse_body_decl_with_recovery("stream", tok.line, tok.col, |p| {
+                    p.parse_stream_decl()
+                })
             }
             "fold_stream" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("fold_stream", tok.line, tok.col,
-                    |p| p.parse_fold_stream_decl())
+                self.parse_body_decl_with_recovery("fold_stream", tok.line, tok.col, |p| {
+                    p.parse_fold_stream_decl()
+                })
             }
             "invariant" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("invariant", tok.line, tok.col,
-                    |p| p.parse_invariant_decl())
+                self.parse_body_decl_with_recovery("invariant", tok.line, tok.col, |p| {
+                    p.parse_invariant_decl()
+                })
             }
             // PROP-039 gate 8: lead binding inside loop body
             "lead" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("lead", tok.line, tok.col,
-                    |p| p.parse_lead_decl())
+                self.parse_body_decl_with_recovery("lead", tok.line, tok.col, |p| {
+                    p.parse_lead_decl()
+                })
             }
             // G2: structural meta-declarations for recursive/fuel_bounded contracts
             "decreases" => {
@@ -1604,8 +1771,9 @@ impl Parser {
             }
             "max_steps" => {
                 self.advance();
-                self.parse_body_decl_with_recovery("max_steps", tok.line, tok.col,
-                    |p| p.parse_max_steps_body_decl())
+                self.parse_body_decl_with_recovery("max_steps", tok.line, tok.col, |p| {
+                    p.parse_max_steps_body_decl()
+                })
             }
 
             // ── P7-deferred: inner {} blocks need skip_to_matching_brace ─────
@@ -1614,10 +1782,19 @@ impl Parser {
             // would be the loop/window's closing } rather than the contract's.
             // Consequence: silent drop on parse failure, but no hang (P5 fix).
             // P7 will introduce skip_to_matching_brace and migrate these.
-            "window" => { self.advance(); self.parse_window_decl().ok() }
-            "loop" => { self.advance(); self.parse_loop_or_service_loop_decl().ok() }
+            "window" => {
+                self.advance();
+                self.parse_window_decl().ok()
+            }
+            "loop" => {
+                self.advance();
+                self.parse_loop_or_service_loop_decl().ok()
+            }
             // G3b: FiniteLoop — `for Name item in source { body }` (no max_steps; collection_exhaustion)
-            "for" => { self.advance(); self.parse_for_loop_decl().ok() }
+            "for" => {
+                self.advance();
+                self.parse_for_loop_decl().ok()
+            }
             "uses" => {
                 self.advance();
                 if self.peek_kw("assumptions") {
@@ -1625,29 +1802,64 @@ impl Parser {
                     let name = self.name_token().ok()?;
                     Some(BodyDecl::UsesAssumptions { name })
                 } else {
-                    let current_tok = self.current().cloned().unwrap_or_else(|| Token { token_type: TokenType::Eof, value: String::new(), line: 0, col: 0 });
-                    self.add_parse_error("OOF-P0", "uses declaration supports only 'uses assumptions NAME'", &current_tok.value, current_tok.line, current_tok.col);
+                    let current_tok = self.current().cloned().unwrap_or_else(|| Token {
+                        token_type: TokenType::Eof,
+                        value: String::new(),
+                        line: 0,
+                        col: 0,
+                    });
+                    self.add_parse_error(
+                        "OOF-P0",
+                        "uses declaration supports only 'uses assumptions NAME'",
+                        &current_tok.value,
+                        current_tok.line,
+                        current_tok.col,
+                    );
                     self.skip_until_body_boundary();
                     None
                 }
             }
             "pipeline" | "step" => {
-                self.add_parse_error("OOF-P2", "pipeline/step is not valid inside a contract body", &tok.value, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-P2",
+                    "pipeline/step is not valid inside a contract body",
+                    &tok.value,
+                    tok.line,
+                    tok.col,
+                );
                 self.skip_invalid_body_decl();
                 None
             }
             "scoped_by" => {
-                self.add_parse_error("OOF-PG3", "scoped_by is only valid on read declarations", &tok.value, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-PG3",
+                    "scoped_by is only valid on read declarations",
+                    &tok.value,
+                    tok.line,
+                    tok.col,
+                );
                 self.skip_invalid_body_decl();
                 None
             }
             "tenant_free" => {
-                self.add_parse_error("OOF-PG5", "tenant_free is only valid on read declarations", &tok.value, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-PG5",
+                    "tenant_free is only valid on read declarations",
+                    &tok.value,
+                    tok.line,
+                    tok.col,
+                );
                 self.skip_invalid_body_decl();
                 None
             }
             _ => {
-                self.add_parse_error("OOF-P0", &format!("Unknown body declaration: {}", tok.value), &tok.value, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-P0",
+                    &format!("Unknown body declaration: {}", tok.value),
+                    &tok.value,
+                    tok.line,
+                    tok.col,
+                );
                 self.advance();
                 None
             }
@@ -1658,21 +1870,30 @@ impl Parser {
         let name = self.name_token()?;
         self.expect_type(TokenType::Colon)?;
         let type_annotation = self.parse_type_ref()?;
-        Ok(BodyDecl::Input { name, type_annotation })
+        Ok(BodyDecl::Input {
+            name,
+            type_annotation,
+        })
     }
 
     fn parse_capability_decl(&mut self) -> Result<BodyDecl, String> {
         let name = self.name_token()?;
         self.expect_type(TokenType::Colon)?;
         let type_annotation = self.parse_type_ref()?;
-        Ok(BodyDecl::Capability { name, type_annotation })
+        Ok(BodyDecl::Capability {
+            name,
+            type_annotation,
+        })
     }
 
     fn parse_effect_decl(&mut self) -> Result<BodyDecl, String> {
         let name = self.name_token()?;
         self.expect_value("using")?;
         let capability_ref = self.name_token()?;
-        Ok(BodyDecl::Effect { name, capability_ref })
+        Ok(BodyDecl::Effect {
+            name,
+            capability_ref,
+        })
     }
 
     fn parse_output_decl(&mut self) -> Result<BodyDecl, String> {
@@ -1690,7 +1911,12 @@ impl Parser {
         } else {
             None
         };
-        Ok(BodyDecl::Output { name, type_annotation, lifecycle, evidence })
+        Ok(BodyDecl::Output {
+            name,
+            type_annotation,
+            lifecycle,
+            evidence,
+        })
     }
 
     fn parse_lifecycle_symbol(&mut self) -> Result<String, String> {
@@ -1726,7 +1952,7 @@ impl Parser {
         }
         self.expect_type(TokenType::Assign)?;
         let expr = self.parse_expr()?;
-        
+
         if let Expr::Call { fn_name, .. } = &expr {
             if fn_name == "fold_stream" {
                 if let Some(bound) = self.parse_optional_stream_bound() {
@@ -1740,7 +1966,11 @@ impl Parser {
             }
         }
 
-        Ok(BodyDecl::Compute { name, type_annotation, expr })
+        Ok(BodyDecl::Compute {
+            name,
+            type_annotation,
+            expr,
+        })
     }
 
     fn parse_read_decl(&mut self) -> Result<BodyDecl, String> {
@@ -1778,7 +2008,16 @@ impl Parser {
         }
 
         if tenant_free && scoped_by.is_some() {
-            self.add_parse_error("OOF-PG3", &format!("scoped_by and tenant_free are mutually exclusive on read '{}'", name), &name, 0, 0);
+            self.add_parse_error(
+                "OOF-PG3",
+                &format!(
+                    "scoped_by and tenant_free are mutually exclusive on read '{}'",
+                    name
+                ),
+                &name,
+                0,
+                0,
+            );
         }
 
         Ok(BodyDecl::Read {
@@ -1799,7 +2038,13 @@ impl Parser {
             self.advance();
         } else {
             let tok = self.current().cloned().ok_or("EOF")?;
-            self.add_parse_error("OOF-P0", &format!("Expected '..' in cardinality, got '{}'", tok.value), &tok.value, tok.line, tok.col);
+            self.add_parse_error(
+                "OOF-P0",
+                &format!("Expected '..' in cardinality, got '{}'", tok.value),
+                &tok.value,
+                tok.line,
+                tok.col,
+            );
         }
         let max_tok = self.expect_type(TokenType::IntLit)?;
         let min = min_tok.value.parse::<i64>().unwrap_or(0);
@@ -1817,7 +2062,11 @@ impl Parser {
         } else {
             None
         };
-        Ok(BodyDecl::Snapshot { name, expr, lifecycle })
+        Ok(BodyDecl::Snapshot {
+            name,
+            expr,
+            lifecycle,
+        })
     }
 
     fn parse_window_decl(&mut self) -> Result<BodyDecl, String> {
@@ -1844,7 +2093,9 @@ impl Parser {
         match tok.token_type {
             TokenType::IntLit => Ok(WindowValue::Int(tok.value.parse::<i64>().unwrap_or(0))),
             TokenType::FloatLit => Ok(WindowValue::Float(tok.value.parse::<f64>().unwrap_or(0.0))),
-            TokenType::SymbolLit | TokenType::Ident | TokenType::Keyword => Ok(WindowValue::Str(tok.value.clone())),
+            TokenType::SymbolLit | TokenType::Ident | TokenType::Keyword => {
+                Ok(WindowValue::Str(tok.value.clone()))
+            }
             _ => Err("Invalid window option value".to_string()),
         }
     }
@@ -1864,8 +2115,12 @@ impl Parser {
         let mut message = None;
         let mut overridable_with = None;
 
-        while self.peek_kw("predicate") || self.peek_kw("severity") || self.peek_kw("label") ||
-              self.peek_kw("message") || self.peek_kw("overridable_with") {
+        while self.peek_kw("predicate")
+            || self.peek_kw("severity")
+            || self.peek_kw("label")
+            || self.peek_kw("message")
+            || self.peek_kw("overridable_with")
+        {
             let attr_tok = self.current().cloned().ok_or("EOF")?;
             let attr = self.advance().unwrap().value.clone();
             self.expect_type(TokenType::Colon)?;
@@ -1880,32 +2135,68 @@ impl Parser {
                         if ["error", "warn", "soft", "metric"].contains(&sev.as_str()) {
                             severity = sev;
                         } else {
-                            self.add_parse_error("OOF-IV2", &format!("Unknown severity '{}'", sev), &sev, attr_tok.line, attr_tok.col);
+                            self.add_parse_error(
+                                "OOF-IV2",
+                                &format!("Unknown severity '{}'", sev),
+                                &sev,
+                                attr_tok.line,
+                                attr_tok.col,
+                            );
                         }
                     } else {
                         let current_val = self.current().map_or("", |t| &t.value).to_string();
-                        self.add_parse_error("OOF-IV2", "severity: requires a symbol literal", &current_val, attr_tok.line, attr_tok.col);
+                        self.add_parse_error(
+                            "OOF-IV2",
+                            "severity: requires a symbol literal",
+                            &current_val,
+                            attr_tok.line,
+                            attr_tok.col,
+                        );
                     }
                 }
                 "label" => {
-                    label = Some(if self.peek_type(TokenType::StringLit) { self.advance().unwrap().value.clone() } else { self.name_token()? });
+                    label = Some(if self.peek_type(TokenType::StringLit) {
+                        self.advance().unwrap().value.clone()
+                    } else {
+                        self.name_token()?
+                    });
                 }
                 "message" => {
-                    message = Some(if self.peek_type(TokenType::StringLit) { self.advance().unwrap().value.clone() } else { self.name_token()? });
+                    message = Some(if self.peek_type(TokenType::StringLit) {
+                        self.advance().unwrap().value.clone()
+                    } else {
+                        self.name_token()?
+                    });
                 }
                 "overridable_with" => {
-                    overridable_with = Some(if self.peek_type(TokenType::SymbolLit) { self.advance().unwrap().value.clone() } else { self.name_token()? });
+                    overridable_with = Some(if self.peek_type(TokenType::SymbolLit) {
+                        self.advance().unwrap().value.clone()
+                    } else {
+                        self.name_token()?
+                    });
                 }
                 _ => {}
             }
         }
 
         if predicate_ref.is_none() {
-            self.add_parse_error("OOF-IV1", &format!("invariant '{}' missing required predicate: field", name), &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-IV1",
+                &format!("invariant '{}' missing required predicate: field", name),
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
 
         if overridable_with.is_some() && severity == "error" {
-            self.add_parse_error("OOF-I4", ":error invariants cannot be overridden — use :warn", &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-I4",
+                ":error invariants cannot be overridden — use :warn",
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
 
         Ok(BodyDecl::Invariant {
@@ -1998,7 +2289,11 @@ impl Parser {
                 }
             }
         }
-        let variant = if parts.is_empty() { "unknown".to_string() } else { parts.join(".") };
+        let variant = if parts.is_empty() {
+            "unknown".to_string()
+        } else {
+            parts.join(".")
+        };
         Ok(BodyDecl::Decreases { variant })
     }
 
@@ -2021,16 +2316,26 @@ impl Parser {
         let type_annotation = self.parse_type_ref()?;
         self.expect_type(TokenType::Assign)?;
         let initial = self.parse_expr()?;
-        Ok(BodyDecl::Lead { name, type_annotation, initial })
+        Ok(BodyDecl::Lead {
+            name,
+            type_annotation,
+            initial,
+        })
     }
 
     fn parse_loop_or_service_loop_decl(&mut self) -> Result<BodyDecl, String> {
         let name_tok = self.current().cloned().ok_or("EOF")?;
         let name = self.name_token()?;
         if name.is_empty() {
-            self.add_parse_error("OOF-L3", "Loop must have an explicit name (Postulate 28)", &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-L3",
+                "Loop must have an explicit name (Postulate 28)",
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
-        
+
         // G1 conformance: parse optional item variable before `in`
         // Canon form: `loop Name item in source`
         // Old form:   `loop Name in source`  (item="" → classifier falls back to singularize)
@@ -2054,7 +2359,7 @@ impl Parser {
             let unit_tok = self.advance().ok_or_else(|| "Unexpected EOF".to_string())?;
             let unit = unit_tok.value.clone(); // seconds, minutes, hours
             self.expect_type(TokenType::RParen)?;
-            
+
             self.expect_type(TokenType::LBrace)?;
             let mut body = Vec::new();
             while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
@@ -2063,17 +2368,17 @@ impl Parser {
                 }
             }
             self.expect_type(TokenType::RBrace)?;
-            
+
             return Ok(BodyDecl::ServiceLoop {
                 name,
                 interval: ClockInterval { value: val, unit },
                 body,
             });
         }
-        
+
         // Normal loop:
         let collection = self.parse_expr()?;
-        
+
         let mut max_steps = None;
         if self.peek_kw("max_steps") {
             self.advance();
@@ -2081,11 +2386,20 @@ impl Parser {
             let steps_tok = self.expect_type(TokenType::IntLit)?;
             max_steps = Some(steps_tok.value.parse::<u64>().unwrap_or(100));
         }
-        
+
         if max_steps.is_none() {
-            self.add_parse_error("OOF-L1", &format!("loop '{}' is unbounded — must declare max_steps: N (Postulate 14)", name), &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-L1",
+                &format!(
+                    "loop '{}' is unbounded — must declare max_steps: N (Postulate 14)",
+                    name
+                ),
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
-        
+
         self.expect_type(TokenType::LBrace)?;
         let mut body = Vec::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
@@ -2094,7 +2408,7 @@ impl Parser {
             }
         }
         self.expect_type(TokenType::RBrace)?;
-        
+
         Ok(BodyDecl::Loop {
             name,
             item,
@@ -2111,7 +2425,13 @@ impl Parser {
         let name_tok = self.current().cloned().ok_or("EOF")?;
         let name = self.name_token()?;
         if name.is_empty() {
-            self.add_parse_error("OOF-L3", "for loop must have an explicit name (Postulate 28)", &name, name_tok.line, name_tok.col);
+            self.add_parse_error(
+                "OOF-L3",
+                "for loop must have an explicit name (Postulate 28)",
+                &name,
+                name_tok.line,
+                name_tok.col,
+            );
         }
 
         // Canon form requires explicit item variable: `for Name item in source`
@@ -2159,14 +2479,26 @@ impl Parser {
                         self.advance().unwrap().value.parse::<i64>().ok()
                     } else {
                         let cur_val = self.current().map_or("", |t| &t.value).to_string();
-                        self.add_parse_error("OOF-S5", "@count_bounded requires a statically-known Integer literal", &cur_val, b_tok.line, b_tok.col);
+                        self.add_parse_error(
+                            "OOF-S5",
+                            "@count_bounded requires a statically-known Integer literal",
+                            &cur_val,
+                            b_tok.line,
+                            b_tok.col,
+                        );
                         None
                     };
                     self.expect_type(TokenType::RParen).ok()?;
                     Some(StreamBound::CountBounded { n })
                 }
                 _ => {
-                    self.add_parse_error("OOF-S1", &format!("Unknown bound annotation '@{}'", bound_name), &bound_name, b_tok.line, b_tok.col);
+                    self.add_parse_error(
+                        "OOF-S1",
+                        &format!("Unknown bound annotation '@{}'", bound_name),
+                        &bound_name,
+                        b_tok.line,
+                        b_tok.col,
+                    );
                     None
                 }
             }
@@ -2177,7 +2509,7 @@ impl Parser {
 
     fn parse_type_decl(&mut self) -> Result<TypeDecl, String> {
         let name_line = self.current().map(|t| t.line).unwrap_or(0);
-        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
+        let name_col = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
         // LAB-SRCMAP-P1
         self.record_span(format!("type:{}", name), "type", name_line, name_col);
@@ -2191,10 +2523,16 @@ impl Parser {
                 Err(_) => {
                     // Current token is not an identifier — skip it and continue.
                     if let Some(bad_tok) = self.current().cloned() {
-                        self.add_parse_error("OOF-P1",
-                            &format!("Expected field name in type '{}', got {:?}({})",
-                                name, bad_tok.token_type, bad_tok.value),
-                            &bad_tok.value, bad_tok.line, bad_tok.col);
+                        self.add_parse_error(
+                            "OOF-P1",
+                            &format!(
+                                "Expected field name in type '{}', got {:?}({})",
+                                name, bad_tok.token_type, bad_tok.value
+                            ),
+                            &bad_tok.value,
+                            bad_tok.line,
+                            bad_tok.col,
+                        );
                     }
                     self.advance();
                     continue;
@@ -2203,20 +2541,38 @@ impl Parser {
             if !self.peek_type(TokenType::Colon) {
                 // Field name present but missing ':' — emit diagnostic, skip to next field or '}'.
                 if let Some(bad_tok) = self.current().cloned() {
-                    self.add_parse_error("OOF-P1",
-                        &format!("Field '{}' in type '{}' missing ':' and type annotation", fname, name),
-                        &bad_tok.value, bad_tok.line, bad_tok.col);
+                    self.add_parse_error(
+                        "OOF-P1",
+                        &format!(
+                            "Field '{}' in type '{}' missing ':' and type annotation",
+                            fname, name
+                        ),
+                        &bad_tok.value,
+                        bad_tok.line,
+                        bad_tok.col,
+                    );
                 } else {
-                    self.add_parse_error("OOF-P1",
-                        &format!("Field '{}' in type '{}' missing ':' and type annotation", fname, name),
-                        &fname, 0, 0);
+                    self.add_parse_error(
+                        "OOF-P1",
+                        &format!(
+                            "Field '{}' in type '{}' missing ':' and type annotation",
+                            fname, name
+                        ),
+                        &fname,
+                        0,
+                        0,
+                    );
                 }
                 // Skip until we reach '}', EOF, or a token that looks like a new field name.
-                while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof)
-                    && !self.peek_type(TokenType::Comma) {
+                while !self.peek_type(TokenType::RBrace)
+                    && !self.peek_type(TokenType::Eof)
+                    && !self.peek_type(TokenType::Comma)
+                {
                     self.advance();
                 }
-                if self.peek_type(TokenType::Comma) { self.advance(); }
+                if self.peek_type(TokenType::Comma) {
+                    self.advance();
+                }
                 continue;
             }
             self.advance(); // consume ':'
@@ -2224,21 +2580,33 @@ impl Parser {
                 Ok(t) => t,
                 Err(msg) => {
                     if let Some(bad_tok) = self.current().cloned() {
-                        self.add_parse_error("OOF-P1",
-                            &format!("Field '{}' in type '{}' has invalid type annotation: {}", fname, name, msg),
-                            &bad_tok.value, bad_tok.line, bad_tok.col);
+                        self.add_parse_error(
+                            "OOF-P1",
+                            &format!(
+                                "Field '{}' in type '{}' has invalid type annotation: {}",
+                                fname, name, msg
+                            ),
+                            &bad_tok.value,
+                            bad_tok.line,
+                            bad_tok.col,
+                        );
                     }
                     // Skip to next field boundary.
-                    while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof)
-                        && !self.peek_type(TokenType::Comma) {
+                    while !self.peek_type(TokenType::RBrace)
+                        && !self.peek_type(TokenType::Eof)
+                        && !self.peek_type(TokenType::Comma)
+                    {
                         self.advance();
                     }
-                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                    if self.peek_type(TokenType::Comma) {
+                        self.advance();
+                    }
                     continue;
                 }
             };
             let optional = if self.peek_type(TokenType::Question) {
-                self.advance(); true
+                self.advance();
+                true
             } else {
                 false
             };
@@ -2322,7 +2690,10 @@ impl Parser {
             let pname = self.name_token()?;
             self.expect_type(TokenType::Colon)?;
             let ptype = self.parse_type_ref()?;
-            params.push(Param { name: pname, type_annotation: ptype });
+            params.push(Param {
+                name: pname,
+                type_annotation: ptype,
+            });
             if self.peek_type(TokenType::Comma) {
                 self.advance();
             }
@@ -2335,7 +2706,7 @@ impl Parser {
         let trait_ref = self.parse_type_ref_node(Vec::new())?;
         self.expect_kw("using")?;
         let name = self.parse_qualified_ref()?;
-        
+
         let mut associated_types = HashMap::new();
         if self.peek_type(TokenType::LBrace) {
             self.advance();
@@ -2375,10 +2746,22 @@ impl Parser {
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
             let tok = self.current().cloned().ok_or("EOF")?;
             match tok.value.as_str() {
-                "input" => { self.advance(); body.push(self.parse_input_decl()?); }
-                "output" => { self.advance(); body.push(self.parse_output_decl()?); }
+                "input" => {
+                    self.advance();
+                    body.push(self.parse_input_decl()?);
+                }
+                "output" => {
+                    self.advance();
+                    body.push(self.parse_output_decl()?);
+                }
                 _ => {
-                    self.add_parse_error("OOF-P0", &format!("Unknown contract_shape declaration: {}", tok.value), &tok.value, tok.line, tok.col);
+                    self.add_parse_error(
+                        "OOF-P0",
+                        &format!("Unknown contract_shape declaration: {}", tok.value),
+                        &tok.value,
+                        tok.line,
+                        tok.col,
+                    );
                     self.advance();
                 }
             }
@@ -2398,14 +2781,14 @@ impl Parser {
         let params = self.parse_params()?;
         self.expect_type(TokenType::Arrow)?;
         let return_type = self.parse_type_ref()?;
-        
+
         let mut decreases = None;
         if self.peek_kw("decreases") {
             self.advance();
             let dec_val = self.name_token()?;
             decreases = Some(dec_val);
         }
-        
+
         let body = self.parse_block_body()?;
         Ok(FunctionDecl {
             kind: "function".to_string(),
@@ -2457,8 +2840,13 @@ impl Parser {
     pub fn parse_type_ref(&mut self) -> Result<TypeRef, String> {
         let name_tok = self.current().cloned().ok_or("EOF")?;
         let mut name = self.name_token()?;
-        if self.peek(0).map_or(false, |t| t.token_type == TokenType::Colon) &&
-           self.peek(1).map_or(false, |t| t.token_type == TokenType::SymbolLit) {
+        if self
+            .peek(0)
+            .map_or(false, |t| t.token_type == TokenType::Colon)
+            && self
+                .peek(1)
+                .map_or(false, |t| t.token_type == TokenType::SymbolLit)
+        {
             self.advance(); // consume Colon
             let sym_tok = self.advance().cloned().unwrap(); // consume SymbolLit
             name = format!("{}::{}", name, sym_tok.value);
@@ -2489,7 +2877,13 @@ impl Parser {
             })
         } else {
             if name == "Decimal" {
-                self.add_parse_error("OOF-DM3", "Decimal type requires scale parameter: Decimal[N]", &name, name_tok.line, name_tok.col);
+                self.add_parse_error(
+                    "OOF-DM3",
+                    "Decimal type requires scale parameter: Decimal[N]",
+                    &name,
+                    name_tok.line,
+                    name_tok.col,
+                );
                 return Ok(TypeRef::Simple("Unknown".to_string()));
             }
             Ok(TypeRef::Simple(name))
@@ -2549,7 +2943,10 @@ impl Parser {
 
     fn skip_until_body_boundary(&mut self) {
         while let Some(tok) = self.current() {
-            if tok.token_type == TokenType::RBrace || tok.token_type == TokenType::Eof || self.is_body_boundary_token(tok) {
+            if tok.token_type == TokenType::RBrace
+                || tok.token_type == TokenType::Eof
+                || self.is_body_boundary_token(tok)
+            {
                 break;
             }
             self.advance();
@@ -2558,7 +2955,10 @@ impl Parser {
 
     fn skip_until_olap_clause_boundary(&mut self) {
         while let Some(tok) = self.current() {
-            if tok.token_type == TokenType::RBrace || tok.token_type == TokenType::Eof || self.is_olap_clause_boundary() {
+            if tok.token_type == TokenType::RBrace
+                || tok.token_type == TokenType::Eof
+                || self.is_olap_clause_boundary()
+            {
                 break;
             }
             self.advance();
@@ -2568,9 +2968,21 @@ impl Parser {
     fn is_body_boundary_token(&self, tok: &Token) -> bool {
         if tok.token_type == TokenType::Keyword {
             let keywords = [
-                "input", "output", "compute", "read", "snapshot", "window", "escape",
-                "stream", "fold_stream", "invariant", "uses", "pipeline", "step",
-                "scoped_by", "tenant_free"
+                "input",
+                "output",
+                "compute",
+                "read",
+                "snapshot",
+                "window",
+                "escape",
+                "stream",
+                "fold_stream",
+                "invariant",
+                "uses",
+                "pipeline",
+                "step",
+                "scoped_by",
+                "tenant_free",
             ];
             return keywords.contains(&tok.value.as_str());
         }
@@ -2590,7 +3002,11 @@ impl Parser {
             } else if self.peek_kw("form") {
                 self.advance();
                 let elements = self.parse_form_pattern();
-                let mut decl = FormDecl { elements, priority: 5, associativity: Associativity::Left };
+                let mut decl = FormDecl {
+                    elements,
+                    priority: 5,
+                    associativity: Associativity::Left,
+                };
                 // inline priority / associativity on the same logical line
                 if self.peek_kw("priority") {
                     self.advance();
@@ -2610,14 +3026,18 @@ impl Parser {
                 self.advance();
                 if let Ok(tok) = self.expect_type(TokenType::IntLit) {
                     let p = tok.value.parse::<i32>().unwrap_or(5);
-                    if let Some(last) = forms.last_mut() { last.priority = p; }
+                    if let Some(last) = forms.last_mut() {
+                        last.priority = p;
+                    }
                 }
             } else if self.peek_kw("associativity") && !forms.is_empty() {
                 self.advance();
                 if self.peek_type(TokenType::SymbolLit) {
                     let sym = self.advance().unwrap().value.clone();
                     let assoc = Self::parse_associativity(&sym);
-                    if let Some(last) = forms.last_mut() { last.associativity = assoc; }
+                    if let Some(last) = forms.last_mut() {
+                        last.associativity = assoc;
+                    }
                 }
             } else {
                 break;
@@ -2630,8 +3050,8 @@ impl Parser {
     fn parse_associativity(sym: &str) -> Associativity {
         match sym {
             "right" => Associativity::Right,
-            "none"  => Associativity::None,
-            _       => Associativity::Left,
+            "none" => Associativity::None,
+            _ => Associativity::Left,
         }
     }
 
@@ -2640,15 +3060,21 @@ impl Parser {
 
         loop {
             // Terminators: next annotation keyword, contract body, or EOF
-            if self.peek_kw("priority") || self.peek_kw("associativity") ||
-               self.peek_kw("form")     || self.peek_kw("no_form") ||
-               self.peek_type(TokenType::Eof) {
+            if self.peek_kw("priority")
+                || self.peek_kw("associativity")
+                || self.peek_kw("form")
+                || self.peek_kw("no_form")
+                || self.peek_type(TokenType::Eof)
+            {
                 break;
             }
 
             if self.peek_type(TokenType::LBrace) {
                 // Block element { (param) } — only if next is '('
-                if self.peek(1).map_or(false, |t| t.token_type == TokenType::LParen) {
+                if self
+                    .peek(1)
+                    .map_or(false, |t| t.token_type == TokenType::LParen)
+                {
                     self.advance(); // consume {
                     self.advance(); // consume (
                     let name = self.name_token().unwrap_or_else(|_| "body".to_string());
@@ -2732,7 +3158,8 @@ impl Parser {
             });
         }
         // LANG-UNARY-OPERATORS-P4: unary minus
-        let is_unary_minus = self.current()
+        let is_unary_minus = self
+            .current()
             .map(|t| t.token_type == TokenType::Op && t.value == "-")
             .unwrap_or(false);
         if is_unary_minus {
@@ -2752,12 +3179,15 @@ impl Parser {
         loop {
             if self.peek_type(TokenType::Dot) {
                 let dot_line = self.current().map(|t| t.line).unwrap_or(0);
-                let dot_col  = self.current().map(|t| t.col).unwrap_or(0);
+                let dot_col = self.current().map(|t| t.col).unwrap_or(0);
                 self.advance();
                 let field = self.name_token()?;
                 // LAB-SRCMAP-P1
                 if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-                    let id = format!("field_access:{}.{}@L{}", self.current_contract, self.current_decl, dot_line);
+                    let id = format!(
+                        "field_access:{}.{}@L{}",
+                        self.current_contract, self.current_decl, dot_line
+                    );
                     self.record_span(id, "field_access", dot_line, dot_col);
                 }
                 expr = Expr::FieldAccess {
@@ -2780,7 +3210,7 @@ impl Parser {
                 if let Expr::Ref { name } = &expr {
                     let fn_name = name.clone();
                     let paren_line = self.current().map(|t| t.line).unwrap_or(0);
-                    let paren_col  = self.current().map(|t| t.col).unwrap_or(0);
+                    let paren_col = self.current().map(|t| t.col).unwrap_or(0);
                     self.advance();
                     let mut args = Vec::new();
                     while !self.peek_type(TokenType::RParen) && !self.peek_type(TokenType::Eof) {
@@ -2792,13 +3222,13 @@ impl Parser {
                     self.expect_type(TokenType::RParen)?;
                     // LAB-SRCMAP-P1
                     if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-                        let id = format!("call:{}.{}@L{}", self.current_contract, self.current_decl, paren_line);
+                        let id = format!(
+                            "call:{}.{}@L{}",
+                            self.current_contract, self.current_decl, paren_line
+                        );
                         self.record_span(id, "call", paren_line, paren_col);
                     }
-                    expr = Expr::Call {
-                        fn_name,
-                        args,
-                    };
+                    expr = Expr::Call { fn_name, args };
                 } else {
                     break;
                 }
@@ -2838,7 +3268,11 @@ impl Parser {
     fn parse_call_arg(&mut self) -> Result<Expr, String> {
         if self.peek_type(TokenType::LParen) && self.lambda_ahead() {
             self.parse_lambda()
-        } else if self.peek_type(TokenType::Ident) && self.peek(1).map_or(false, |t| t.token_type == TokenType::Arrow) {
+        } else if self.peek_type(TokenType::Ident)
+            && self
+                .peek(1)
+                .map_or(false, |t| t.token_type == TokenType::Arrow)
+        {
             self.parse_lambda()
         } else {
             self.parse_expr()
@@ -2915,7 +3349,10 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
-        let tok = self.current().ok_or_else(|| "Unexpected EOF".to_string())?.clone();
+        let tok = self
+            .current()
+            .ok_or_else(|| "Unexpected EOF".to_string())?
+            .clone();
         match tok.token_type {
             TokenType::Keyword => {
                 match tok.value.as_str() {
@@ -2926,27 +3363,42 @@ impl Parser {
                     // PROP-044 P3: match expression
                     "match" => {
                         let match_line = tok.line;
-                        let match_col  = tok.col;
+                        let match_col = tok.col;
                         self.advance();
                         let result = self.parse_match_expr_inner();
                         // LAB-SRCMAP-P1
-                        if result.is_ok() && !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-                            let id = format!("match:{}.{}@L{}", self.current_contract, self.current_decl, match_line);
+                        if result.is_ok()
+                            && !self.current_contract.is_empty()
+                            && !self.current_decl.is_empty()
+                        {
+                            let id = format!(
+                                "match:{}.{}@L{}",
+                                self.current_contract, self.current_decl, match_line
+                            );
                             self.record_span(id, "match_expr", match_line, match_col);
                         }
                         result
                     }
                     "true" => {
                         self.advance();
-                        Ok(Expr::Literal { value: serde_json::Value::Bool(true), type_tag: "Bool".to_string() })
+                        Ok(Expr::Literal {
+                            value: serde_json::Value::Bool(true),
+                            type_tag: "Bool".to_string(),
+                        })
                     }
                     "false" => {
                         self.advance();
-                        Ok(Expr::Literal { value: serde_json::Value::Bool(false), type_tag: "Bool".to_string() })
+                        Ok(Expr::Literal {
+                            value: serde_json::Value::Bool(false),
+                            type_tag: "Bool".to_string(),
+                        })
                     }
                     "nil" => {
                         self.advance();
-                        Ok(Expr::Literal { value: serde_json::Value::Null, type_tag: "Nil".to_string() })
+                        Ok(Expr::Literal {
+                            value: serde_json::Value::Null,
+                            type_tag: "Nil".to_string(),
+                        })
                     }
                     _ => {
                         self.advance();
@@ -2963,11 +3415,17 @@ impl Parser {
                 let first_char = tok.value.chars().next().unwrap_or('a');
                 if first_char.is_uppercase() && self.peek_type(TokenType::LBrace) {
                     let vc_line = tok.line;
-                    let vc_col  = tok.col;
+                    let vc_col = tok.col;
                     let result = self.parse_variant_construct_expr(tok.value);
                     // LAB-SRCMAP-P1
-                    if result.is_ok() && !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-                        let id = format!("variant_construct:{}.{}@L{}", self.current_contract, self.current_decl, vc_line);
+                    if result.is_ok()
+                        && !self.current_contract.is_empty()
+                        && !self.current_decl.is_empty()
+                    {
+                        let id = format!(
+                            "variant_construct:{}.{}@L{}",
+                            self.current_contract, self.current_decl, vc_line
+                        );
                         self.record_span(id, "variant_construct", vc_line, vc_col);
                     }
                     return result;
@@ -2977,16 +3435,25 @@ impl Parser {
             TokenType::IntLit => {
                 self.advance();
                 let v = tok.value.parse::<i64>().unwrap_or(0);
-                Ok(Expr::Literal { value: serde_json::Value::Number(serde_json::Number::from(v)), type_tag: "Integer".to_string() })
+                Ok(Expr::Literal {
+                    value: serde_json::Value::Number(serde_json::Number::from(v)),
+                    type_tag: "Integer".to_string(),
+                })
             }
             TokenType::FloatLit => {
                 self.advance();
                 let v = tok.value.parse::<f64>().unwrap_or(0.0);
-                Ok(Expr::Literal { value: serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap()), type_tag: "Float".to_string() })
+                Ok(Expr::Literal {
+                    value: serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap()),
+                    type_tag: "Float".to_string(),
+                })
             }
             TokenType::StringLit => {
                 self.advance();
-                Ok(Expr::Literal { value: serde_json::Value::String(tok.value), type_tag: "String".to_string() })
+                Ok(Expr::Literal {
+                    value: serde_json::Value::String(tok.value),
+                    type_tag: "String".to_string(),
+                })
             }
             TokenType::SymbolLit => {
                 self.advance();
@@ -2994,18 +3461,20 @@ impl Parser {
             }
             TokenType::BoolLit => {
                 self.advance();
-                Ok(Expr::Literal { value: serde_json::Value::Bool(tok.value == "true"), type_tag: "Bool".to_string() })
+                Ok(Expr::Literal {
+                    value: serde_json::Value::Bool(tok.value == "true"),
+                    type_tag: "Bool".to_string(),
+                })
             }
             TokenType::NilLit => {
                 self.advance();
-                Ok(Expr::Literal { value: serde_json::Value::Null, type_tag: "Nil".to_string() })
+                Ok(Expr::Literal {
+                    value: serde_json::Value::Null,
+                    type_tag: "Nil".to_string(),
+                })
             }
-            TokenType::LBracket => {
-                self.parse_array_literal()
-            }
-            TokenType::LBrace => {
-                self.parse_record_or_block()
-            }
+            TokenType::LBracket => self.parse_array_literal(),
+            TokenType::LBrace => self.parse_record_or_block(),
             TokenType::LParen => {
                 self.advance();
                 let expr = self.parse_expr()?;
@@ -3014,7 +3483,13 @@ impl Parser {
             }
             _ => {
                 let err_tok = tok.value.clone();
-                self.add_parse_error("OOF-P0", &format!("Unexpected token in expression: {:?}", tok.token_type), &err_tok, tok.line, tok.col);
+                self.add_parse_error(
+                    "OOF-P0",
+                    &format!("Unexpected token in expression: {:?}", tok.token_type),
+                    &err_tok,
+                    tok.line,
+                    tok.col,
+                );
                 self.advance();
                 Ok(Expr::Error { token: err_tok })
             }
@@ -3038,7 +3513,7 @@ impl Parser {
 
     fn parse_array_literal(&mut self) -> Result<Expr, String> {
         let brk_line = self.current().map(|t| t.line).unwrap_or(0);
-        let brk_col  = self.current().map(|t| t.col).unwrap_or(0);
+        let brk_col = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBracket)?;
         let mut items = Vec::new();
         while !self.peek_type(TokenType::RBracket) && !self.peek_type(TokenType::Eof) {
@@ -3050,7 +3525,10 @@ impl Parser {
         self.expect_type(TokenType::RBracket)?;
         // LAB-SRCMAP-P1
         if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-            let id = format!("array_literal:{}.{}@L{}", self.current_contract, self.current_decl, brk_line);
+            let id = format!(
+                "array_literal:{}.{}@L{}",
+                self.current_contract, self.current_decl, brk_line
+            );
             self.record_span(id, "array_literal", brk_line, brk_col);
         }
         Ok(Expr::ArrayLiteral { items })
@@ -3058,7 +3536,7 @@ impl Parser {
 
     fn parse_record_or_block(&mut self) -> Result<Expr, String> {
         let brace_line = self.current().map(|t| t.line).unwrap_or(0);
-        let brace_col  = self.current().map(|t| t.col).unwrap_or(0);
+        let brace_col = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBrace)?;
         let mut fields = HashMap::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
@@ -3073,7 +3551,10 @@ impl Parser {
         self.expect_type(TokenType::RBrace)?;
         // LAB-SRCMAP-P1
         if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
-            let id = format!("record_literal:{}.{}@L{}", self.current_contract, self.current_decl, brace_line);
+            let id = format!(
+                "record_literal:{}.{}@L{}",
+                self.current_contract, self.current_decl, brace_line
+            );
             self.record_span(id, "record_literal", brace_line, brace_col);
         }
         Ok(Expr::RecordLiteral { fields })
@@ -3083,7 +3564,7 @@ impl Parser {
 
     fn parse_variant_decl_top(&mut self) -> Result<VariantDecl, String> {
         let name_line = self.current().map(|t| t.line).unwrap_or(0);
-        let name_col  = self.current().map(|t| t.col).unwrap_or(0);
+        let name_col = self.current().map(|t| t.col).unwrap_or(0);
         let name = self.name_token()?;
         // LAB-SRCMAP-P1
         self.record_span(format!("variant:{}", name), "variant", name_line, name_col);
@@ -3098,16 +3579,30 @@ impl Parser {
                     let fname = self.name_token()?;
                     self.expect_type(TokenType::Colon)?;
                     let ftype = self.parse_type_ref()?;
-                    fields.push(VariantField { name: fname, type_annotation: ftype });
-                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                    fields.push(VariantField {
+                        name: fname,
+                        type_annotation: ftype,
+                    });
+                    if self.peek_type(TokenType::Comma) {
+                        self.advance();
+                    }
                 }
                 self.expect_type(TokenType::RBrace)?;
             }
-            if self.peek_type(TokenType::Comma) { self.advance(); }
-            arms.push(VariantArm { name: arm_name, fields });
+            if self.peek_type(TokenType::Comma) {
+                self.advance();
+            }
+            arms.push(VariantArm {
+                name: arm_name,
+                fields,
+            });
         }
         self.expect_type(TokenType::RBrace)?;
-        Ok(VariantDecl { kind: "variant".to_string(), name, arms })
+        Ok(VariantDecl {
+            kind: "variant".to_string(),
+            name,
+            arms,
+        })
     }
 
     // ── PROP-044 P3: variant construct expression ─────────────────────────────
@@ -3120,10 +3615,15 @@ impl Parser {
             self.expect_type(TokenType::Colon)?;
             let val = self.parse_expr()?;
             fields.insert(key, val);
-            if self.peek_type(TokenType::Comma) { self.advance(); }
+            if self.peek_type(TokenType::Comma) {
+                self.advance();
+            }
         }
         self.expect_type(TokenType::RBrace)?;
-        Ok(Expr::VariantConstruct { arm: arm_name, fields })
+        Ok(Expr::VariantConstruct {
+            arm: arm_name,
+            fields,
+        })
     }
 
     // ── PROP-044 P3: match expression ─────────────────────────────────────────
@@ -3136,10 +3636,15 @@ impl Parser {
             if let Some(arm) = self.parse_match_arm_inner()? {
                 arms.push(arm);
             }
-            if self.peek_type(TokenType::Comma) { self.advance(); }
+            if self.peek_type(TokenType::Comma) {
+                self.advance();
+            }
         }
         self.expect_type(TokenType::RBrace)?;
-        Ok(Expr::MatchExpr { subject: Box::new(subject), arms })
+        Ok(Expr::MatchExpr {
+            subject: Box::new(subject),
+            arms,
+        })
     }
 
     fn parse_match_arm_inner(&mut self) -> Result<Option<MatchArm>, String> {
@@ -3149,7 +3654,10 @@ impl Parser {
         };
         self.expect_type(TokenType::FatArrow)?;
         let body = self.parse_expr()?;
-        Ok(Some(MatchArm { pattern, body: Box::new(body) }))
+        Ok(Some(MatchArm {
+            pattern,
+            body: Box::new(body),
+        }))
     }
 
     fn parse_match_pattern_inner(&mut self) -> Option<MatchPattern> {
@@ -3159,7 +3667,11 @@ impl Parser {
             && tok.value == "_"
         {
             self.advance();
-            return Some(MatchPattern { wildcard: true, arm: "_".to_string(), bindings: Vec::new() });
+            return Some(MatchPattern {
+                wildcard: true,
+                arm: "_".to_string(),
+                bindings: Vec::new(),
+            });
         }
         if tok.token_type == TokenType::Ident || tok.token_type == TokenType::Keyword {
             let arm_name = tok.value.clone();
@@ -3171,13 +3683,27 @@ impl Parser {
                     if let Ok(b) = self.name_token() {
                         bindings.push(b);
                     }
-                    if self.peek_type(TokenType::Comma) { self.advance(); }
+                    if self.peek_type(TokenType::Comma) {
+                        self.advance();
+                    }
                 }
-                if self.peek_type(TokenType::RBrace) { self.advance(); }
+                if self.peek_type(TokenType::RBrace) {
+                    self.advance();
+                }
             }
-            return Some(MatchPattern { wildcard: false, arm: arm_name, bindings });
+            return Some(MatchPattern {
+                wildcard: false,
+                arm: arm_name,
+                bindings,
+            });
         }
-        self.add_parse_error("OOF-P0", &format!("Expected match arm pattern, got {:?}", tok.token_type), &tok.value, tok.line, tok.col);
+        self.add_parse_error(
+            "OOF-P0",
+            &format!("Expected match arm pattern, got {:?}", tok.token_type),
+            &tok.value,
+            tok.line,
+            tok.col,
+        );
         self.advance();
         None
     }

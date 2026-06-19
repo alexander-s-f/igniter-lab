@@ -57,5 +57,14 @@ pub async fn run_write_effect_atomic(
     let key = format!("{}:{}", req.capability_id, req.idempotency_key);
     let lock = single_flight.lock_for(&key);
     let _guard = lock.lock().await;
-    run_write_effect(registry, receipts, clock, passport, required_scope, req, mode).await
+    run_write_effect(
+        registry,
+        receipts,
+        clock,
+        passport,
+        required_scope,
+        req,
+        mode,
+    )
+    .await
 }

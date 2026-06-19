@@ -30,13 +30,23 @@ fn preserves_route_param_id() {
     let app = build_todo_app("c_param");
     let (status, body) = roundtrip(&*app, "GET", "/todos/42", &[], "");
     assert_eq!(status, 200);
-    assert_eq!(body["body"], json!("42"), "id flows via generated regexp/capture");
+    assert_eq!(
+        body["body"],
+        json!("42"),
+        "id flows via generated regexp/capture"
+    );
 }
 
 #[test]
 fn emits_logical_invoke_effect_without_identity() {
     let app = build_todo_app("c_effect");
-    let (status, body) = roundtrip(&*app, "POST", "/todos/42/done", &[("idempotency-key", "k-8")], "{}");
+    let (status, body) = roundtrip(
+        &*app,
+        "POST",
+        "/todos/42/done",
+        &[("idempotency-key", "k-8")],
+        "{}",
+    );
     assert_eq!(status, 202);
     assert_eq!(body["target"], json!("todo-done"));
     assert_eq!(body["idempotency_key"], json!("k-8"));
@@ -48,8 +58,14 @@ fn emits_logical_invoke_effect_without_identity() {
 fn lowering_error_is_structured() {
     // malformed route on line 2 → parse error fires during the loop, before the handlers check.
     let bad = "app X entry Serve {\n  route GET /todos -> Health\n}\n";
-    let paths = write_dir("c_lowerr", &[("handlers.ig", HANDLERS), ("routes.igweb", bad)]);
-    match build_igweb_app(IgWebBuildInput { sources: paths, entry: "Serve".into() }) {
+    let paths = write_dir(
+        "c_lowerr",
+        &[("handlers.ig", HANDLERS), ("routes.igweb", bad)],
+    );
+    match build_igweb_app(IgWebBuildInput {
+        sources: paths,
+        entry: "Serve".into(),
+    }) {
         Err(IgWebBuildError::Lower { line, .. }) => assert_eq!(line, 2),
         Err(e) => panic!("expected Lower error, got {e:?}"),
         Ok(_) => panic!("expected Lower error, got Ok"),
@@ -59,9 +75,16 @@ fn lowering_error_is_structured() {
 #[test]
 fn compile_error_is_structured() {
     let broken = format!("{HANDLERS}\npure contract {{ input req : Request }}\n");
-    let valid = "app X entry Serve {\n  handlers TodoHandlers\n  route GET \"/health\" -> Health\n}\n";
-    let paths = write_dir("c_comperr", &[("handlers.ig", &broken), ("routes.igweb", valid)]);
-    match build_igweb_app(IgWebBuildInput { sources: paths, entry: "Serve".into() }) {
+    let valid =
+        "app X entry Serve {\n  handlers TodoHandlers\n  route GET \"/health\" -> Health\n}\n";
+    let paths = write_dir(
+        "c_comperr",
+        &[("handlers.ig", &broken), ("routes.igweb", valid)],
+    );
+    match build_igweb_app(IgWebBuildInput {
+        sources: paths,
+        entry: "Serve".into(),
+    }) {
         Err(IgWebBuildError::Load(msg)) => assert!(!msg.is_empty()),
         Err(e) => panic!("expected Load error, got {e:?}"),
         Ok(_) => panic!("expected Load error, got Ok"),

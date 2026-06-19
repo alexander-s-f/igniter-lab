@@ -12,9 +12,17 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 /// Send a raw HTTP/1.1 request to `addr`, return `(status_code, body_json)`.
-fn roundtrip(addr: &str, method: &str, path: &str, body: &Value, extra_headers: &[(&str, &str)]) -> (u16, Value) {
+fn roundtrip(
+    addr: &str,
+    method: &str,
+    path: &str,
+    body: &Value,
+    extra_headers: &[(&str, &str)],
+) -> (u16, Value) {
     let body_bytes = serde_json::to_vec(body).unwrap();
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n");
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+    );
     for (k, v) in extra_headers {
         req.push_str(&format!("{k}: {v}\r\n"));
     }

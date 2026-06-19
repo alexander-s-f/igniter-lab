@@ -60,7 +60,11 @@ impl CapabilityExecutor for TBackendReadExecutor {
         if store.is_empty() || key.is_empty() {
             return EffectOutcome::permanent("malformed read request: missing store/key");
         }
-        let as_of = req.args.get("as_of").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+        let as_of = req
+            .args
+            .get("as_of")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(f64::MAX);
 
         match self.backend.read_as_of(store, key, as_of).await {
             Ok(Some(fact)) => EffectOutcome::succeeded(fact.value),
@@ -87,14 +91,34 @@ pub struct TBackendWriteExecutor {
 }
 
 impl TBackendWriteExecutor {
-    pub fn new(capability_id: &str, backend: Arc<dyn TBackend>, clock: Arc<dyn ClockProvider>) -> Self {
-        Self { capability_id: capability_id.to_string(), backend, clock, fail: false, writes: AtomicU64::new(0) }
+    pub fn new(
+        capability_id: &str,
+        backend: Arc<dyn TBackend>,
+        clock: Arc<dyn ClockProvider>,
+    ) -> Self {
+        Self {
+            capability_id: capability_id.to_string(),
+            backend,
+            clock,
+            fail: false,
+            writes: AtomicU64::new(0),
+        }
     }
 
     /// A variant that always fails the backend write — to prove the
     /// `unknown_external_state` + no-blind-retry path on a real executor.
-    pub fn failing(capability_id: &str, backend: Arc<dyn TBackend>, clock: Arc<dyn ClockProvider>) -> Self {
-        Self { capability_id: capability_id.to_string(), backend, clock, fail: true, writes: AtomicU64::new(0) }
+    pub fn failing(
+        capability_id: &str,
+        backend: Arc<dyn TBackend>,
+        clock: Arc<dyn ClockProvider>,
+    ) -> Self {
+        Self {
+            capability_id: capability_id.to_string(),
+            backend,
+            clock,
+            fail: true,
+            writes: AtomicU64::new(0),
+        }
     }
 
     /// How many times the backend write was actually attempted (a replay must not increment it).
@@ -120,7 +144,11 @@ impl CapabilityExecutor for TBackendWriteExecutor {
         if store.is_empty() || key.is_empty() {
             return EffectOutcome::permanent("malformed write request: missing store/key");
         }
-        let value = req.args.get("value").cloned().unwrap_or(serde_json::Value::Null);
+        let value = req
+            .args
+            .get("value")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         let valid_time = req.args.get("valid_time").and_then(|v| v.as_f64());
 
         let fact = Fact {
@@ -137,7 +165,9 @@ impl CapabilityExecutor for TBackendWriteExecutor {
             derivation: None,
         };
         match self.backend.write_fact(fact).await {
-            Ok(()) => EffectOutcome::succeeded(json!({ "store": store, "key": key, "written": true })),
+            Ok(()) => {
+                EffectOutcome::succeeded(json!({ "store": store, "key": key, "written": true }))
+            }
             Err(e) => EffectOutcome::unknown(&format!("backend write failed: {}", e)),
         }
     }

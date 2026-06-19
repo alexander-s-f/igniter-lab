@@ -1,15 +1,15 @@
-use igniter_compiler::lexer::Lexer;
-use igniter_compiler::parser::Parser;
+use igniter_compiler::assembler::Assembler;
 use igniter_compiler::classifier::Classifier;
-use igniter_compiler::typechecker::TypeChecker;
+use igniter_compiler::emitter::Emitter;
 use igniter_compiler::form_registry::FormRegistry;
 use igniter_compiler::form_resolver::FormResolver;
-use igniter_compiler::emitter::Emitter;
-use igniter_compiler::assembler::Assembler;
+use igniter_compiler::lexer::Lexer;
 use igniter_compiler::multifile;
+use igniter_compiler::parser::Parser;
+use igniter_compiler::typechecker::TypeChecker;
 
-use serde_json::{json, Value, Map};
-use sha2::{Sha256, Digest};
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -143,8 +143,10 @@ fn run_project_mode(args: &[String]) {
         &overlays,
     ) {
         Ok(paths) => {
-            let source_paths: Vec<String> =
-                paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let source_paths: Vec<String> = paths
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
             // A single resolved file still goes through the multi-file path so
             // that source_units evidence is always emitted in project mode.
             match run_multifile_compiler(&source_paths, &out_path, None) {
@@ -223,19 +225,37 @@ fn emit_project_diagnostic(diag: &igniter_compiler::project::ProjectDiagnostic, 
         "diagnostics": diagnostics_json,
         "warnings": []
     });
-    println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap_or_default()
+    );
 }
 
-fn run_compiler(source_path: &str, out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
+fn run_compiler(
+    source_path: &str,
+    out_path: &str,
+    _profile_source: Option<Value>,
+) -> std::io::Result<bool> {
     let source_content = fs::read_to_string(source_path)?;
     let mut hasher = Sha256::new();
     hasher.update(source_content.as_bytes());
     let source_hash = format!("sha256:{:x}", hasher.finalize());
 
-    run_compiler_source(source_path, &source_content, &source_hash, out_path, None, None)
+    run_compiler_source(
+        source_path,
+        &source_content,
+        &source_hash,
+        out_path,
+        None,
+        None,
+    )
 }
 
-fn run_multifile_compiler(source_paths: &[String], out_path: &str, _profile_source: Option<Value>) -> std::io::Result<bool> {
+fn run_multifile_compiler(
+    source_paths: &[String],
+    out_path: &str,
+    _profile_source: Option<Value>,
+) -> std::io::Result<bool> {
     match multifile::compile_units(source_paths)? {
         Ok(merged) => run_compiler_source(
             &merged.source_path,
@@ -327,32 +347,60 @@ fn run_compiler_source(
     if !parsed.parse_errors.is_empty() {
         // Parse failure
         let mut report = Map::new();
-        report.insert("kind".to_string(), Value::String("compilation_report".to_string()));
-        report.insert("format_version".to_string(), Value::String("0.1.0".to_string()));
-        
-        let report_id = format!("compilation_report/{}", &source_hash.trim_start_matches("sha256:")[0..16]);
+        report.insert(
+            "kind".to_string(),
+            Value::String("compilation_report".to_string()),
+        );
+        report.insert(
+            "format_version".to_string(),
+            Value::String("0.1.0".to_string()),
+        );
+
+        let report_id = format!(
+            "compilation_report/{}",
+            &source_hash.trim_start_matches("sha256:")[0..16]
+        );
         report.insert("program_id".to_string(), Value::String(report_id));
-        report.insert("grammar_version".to_string(), Value::String(parsed.grammar_version.clone()));
-        report.insert("source_hash".to_string(), Value::String(source_hash.clone()));
-        report.insert("source_path".to_string(), Value::String(source_path.to_string()));
-        report.insert("pass_result".to_string(), Value::String("error".to_string()));
+        report.insert(
+            "grammar_version".to_string(),
+            Value::String(parsed.grammar_version.clone()),
+        );
+        report.insert(
+            "source_hash".to_string(),
+            Value::String(source_hash.clone()),
+        );
+        report.insert(
+            "source_path".to_string(),
+            Value::String(source_path.to_string()),
+        );
+        report.insert(
+            "pass_result".to_string(),
+            Value::String("error".to_string()),
+        );
 
         let mut stages = Map::new();
         stages.insert("parse".to_string(), Value::String("error".to_string()));
         stages.insert("classify".to_string(), Value::String("skipped".to_string()));
-        stages.insert("typecheck".to_string(), Value::String("skipped".to_string()));
+        stages.insert(
+            "typecheck".to_string(),
+            Value::String("skipped".to_string()),
+        );
         stages.insert("emit".to_string(), Value::String("skipped".to_string()));
         report.insert("stages".to_string(), Value::Object(stages));
 
-        let diag_vals: Vec<Value> = parsed.parse_errors.iter().map(|d| {
-            let mut m = Map::new();
-            m.insert("rule".to_string(), Value::String(d.rule.clone()));
-            m.insert("severity".to_string(), Value::String("error".to_string()));
-            m.insert("message".to_string(), Value::String(d.message.clone()));
-            m.insert("node".to_string(), Value::String("parse".to_string()));
-            m.insert("line".to_string(), Value::Number(d.line.into()));
-            Value::Object(m)
-        }).collect();
+        let diag_vals: Vec<Value> = parsed
+            .parse_errors
+            .iter()
+            .map(|d| {
+                let mut m = Map::new();
+                m.insert("rule".to_string(), Value::String(d.rule.clone()));
+                m.insert("severity".to_string(), Value::String("error".to_string()));
+                m.insert("message".to_string(), Value::String(d.message.clone()));
+                m.insert("node".to_string(), Value::String("parse".to_string()));
+                m.insert("line".to_string(), Value::Number(d.line.into()));
+                Value::Object(m)
+            })
+            .collect();
         report.insert("diagnostics".to_string(), Value::Array(diag_vals));
         // LAB-COMPILER-MULTIFILE-SOURCE-MAP-P3: parse diagnostics carry merged line
         // numbers, so attach the line map here and enrich them with per-file origin.
@@ -366,7 +414,10 @@ fn run_compiler_source(
         let report_val = Value::Object(report);
         let report_path = report_path_for(out_path);
         fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
-        fs::write(&report_path, serde_json::to_string_pretty(&report_val)? + "\n")?;
+        fs::write(
+            &report_path,
+            serde_json::to_string_pretty(&report_val)? + "\n",
+        )?;
 
         let result = json!({
             "kind": "compiler_result",
@@ -408,17 +459,21 @@ fn run_compiler_source(
     let resolved_program = FormResolver::resolve(&typed, &form_registry);
 
     // Collect ALL form diagnostics (errors + warnings) for injection
-    let form_all_diags: Vec<serde_json::Value> = resolved_program.diagnostics
+    let form_all_diags: Vec<serde_json::Value> = resolved_program
+        .diagnostics
         .iter()
         .chain(form_registry.diagnostics.iter())
-        .map(|fd| serde_json::json!({
-            "rule":     fd.code,
-            "severity": fd.severity,
-            "message":  fd.message,
-            "node":     format!("form_resolver/{}", fd.contract),
-        }))
+        .map(|fd| {
+            serde_json::json!({
+                "rule":     fd.code,
+                "severity": fd.severity,
+                "message":  fd.message,
+                "node":     format!("form_resolver/{}", fd.contract),
+            })
+        })
         .collect();
-    let form_error_diags: Vec<serde_json::Value> = form_all_diags.iter()
+    let form_error_diags: Vec<serde_json::Value> = form_all_diags
+        .iter()
         .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error"))
         .cloned()
         .collect();
@@ -498,13 +553,22 @@ fn run_compiler_source(
     // Inject all form diagnostics into compilation report (P7/P9 fail-closed evidence)
     if !form_all_diags.is_empty() {
         if let Some(report) = emit_res.compilation_report.as_object_mut() {
-            let mut all_diags = report.get("diagnostics")
-                .and_then(|d| d.as_array()).cloned().unwrap_or_default();
+            let mut all_diags = report
+                .get("diagnostics")
+                .and_then(|d| d.as_array())
+                .cloned()
+                .unwrap_or_default();
             all_diags.extend(form_all_diags.iter().cloned());
-            report.insert("diagnostics".to_string(), serde_json::Value::Array(all_diags));
+            report.insert(
+                "diagnostics".to_string(),
+                serde_json::Value::Array(all_diags),
+            );
             if !form_error_diags.is_empty() {
                 if report.get("pass_result").and_then(|p| p.as_str()) == Some("ok") {
-                    report.insert("pass_result".to_string(), serde_json::Value::String("oof".to_string()));
+                    report.insert(
+                        "pass_result".to_string(),
+                        serde_json::Value::String("oof".to_string()),
+                    );
                 }
             }
         }
@@ -512,14 +576,19 @@ fn run_compiler_source(
 
     // ok includes form errors (injected above)
     let has_form_errors = !form_error_diags.is_empty();
-    let ok = typed.pass_result == "ok" && classified.pass_result == "ok"
-          && parsed.parse_errors.is_empty() && !has_form_errors;
+    let ok = typed.pass_result == "ok"
+        && classified.pass_result == "ok"
+        && parsed.parse_errors.is_empty()
+        && !has_form_errors;
 
     if !ok {
         // Refusal / OOF case
         let report_path = report_path_for(out_path);
         fs::create_dir_all(Path::new(&report_path).parent().unwrap())?;
-        fs::write(&report_path, serde_json::to_string_pretty(&emit_res.compilation_report)? + "\n")?;
+        fs::write(
+            &report_path,
+            serde_json::to_string_pretty(&emit_res.compilation_report)? + "\n",
+        )?;
 
         // Always write form_table and resolution trace even on oof (sidecar evidence)
         if let Some(ft) = &emit_res.form_table {
@@ -527,14 +596,31 @@ fn run_compiler_source(
             let _ = fs::write(&ft_path, serde_json::to_string_pretty(ft)? + "\n");
         }
         if let Some(rt) = &emit_res.resolved_program {
-            let rt_path = report_path.replace(".compilation_report.json", ".form_resolution_trace.json");
+            let rt_path =
+                report_path.replace(".compilation_report.json", ".form_resolution_trace.json");
             let _ = fs::write(&rt_path, serde_json::to_string_pretty(rt)? + "\n");
         }
 
-        let errors: Vec<Value> = emit_res.compilation_report.get("diagnostics").unwrap().as_array().unwrap()
-            .iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) != Some("warning")).cloned().collect();
-        let warnings: Vec<Value> = emit_res.compilation_report.get("diagnostics").unwrap().as_array().unwrap()
-            .iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("warning")).cloned().collect();
+        let errors: Vec<Value> = emit_res
+            .compilation_report
+            .get("diagnostics")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d.get("severity").and_then(|s| s.as_str()) != Some("warning"))
+            .cloned()
+            .collect();
+        let warnings: Vec<Value> = emit_res
+            .compilation_report
+            .get("diagnostics")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("warning"))
+            .cloned()
+            .collect();
 
         let mut result = json!({
             "kind": "compiler_result",
@@ -575,9 +661,24 @@ fn run_compiler_source(
     let manifest = assembler.assemble(&emit_res, out_path)?;
 
     let contract_ids = manifest.get("contracts").unwrap().as_array().unwrap();
-    let program_id = manifest.get("program_id").unwrap().as_str().unwrap().to_string();
-    let comp_report_ref = manifest.get("compilation_report_ref").unwrap().as_str().unwrap().to_string();
-    let sem_ir_ref = manifest.get("semantic_ir_ref").unwrap().as_str().unwrap().to_string();
+    let program_id = manifest
+        .get("program_id")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+    let comp_report_ref = manifest
+        .get("compilation_report_ref")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sem_ir_ref = manifest
+        .get("semantic_ir_ref")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let mut result = json!({
         "kind": "compiler_result",
@@ -615,17 +716,26 @@ fn run_compiler_source(
     Ok(true)
 }
 
-fn attach_source_units(emit_res: &mut igniter_compiler::emitter::EmitResult, source_units: &Option<Vec<Value>>) {
+fn attach_source_units(
+    emit_res: &mut igniter_compiler::emitter::EmitResult,
+    source_units: &Option<Vec<Value>>,
+) {
     let Some(source_units) = source_units else {
         return;
     };
     if let Some(semantic_ir_value) = emit_res.semantic_ir.as_mut() {
         if let Some(semantic_ir) = semantic_ir_value.as_object_mut() {
-            semantic_ir.insert("source_units".to_string(), Value::Array(source_units.clone()));
+            semantic_ir.insert(
+                "source_units".to_string(),
+                Value::Array(source_units.clone()),
+            );
         }
     }
     if let Some(report) = emit_res.compilation_report.as_object_mut() {
-        report.insert("source_units".to_string(), Value::Array(source_units.clone()));
+        report.insert(
+            "source_units".to_string(),
+            Value::Array(source_units.clone()),
+        );
     }
 }
 
@@ -635,7 +745,10 @@ fn attach_source_units(emit_res: &mut igniter_compiler::emitter::EmitResult, sou
 /// origin fields (`source_path`/`module_path`/`original_line`). The existing
 /// `line`/`col` fields are left untouched (still merged coordinates) — consumers
 /// opt in via the new fields. No-op for single-file builds (map is None).
-fn attach_source_line_map(emit_res: &mut igniter_compiler::emitter::EmitResult, source_line_map: &Option<Vec<Value>>) {
+fn attach_source_line_map(
+    emit_res: &mut igniter_compiler::emitter::EmitResult,
+    source_line_map: &Option<Vec<Value>>,
+) {
     let Some(map) = source_line_map else {
         return;
     };
@@ -665,9 +778,15 @@ fn enrich_diagnostics_with_origin(report: &mut Map<String, Value>, map: &[Value]
         return;
     };
     for diag in diags {
-        let Some(obj) = diag.as_object_mut() else { continue };
-        let Some(line) = obj.get("line").and_then(|v| v.as_u64()) else { continue };
-        let Some(entry) = by_merged.get(&line) else { continue };
+        let Some(obj) = diag.as_object_mut() else {
+            continue;
+        };
+        let Some(line) = obj.get("line").and_then(|v| v.as_u64()) else {
+            continue;
+        };
+        let Some(entry) = by_merged.get(&line) else {
+            continue;
+        };
         if let Some(sp) = entry.get("source_path") {
             obj.entry("source_path").or_insert_with(|| sp.clone());
         }

@@ -1,7 +1,7 @@
 // src/packs/pipeline.rs
 // Reactive Event-Driven Pipelines, State Combines & ROP Rules Engine Pack for TBackend
 
-use crate::kernel::{PackManifest, ServerKernel, ServerPack, BackgroundService};
+use crate::kernel::{BackgroundService, PackManifest, ServerKernel, ServerPack};
 use crate::pure_core::FactData;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -46,7 +46,9 @@ pub struct PipelineRegistry {
 
 impl PipelineRegistry {
     pub fn new() -> Self {
-        Self { pipelines: HashMap::new() }
+        Self {
+            pipelines: HashMap::new(),
+        }
     }
 }
 
@@ -56,13 +58,18 @@ pub static PIPELINE_SENDER: OnceLock<std::sync::mpsc::Sender<FactData>> = OnceLo
 
 // ── Context Evaluator & Template Render Engines ──────────────────────────────
 
-fn resolve_context_value(context: &HashMap<String, FactData>, path: &str) -> Option<serde_json::Value> {
+fn resolve_context_value(
+    context: &HashMap<String, FactData>,
+    path: &str,
+) -> Option<serde_json::Value> {
     let parts: Vec<&str> = path.split('.').collect();
-    if parts.is_empty() { return None; }
-    
+    if parts.is_empty() {
+        return None;
+    }
+
     let alias = parts[0];
     let fact = context.get(alias)?;
-    
+
     if parts.len() == 1 {
         return serde_json::to_value(fact).ok();
     }
@@ -73,8 +80,18 @@ fn resolve_context_value(context: &HashMap<String, FactData>, path: &str) -> Opt
         "key" => return Some(serde_json::Value::String(fact.key.clone())),
         "transaction_time" => return Some(serde_json::json!(fact.transaction_time)),
         "valid_time" => return fact.valid_time.map(|vt| serde_json::json!(vt)),
-        "producer" => return fact.producer.as_ref().map(|p| serde_json::Value::String(p.clone())),
-        "causation" => return fact.causation.as_ref().map(|c| serde_json::Value::String(c.clone())),
+        "producer" => {
+            return fact
+                .producer
+                .as_ref()
+                .map(|p| serde_json::Value::String(p.clone()))
+        }
+        "causation" => {
+            return fact
+                .causation
+                .as_ref()
+                .map(|c| serde_json::Value::String(c.clone()))
+        }
         "value" => {
             let mut current = &fact.value;
             for part in &parts[2..] {
@@ -97,7 +114,10 @@ fn resolve_context_value(context: &HashMap<String, FactData>, path: &str) -> Opt
     None
 }
 
-fn render_template(template: &serde_json::Value, context: &HashMap<String, FactData>) -> serde_json::Value {
+fn render_template(
+    template: &serde_json::Value,
+    context: &HashMap<String, FactData>,
+) -> serde_json::Value {
     match template {
         serde_json::Value::String(s) => {
             let trimmed = s.trim();
@@ -107,7 +127,7 @@ fn render_template(template: &serde_json::Value, context: &HashMap<String, FactD
                     return val;
                 }
             }
-            
+
             // Inline placeholder loop
             let mut result = s.clone();
             while let Some(start_idx) = result.find("{{") {
@@ -127,7 +147,10 @@ fn render_template(template: &serde_json::Value, context: &HashMap<String, FactD
             serde_json::Value::String(result)
         }
         serde_json::Value::Array(arr) => {
-            let rendered: Vec<serde_json::Value> = arr.iter().map(|item| render_template(item, context)).collect();
+            let rendered: Vec<serde_json::Value> = arr
+                .iter()
+                .map(|item| render_template(item, context))
+                .collect();
             serde_json::Value::Array(rendered)
         }
         serde_json::Value::Object(obj) => {
@@ -188,7 +211,9 @@ fn dispatch_webhook_payload(url_str: &str, payload: &serde_json::Value) -> Resul
 
     let (host, port) = if let Some(colon_idx) = host_port.find(':') {
         let h = &host_port[..colon_idx];
-        let p = host_port[colon_idx + 1..].parse::<u16>().map_err(|e| e.to_string())?;
+        let p = host_port[colon_idx + 1..]
+            .parse::<u16>()
+            .map_err(|e| e.to_string())?;
         (h, p)
     } else {
         (host_port, 80)
@@ -205,10 +230,15 @@ fn dispatch_webhook_payload(url_str: &str, payload: &serde_json::Value) -> Resul
          Content-Length: {}\r\n\
          Connection: close\r\n\r\n\
          {}",
-        path, host_port, body.len(), body
+        path,
+        host_port,
+        body.len(),
+        body
     );
 
-    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())?;
 
     let mut response = String::new();
@@ -219,7 +249,11 @@ fn dispatch_webhook_payload(url_str: &str, payload: &serde_json::Value) -> Resul
 
 // ── Asynchronous Pipeline Executor ───────────────────────────────────────────
 
-fn execute_pipeline(pipeline: &PipelineDef, triggering_fact: &FactData, kernel: &ServerKernel) -> Result<(), String> {
+fn execute_pipeline(
+    pipeline: &PipelineDef,
+    triggering_fact: &FactData,
+    kernel: &ServerKernel,
+) -> Result<(), String> {
     // 1. Combine stage
     let mut context = HashMap::new();
     context.insert(triggering_fact.store.clone(), triggering_fact.clone());
@@ -236,11 +270,19 @@ fn execute_pipeline(pipeline: &PipelineDef, triggering_fact: &FactData, kernel: 
             }
         };
 
-        let engine = kernel.get_or_create_engine(&comb.store)
+        let engine = kernel
+            .get_or_create_engine(&comb.store)
             .ok_or_else(|| format!("Combine store '{}' not found", comb.store))?;
 
-        let latest = engine.log.latest_for(&comb.store, &key, None)
-            .ok_or_else(|| format!("No active fact found for combine store '{}', key '{}' (Short-circuit ROP)", comb.store, key))?;
+        let latest = engine
+            .log
+            .latest_for(&comb.store, &key, None)
+            .ok_or_else(|| {
+                format!(
+                    "No active fact found for combine store '{}', key '{}' (Short-circuit ROP)",
+                    comb.store, key
+                )
+            })?;
 
         context.insert(comb.alias.clone(), latest);
     }
@@ -248,7 +290,10 @@ fn execute_pipeline(pipeline: &PipelineDef, triggering_fact: &FactData, kernel: 
     // 2. Rules Evaluation stage
     for rule in &pipeline.rules {
         if !evaluate_rule(rule, &context) {
-            return Err(format!("Rule predicate failed: {} {:?} {:?}", rule.left_path, rule.op, rule.right_val));
+            return Err(format!(
+                "Rule predicate failed: {} {:?} {:?}",
+                rule.left_path, rule.op, rule.right_val
+            ));
         }
     }
 
@@ -262,7 +307,8 @@ fn execute_pipeline(pipeline: &PipelineDef, triggering_fact: &FactData, kernel: 
         .unwrap_or(0.0);
 
     if let Some(ref target_store) = pipeline.action_target_store {
-        let engine = kernel.get_or_create_engine(target_store)
+        let engine = kernel
+            .get_or_create_engine(target_store)
             .ok_or_else(|| format!("Action target store '{}' invalid", target_store))?;
 
         let out_fact = FactData {
@@ -276,11 +322,15 @@ fn execute_pipeline(pipeline: &PipelineDef, triggering_fact: &FactData, kernel: 
             valid_time: Some(now),
             schema_version: 1,
             producer: Some(format!("PipelinePack:{}", pipeline.id)),
-            derivation: Some(format!("Reactive pipeline transformation of {} key {}", triggering_fact.store, triggering_fact.key)),
+            derivation: Some(format!(
+                "Reactive pipeline transformation of {} key {}",
+                triggering_fact.store, triggering_fact.key
+            )),
         };
 
         if let Some(ref fb) = engine.wal {
-            fb.write_fact_data(&out_fact).map_err(|e| format!("WAL write failed: {}", e))?;
+            fb.write_fact_data(&out_fact)
+                .map_err(|e| format!("WAL write failed: {}", e))?;
         }
         engine.log.push(out_fact);
     }
@@ -318,9 +368,12 @@ impl BackgroundService for PipelineService {
 
                 let pipelines: Vec<PipelineDef> = {
                     let r = registry.read();
-                    r.pipelines.values()
+                    r.pipelines
+                        .values()
                         .filter(|p| {
-                            if p.trigger_store != fact.store { return false; }
+                            if p.trigger_store != fact.store {
+                                return false;
+                            }
                             if let Some(ref prefix) = p.filter_prefix {
                                 fact.key.starts_with(prefix)
                             } else {
@@ -334,7 +387,7 @@ impl BackgroundService for PipelineService {
                 for pipeline in pipelines {
                     let kernel_c = kernel.clone();
                     let fact_c = fact.clone();
-                    
+
                     // Spawn out-of-band execution thread per matched pipeline
                     thread::spawn(move || {
                         if let Err(e) = execute_pipeline(&pipeline, &fact_c, &kernel_c) {
@@ -356,7 +409,7 @@ impl BackgroundService for PipelineService {
 fn load_persistent_pipelines(dir_path: &str) -> HashMap<String, PipelineDef> {
     let mut map = HashMap::new();
     let pipelines_dir = format!("{}/pipelines", dir_path);
-    
+
     // Ensure dir exists
     let _ = std::fs::create_dir_all(&pipelines_dir);
 
@@ -366,7 +419,10 @@ fn load_persistent_pipelines(dir_path: &str) -> HashMap<String, PipelineDef> {
             if path.extension().map_or(false, |ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(mut pipeline) = serde_json::from_str::<PipelineDef>(&content) {
-                        println!("[Pipeline Preloader] Preloaded persistent pipeline {} from storage", pipeline.id);
+                        println!(
+                            "[Pipeline Preloader] Preloaded persistent pipeline {} from storage",
+                            pipeline.id
+                        );
                         pipeline.persist = true; // Ensure persist flag remains true
                         map.insert(pipeline.id.clone(), pipeline);
                     }
@@ -382,17 +438,30 @@ fn load_persistent_pipelines(dir_path: &str) -> HashMap<String, PipelineDef> {
 pub struct PipelineMiddleware;
 
 impl crate::kernel::RequestMiddleware for PipelineMiddleware {
-    fn before_request(&self, _req: &mut serde_json::Value, _kernel: &ServerKernel) -> Result<(), String> {
+    fn before_request(
+        &self,
+        _req: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn after_response(&self, req: &serde_json::Value, resp: &mut serde_json::Value, kernel: &ServerKernel) {
+    fn after_response(
+        &self,
+        req: &serde_json::Value,
+        resp: &mut serde_json::Value,
+        kernel: &ServerKernel,
+    ) {
         // Intercept successful write_fact operations
         let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        if op != "write_fact" { return; }
+        if op != "write_fact" {
+            return;
+        }
 
         let is_ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-        if !is_ok { return; }
+        if !is_ok {
+            return;
+        }
 
         let fact_val = match req.get("fact") {
             Some(f) => f,
@@ -460,7 +529,7 @@ impl ServerPack for PipelinePack {
                 Some(s) => s.to_string(),
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'trigger_store' parameter" }),
             };
-            
+
             let filter_prefix = req.get("filter_prefix").and_then(|v| v.as_str()).map(|s| s.to_string());
             let persist = req.get("persist").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -468,7 +537,7 @@ impl ServerPack for PipelinePack {
                 Some(arr) => arr,
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'combines' array" }),
             };
-            
+
             let mut combines = Vec::new();
             for item in combines_arr {
                 let store = match item.get("store").and_then(|v| v.as_str()) {
@@ -542,11 +611,14 @@ impl ServerPack for PipelinePack {
 
         // 3. Register "pipeline_list" Command Route
         let registry_c = self.registry.clone();
-        command_reg.register("pipeline_list", Arc::new(move |_req, _kernel| {
-            let map = registry_c.read();
-            let list: Vec<PipelineDef> = map.pipelines.values().cloned().collect();
-            serde_json::json!({ "ok": true, "pipelines": list })
-        }));
+        command_reg.register(
+            "pipeline_list",
+            Arc::new(move |_req, _kernel| {
+                let map = registry_c.read();
+                let list: Vec<PipelineDef> = map.pipelines.values().cloned().collect();
+                serde_json::json!({ "ok": true, "pipelines": list })
+            }),
+        );
 
         // 4. Register "pipeline_delete" Command Route
         let registry_c = self.registry.clone();
@@ -572,10 +644,17 @@ impl ServerPack for PipelinePack {
         }));
 
         // 5. Mount Pipeline Middleware into Chain
-        kernel.middleware_chain.write().register(Arc::new(PipelineMiddleware));
+        kernel
+            .middleware_chain
+            .write()
+            .register(Arc::new(PipelineMiddleware));
 
         // 6. Register Background Dispatch Service
-        let rx = self.receiver.lock().take().expect("Receiver missing during PipelinePack mount!");
+        let rx = self
+            .receiver
+            .lock()
+            .take()
+            .expect("Receiver missing during PipelinePack mount!");
         let service = PipelineService {
             registry: self.registry.clone(),
             receiver: Mutex::new(Some(rx)),

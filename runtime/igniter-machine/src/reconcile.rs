@@ -86,7 +86,10 @@ pub async fn reconcile_unknown_write(
 
     // An `unknown` receipt — or a DANGLING `prepared` (a crash between prepare and the terminal
     // receipt, P19) — is reconcilable; a terminal receipt is returned as-is (idempotent).
-    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
+    if !matches!(
+        state,
+        WriteState::UnknownExternalState | WriteState::Prepared
+    ) {
         return Ok(ReconcileResult::NotApplicable(state));
     }
 

@@ -50,10 +50,10 @@ pub struct BindingReceipt {
 /// What a fixture contract returns.
 #[derive(Debug, Clone)]
 pub enum BindingResponse {
-    Data(Value),               // a read source result
-    Validated,                 // validation passed
+    Data(Value),                  // a read source result
+    Validated,                    // validation passed
     Rejected(Map<String, Value>), // scoped field diagnostics (field -> message)
-    Receipt(BindingReceipt),   // a submit result
+    Receipt(BindingReceipt),      // a submit result
 }
 
 type Handler = fn(&Value) -> BindingResponse;
@@ -67,7 +67,10 @@ pub struct FixtureContractRegistry {
 
 impl FixtureContractRegistry {
     pub fn new() -> Self {
-        Self { handlers: HashMap::new(), calls: HashMap::new() }
+        Self {
+            handlers: HashMap::new(),
+            calls: HashMap::new(),
+        }
     }
     pub fn register(&mut self, name: &str, handler: Handler) {
         self.handlers.insert(name.to_string(), handler);
@@ -107,7 +110,10 @@ fn fixture_list_leads(_input: &Value) -> BindingResponse {
 fn fixture_validate_lead_review(input: &Value) -> BindingResponse {
     let fields = input.get("fields").cloned().unwrap_or(json!({}));
     let mut errs = Map::new();
-    let priority = fields.get("priority").and_then(|v| v.as_str()).unwrap_or("");
+    let priority = fields
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if priority.trim().is_empty() {
         errs.insert("priority".into(), json!("required"));
     }
@@ -154,7 +160,12 @@ fn parse_manifest(v: &Value) -> Manifest {
     if let Some(obj) = v.get("sources").and_then(|s| s.as_object()) {
         for (name, spec) in obj {
             if let Some(c) = spec.get("contract").and_then(|c| c.as_str()) {
-                m.sources.insert(name.clone(), SourceSpec { contract: c.to_string() });
+                m.sources.insert(
+                    name.clone(),
+                    SourceSpec {
+                        contract: c.to_string(),
+                    },
+                );
             }
         }
     }
@@ -165,7 +176,10 @@ fn parse_manifest(v: &Value) -> Manifest {
                     name.clone(),
                     ActionSpec {
                         contract: c.to_string(),
-                        validate: spec.get("validate").and_then(|x| x.as_str()).map(String::from),
+                        validate: spec
+                            .get("validate")
+                            .and_then(|x| x.as_str())
+                            .map(String::from),
                     },
                 );
             }
@@ -191,8 +205,12 @@ pub struct BoundViewHost {
 impl BoundViewHost {
     /// Build the host: parse the manifest, resolve the `leads` data source (double gate), and build
     /// the workbench with the source-provided leads + the artifact's fields.
-    pub fn from_artifact(json_str: &str, mut registry: FixtureContractRegistry) -> Result<Self, BindingError> {
-        let v: Value = serde_json::from_str(json_str).map_err(|e| BindingError::Parse(e.to_string()))?;
+    pub fn from_artifact(
+        json_str: &str,
+        mut registry: FixtureContractRegistry,
+    ) -> Result<Self, BindingError> {
+        let v: Value =
+            serde_json::from_str(json_str).map_err(|e| BindingError::Parse(e.to_string()))?;
         if v.get("artifact").and_then(|a| a.as_str()) != Some("view") {
             return Err(BindingError::Schema("not a view artifact".into()));
         }
@@ -215,10 +233,16 @@ impl BoundViewHost {
             return Err(BindingError::NotRegistered(src.contract.clone()));
         }
         let leads = match registry.call(&src.contract, &json!({})) {
-            Some(BindingResponse::Data(Value::Array(a))) => {
-                a.iter().filter_map(|x| x.as_str().map(String::from)).collect::<Vec<_>>()
+            Some(BindingResponse::Data(Value::Array(a))) => a
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect::<Vec<_>>(),
+            _ => {
+                return Err(BindingError::Schema(format!(
+                    "{} did not return a lead list",
+                    src.contract
+                )))
             }
-            _ => return Err(BindingError::Schema(format!("{} did not return a lead list", src.contract))),
         };
 
         let fields_v = v
@@ -272,7 +296,11 @@ impl BoundViewHost {
                     let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                     let val = match kind {
                         "text" | "select" => n.data.get("value").cloned().unwrap_or(json!("")),
-                        "checkbox" => json!(n.data.get("checked").and_then(|v| v.as_bool()).unwrap_or(false)),
+                        "checkbox" => json!(n
+                            .data
+                            .get("checked")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)),
                         _ => Value::Null,
                     };
                     fields.insert(field.to_string(), val);
@@ -287,7 +315,11 @@ impl BoundViewHost {
     fn submit(&mut self) {
         self.last_refusal = None;
         let snapshot = self.form_snapshot();
-        let lead = snapshot.get("lead").and_then(|l| l.as_str()).unwrap_or("").to_string();
+        let lead = snapshot
+            .get("lead")
+            .and_then(|l| l.as_str())
+            .unwrap_or("")
+            .to_string();
 
         // DOUBLE GATE (1): action declared?
         let action = match self.manifest.actions.get("submit_lead") {
@@ -329,7 +361,10 @@ impl BoundViewHost {
                 self.last_receipt = Some(r);
             }
             _ => {
-                self.last_refusal = Some(format!("{} returned an unexpected response", action.contract));
+                self.last_refusal = Some(format!(
+                    "{} returned an unexpected response",
+                    action.contract
+                ));
             }
         }
     }
@@ -346,7 +381,11 @@ impl BoundViewHost {
         out
     }
     pub fn selected_lead(&self) -> String {
-        self.form_snapshot().get("lead").and_then(|l| l.as_str()).map(String::from).unwrap_or_default()
+        self.form_snapshot()
+            .get("lead")
+            .and_then(|l| l.as_str())
+            .map(String::from)
+            .unwrap_or_default()
     }
     pub fn errors_for(&self, lead: &str) -> Option<&Map<String, Value>> {
         self.errors.get(lead)
@@ -395,5 +434,7 @@ impl BoundViewHost {
 }
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

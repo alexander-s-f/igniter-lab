@@ -68,13 +68,24 @@ impl Value {
             }
             serde_json::Value::Object(obj) => {
                 // Key-neutral bitemporal Decimal detection (supporting symbolized/string keys)
-                let val_key = if obj.contains_key("value") { Some("value") } else { None };
-                let scale_key = if obj.contains_key("scale") { Some("scale") } else { None };
+                let val_key = if obj.contains_key("value") {
+                    Some("value")
+                } else {
+                    None
+                };
+                let scale_key = if obj.contains_key("scale") {
+                    Some("scale")
+                } else {
+                    None
+                };
 
                 if let (Some(vk), Some(sk)) = (val_key, scale_key) {
                     if let (Some(val_num), Some(scale_num)) = (obj.get(vk), obj.get(sk)) {
                         if let (Some(v), Some(s)) = (val_num.as_i64(), scale_num.as_u64()) {
-                            return Value::Decimal { value: v, scale: s as u32 };
+                            return Value::Decimal {
+                                value: v,
+                                scale: s as u32,
+                            };
                         }
                     }
                 }
@@ -96,8 +107,14 @@ impl Value {
             Value::String(s) => serde_json::Value::String(s.to_string()),
             Value::Decimal { value, scale } => {
                 let mut map = serde_json::Map::new();
-                map.insert("value".to_string(), serde_json::Value::Number((*value).into()));
-                map.insert("scale".to_string(), serde_json::Value::Number((*scale).into()));
+                map.insert(
+                    "value".to_string(),
+                    serde_json::Value::Number((*value).into()),
+                );
+                map.insert(
+                    "scale".to_string(),
+                    serde_json::Value::Number((*scale).into()),
+                );
                 serde_json::Value::Object(map)
             }
             Value::Array(arr) => {

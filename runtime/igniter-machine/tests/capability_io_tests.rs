@@ -10,8 +10,8 @@
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    run_effect, CapabilityExecutorRegistry, EchoCapabilityExecutor, EffectRequest,
-    KvReadExecutor, OutcomeKind, RunMode, RECEIPTS_STORE,
+    run_effect, CapabilityExecutorRegistry, EchoCapabilityExecutor, EffectRequest, KvReadExecutor,
+    OutcomeKind, RunMode, RECEIPTS_STORE,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -47,9 +47,14 @@ fn live_effect_runs_executor_writes_receipt_fact() {
         reg.register(echo.clone());
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("echo", "k1", json!({"hi": 1})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("echo", "k1", json!({"hi": 1})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         // typed success, executor called exactly once
         assert_eq!(out.kind, OutcomeKind::Succeeded);
@@ -82,17 +87,31 @@ fn idempotency_prevents_second_executor_call() {
         reg.register(echo.clone());
         let store = receipts();
 
-        let first = run_effect(&reg, &store, &req("echo", "same", json!({"n": 7})), RunMode::Live)
-            .await
-            .unwrap();
-        let second = run_effect(&reg, &store, &req("echo", "same", json!({"n": 7})), RunMode::Live)
-            .await
-            .unwrap();
+        let first = run_effect(
+            &reg,
+            &store,
+            &req("echo", "same", json!({"n": 7})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let second = run_effect(
+            &reg,
+            &store,
+            &req("echo", "same", json!({"n": 7})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(first.result, json!({"n": 7}));
         assert_eq!(second.result, json!({"n": 7})); // same typed result, replayed
         assert_eq!(second.kind, OutcomeKind::Succeeded);
-        assert_eq!(echo.call_count(), 1, "executor must run exactly once for one idempotency key");
+        assert_eq!(
+            echo.call_count(),
+            1,
+            "executor must run exactly once for one idempotency key"
+        );
     });
 }
 
@@ -104,8 +123,12 @@ fn distinct_idempotency_keys_each_invoke_executor() {
         reg.register(echo.clone());
         let store = receipts();
 
-        run_effect(&reg, &store, &req("echo", "a", json!(1)), RunMode::Live).await.unwrap();
-        run_effect(&reg, &store, &req("echo", "b", json!(2)), RunMode::Live).await.unwrap();
+        run_effect(&reg, &store, &req("echo", "a", json!(1)), RunMode::Live)
+            .await
+            .unwrap();
+        run_effect(&reg, &store, &req("echo", "b", json!(2)), RunMode::Live)
+            .await
+            .unwrap();
         assert_eq!(echo.call_count(), 2);
     });
 }
@@ -121,15 +144,25 @@ fn replay_returns_receipt_without_calling_executor() {
         let store = receipts();
 
         // seed a receipt with a Live call
-        run_effect(&reg, &store, &req("echo", "seed", json!({"v": 99})), RunMode::Live)
-            .await
-            .unwrap();
+        run_effect(
+            &reg,
+            &store,
+            &req("echo", "seed", json!({"v": 99})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(echo.call_count(), 1);
 
         // replay reads the receipt, executor untouched
-        let replayed = run_effect(&reg, &store, &req("echo", "seed", json!({"v": 99})), RunMode::Replay)
-            .await
-            .unwrap();
+        let replayed = run_effect(
+            &reg,
+            &store,
+            &req("echo", "seed", json!({"v": 99})),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(replayed.result, json!({"v": 99}));
         assert_eq!(echo.call_count(), 1, "replay must not invoke the executor");
     });
@@ -144,9 +177,14 @@ fn replay_without_receipt_is_unknown_not_failure() {
         let store = receipts();
 
         // replay for a key that was never executed → epistemic unknown, no executor call
-        let out = run_effect(&reg, &store, &req("echo", "never", json!(0)), RunMode::Replay)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("echo", "never", json!(0)),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::UnknownExternalState);
         assert_eq!(echo.call_count(), 0);
     });
@@ -162,13 +200,22 @@ fn timeout_is_unknown_external_state_not_failed() {
         reg.register(kv.clone());
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("kv", "t1", json!({"key": "__timeout__"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("kv", "t1", json!({"key": "__timeout__"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::UnknownExternalState);
 
         // the unknown outcome is itself recorded as a receipt fact (auditable, replayable)
-        let fact = store.read_as_of(RECEIPTS_STORE, "kv:t1", f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, "kv:t1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["outcome_kind"], json!("unknown_external_state"));
     });
 }
@@ -181,9 +228,14 @@ fn missing_key_is_permanent_failure_distinct_from_unknown() {
         reg.register(kv.clone());
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("kv", "m1", json!({"key": "absent"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("kv", "m1", json!({"key": "absent"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         // a definite negative ("not found") is permanent_failure, NOT unknown_external_state
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
     });
@@ -199,9 +251,14 @@ fn known_key_succeeds() {
         reg.register(exec.clone());
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("kv", "g1", json!({"key": "greeting"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("kv", "g1", json!({"key": "greeting"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(out.result, json!("hello"));
     });
@@ -223,7 +280,11 @@ fn preflight_refuses_unknown_capability_before_executor() {
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
         // preflight refusal writes no receipt (nothing happened externally)
-        assert!(store.read_as_of(RECEIPTS_STORE, "nope:k", f64::MAX).await.unwrap().is_none());
+        assert!(store
+            .read_as_of(RECEIPTS_STORE, "nope:k", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -257,7 +318,9 @@ fn preflight_refuses_missing_authority() {
             authority_ref: None,
             args: json!(1),
         };
-        let out = run_effect(&reg, &store, &no_auth, RunMode::Live).await.unwrap();
+        let out = run_effect(&reg, &store, &no_auth, RunMode::Live)
+            .await
+            .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
     });
@@ -273,13 +336,26 @@ fn executor_denial_is_written_as_data() {
         reg.register(kv.clone());
         let store = receipts();
 
-        let out = run_effect(&reg, &store, &req("kv", "d1", json!({"key": "__forbidden__"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect(
+            &reg,
+            &store,
+            &req("kv", "d1", json!({"key": "__forbidden__"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
-        assert_eq!(kv.call_count(), 1, "executor WAS reached (preflight passed)");
+        assert_eq!(
+            kv.call_count(),
+            1,
+            "executor WAS reached (preflight passed)"
+        );
 
-        let fact = store.read_as_of(RECEIPTS_STORE, "kv:d1", f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, "kv:d1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["outcome_kind"], json!("denied"));
     });
 }
@@ -296,7 +372,9 @@ fn receipt_lives_in_the_same_tbackend_fact_store() {
         reg.register(echo.clone());
         let store = receipts();
 
-        run_effect(&reg, &store, &req("echo", "x", json!("y")), RunMode::Live).await.unwrap();
+        run_effect(&reg, &store, &req("echo", "x", json!("y")), RunMode::Live)
+            .await
+            .unwrap();
 
         let all = store.all_facts().await.unwrap();
         assert_eq!(all.len(), 1);

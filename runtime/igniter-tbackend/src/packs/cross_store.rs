@@ -22,16 +22,24 @@ fn resolve_field_as_value(fact: &FactData, path: &str) -> Option<serde_json::Val
         return fact.valid_time.map(|vt| serde_json::json!(vt));
     }
     if path == "producer" {
-        return fact.producer.as_ref().map(|p| serde_json::Value::String(p.clone()));
+        return fact
+            .producer
+            .as_ref()
+            .map(|p| serde_json::Value::String(p.clone()));
     }
     if path == "causation" {
-        return fact.causation.as_ref().map(|c| serde_json::Value::String(c.clone()));
+        return fact
+            .causation
+            .as_ref()
+            .map(|c| serde_json::Value::String(c.clone()));
     }
     if path.starts_with("value.") {
         let sub_path = &path[6..];
         let mut current = &fact.value;
         for part in sub_path.split('.') {
-            if part.is_empty() { continue; }
+            if part.is_empty() {
+                continue;
+            }
             current = current.get(part)?;
         }
         return Some(current.clone());
@@ -44,7 +52,11 @@ fn resolve_field_as_value(fact: &FactData, path: &str) -> Option<serde_json::Val
 }
 
 // Reconstructs active store key snapshot state vectors as of a bitemporal transaction coordinate
-fn get_store_snapshot(engine: &crate::kernel::StoreEngine, store: &str, as_of: Option<f64>) -> HashMap<String, FactData> {
+fn get_store_snapshot(
+    engine: &crate::kernel::StoreEngine,
+    store: &str,
+    as_of: Option<f64>,
+) -> HashMap<String, FactData> {
     let facts = engine.log.facts_for_store(store, None, as_of);
     let mut snapshot = HashMap::new();
     for fact in facts {

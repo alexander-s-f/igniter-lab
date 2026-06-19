@@ -71,14 +71,17 @@ pub fn validate_path(
         fs::create_dir_all(&abs_sandbox)
             .map_err(|e| format!("Failed to create sandbox directory: {}", e))?;
     }
-    
+
     let abs_sandbox = fs::canonicalize(&abs_sandbox)
         .map_err(|e| format!("Failed to canonicalize sandbox path: {}", e))?;
 
     // Safety policy check: sandbox directory must reside under igniter-stdlib/out/
     let abs_sandbox_str = abs_sandbox.to_string_lossy();
     if !abs_sandbox_str.contains("/igniter-stdlib/out") {
-        return Err("SandboxSecurityViolation: sandbox directory must be under igniter-stdlib/out/".to_string());
+        return Err(
+            "SandboxSecurityViolation: sandbox directory must be under igniter-stdlib/out/"
+                .to_string(),
+        );
     }
 
     // 3. Absolute path checks (must fail closed unless explicitly mapped)
@@ -86,14 +89,19 @@ pub fn validate_path(
         if let Some(ref allowed) = cap.allowed_absolute_paths {
             let matched = allowed.iter().any(|allowed_p| {
                 let allowed_path = Path::new(allowed_p);
-                if let (Ok(c_req), Ok(c_allowed)) = (fs::canonicalize(req_path), fs::canonicalize(allowed_path)) {
+                if let (Ok(c_req), Ok(c_allowed)) =
+                    (fs::canonicalize(req_path), fs::canonicalize(allowed_path))
+                {
                     c_req == c_allowed
                 } else {
                     req_path == allowed_path
                 }
             });
             if !matched {
-                return Err("CapabilityError: absolute path not explicitly mapped by capability".to_string());
+                return Err(
+                    "CapabilityError: absolute path not explicitly mapped by capability"
+                        .to_string(),
+                );
             }
             return Ok(req_path.to_path_buf());
         } else {
@@ -144,7 +152,8 @@ unsafe fn to_rust_str<'a>(ptr: *const c_char) -> Result<&'a str, String> {
 fn parse_and_classify_validation_error(err_str: &str, path_str: &str) -> Value {
     let error_type = if err_str.contains("CapabilityError") {
         "CapabilityError"
-    } else if err_str.contains("PathTraversalError") || err_str.contains("SandboxSecurityViolation") {
+    } else if err_str.contains("PathTraversalError") || err_str.contains("SandboxSecurityViolation")
+    {
         "PathTraversal"
     } else {
         "IoError"
@@ -158,7 +167,10 @@ fn make_err(error_type: &str, message: &str, path: Option<&str>) -> Value {
         "message": message
     });
     if let Some(p) = path {
-        err_obj.as_object_mut().unwrap().insert("path".to_string(), json!(p));
+        err_obj
+            .as_object_mut()
+            .unwrap()
+            .insert("path".to_string(), json!(p));
     }
     json!({ "err": err_obj })
 }
@@ -215,10 +227,7 @@ pub extern "C" fn stdlib_io_write_json(
 }
 
 #[no_mangle]
-pub extern "C" fn stdlib_io_exists(
-    path_ptr: *const c_char,
-    cap_ptr: *const c_char,
-) -> *mut c_char {
+pub extern "C" fn stdlib_io_exists(path_ptr: *const c_char, cap_ptr: *const c_char) -> *mut c_char {
     let result = unsafe { exists_impl(path_ptr, cap_ptr) };
     to_c_string(result)
 }
@@ -254,7 +263,13 @@ unsafe fn read_text_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Val
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, false) {
@@ -263,17 +278,27 @@ unsafe fn read_text_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Val
     };
 
     if !resolved_path.exists() {
-        return make_err("FileNotFound", &format!("File not found: {}", path_str), Some(path_str));
+        return make_err(
+            "FileNotFound",
+            &format!("File not found: {}", path_str),
+            Some(path_str),
+        );
     }
     if !resolved_path.is_file() {
-        return make_err("IoError", &format!("Path is not a file: {}", path_str), Some(path_str));
+        return make_err(
+            "IoError",
+            &format!("Path is not a file: {}", path_str),
+            Some(path_str),
+        );
     }
 
     match fs::read(&resolved_path) {
         Ok(bytes) => {
             let content = match String::from_utf8(bytes) {
                 Ok(s) => s,
-                Err(e) => return make_err("IoError", &format!("Invalid UTF-8: {}", e), Some(path_str)),
+                Err(e) => {
+                    return make_err("IoError", &format!("Invalid UTF-8: {}", e), Some(path_str))
+                }
             };
             let digest = fnv1a_digest(content.as_bytes());
             json!({
@@ -309,7 +334,13 @@ unsafe fn write_text_impl(
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, true) {
@@ -320,7 +351,11 @@ unsafe fn write_text_impl(
     if let Some(parent) = resolved_path.parent() {
         if !parent.exists() {
             if let Err(e) = fs::create_dir_all(parent) {
-                return make_err("IoError", &format!("Failed to create parent dir: {}", e), Some(path_str));
+                return make_err(
+                    "IoError",
+                    &format!("Failed to create parent dir: {}", e),
+                    Some(path_str),
+                );
             }
         }
     }
@@ -357,7 +392,13 @@ unsafe fn read_json_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Val
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, false) {
@@ -366,17 +407,31 @@ unsafe fn read_json_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Val
     };
 
     if !resolved_path.exists() {
-        return make_err("FileNotFound", &format!("File not found: {}", path_str), Some(path_str));
+        return make_err(
+            "FileNotFound",
+            &format!("File not found: {}", path_str),
+            Some(path_str),
+        );
     }
     if !resolved_path.is_file() {
-        return make_err("IoError", &format!("Path is not a file: {}", path_str), Some(path_str));
+        return make_err(
+            "IoError",
+            &format!("Path is not a file: {}", path_str),
+            Some(path_str),
+        );
     }
 
     match fs::read_to_string(&resolved_path) {
         Ok(content) => {
             let parsed: Value = match serde_json::from_str(&content) {
                 Ok(v) => v,
-                Err(e) => return make_err("InvalidJson", &format!("Invalid JSON: {}", e), Some(path_str)),
+                Err(e) => {
+                    return make_err(
+                        "InvalidJson",
+                        &format!("Invalid JSON: {}", e),
+                        Some(path_str),
+                    )
+                }
             };
             let digest = fnv1a_digest(content.as_bytes());
             json!({
@@ -412,7 +467,13 @@ unsafe fn write_json_impl(
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, true) {
@@ -422,18 +483,34 @@ unsafe fn write_json_impl(
 
     let parsed_val: Value = match serde_json::from_str(value_str) {
         Ok(v) => v,
-        Err(e) => return make_err("InvalidJson", &format!("Input value is not valid JSON: {}", e), Some(path_str)),
+        Err(e) => {
+            return make_err(
+                "InvalidJson",
+                &format!("Input value is not valid JSON: {}", e),
+                Some(path_str),
+            )
+        }
     };
 
     let content = match serde_json::to_string_pretty(&parsed_val) {
         Ok(s) => s,
-        Err(e) => return make_err("IoError", &format!("Failed to serialize JSON: {}", e), Some(path_str)),
+        Err(e) => {
+            return make_err(
+                "IoError",
+                &format!("Failed to serialize JSON: {}", e),
+                Some(path_str),
+            )
+        }
     };
 
     if let Some(parent) = resolved_path.parent() {
         if !parent.exists() {
             if let Err(e) = fs::create_dir_all(parent) {
-                return make_err("IoError", &format!("Failed to create parent dir: {}", e), Some(path_str));
+                return make_err(
+                    "IoError",
+                    &format!("Failed to create parent dir: {}", e),
+                    Some(path_str),
+                );
             }
         }
     }
@@ -470,7 +547,13 @@ unsafe fn exists_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Value 
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, false) {
@@ -497,7 +580,13 @@ unsafe fn list_dir_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Valu
     };
     let cap: IOCapability = match serde_json::from_str(cap_json) {
         Ok(c) => c,
-        Err(e) => return make_err("CapabilityError", &format!("Malformed capability: {}", e), None),
+        Err(e) => {
+            return make_err(
+                "CapabilityError",
+                &format!("Malformed capability: {}", e),
+                None,
+            )
+        }
     };
 
     let resolved_path = match validate_path(path_str, &cap, false) {
@@ -506,10 +595,18 @@ unsafe fn list_dir_impl(path_ptr: *const c_char, cap_ptr: *const c_char) -> Valu
     };
 
     if !resolved_path.exists() {
-        return make_err("FileNotFound", &format!("Directory not found: {}", path_str), Some(path_str));
+        return make_err(
+            "FileNotFound",
+            &format!("Directory not found: {}", path_str),
+            Some(path_str),
+        );
     }
     if !resolved_path.is_dir() {
-        return make_err("IoError", &format!("Path is not a directory: {}", path_str), Some(path_str));
+        return make_err(
+            "IoError",
+            &format!("Path is not a directory: {}", path_str),
+            Some(path_str),
+        );
     }
 
     match fs::read_dir(&resolved_path) {

@@ -9,7 +9,10 @@ use igniter_frame::{Camera, Intent, IntentReducer};
 use serde_json::{json, Value};
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn move_right_reducer() -> IntentReducer {
@@ -35,13 +38,21 @@ fn move_right_reducer() -> IntentReducer {
 
 fn cube_world() -> MemWorld {
     MemWorld::new(
-        vec![("e1".to_string(), json!({ "x": 0.0, "y": 0.0, "z": 0.0, "on_click": { "action": "move_right" } }))],
+        vec![(
+            "e1".to_string(),
+            json!({ "x": 0.0, "y": 0.0, "z": 0.0, "on_click": { "action": "move_right" } }),
+        )],
         move_right_reducer(),
     )
 }
 
 fn viewport() -> Viewport {
-    Viewport { css_w: 800.0, css_h: 800.0, frame_w: 400, frame_h: 400 }
+    Viewport {
+        css_w: 800.0,
+        css_h: 800.0,
+        frame_w: 400,
+        frame_h: 400,
+    }
 }
 
 // real pointer (CSS) coordinates map onto frame coordinates
@@ -59,7 +70,9 @@ fn drive_changes_next_frame() {
     rt().block_on(async {
         let world = cube_world();
         // click at CSS (400,400) → frame (200,200) → hits e1 at (200,200)
-        let frames = drive(&world, &Camera::default(), &viewport(), &[(400.0, 400.0)]).await.unwrap();
+        let frames = drive(&world, &Camera::default(), &viewport(), &[(400.0, 400.0)])
+            .await
+            .unwrap();
         assert_eq!(frames.len(), 2); // initial + after click
         assert!(frames[0].svg.contains("<svg") && frames[1].svg.contains("<circle"));
         assert_ne!(frames[0].render_digest, frames[1].render_digest); // the click moved the entity
@@ -71,10 +84,24 @@ fn drive_changes_next_frame() {
 fn host_forwards_loop_decides() {
     rt().block_on(async {
         // hit
-        let hit = drive(&cube_world(), &Camera::default(), &viewport(), &[(400.0, 400.0)]).await.unwrap();
+        let hit = drive(
+            &cube_world(),
+            &Camera::default(),
+            &viewport(),
+            &[(400.0, 400.0)],
+        )
+        .await
+        .unwrap();
         assert!(hit[1].effect_receipt_id.is_some());
         // miss (CSS (10,10) → frame (5,5), far from the entity)
-        let miss = drive(&cube_world(), &Camera::default(), &viewport(), &[(10.0, 10.0)]).await.unwrap();
+        let miss = drive(
+            &cube_world(),
+            &Camera::default(),
+            &viewport(),
+            &[(10.0, 10.0)],
+        )
+        .await
+        .unwrap();
         assert!(miss[1].effect_receipt_id.is_none());
         assert_eq!(miss[0].render_digest, miss[1].render_digest); // miss → no state change
     });
@@ -84,7 +111,14 @@ fn host_forwards_loop_decides() {
 #[test]
 fn lineage_visible_on_host_frame() {
     rt().block_on(async {
-        let frames = drive(&cube_world(), &Camera::default(), &viewport(), &[(400.0, 400.0)]).await.unwrap();
+        let frames = drive(
+            &cube_world(),
+            &Camera::default(),
+            &viewport(),
+            &[(400.0, 400.0)],
+        )
+        .await
+        .unwrap();
         assert_eq!(frames[1].input_receipt_id.as_deref(), Some("input:0"));
         assert_eq!(frames[1].effect_receipt_id.as_deref(), Some("effect:0"));
     });
@@ -96,8 +130,12 @@ fn deterministic_replay_of_pointer_log() {
     rt().block_on(async {
         // follow the entity as it moves right: frame x 200→250→300 ⇒ CSS 400→500→600
         let log = [(400.0, 400.0), (500.0, 400.0), (600.0, 400.0)];
-        let a = drive(&cube_world(), &Camera::default(), &viewport(), &log).await.unwrap();
-        let b = drive(&cube_world(), &Camera::default(), &viewport(), &log).await.unwrap();
+        let a = drive(&cube_world(), &Camera::default(), &viewport(), &log)
+            .await
+            .unwrap();
+        let b = drive(&cube_world(), &Camera::default(), &viewport(), &log)
+            .await
+            .unwrap();
         let da: Vec<_> = a.iter().map(|f| f.render_digest.clone()).collect();
         let db: Vec<_> = b.iter().map(|f| f.render_digest.clone()).collect();
         assert_eq!(da, db);
@@ -111,7 +149,9 @@ fn deterministic_replay_of_pointer_log() {
 fn runs_machine_free() {
     rt().block_on(async {
         let world = cube_world();
-        let frames = drive(&world, &Camera::default(), &viewport(), &[(400.0, 400.0)]).await.unwrap();
+        let frames = drive(&world, &Camera::default(), &viewport(), &[(400.0, 400.0)])
+            .await
+            .unwrap();
         assert!(!frames.is_empty());
         assert_eq!(world.recorded_inputs(), 1);
         assert!(world.recorded_frames() >= 1);

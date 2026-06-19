@@ -575,7 +575,9 @@ fn handle_time_travel(
     // `as_of` is the audit axis (known_at / transaction_time). Optional `valid_at` adds
     // the effective axis → full bitemporal query (LAB-MACHINE-BITEMPORAL-AXIS-P1).
     let result = match args["valid_at"].as_f64() {
-        Some(va) => futures::executor::block_on(m.read_bitemporal(store, key, Some(va), Some(as_of))),
+        Some(va) => {
+            futures::executor::block_on(m.read_bitemporal(store, key, Some(va), Some(as_of)))
+        }
         None => futures::executor::block_on(m.read_fact(store, key, as_of)),
     };
     match result {
@@ -654,40 +656,89 @@ fn handle_capsule_list(out: &mut impl Write, id: Value, capsules: &Mutex<Capsule
     let caps = capsules.lock().unwrap();
     let names = caps.list();
     if names.is_empty() {
-        return tool_ok(out, id, "## Capsules\n\nNone yet. Use `capsule_snapshot` to freeze the current state.".into());
+        return tool_ok(
+            out,
+            id,
+            "## Capsules\n\nNone yet. Use `capsule_snapshot` to freeze the current state.".into(),
+        );
     }
-    let body = names.iter().map(|n| format!("- `{}`", n)).collect::<Vec<_>>().join("\n");
-    tool_ok(out, id, format!("## Capsules ({})\n\n{}", names.len(), body));
+    let body = names
+        .iter()
+        .map(|n| format!("- `{}`", n))
+        .collect::<Vec<_>>()
+        .join("\n");
+    tool_ok(
+        out,
+        id,
+        format!("## Capsules ({})\n\n{}", names.len(), body),
+    );
 }
 
-fn handle_capsule_activate(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
-    let name = match args["name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing name".into()) };
-    let contract = match args["contract_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing contract_name".into()) };
+fn handle_capsule_activate(
+    out: &mut impl Write,
+    id: Value,
+    args: &Value,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    let name = match args["name"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing name".into()),
+    };
+    let contract = match args["contract_name"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing contract_name".into()),
+    };
     let inputs = args.get("inputs").cloned().unwrap_or_else(|| json!({}));
     let caps = capsules.lock().unwrap();
     match futures::executor::block_on(caps.activate(name, contract, inputs.clone())) {
-        Ok(result) => tool_ok(out, id, format!(
+        Ok(result) => tool_ok(
+            out,
+            id,
+            format!(
             "## Activate: `{}` @ capsule `{}`\n\n**Inputs:** `{}`\n\n### Result\n```json\n{}\n```",
-            contract, name, inputs, serde_json::to_string_pretty(&result).unwrap_or_default())),
+            contract, name, inputs, serde_json::to_string_pretty(&result).unwrap_or_default()),
+        ),
         Err(e) => tool_err(out, id, format!("Activation failed: {}", e)),
     }
 }
 
-fn handle_capsule_fork(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
-    let from = match args["from"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing from".into()) };
-    let new_name = match args["new_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing new_name".into()) };
+fn handle_capsule_fork(
+    out: &mut impl Write,
+    id: Value,
+    args: &Value,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    let from = match args["from"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing from".into()),
+    };
+    let new_name = match args["new_name"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing new_name".into()),
+    };
     let mut facts: Vec<Fact> = Vec::new();
     if let Some(arr) = args["facts"].as_array() {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
         for f in arr {
-            if let (Some(s), Some(k), Some(v)) = (f["store"].as_str(), f["key"].as_str(), f.get("value")) {
+            if let (Some(s), Some(k), Some(v)) =
+                (f["store"].as_str(), f["key"].as_str(), f.get("value"))
+            {
                 let val_str = serde_json::to_string(v).unwrap_or_default();
                 facts.push(Fact {
                     id: uuid::Uuid::new_v4().to_string(),
-                    store: s.to_string(), key: k.to_string(), value: v.clone(),
+                    store: s.to_string(),
+                    key: k.to_string(),
+                    value: v.clone(),
                     value_hash: blake3::hash(val_str.as_bytes()).to_hex().to_string(),
-                    causation: None, transaction_time: now, valid_time: f["valid_time"].as_f64(),
-                    schema_version: 1, producer: Some(json!("igniter-mcp")), derivation: None,
+                    causation: None,
+                    transaction_time: now,
+                    valid_time: f["valid_time"].as_f64(),
+                    schema_version: 1,
+                    producer: Some(json!("igniter-mcp")),
+                    derivation: None,
                 });
             }
         }
@@ -700,38 +751,80 @@ fn handle_capsule_fork(out: &mut impl Write, id: Value, args: &Value, capsules: 
     }
 }
 
-fn handle_capsule_diff(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
-    let a = match args["a"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing a".into()) };
-    let b = match args["b"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing b".into()) };
+fn handle_capsule_diff(
+    out: &mut impl Write,
+    id: Value,
+    args: &Value,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    let a = match args["a"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing a".into()),
+    };
+    let b = match args["b"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing b".into()),
+    };
     let caps = capsules.lock().unwrap();
     match futures::executor::block_on(caps.diff(a, b)) {
-        Ok(d) => tool_ok(out, id, format!(
-            "## Capsule diff: `{}` → `{}`\n\n```json\n{}\n```", a, b, serde_json::to_string_pretty(&d).unwrap_or_default())),
+        Ok(d) => tool_ok(
+            out,
+            id,
+            format!(
+                "## Capsule diff: `{}` → `{}`\n\n```json\n{}\n```",
+                a,
+                b,
+                serde_json::to_string_pretty(&d).unwrap_or_default()
+            ),
+        ),
         Err(e) => tool_err(out, id, format!("Diff failed: {}", e)),
     }
 }
 
-fn handle_capsule_activate_many(out: &mut impl Write, id: Value, args: &Value, capsules: &Mutex<CapsuleManager>) {
-    let contract = match args["contract_name"].as_str() { Some(s) => s, None => return tool_err(out, id, "Missing contract_name".into()) };
+fn handle_capsule_activate_many(
+    out: &mut impl Write,
+    id: Value,
+    args: &Value,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    let contract = match args["contract_name"].as_str() {
+        Some(s) => s,
+        None => return tool_err(out, id, "Missing contract_name".into()),
+    };
     let inputs = args.get("inputs").cloned().unwrap_or_else(|| json!({}));
     let parallel = args["parallel"].as_bool().unwrap_or(false);
     let caps = capsules.lock().unwrap();
     let names: Vec<String> = match args["capsules"].as_array() {
-        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
         None => caps.list(),
     };
     if names.is_empty() {
         return tool_ok(out, id, "## Filmstrip\n\nNo capsules to activate.".into());
     }
-    let table = futures::executor::block_on(caps.activate_many(&names, contract, inputs.clone(), parallel));
-    let rows: Vec<String> = table.iter().map(|r| {
-        let cap = r["capsule"].as_str().unwrap_or("?");
-        if let Some(o) = r.get("output") {
-            format!("| `{}` | `{}` |", cap, serde_json::to_string(o).unwrap_or_default())
-        } else {
-            format!("| `{}` | ⛔ {} |", cap, r["error"].as_str().unwrap_or("error"))
-        }
-    }).collect();
+    let table =
+        futures::executor::block_on(caps.activate_many(&names, contract, inputs.clone(), parallel));
+    let rows: Vec<String> = table
+        .iter()
+        .map(|r| {
+            let cap = r["capsule"].as_str().unwrap_or("?");
+            if let Some(o) = r.get("output") {
+                format!(
+                    "| `{}` | `{}` |",
+                    cap,
+                    serde_json::to_string(o).unwrap_or_default()
+                )
+            } else {
+                format!(
+                    "| `{}` | ⛔ {} |",
+                    cap,
+                    r["error"].as_str().unwrap_or("error")
+                )
+            }
+        })
+        .collect();
     tool_ok(out, id, format!(
         "## Filmstrip: `{}` over {} capsule(s){}\n\n**Inputs:** `{}`\n\n| capsule | output / error |\n|---|---|\n{}",
         contract, names.len(), if parallel { " (parallel)" } else { "" }, inputs, rows.join("\n")));
@@ -843,12 +936,16 @@ fn main() {
                     "igniter_time_travel" => handle_time_travel(&mut stdout, id, args, &machine),
                     "igniter_checkpoint" => handle_checkpoint(&mut stdout, id, args, &machine),
                     "igniter_status" => handle_status(&mut stdout, id, &machine),
-                    "capsule_snapshot" => handle_capsule_snapshot(&mut stdout, id, args, &machine, &capsules),
+                    "capsule_snapshot" => {
+                        handle_capsule_snapshot(&mut stdout, id, args, &machine, &capsules)
+                    }
                     "capsule_list" => handle_capsule_list(&mut stdout, id, &capsules),
                     "capsule_activate" => handle_capsule_activate(&mut stdout, id, args, &capsules),
                     "capsule_fork" => handle_capsule_fork(&mut stdout, id, args, &capsules),
                     "capsule_diff" => handle_capsule_diff(&mut stdout, id, args, &capsules),
-                    "capsule_activate_many" => handle_capsule_activate_many(&mut stdout, id, args, &capsules),
+                    "capsule_activate_many" => {
+                        handle_capsule_activate_many(&mut stdout, id, args, &capsules)
+                    }
                     _ => tool_err(&mut stdout, id, format!("Unknown tool: `{}`", tool)),
                 }
             }

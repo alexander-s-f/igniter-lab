@@ -25,7 +25,10 @@ use std::sync::Arc;
 const CAP: &str = "IO.PostgresRead";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn receipts() -> Arc<dyn TBackend> {
@@ -68,7 +71,9 @@ async fn connect_or_skip() -> Option<Arc<TokioPostgresReadAdapter>> {
 #[test]
 fn real_companies_select_returns_rows() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy()));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -77,7 +82,10 @@ fn real_companies_select_returns_rows() {
         let out = run_effect(
             &reg,
             &store,
-            &req("c1", json!({"source": "companies", "projection": ["id", "name", "status"], "limit": 5})),
+            &req(
+                "c1",
+                json!({"source": "companies", "projection": ["id", "name", "status"], "limit": 5}),
+            ),
             RunMode::Live,
         )
         .await
@@ -95,7 +103,11 @@ fn real_companies_select_returns_rows() {
         assert_eq!(adapter.query_count(), 1);
 
         // receipt persisted through the unchanged capability machinery.
-        let f = store.read_as_of(RECEIPTS_STORE, &format!("{CAP}:c1"), f64::MAX).await.unwrap().unwrap();
+        let f = store
+            .read_as_of(RECEIPTS_STORE, &format!("{CAP}:c1"), f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(f.value["outcome_kind"], json!("succeeded"));
     });
 }
@@ -105,8 +117,12 @@ fn real_companies_select_returns_rows() {
 #[test]
 fn real_limit_clamp() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
-        let pol = PostgresReadPolicy::new(2).allow_ops(&["select"]).allow_source("companies", &["id", "name", "status"]);
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
+        let pol = PostgresReadPolicy::new(2)
+            .allow_ops(&["select"])
+            .allow_source("companies", &["id", "name", "status"]);
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -115,7 +131,10 @@ fn real_limit_clamp() {
         let out = run_effect(
             &reg,
             &store,
-            &req("c-clamp", json!({"source": "companies", "projection": ["id"], "limit": 100})),
+            &req(
+                "c-clamp",
+                json!({"source": "companies", "projection": ["id"], "limit": 100}),
+            ),
             RunMode::Live,
         )
         .await
@@ -133,7 +152,9 @@ fn real_limit_clamp() {
 #[test]
 fn real_eq_filter_subset() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy()));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -142,12 +163,15 @@ fn real_eq_filter_subset() {
         let out = run_effect(
             &reg,
             &store,
-            &req("c-filter", json!({
-                "source": "companies",
-                "projection": ["id", "status"],
-                "filters": [{"field": "status", "op": "eq", "value": "active"}],
-                "limit": 50,
-            })),
+            &req(
+                "c-filter",
+                json!({
+                    "source": "companies",
+                    "projection": ["id", "status"],
+                    "filters": [{"field": "status", "op": "eq", "value": "active"}],
+                    "limit": 50,
+                }),
+            ),
             RunMode::Live,
         )
         .await
@@ -166,7 +190,9 @@ fn real_eq_filter_subset() {
 #[test]
 fn real_gate_parity_refuses_before_adapter() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy()));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -176,7 +202,10 @@ fn real_gate_parity_refuses_before_adapter() {
         let out = run_effect(
             &reg,
             &store,
-            &req("c-forbid", json!({"source": "companies", "projection": ["id", "balance"]})),
+            &req(
+                "c-forbid",
+                json!({"source": "companies", "projection": ["id", "balance"]}),
+            ),
             RunMode::Live,
         )
         .await
@@ -184,10 +213,21 @@ fn real_gate_parity_refuses_before_adapter() {
         assert_eq!(out.kind, OutcomeKind::Denied);
 
         // unknown source.
-        let out2 = run_effect(&reg, &store, &req("c-unk", json!({"source": "admin_users"})), RunMode::Live).await.unwrap();
+        let out2 = run_effect(
+            &reg,
+            &store,
+            &req("c-unk", json!({"source": "admin_users"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out2.kind, OutcomeKind::Denied);
 
-        assert_eq!(adapter.query_count(), 0, "gate refusals never reach the real DB");
+        assert_eq!(
+            adapter.query_count(),
+            0,
+            "gate refusals never reach the real DB"
+        );
     });
 }
 
@@ -196,20 +236,32 @@ fn real_gate_parity_refuses_before_adapter() {
 #[test]
 fn real_replay_bypasses_adapter() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy()));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let store = receipts();
 
-        let a = req("same", json!({"source": "companies", "projection": ["id"], "limit": 3}));
-        let b = req("same", json!({"source": "companies", "projection": ["id"], "limit": 3}));
+        let a = req(
+            "same",
+            json!({"source": "companies", "projection": ["id"], "limit": 3}),
+        );
+        let b = req(
+            "same",
+            json!({"source": "companies", "projection": ["id"], "limit": 3}),
+        );
         let r1 = run_effect(&reg, &store, &a, RunMode::Live).await.unwrap();
         let r2 = run_effect(&reg, &store, &b, RunMode::Live).await.unwrap();
 
         assert_eq!(r1.kind, OutcomeKind::Succeeded);
         assert_eq!(r1.result, r2.result, "replay returns the receipt result");
-        assert_eq!(adapter.query_count(), 1, "real DB queried exactly once per idempotency key");
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "real DB queried exactly once per idempotency key"
+        );
     });
 }
 
@@ -218,9 +270,13 @@ fn real_replay_bypasses_adapter() {
 #[test]
 fn real_db_error_is_permanent() {
     rt().block_on(async {
-        let Some(adapter) = connect_or_skip().await else { return };
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
         // allowlist a column that does NOT exist → passes the gate → real SQL errors (42703).
-        let pol = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source("companies", &["nope_not_a_column"]);
+        let pol = PostgresReadPolicy::new(100)
+            .allow_ops(&["select"])
+            .allow_source("companies", &["nope_not_a_column"]);
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -229,13 +285,20 @@ fn real_db_error_is_permanent() {
         let out = run_effect(
             &reg,
             &store,
-            &req("c-dberr", json!({"source": "companies", "projection": ["nope_not_a_column"]})),
+            &req(
+                "c-dberr",
+                json!({"source": "companies", "projection": ["nope_not_a_column"]}),
+            ),
             RunMode::Live,
         )
         .await
         .unwrap();
 
-        assert_eq!(out.kind, OutcomeKind::PermanentFailure, "a SQLSTATE error is a definite query failure");
+        assert_eq!(
+            out.kind,
+            OutcomeKind::PermanentFailure,
+            "a SQLSTATE error is a definite query failure"
+        );
         assert_eq!(adapter.query_count(), 1);
     });
 }

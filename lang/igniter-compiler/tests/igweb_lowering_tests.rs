@@ -56,7 +56,11 @@ fn compile_generated(routes_ig: &str, tag: &str) -> String {
         stdout,
         stderr
     );
-    assert!(out.exists(), "compiler should write the .igapp artifact at {}", out.display());
+    assert!(
+        out.exists(),
+        "compiler should write the .igapp artifact at {}",
+        out.display()
+    );
     stdout
 }
 
@@ -65,8 +69,11 @@ fn generated_todo_project_compiles_clean() {
     let routes = lower_igweb(TODO_IGWEB).expect("lower");
     // sanity: the generated artifact is the explicit, static, regexp-backed shape.
     assert!(routes.contains("pure contract Serve"));
-    assert!(routes.contains("call_contract(\"TodoShow\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))"));
-    assert!(routes.contains("call_contract(\"TodoDone\", req, capture(req.path, \"^/todos/([^/]+)/done$\", 1))"));
+    assert!(routes
+        .contains("call_contract(\"TodoShow\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))"));
+    assert!(routes.contains(
+        "call_contract(\"TodoDone\", req, capture(req.path, \"^/todos/([^/]+)/done$\", 1))"
+    ));
     assert!(routes.contains("matches(req.path,"));
     assert!(!routes.contains("call_contract(req"), "no dynamic dispatch");
 
@@ -74,7 +81,8 @@ fn generated_todo_project_compiles_clean() {
     assert!(
         !stdout.contains("OOF-RE1"),
         "generated regexp must be valid (no OOF-RE1).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
-        routes, stdout
+        routes,
+        stdout
     );
     assert!(
         !stdout.contains("OOF-TY0"),

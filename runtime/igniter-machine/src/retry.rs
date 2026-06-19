@@ -25,7 +25,9 @@ pub struct RetryPolicy {
 
 impl RetryPolicy {
     pub fn new(max_attempts: u32) -> Self {
-        Self { max_attempts: max_attempts.max(1) }
+        Self {
+            max_attempts: max_attempts.max(1),
+        }
     }
 }
 

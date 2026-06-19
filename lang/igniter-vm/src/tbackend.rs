@@ -1,12 +1,12 @@
 // src/tbackend.rs
 // Pluggable Asynchronous TBackend Trait, Memory History, and Remote TCP Ledger Adapters
 
+use crate::value::Value;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
-use crate::value::Value;
 
-use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 #[async_trait::async_trait]
 pub trait TBackend: Send + Sync {
@@ -44,7 +44,7 @@ impl MemoryHistoryBackend {
 impl TBackend for MemoryHistoryBackend {
     async fn read_as_of(&self, store: &str, as_of: &str) -> Result<Option<Value>, String> {
         let map = self.history.read().await;
-        
+
         let timeline = if let Some(t) = map.get(store) {
             Some(t)
         } else if let Some((store_part, _)) = store.split_once('/') {
@@ -99,30 +99,45 @@ impl LedgerTcpBackend {
     }
 
     pub async fn send_req(&self, req: serde_json::Value) -> Result<serde_json::Value, String> {
-        let mut stream = TcpStream::connect(&self.addr).await
+        let mut stream = TcpStream::connect(&self.addr)
+            .await
             .map_err(|e| format!("Failed to connect to TBackend at {}: {}", self.addr, e))?;
 
-        let body = serde_json::to_vec(&req)
-            .map_err(|e| format!("Serialization failed: {}", e))?;
+        let body = serde_json::to_vec(&req).map_err(|e| format!("Serialization failed: {}", e))?;
         let body_len = body.len() as u32;
         let crc = crc32fast::hash(&body);
 
-        stream.write_all(&body_len.to_be_bytes()).await.map_err(|e| e.to_string())?;
+        stream
+            .write_all(&body_len.to_be_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         stream.write_all(&body).await.map_err(|e| e.to_string())?;
-        stream.write_all(&crc.to_be_bytes()).await.map_err(|e| e.to_string())?;
+        stream
+            .write_all(&crc.to_be_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
 
         let mut header = [0u8; 4];
-        stream.read_exact(&mut header).await.map_err(|e| e.to_string())?;
+        stream
+            .read_exact(&mut header)
+            .await
+            .map_err(|e| e.to_string())?;
         let resp_len = u32::from_be_bytes(header) as usize;
 
         let mut resp_body = vec![0u8; resp_len];
-        stream.read_exact(&mut resp_body).await.map_err(|e| e.to_string())?;
+        stream
+            .read_exact(&mut resp_body)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let mut crc_bytes = [0u8; 4];
-        stream.read_exact(&mut crc_bytes).await.map_err(|e| e.to_string())?;
+        stream
+            .read_exact(&mut crc_bytes)
+            .await
+            .map_err(|e| e.to_string())?;
 
-        let resp_jv: serde_json::Value = serde_json::from_slice(&resp_body)
-            .map_err(|e| format!("JSON parse failed: {}", e))?;
+        let resp_jv: serde_json::Value =
+            serde_json::from_slice(&resp_body).map_err(|e| format!("JSON parse failed: {}", e))?;
 
         Ok(resp_jv)
     }
@@ -134,12 +149,14 @@ impl TBackend for LedgerTcpBackend {
         // Parse ISO8601 string to a float timestamp if possible, otherwise use a fallback
         let as_of_float = chrono::DateTime::parse_from_rfc3339(as_of)
             .map(|dt| dt.timestamp() as f64 + dt.timestamp_subsec_micros() as f64 / 1_000_000.0)
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(as_of, "%Y-%m-%d %H:%M:%S")
-                .map(|dt| dt.and_utc().timestamp() as f64)
-            )
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(as_of, "%Y-%m-%dT%H:%M:%SZ")
-                .map(|dt| dt.and_utc().timestamp() as f64)
-            )
+            .or_else(|_| {
+                chrono::NaiveDateTime::parse_from_str(as_of, "%Y-%m-%d %H:%M:%S")
+                    .map(|dt| dt.and_utc().timestamp() as f64)
+            })
+            .or_else(|_| {
+                chrono::NaiveDateTime::parse_from_str(as_of, "%Y-%m-%dT%H:%M:%SZ")
+                    .map(|dt| dt.and_utc().timestamp() as f64)
+            })
             .unwrap_or(0.0);
 
         // Parse the store name. If it contains a slash (e.g. "technician/tech42"),

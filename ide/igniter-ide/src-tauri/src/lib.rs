@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let machine = IgniterMachine::new(None, "in_memory")
-        .expect("Failed to initialize Igniter Machine");
+    let machine =
+        IgniterMachine::new(None, "in_memory").expect("Failed to initialize Igniter Machine");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

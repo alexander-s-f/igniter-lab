@@ -6,7 +6,9 @@
 
 use igniter_server::host::serve_bounded_reloadable;
 use igniter_server::middleware::{AuthTokenApp, BodyLimitApp, ServerAppExt, TraceApp};
-use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{
+    AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
+};
 use igniter_server::reload::ReloadableApp;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -26,14 +28,24 @@ impl RecordingApp {
     fn new(version: &str) -> (Self, Arc<AtomicUsize>, Arc<Mutex<Vec<ServerRequest>>>) {
         let calls = Arc::new(AtomicUsize::new(0));
         let seen = Arc::new(Mutex::new(Vec::new()));
-        (Self { calls: calls.clone(), seen: seen.clone(), version: version.to_string() }, calls, seen)
+        (
+            Self {
+                calls: calls.clone(),
+                seen: seen.clone(),
+                version: version.to_string(),
+            },
+            calls,
+            seen,
+        )
     }
 }
 impl ServerApp for RecordingApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.seen.lock().unwrap().push(req.clone());
-        ServerDecision::Respond { response: ServerResponse::json(200, json!({ "app": self.version, "ok": true })) }
+        ServerDecision::Respond {
+            response: ServerResponse::json(200, json!({ "app": self.version, "ok": true })),
+        }
     }
     fn identity(&self) -> AppIdentity {
         AppIdentity::new("rec", &self.version, "")
@@ -56,9 +68,13 @@ struct RouteApp {
 impl ServerApp for RouteApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         if req.method == "GET" && req.path == self.ok_path {
-            ServerDecision::Respond { response: ServerResponse::json(200, json!({ "app_version": self.version })) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(200, json!({ "app_version": self.version })),
+            }
         } else {
-            ServerDecision::Respond { response: ServerResponse::json(404, json!({ "error": "no route" })) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(404, json!({ "error": "no route" })),
+            }
         }
     }
     fn identity(&self) -> AppIdentity {
@@ -82,17 +98,39 @@ fn sequential_decoration_preserves_inner_and_decorates() {
     // BodyLimit -> Auth -> Trace -> rec
     let stack = rec.with_trace().with_auth("TOK").with_body_limit(1_000_000);
 
-    let decision = stack.call(req("POST", "/x", &[("authorization", "Bearer TOK")], json!({})));
+    let decision = stack.call(req(
+        "POST",
+        "/x",
+        &[("authorization", "Bearer TOK")],
+        json!({}),
+    ));
 
     assert_eq!(calls.load(Ordering::SeqCst), 1, "inner called exactly once");
     let inner_req = &seen.lock().unwrap()[0];
-    assert_eq!(inner_req.headers.get("x-auth-ok").map(String::as_str), Some("true"), "auth injected");
-    assert!(inner_req.correlation_id.is_some(), "trace injected a correlation id");
-    assert!(inner_req.headers.get("x-correlation-id").unwrap().starts_with("corr-"), "deterministic corr");
+    assert_eq!(
+        inner_req.headers.get("x-auth-ok").map(String::as_str),
+        Some("true"),
+        "auth injected"
+    );
+    assert!(
+        inner_req.correlation_id.is_some(),
+        "trace injected a correlation id"
+    );
+    assert!(
+        inner_req
+            .headers
+            .get("x-correlation-id")
+            .unwrap()
+            .starts_with("corr-"),
+        "deterministic corr"
+    );
     match decision {
         ServerDecision::Respond { response } => {
             assert_eq!(response.status, 200);
-            assert!(response.headers.contains_key("x-correlation-id"), "response decorated by trace");
+            assert!(
+                response.headers.contains_key("x-correlation-id"),
+                "response decorated by trace"
+            );
         }
         other => panic!("expected Respond, got {other:?}"),
     }
@@ -108,7 +146,12 @@ fn short_circuit_auth_does_not_call_inner() {
         other => panic!("expected 401 Respond, got {other:?}"),
     }
     // wrong token
-    match stack.call(req("POST", "/x", &[("authorization", "Bearer NOPE")], json!({}))) {
+    match stack.call(req(
+        "POST",
+        "/x",
+        &[("authorization", "Bearer NOPE")],
+        json!({}),
+    )) {
         ServerDecision::Respond { response } => assert_eq!(response.status, 401),
         other => panic!("expected 401 Respond, got {other:?}"),
     }
@@ -128,16 +171,33 @@ fn short_circuit_body_limit_does_not_call_inner() {
 // 4 ── route-agnostic: same wrapper, different inner app → routing follows the inner ───────────────
 #[test]
 fn middleware_is_route_agnostic() {
-    let stack_a = TraceApp::new(RouteApp { version: "a".into(), ok_path: "/a".into() });
-    let stack_b = TraceApp::new(RouteApp { version: "b".into(), ok_path: "/b".into() });
+    let stack_a = TraceApp::new(RouteApp {
+        version: "a".into(),
+        ok_path: "/a".into(),
+    });
+    let stack_b = TraceApp::new(RouteApp {
+        version: "b".into(),
+        ok_path: "/b".into(),
+    });
 
     let status = |d: ServerDecision| match d {
         ServerDecision::Respond { response } => response.status,
         _ => 0,
     };
-    assert_eq!(status(stack_a.call(req("GET", "/a", &[], Value::Null))), 200);
-    assert_eq!(status(stack_a.call(req("GET", "/b", &[], Value::Null))), 404, "wrapper added no route for /b");
-    assert_eq!(status(stack_b.call(req("GET", "/b", &[], Value::Null))), 200, "routing follows the inner app");
+    assert_eq!(
+        status(stack_a.call(req("GET", "/a", &[], Value::Null))),
+        200
+    );
+    assert_eq!(
+        status(stack_a.call(req("GET", "/b", &[], Value::Null))),
+        404,
+        "wrapper added no route for /b"
+    );
+    assert_eq!(
+        status(stack_b.call(req("GET", "/b", &[], Value::Null))),
+        200,
+        "routing follows the inner app"
+    );
 }
 
 // 5 ── effect identity not injectable: InvokeEffect passes through unchanged, no privileged keys ────
@@ -155,9 +215,18 @@ fn middleware_cannot_inject_effect_identity() {
         }
     }
     let stack = EffectApp.with_trace().with_auth("TOK");
-    let decision = stack.call(req("POST", "/x", &[("authorization", "Bearer TOK")], json!({})));
+    let decision = stack.call(req(
+        "POST",
+        "/x",
+        &[("authorization", "Bearer TOK")],
+        json!({}),
+    ));
     let encoded = serde_json::to_value(&decision).unwrap();
-    assert_eq!(encoded["kind"], json!("invoke_effect"), "decision kind unchanged by middleware");
+    assert_eq!(
+        encoded["kind"],
+        json!("invoke_effect"),
+        "decision kind unchanged by middleware"
+    );
     assert_eq!(encoded["target"], json!("demo-target"));
     assert!(encoded.get("capability_id").is_none());
     assert!(encoded.get("operation").is_none());
@@ -176,16 +245,30 @@ fn roundtrip(addr: &str, method: &str, path: &str, headers: &[(&str, &str)]) -> 
     s.flush().unwrap();
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).unwrap();
-    String::from_utf8_lossy(&raw).split_whitespace().nth(1).and_then(|x| x.parse().ok()).unwrap_or(0)
+    String::from_utf8_lossy(&raw)
+        .split_whitespace()
+        .nth(1)
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0)
 }
 
 #[test]
 fn reloadable_app_wraps_whole_stack() {
     // v1 stack: Auth(TOKA) -> RouteApp v1 (/x). v2 stack: Auth(TOKB) -> RouteApp v2 (/x).
-    let stack_v1: Arc<dyn ServerApp + Send + Sync> =
-        Arc::new(AuthTokenApp::new(RouteApp { version: "v1".into(), ok_path: "/x".into() }, "TOKA"));
-    let stack_v2: Arc<dyn ServerApp + Send + Sync> =
-        Arc::new(AuthTokenApp::new(RouteApp { version: "v2".into(), ok_path: "/x".into() }, "TOKB"));
+    let stack_v1: Arc<dyn ServerApp + Send + Sync> = Arc::new(AuthTokenApp::new(
+        RouteApp {
+            version: "v1".into(),
+            ok_path: "/x".into(),
+        },
+        "TOKA",
+    ));
+    let stack_v2: Arc<dyn ServerApp + Send + Sync> = Arc::new(AuthTokenApp::new(
+        RouteApp {
+            version: "v2".into(),
+            ok_path: "/x".into(),
+        },
+        "TOKB",
+    ));
 
     let host = ReloadableApp::new(stack_v1);
 
@@ -199,14 +282,25 @@ fn reloadable_app_wraps_whole_stack() {
     let server = thread::spawn(move || serve_bounded_reloadable(&listener, &host_srv, 2).unwrap());
 
     // request 1 under v1: TOKA accepted.
-    assert_eq!(roundtrip(&addr, "GET", "/x", &[("authorization", "Bearer TOKA")]), 200);
+    assert_eq!(
+        roundtrip(&addr, "GET", "/x", &[("authorization", "Bearer TOKA")]),
+        200
+    );
 
     host.swap(stack_v2); // swap the WHOLE stack (middleware token + inner) for the next request
-    assert_eq!(snapshot.identity().version, "v1", "in-flight snapshot kept its stack");
+    assert_eq!(
+        snapshot.identity().version,
+        "v1",
+        "in-flight snapshot kept its stack"
+    );
     assert_eq!(host.identity().version, "v2", "active stack is now v2");
 
     // request 2: TOKA now rejected because the AUTH MIDDLEWARE also swapped (expects TOKB).
-    assert_eq!(roundtrip(&addr, "GET", "/x", &[("authorization", "Bearer TOKA")]), 401, "whole stack swapped, not just inner");
+    assert_eq!(
+        roundtrip(&addr, "GET", "/x", &[("authorization", "Bearer TOKA")]),
+        401,
+        "whole stack swapped, not just inner"
+    );
 
     server.join().unwrap();
 }
@@ -231,8 +325,36 @@ fn no_hidden_cross_request_state() {
         ServerDecision::Respond { response } => response.status,
         _ => 0,
     };
-    assert_eq!(status(stack.call(req("POST", "/x", &[("authorization", "Bearer TOK")], json!({})))), 200);
-    assert_eq!(status(stack.call(req("POST", "/x", &[("authorization", "Bearer NOPE")], json!({})))), 401);
-    assert_eq!(status(stack.call(req("POST", "/x", &[("authorization", "Bearer TOK")], json!({})))), 200);
-    assert_eq!(calls.load(Ordering::SeqCst), 2, "inner called only for the two authorized requests; no leakage");
+    assert_eq!(
+        status(stack.call(req(
+            "POST",
+            "/x",
+            &[("authorization", "Bearer TOK")],
+            json!({})
+        ))),
+        200
+    );
+    assert_eq!(
+        status(stack.call(req(
+            "POST",
+            "/x",
+            &[("authorization", "Bearer NOPE")],
+            json!({})
+        ))),
+        401
+    );
+    assert_eq!(
+        status(stack.call(req(
+            "POST",
+            "/x",
+            &[("authorization", "Bearer TOK")],
+            json!({})
+        ))),
+        200
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "inner called only for the two authorized requests; no leakage"
+    );
 }

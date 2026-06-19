@@ -1,23 +1,25 @@
 // src/main.rs
 // Standalone Compiled TBackend System Daemon (Modularized Profile Assembly)
 
-mod pure_core;
 mod kernel;
 mod packs;
+mod pure_core;
 
+use kernel::{PackManifest, ProfileAssembler, ServerKernel, ServerPack};
+use packs::{
+    AnalyticsPack, AuthPack, BaseAuditPack, CrossStorePack, DiagnosticsPack, McpPack,
+    MultiTenantScannerPack, PipelinePack, QueryPack, SnapshotPack, TriggerPack,
+};
 use pure_core::FactData;
-use kernel::{ServerKernel, ProfileAssembler, ServerPack, PackManifest};
-use packs::{BaseAuditPack, MultiTenantScannerPack, TriggerPack, AnalyticsPack, CrossStorePack, SnapshotPack, DiagnosticsPack, PipelinePack, AuthPack, QueryPack, McpPack};
 
-
-use std::net::{TcpListener, TcpStream};
+use parking_lot::Mutex;
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
-use std::sync::mpsc::channel;
-use parking_lot::Mutex;
 
 extern "C" {
     fn dup(fd: std::os::raw::c_int) -> std::os::raw::c_int;
@@ -45,18 +47,21 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Option<(Vec<u8>, usize)
         return Err(e);
     }
     let len = u32::from_be_bytes(len_buf) as usize;
-    
+
     let mut body = vec![0u8; len];
     stream.read_exact(&mut body)?;
-    
+
     let mut crc_buf = [0u8; 4];
     stream.read_exact(&mut crc_buf)?;
     let crc = u32::from_be_bytes(crc_buf);
-    
+
     if crc != crc32fast::hash(&body) {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "CRC mismatch"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "CRC mismatch",
+        ));
     }
-    
+
     let total_read = 4 + len + 4;
     Ok(Some((body, total_read)))
 }
@@ -64,12 +69,12 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Option<(Vec<u8>, usize)
 fn write_frame(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<usize> {
     let len = body.len() as u32;
     let crc = crc32fast::hash(body);
-    
+
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(body)?;
     stream.write_all(&crc.to_be_bytes())?;
     stream.flush()?;
-    
+
     let total_written = 4 + body.len() + 4;
     Ok(total_written)
 }
@@ -92,9 +97,10 @@ impl ServerPack for CorePack {
         let registry = &mut *kernel.command_registry.write();
 
         // 1. ping
-        registry.register("ping", Arc::new(|_req, _kernel| {
-            serde_json::json!({ "ok": true, "pong": true })
-        }));
+        registry.register(
+            "ping",
+            Arc::new(|_req, _kernel| serde_json::json!({ "ok": true, "pong": true })),
+        );
 
         // 2. write_fact
         registry.register("write_fact", Arc::new(|req, kernel| {
@@ -106,7 +112,7 @@ impl ServerPack for CorePack {
                 Ok(d) => d,
                 Err(e) => return serde_json::json!({ "ok": false, "error": format!("Invalid fact data: {}", e) }),
             };
-            
+
             let engine = match kernel.get_or_create_engine(&data.store) {
                 Some(e) => e,
                 None => return serde_json::json!({ "ok": false, "error": "Invalid store name" }),
@@ -164,24 +170,32 @@ impl ServerPack for CorePack {
         }));
 
         // 5. size
-        registry.register("size", Arc::new(|req, kernel| {
-            if let Some(store) = req.get("store").and_then(|v| v.as_str()) {
-                let engine = match kernel.get_or_create_engine(store) {
-                    Some(e) => e,
-                    None => return serde_json::json!({ "ok": false, "error": "Invalid store name" }),
-                };
-                serde_json::json!({ "ok": true, "size": engine.log.size() })
-            } else {
-                let total: usize = kernel.engines.read().values().map(|e| e.log.size()).sum();
-                serde_json::json!({ "ok": true, "size": total })
-            }
-        }));
+        registry.register(
+            "size",
+            Arc::new(|req, kernel| {
+                if let Some(store) = req.get("store").and_then(|v| v.as_str()) {
+                    let engine = match kernel.get_or_create_engine(store) {
+                        Some(e) => e,
+                        None => {
+                            return serde_json::json!({ "ok": false, "error": "Invalid store name" })
+                        }
+                    };
+                    serde_json::json!({ "ok": true, "size": engine.log.size() })
+                } else {
+                    let total: usize = kernel.engines.read().values().map(|e| e.log.size()).sum();
+                    serde_json::json!({ "ok": true, "size": total })
+                }
+            }),
+        );
 
         // 7. stores
-        registry.register("stores", Arc::new(|_req, kernel| {
-            let names: Vec<String> = kernel.engines.read().keys().cloned().collect();
-            serde_json::json!({ "ok": true, "stores": names })
-        }));
+        registry.register(
+            "stores",
+            Arc::new(|_req, kernel| {
+                let names: Vec<String> = kernel.engines.read().keys().cloned().collect();
+                serde_json::json!({ "ok": true, "stores": names })
+            }),
+        );
 
         Ok(())
     }
@@ -249,7 +263,11 @@ fn main() {
             "--data-dir" => {
                 if i + 1 < args.len() {
                     let val = args[i + 1].clone();
-                    data_dir = if val == "nil" || val.is_empty() { None } else { Some(val) };
+                    data_dir = if val == "nil" || val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    };
                     i += 2;
                 } else {
                     eprintln!("Error: Missing value for --data-dir");
@@ -268,7 +286,8 @@ fn main() {
             "--peers" => {
                 if i + 1 < args.len() {
                     let val = args[i + 1].clone();
-                    peers = val.split(',')
+                    peers = val
+                        .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
@@ -312,49 +331,53 @@ fn main() {
     if let Some(path) = config_path {
         println!("Loading configuration from file: {}", path);
         match std::fs::read_to_string(&path) {
-            Ok(file_content) => {
-                match serde_json::from_str::<serde_json::Value>(&file_content) {
-                    Ok(json) => {
-                        if let Some(h) = json.get("host").and_then(|v| v.as_str()) {
-                            host = h.to_string();
-                        }
-                        if let Some(p) = json.get("port").and_then(|v| v.as_u64()) {
-                            port = p as u16;
-                        }
-                        if let Some(d) = json.get("data_dir").and_then(|v| v.as_str()) {
-                            data_dir = if d == "nil" || d.is_empty() { None } else { Some(d.to_string()) };
-                        }
-                        if let Some(ps) = json.get("thread_pool_size").and_then(|v| v.as_u64()) {
-                            pool_size = ps as usize;
-                        }
-                        if let Some(p_array) = json.get("peers").and_then(|v| v.as_array()) {
-                            peers = p_array.iter()
-                                .filter_map(|v| v.as_str())
-                                .map(|s| s.to_string())
-                                .collect();
-                        } else if let Some(p_str) = json.get("peers").and_then(|v| v.as_str()) {
-                            peers = p_str.split(',')
-                                .map(|s| s.trim().to_string())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                        }
-                        if let Some(ae) = json.get("auth_enabled").and_then(|v| v.as_bool()) {
-                            auth_enabled = ae;
-                        } else if let Some(ae) = json.get("auth_enabled").and_then(|v| v.as_str()) {
-                            auth_enabled = ae.parse().unwrap_or(false);
-                        }
-                        if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_bool()) {
-                            mcp_enabled = me;
-                        } else if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_str()) {
-                            mcp_enabled = me.parse().unwrap_or(false);
-                        }
+            Ok(file_content) => match serde_json::from_str::<serde_json::Value>(&file_content) {
+                Ok(json) => {
+                    if let Some(h) = json.get("host").and_then(|v| v.as_str()) {
+                        host = h.to_string();
                     }
-                    Err(e) => {
-                        eprintln!("Error: Failed to parse JSON config file: {}", e);
-                        std::process::exit(1);
+                    if let Some(p) = json.get("port").and_then(|v| v.as_u64()) {
+                        port = p as u16;
+                    }
+                    if let Some(d) = json.get("data_dir").and_then(|v| v.as_str()) {
+                        data_dir = if d == "nil" || d.is_empty() {
+                            None
+                        } else {
+                            Some(d.to_string())
+                        };
+                    }
+                    if let Some(ps) = json.get("thread_pool_size").and_then(|v| v.as_u64()) {
+                        pool_size = ps as usize;
+                    }
+                    if let Some(p_array) = json.get("peers").and_then(|v| v.as_array()) {
+                        peers = p_array
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .collect();
+                    } else if let Some(p_str) = json.get("peers").and_then(|v| v.as_str()) {
+                        peers = p_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                    if let Some(ae) = json.get("auth_enabled").and_then(|v| v.as_bool()) {
+                        auth_enabled = ae;
+                    } else if let Some(ae) = json.get("auth_enabled").and_then(|v| v.as_str()) {
+                        auth_enabled = ae.parse().unwrap_or(false);
+                    }
+                    if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_bool()) {
+                        mcp_enabled = me;
+                    } else if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_str()) {
+                        mcp_enabled = me.parse().unwrap_or(false);
                     }
                 }
-            }
+                Err(e) => {
+                    eprintln!("Error: Failed to parse JSON config file: {}", e);
+                    std::process::exit(1);
+                }
+            },
             Err(e) => {
                 eprintln!("Error: Failed to read config file '{}': {}", path, e);
                 std::process::exit(1);
@@ -381,14 +404,15 @@ fn main() {
     assembler.register_pack(Box::new(QueryPack::new()));
     assembler.register_pack(Box::new(McpPack::new()));
 
-
     // Dynamically register MeshClusterPack if peers are provided
     if !peers.is_empty() {
         assembler.register_pack(Box::new(packs::MeshClusterPack::new(peers)));
     }
 
     // Finalize profile, resolving dependencies and checking capabilities
-    let (profile, kernel) = assembler.finalize(kernel).expect("Failed assembling server profile");
+    let (profile, kernel) = assembler
+        .finalize(kernel)
+        .expect("Failed assembling server profile");
     let kernel = Arc::new(kernel);
 
     // Boot all active background services (Anti-Entropy Sync, Webhook dispatcher threads)
@@ -402,9 +426,15 @@ fn main() {
     }
 
     println!("\x1b[1m\x1b[32m✔ TBackend Profile Assembled Online!\x1b[0m");
-    println!("  Signature:   \x1b[1mBLAKE3:{}\x1b[0m", &profile.fingerprint[0..12]);
+    println!(
+        "  Signature:   \x1b[1mBLAKE3:{}\x1b[0m",
+        &profile.fingerprint[0..12]
+    );
     println!("  Active Packs:\x1b[1m{:?}\x1b[0m", profile.active_packs);
-    println!("  Address:     \x1b[1m{}:{}\x1b[0m", kernel.host, kernel.port);
+    println!(
+        "  Address:     \x1b[1m{}:{}\x1b[0m",
+        kernel.host, kernel.port
+    );
     println!("  Thread Pool: \x1b[1m{} workers\x1b[0m", kernel.pool_size);
     println!("  Auth Enabled:\x1b[1m{}\x1b[0m", kernel.auth_enabled);
     if let Some(ref dir) = kernel.data_dir {
@@ -431,35 +461,38 @@ fn main() {
         let rx_c = rx.clone();
         let kernel_c = kernel.clone();
         let profile_c = profile.clone();
-        
+
         thread::spawn(move || {
             loop {
                 let mut stream = match rx_c.lock().recv() {
                     Ok(s) => s,
                     Err(_) => break, // Graceful exit on channel close
                 };
-                
+
                 let _ = stream.set_nodelay(true);
                 let _ = stream.set_nonblocking(false); // Explicitly ensure stream is blocking
                 let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30))); // Prevent slowloris
-                
+
                 if let Some(metrics) = packs::base_audit::AUDIT_METRICS.get() {
                     metrics.active_connections.fetch_add(1, Ordering::Relaxed);
                 }
                 let _guard = ConnectionGuard;
-                
+
                 loop {
                     match read_frame(&mut stream) {
                         Ok(Some((body, bytes_read))) => {
                             // 1. Let audit tracker intercept frame details
                             if let Some(metrics) = packs::base_audit::AUDIT_METRICS.get() {
-                                metrics.bytes_read.fetch_add(bytes_read as u64, Ordering::Relaxed);
+                                metrics
+                                    .bytes_read
+                                    .fetch_add(bytes_read as u64, Ordering::Relaxed);
                             }
-                            
+
                             let start_time = Instant::now();
-                            
+
                             // 2. Parse request JSON
-                            let mut req_val: serde_json::Value = match serde_json::from_slice(&body) {
+                            let mut req_val: serde_json::Value = match serde_json::from_slice(&body)
+                            {
                                 Ok(v) => v,
                                 Err(e) => {
                                     if let Some(metrics) = packs::base_audit::AUDIT_METRICS.get() {
@@ -468,7 +501,7 @@ fn main() {
                                     serde_json::json!({ "ok": false, "error": format!("Invalid JSON request: {}", e) })
                                 }
                             };
-                            
+
                             // 3. Request routing through middlewares
                             let resp = if req_val.get("error").is_some() {
                                 req_val
@@ -481,39 +514,45 @@ fn main() {
                                         break;
                                     }
                                 }
-                                
+
                                 let mut resp_val = if let Some(err) = middleware_err {
                                     serde_json::json!({ "ok": false, "error": err })
                                 } else {
                                     // 3b. Call command registry handler
-                                    let op = req_val.get("op").and_then(|v| v.as_str()).unwrap_or("");
+                                    let op =
+                                        req_val.get("op").and_then(|v| v.as_str()).unwrap_or("");
                                     match profile_c.command_registry.call(op, &req_val, &kernel_c) {
                                         Some(res) => res,
-                                        None => serde_json::json!({ "ok": false, "error": format!("Unknown operation: {}", op) }),
+                                        None => {
+                                            serde_json::json!({ "ok": false, "error": format!("Unknown operation: {}", op) })
+                                        }
                                     }
                                 };
-                                
+
                                 // 3c. Run after_response middlewares
                                 for mw in &profile_c.middleware_chain.middlewares {
                                     mw.after_response(&req_val, &mut resp_val, &kernel_c);
                                 }
 
-                                
                                 resp_val
                             };
-                            
+
                             // 4. Update Latency
                             let elapsed = start_time.elapsed().as_micros() as u64;
                             if let Some(metrics) = packs::base_audit::AUDIT_METRICS.get() {
-                                metrics.total_latency_us.fetch_add(elapsed, Ordering::Relaxed);
+                                metrics
+                                    .total_latency_us
+                                    .fetch_add(elapsed, Ordering::Relaxed);
                             }
-                            
+
                             // 5. Write response frame
                             let resp_bytes = serde_json::to_vec(&resp).unwrap_or_default();
                             if let Some(metrics) = packs::base_audit::AUDIT_METRICS.get() {
                                 match write_frame(&mut stream, &resp_bytes) {
                                     Ok(bytes_written) => {
-                                        metrics.bytes_written.fetch_add(bytes_written as u64, Ordering::Relaxed);
+                                        metrics
+                                            .bytes_written
+                                            .fetch_add(bytes_written as u64, Ordering::Relaxed);
                                     }
                                     Err(e) => {
                                         metrics.errors_encountered.fetch_add(1, Ordering::Relaxed);
@@ -553,7 +592,8 @@ fn main() {
         }
         println!("\x1b[1m\x1b[32m✔ WAL indexes synchronized. Offline.\x1b[0m\n");
         std::process::exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     // Queue dispatcher loop
     let _ = listener.set_nonblocking(true);
@@ -566,7 +606,7 @@ fn main() {
             }
             Err(_) => break,
         };
-        
+
         if tx.send(stream).is_err() {
             break;
         }

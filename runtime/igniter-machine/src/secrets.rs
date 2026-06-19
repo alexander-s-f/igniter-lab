@@ -53,7 +53,10 @@ impl FileSecretProvider {
         Self { root: root.into() }
     }
     fn safe_name(name: &str) -> bool {
-        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
 }
 
@@ -62,7 +65,9 @@ impl SecretProvider for FileSecretProvider {
         if !Self::safe_name(name) {
             return None;
         }
-        std::fs::read_to_string(self.root.join(name)).ok().map(|s| s.trim().to_string())
+        std::fs::read_to_string(self.root.join(name))
+            .ok()
+            .map(|s| s.trim().to_string())
     }
 }
 

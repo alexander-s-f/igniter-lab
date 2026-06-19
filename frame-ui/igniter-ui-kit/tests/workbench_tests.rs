@@ -23,8 +23,23 @@ fn typed(rt: &mut WorkbenchRuntime, s: &str) {
 fn nested_tree_projects_to_three_regions() {
     let rt = WorkbenchRuntime::lead_review();
     let svg = rt.render_svg();
-    for needle in ["Leads", "Lead \u{b7} Ada", "Details", "Ada", "Grace", "Linus", "Priority", "Stage", "Hot lead", "Submit", "lead: Ada"] {
-        assert!(svg.contains(needle), "missing from composed screen: {needle}");
+    for needle in [
+        "Leads",
+        "Lead \u{b7} Ada",
+        "Details",
+        "Ada",
+        "Grace",
+        "Linus",
+        "Priority",
+        "Stage",
+        "Hot lead",
+        "Submit",
+        "lead: Ada",
+    ] {
+        assert!(
+            svg.contains(needle),
+            "missing from composed screen: {needle}"
+        );
     }
 }
 
@@ -32,9 +47,15 @@ fn nested_tree_projects_to_three_regions() {
 fn selection_routes_and_updates_inspector() {
     let mut rt = WorkbenchRuntime::lead_review();
     assert!(svg(&rt).contains("lead: Ada"));
-    assert!(rt.click(GRACE.0, GRACE.1), "clicking a list item selects it");
+    assert!(
+        rt.click(GRACE.0, GRACE.1),
+        "clicking a list item selects it"
+    );
     let s = svg(&rt);
-    assert!(s.contains("Lead \u{b7} Grace"), "main panel follows selection");
+    assert!(
+        s.contains("Lead \u{b7} Grace"),
+        "main panel follows selection"
+    );
     assert!(s.contains("lead: Grace"), "inspector follows selection");
 }
 
@@ -59,9 +80,15 @@ fn stable_ids_preserve_per_lead_state_across_selection() {
     rt.click(PRIORITY.0, PRIORITY.1);
     typed(&mut rt, "hot");
     rt.click(GRACE.0, GRACE.1); // switch away — Grace's priority is empty
-    assert!(!svg(&rt).contains("priority: hot"), "Grace has its own (empty) state");
+    assert!(
+        !svg(&rt).contains("priority: hot"),
+        "Grace has its own (empty) state"
+    );
     rt.click(ADA.0, ADA.1); // switch back
-    assert!(svg(&rt).contains("priority: hot"), "Ada's value persisted (stable id keying)");
+    assert!(
+        svg(&rt).contains("priority: hot"),
+        "Ada's value persisted (stable id keying)"
+    );
 }
 
 #[test]
@@ -74,7 +101,10 @@ fn focus_survives_within_lead_but_clears_when_component_leaves() {
     // a different selection re-lays-out: the focused component (fld:Ada:priority) is gone → clear
     rt.click(GRACE.0, GRACE.1);
     let frame_after_select = rt.frame_index();
-    assert!(!rt.key("z"), "no focused field after layout change → keystroke is a no-op");
+    assert!(
+        !rt.key("z"),
+        "no focused field after layout change → keystroke is a no-op"
+    );
     assert_eq!(rt.frame_index(), frame_after_select, "no frame advanced");
 
     // re-selecting Ada keeps the value but does NOT auto-restore focus
@@ -94,7 +124,10 @@ fn validation_is_scoped_per_lead_not_global() {
 
     rt.click(GRACE.0, GRACE.1); // Grace was never submitted
     let g = svg(&rt);
-    assert!(!g.contains("! required"), "Grace shows no errors (scoped, not global)");
+    assert!(
+        !g.contains("! required"),
+        "Grace shows no errors (scoped, not global)"
+    );
     assert!(g.contains("errors: 0"));
 }
 
@@ -116,14 +149,21 @@ fn deterministic_replay_of_multi_panel_event_log() {
     };
     let mut a = WorkbenchRuntime::lead_review();
     let mut b = WorkbenchRuntime::lead_review();
-    assert_eq!(script(&mut a), script(&mut b), "same multi-panel event log → identical frames");
+    assert_eq!(
+        script(&mut a),
+        script(&mut b),
+        "same multi-panel event log → identical frames"
+    );
 }
 
 #[test]
 fn empty_panel_area_click_is_a_noop() {
     let mut rt = WorkbenchRuntime::lead_review();
     let before = rt.render_digest();
-    assert!(!rt.click(344.0, 400.0), "clicking empty main-panel space hits the panel (no intent)");
+    assert!(
+        !rt.click(344.0, 400.0),
+        "clicking empty main-panel space hits the panel (no intent)"
+    );
     assert_eq!(rt.render_digest(), before);
 }
 

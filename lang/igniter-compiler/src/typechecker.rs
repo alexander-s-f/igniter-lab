@@ -1,5 +1,10 @@
-use crate::parser::{Expr, TypeRef, WindowValue, Stmt, ExprOrBlock, OlapPointDecl, FunctionDecl, Param};
-use crate::classifier::{ClassifiedProgram, ClassifiedContract, ClassifiedDecl, ClassifiedSymbol, DependencyGraph, ClassifierDiagnostic};
+use crate::classifier::{
+    ClassifiedContract, ClassifiedDecl, ClassifiedProgram, ClassifiedSymbol, ClassifierDiagnostic,
+    DependencyGraph,
+};
+use crate::parser::{
+    Expr, ExprOrBlock, FunctionDecl, OlapPointDecl, Param, Stmt, TypeRef, WindowValue,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
@@ -24,9 +29,9 @@ pub struct T2RegistryEntry {
 #[derive(Debug, Clone)]
 pub struct T2Context {
     pub kind: T2Kind,
-    pub dv: String,      // dotted-path variant, e.g. "items.tail"
-    pub subject: String, // e.g. "items"
-    pub accessor: String,// e.g. "tail"
+    pub dv: String,       // dotted-path variant, e.g. "items.tail"
+    pub subject: String,  // e.g. "items"
+    pub accessor: String, // e.g. "tail"
     pub trust: String,
     pub source: String,
 }
@@ -60,18 +65,31 @@ fn stdlib_size_registry() -> HashMap<(String, String), T2RegistryEntry> {
     let mut m = HashMap::new();
     m.insert(
         ("Collection".to_string(), "tail".to_string()),
-        T2RegistryEntry { trust: "stdlib_certified".to_string(), source: "compiler_builtin".to_string() },
+        T2RegistryEntry {
+            trust: "stdlib_certified".to_string(),
+            source: "compiler_builtin".to_string(),
+        },
     );
     m.insert(
         ("Collection".to_string(), "rest".to_string()),
-        T2RegistryEntry { trust: "stdlib_certified".to_string(), source: "compiler_builtin".to_string() },
+        T2RegistryEntry {
+            trust: "stdlib_certified".to_string(),
+            source: "compiler_builtin".to_string(),
+        },
     );
     m
 }
 
 /// Numeric accessors are T3 territory — route to OOF-R3, not OOF-R8.
 /// Closed list in v1; not user-extensible.
-const NUMERIC_ACCESSORS: &[&str] = &["count", "length", "size", "total_count", "num_items", "num_elements"];
+const NUMERIC_ACCESSORS: &[&str] = &[
+    "count",
+    "length",
+    "size",
+    "total_count",
+    "num_items",
+    "num_elements",
+];
 
 // ── PROP-042 T3: numeric measure expressions ─────────────────────────────────
 
@@ -81,37 +99,54 @@ const NUMERIC_ACCESSORS: &[&str] = &["count", "length", "size", "total_count", "
 #[derive(Debug, Clone)]
 pub struct T3BuiltinEntry {
     pub qualified_name: &'static str, // "stdlib.collection.count"
-    pub trust:          &'static str, // "stdlib_numeric_certified"
-    pub source:         &'static str, // "compiler_builtin"
+    pub trust: &'static str,          // "stdlib_numeric_certified"
+    pub source: &'static str,         // "compiler_builtin"
 }
 
 /// T3 context for a contract currently being typechecked.
 #[derive(Debug, Clone)]
 pub struct T3Context {
-    pub dv:       String, // "count(items)"
-    pub fn_name:  String, // "count"
+    pub dv: String,       // "count(items)"
+    pub fn_name: String,  // "count"
     pub arg_name: String, // "items"
-    pub builtin:  T3BuiltinEntry,
+    pub builtin: T3BuiltinEntry,
 }
 
 /// NUMERIC_MEASURE_BUILTINS v0.
 /// Tuple: (fn_name, qualified_name, trust, source).
-const NUMERIC_MEASURE_BUILTINS_V0: &[(&str, &str, &str, &str)] = &[
-    ("count", "stdlib.collection.count", "stdlib_numeric_certified", "compiler_builtin"),
-];
+const NUMERIC_MEASURE_BUILTINS_V0: &[(&str, &str, &str, &str)] = &[(
+    "count",
+    "stdlib.collection.count",
+    "stdlib_numeric_certified",
+    "compiler_builtin",
+)];
 
 /// Regex-free T3 function-call form detection.
 /// Returns (fn_name, arg_name) when variant matches exactly "fn(arg)".
 fn parse_t3_call_form(variant: &str) -> Option<(&str, &str)> {
     let lparen = variant.find('(')?;
     let rparen = variant.rfind(')')?;
-    if rparen != variant.len() - 1 { return None; }
+    if rparen != variant.len() - 1 {
+        return None;
+    }
     let fn_name = &variant[..lparen];
     let arg_name = &variant[lparen + 1..rparen];
     // Both parts must be non-empty and word-only (no dots, spaces, parens)
-    if fn_name.is_empty() || arg_name.is_empty() { return None; }
-    if !fn_name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { return None; }
-    if !arg_name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { return None; }
+    if fn_name.is_empty() || arg_name.is_empty() {
+        return None;
+    }
+    if !fn_name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return None;
+    }
+    if !arg_name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return None;
+    }
     Some((fn_name, arg_name))
 }
 
@@ -345,21 +380,39 @@ impl TypeChecker {
     /// Concrete payload types for a sealed match arm, substituted from the subject's
     /// type params: Option[P0] → Some{value:P0}; Result[P0,P1] → Ok{value:P0},
     /// Err{error:P1}. Missing params degrade to Unknown.
-    fn sealed_arm_field_types(&self, subject_rt: &serde_json::Value, arm_name: &str) -> HashMap<String, serde_json::Value> {
+    fn sealed_arm_field_types(
+        &self,
+        subject_rt: &serde_json::Value,
+        arm_name: &str,
+    ) -> HashMap<String, serde_json::Value> {
         let unknown = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
-        let p0 = self.get_param(subject_rt, 0).unwrap_or_else(|| unknown.clone());
-        let p1 = self.get_param(subject_rt, 1).unwrap_or_else(|| unknown.clone());
+        let p0 = self
+            .get_param(subject_rt, 0)
+            .unwrap_or_else(|| unknown.clone());
+        let p1 = self
+            .get_param(subject_rt, 1)
+            .unwrap_or_else(|| unknown.clone());
         let mut m = HashMap::new();
         match (self.type_name(subject_rt).as_str(), arm_name) {
-            ("Option", "Some") => { m.insert("value".to_string(), p0); }
-            ("Result", "Ok") => { m.insert("value".to_string(), p0); }
-            ("Result", "Err") => { m.insert("error".to_string(), p1); }
+            ("Option", "Some") => {
+                m.insert("value".to_string(), p0);
+            }
+            ("Result", "Ok") => {
+                m.insert("value".to_string(), p0);
+            }
+            ("Result", "Err") => {
+                m.insert("error".to_string(), p1);
+            }
             _ => {}
         }
         m
     }
 
-    pub fn typecheck(&self, classified: &ClassifiedProgram, functions: &[crate::parser::FunctionDecl]) -> TypedProgram {
+    pub fn typecheck(
+        &self,
+        classified: &ClassifiedProgram,
+        functions: &[crate::parser::FunctionDecl],
+    ) -> TypedProgram {
         let type_shapes = self.build_type_shapes(classified);
         let mut typed_contracts = Vec::new();
         let mut type_errors = Vec::new();
@@ -421,7 +474,18 @@ impl TypeChecker {
         }
 
         for contract in &classified.contracts {
-            let mut tc = self.typecheck_contract(contract, &type_shapes, &olap_env, classified.assumption_registry.as_ref().unwrap_or(&Vec::new()), functions, &size_registry, &contract_registry);
+            let mut tc = self.typecheck_contract(
+                contract,
+                &type_shapes,
+                &olap_env,
+                classified
+                    .assumption_registry
+                    .as_ref()
+                    .unwrap_or(&Vec::new()),
+                functions,
+                &size_registry,
+                &contract_registry,
+            );
             type_errors.append(&mut tc.type_errors.clone());
             if let Some(mut w) = tc.type_warnings.clone() {
                 type_warnings.append(&mut w);
@@ -438,16 +502,18 @@ impl TypeChecker {
             let fn_names: HashSet<String> = functions.iter().map(|f| f.name.clone()).collect();
             let mut fn_names_sorted: Vec<String> = fn_names.iter().cloned().collect();
             fn_names_sorted.sort();
-            let fn_calls: HashMap<String, Vec<String>> = functions.iter()
+            let fn_calls: HashMap<String, Vec<String>> = functions
+                .iter()
                 .map(|f| (f.name.clone(), collect_fn_calls(&f.body, &fn_names)))
                 .collect();
             let sccs = tarjan_sccs(&fn_names_sorted, &fn_calls);
-            let fn_map: HashMap<&str, &FunctionDecl> = functions.iter()
-                .map(|f| (f.name.as_str(), f))
-                .collect();
+            let fn_map: HashMap<&str, &FunctionDecl> =
+                functions.iter().map(|f| (f.name.as_str(), f)).collect();
             for scc in &sccs {
                 let is_nontrivial = scc.len() > 1
-                    || fn_calls.get(scc[0].as_str()).map_or(false, |c| c.contains(&scc[0]));
+                    || fn_calls
+                        .get(scc[0].as_str())
+                        .map_or(false, |c| c.contains(&scc[0]));
                 if !is_nontrivial {
                     continue;
                 }
@@ -456,7 +522,10 @@ impl TypeChecker {
                         if f.decreases.as_deref() != Some("fuel") {
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-L4".to_string(),
-                                message: format!("Recursive function '{}' must specify 'decreases fuel'", fn_name),
+                                message: format!(
+                                    "Recursive function '{}' must specify 'decreases fuel'",
+                                    fn_name
+                                ),
                                 node: fn_name.clone(),
                                 line: None,
                             });
@@ -532,19 +601,36 @@ impl TypeChecker {
             type_errors: self.dedupe_errors(&type_errors),
             semantic_ir_ref: serde_json::Value::Null,
             assumption_registry: classified.assumption_registry.clone(),
-            olap_points: if olap_env.is_empty() { None } else { Some(olap_env.values().map(|v| v.get("semantic_node").unwrap().clone()).collect()) },
+            olap_points: if olap_env.is_empty() {
+                None
+            } else {
+                Some(
+                    olap_env
+                        .values()
+                        .map(|v| v.get("semantic_node").unwrap().clone())
+                        .collect(),
+                )
+            },
             entrypoint,
-            type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
+            type_warnings: if type_warnings.is_empty() {
+                None
+            } else {
+                Some(self.dedupe_errors(&type_warnings))
+            },
             pass_result,
             variant_declarations,
             // LAB-FUNCTION-SIR-RUNTIME-P1: carry app-local def functions (parser JSON) forward.
-            functions: functions.iter()
+            functions: functions
+                .iter()
                 .map(|f| serde_json::to_value(f).unwrap_or(serde_json::Value::Null))
                 .collect(),
         }
     }
 
-    fn build_type_shapes(&self, classified: &ClassifiedProgram) -> HashMap<String, HashMap<String, serde_json::Value>> {
+    fn build_type_shapes(
+        &self,
+        classified: &ClassifiedProgram,
+    ) -> HashMap<String, HashMap<String, serde_json::Value>> {
         let mut map = HashMap::new();
         for t in &classified.type_declarations {
             let mut fields = HashMap::new();
@@ -556,83 +642,147 @@ impl TypeChecker {
         map
     }
 
-    fn validate_entrypoint(&self, classified: &ClassifiedProgram) -> (Vec<ClassifierDiagnostic>, Option<TypedEntrypoint>) {
+    fn validate_entrypoint(
+        &self,
+        classified: &ClassifiedProgram,
+    ) -> (Vec<ClassifierDiagnostic>, Option<TypedEntrypoint>) {
         let entrypoint = match &classified.entrypoint {
             Some(e) => e,
             None => return (Vec::new(), None),
         };
 
         let target = entrypoint.target.clone();
-        if let Some(contract) = classified.contracts.iter().find(|c| target == c.name || target == c.contract_id) {
-            return (Vec::new(), Some(TypedEntrypoint {
-                kind: "entrypoint_decl".to_string(),
-                target,
-                qualified: entrypoint.qualified,
-                source_span: entrypoint.source_span.clone(),
-                resolved_contract: contract.name.clone(),
-                resolved_contract_id: contract.contract_id.clone(),
-                contract_fragment_class: contract.fragment_class.clone(),
-            }));
+        if let Some(contract) = classified
+            .contracts
+            .iter()
+            .find(|c| target == c.name || target == c.contract_id)
+        {
+            return (
+                Vec::new(),
+                Some(TypedEntrypoint {
+                    kind: "entrypoint_decl".to_string(),
+                    target,
+                    qualified: entrypoint.qualified,
+                    source_span: entrypoint.source_span.clone(),
+                    resolved_contract: contract.name.clone(),
+                    resolved_contract_id: contract.contract_id.clone(),
+                    contract_fragment_class: contract.fragment_class.clone(),
+                }),
+            );
         }
 
-        if classified.type_declarations.iter().any(|t| t.name == target) {
-            return (vec![ClassifierDiagnostic {
-                rule: "OOF-EP5".to_string(),
-                message: format!("entrypoint target '{}' is a type, not a contract", target),
+        if classified
+            .type_declarations
+            .iter()
+            .any(|t| t.name == target)
+        {
+            return (
+                vec![ClassifierDiagnostic {
+                    rule: "OOF-EP5".to_string(),
+                    message: format!("entrypoint target '{}' is a type, not a contract", target),
+                    node: target,
+                    line: Some(entrypoint.source_span.line),
+                }],
+                None,
+            );
+        }
+
+        (
+            vec![ClassifierDiagnostic {
+                rule: "OOF-EP2".to_string(),
+                message: format!(
+                    "entrypoint target '{}' does not resolve to a contract",
+                    target
+                ),
                 node: target,
                 line: Some(entrypoint.source_span.line),
-            }], None);
-        }
-
-        (vec![ClassifierDiagnostic {
-            rule: "OOF-EP2".to_string(),
-            message: format!("entrypoint target '{}' does not resolve to a contract", target),
-            node: target,
-            line: Some(entrypoint.source_span.line),
-        }], None)
+            }],
+            None,
+        )
     }
 
-    fn build_olap_env(&self, olaps: &[OlapPointDecl]) -> HashMap<String, HashMap<String, serde_json::Value>> {
+    fn build_olap_env(
+        &self,
+        olaps: &[OlapPointDecl],
+    ) -> HashMap<String, HashMap<String, serde_json::Value>> {
         let mut env = HashMap::new();
         for point in olaps {
             let mut entry = HashMap::new();
             let name = point.name.clone();
 
-            let dimensions: HashMap<String, serde_json::Value> = point.dimensions.iter().map(|(k, v)| {
-                (k.clone(), self.type_ir(&serde_json::to_value(v).unwrap()))
-            }).collect();
+            let dimensions: HashMap<String, serde_json::Value> = point
+                .dimensions
+                .iter()
+                .map(|(k, v)| (k.clone(), self.type_ir(&serde_json::to_value(v).unwrap())))
+                .collect();
 
             let measure_type = self.type_ir(&serde_json::to_value(&point.measure).unwrap());
 
             // Build structural OLAP type: OLAPPoint[Measure, DimsRecord[Dimensions]]
             let mut olap_type = serde_json::Map::new();
-            olap_type.insert("name".to_string(), serde_json::Value::String("OLAPPoint".to_string()));
+            olap_type.insert(
+                "name".to_string(),
+                serde_json::Value::String("OLAPPoint".to_string()),
+            );
             let mut params = Vec::new();
             params.push(measure_type.clone());
 
             let mut dims_record = serde_json::Map::new();
-            dims_record.insert("name".to_string(), serde_json::Value::String("DimsRecord".to_string()));
+            dims_record.insert(
+                "name".to_string(),
+                serde_json::Value::String("DimsRecord".to_string()),
+            );
             dims_record.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-            dims_record.insert("dims".to_string(), serde_json::to_value(&dimensions).unwrap());
+            dims_record.insert(
+                "dims".to_string(),
+                serde_json::to_value(&dimensions).unwrap(),
+            );
 
             params.push(serde_json::Value::Object(dims_record));
             olap_type.insert("params".to_string(), serde_json::Value::Array(params));
 
             let mut semantic_node = serde_json::Map::new();
-            semantic_node.insert("kind".to_string(), serde_json::Value::String("olap_point_decl".to_string()));
+            semantic_node.insert(
+                "kind".to_string(),
+                serde_json::Value::String("olap_point_decl".to_string()),
+            );
             semantic_node.insert("name".to_string(), serde_json::Value::String(name.clone()));
-            semantic_node.insert("dimensions".to_string(), serde_json::to_value(&point.dimensions).unwrap());
-            semantic_node.insert("measure_type".to_string(), serde_json::to_value(&point.measure).unwrap());
-            semantic_node.insert("granularity".to_string(), serde_json::to_value(&point.granularity).unwrap());
-            semantic_node.insert("indexed".to_string(), serde_json::to_value(&point.indexed).unwrap());
+            semantic_node.insert(
+                "dimensions".to_string(),
+                serde_json::to_value(&point.dimensions).unwrap(),
+            );
+            semantic_node.insert(
+                "measure_type".to_string(),
+                serde_json::to_value(&point.measure).unwrap(),
+            );
+            semantic_node.insert(
+                "granularity".to_string(),
+                serde_json::to_value(&point.granularity).unwrap(),
+            );
+            semantic_node.insert(
+                "indexed".to_string(),
+                serde_json::to_value(&point.indexed).unwrap(),
+            );
 
             entry.insert("name".to_string(), serde_json::Value::String(name.clone()));
             entry.insert("type".to_string(), serde_json::Value::Object(olap_type));
-            entry.insert("dimensions".to_string(), serde_json::to_value(dimensions).unwrap());
+            entry.insert(
+                "dimensions".to_string(),
+                serde_json::to_value(dimensions).unwrap(),
+            );
             entry.insert("measure_type".to_string(), measure_type);
-            entry.insert("granularity".to_string(), serde_json::to_value(&point.granularity).unwrap());
-            entry.insert("indexed".to_string(), serde_json::to_value(&point.indexed).unwrap());
-            entry.insert("semantic_node".to_string(), serde_json::Value::Object(semantic_node));
+            entry.insert(
+                "granularity".to_string(),
+                serde_json::to_value(&point.granularity).unwrap(),
+            );
+            entry.insert(
+                "indexed".to_string(),
+                serde_json::to_value(&point.indexed).unwrap(),
+            );
+            entry.insert(
+                "semantic_node".to_string(),
+                serde_json::Value::Object(semantic_node),
+            );
 
             env.insert(name, entry);
         }
@@ -659,14 +809,29 @@ impl TypeChecker {
         let mut local_type_shapes = type_shapes.clone();
         if !assumptions.is_empty() || classified.assumption_refs.is_some() {
             let mut fields = HashMap::new();
-            fields.insert("kind".to_string(), self.type_ir(&serde_json::Value::String("Symbol".to_string())));
-            fields.insert("statement".to_string(), self.type_ir(&serde_json::Value::String("String".to_string())));
-            fields.insert("strength".to_string(), self.type_ir(&serde_json::Value::String("Decimal".to_string())));
-            fields.insert("source".to_string(), self.type_ir(&serde_json::Value::String("String".to_string())));
+            fields.insert(
+                "kind".to_string(),
+                self.type_ir(&serde_json::Value::String("Symbol".to_string())),
+            );
+            fields.insert(
+                "statement".to_string(),
+                self.type_ir(&serde_json::Value::String("String".to_string())),
+            );
+            fields.insert(
+                "strength".to_string(),
+                self.type_ir(&serde_json::Value::String("Decimal".to_string())),
+            );
+            fields.insert(
+                "source".to_string(),
+                self.type_ir(&serde_json::Value::String("String".to_string())),
+            );
             local_type_shapes.insert("Assumption".to_string(), fields);
         }
         let mut clock_tick_fields = HashMap::new();
-        clock_tick_fields.insert("time".to_string(), self.type_ir(&serde_json::Value::String("Integer".to_string())));
+        clock_tick_fields.insert(
+            "time".to_string(),
+            self.type_ir(&serde_json::Value::String("Integer".to_string())),
+        );
         local_type_shapes.insert("ClockTick".to_string(), clock_tick_fields);
 
         // Validate assumptions strength at typecheck stage: TASSUMP-1
@@ -677,8 +842,15 @@ impl TypeChecker {
                         if strength < 0.0 || strength > 1.0 {
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "TASSUMP-1".to_string(),
-                                message: "assumption strength must be between 0.0 and 1.0".to_string(),
-                                node: format!("assumption:{}", entry.get("name").and_then(|n| n.as_str()).unwrap_or_default()),
+                                message: "assumption strength must be between 0.0 and 1.0"
+                                    .to_string(),
+                                node: format!(
+                                    "assumption:{}",
+                                    entry
+                                        .get("name")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or_default()
+                                ),
                                 line: None,
                             });
                         }
@@ -691,16 +863,22 @@ impl TypeChecker {
         let contract_modifier = classified.modifier.as_str();
         let recur_authorized = matches!(contract_modifier, "recursive" | "fuel_bounded");
         // Inputs in declaration order for positional arg mapping
-        let recur_input_names: Vec<String> = classified.declarations.iter()
+        let recur_input_names: Vec<String> = classified
+            .declarations
+            .iter()
             .filter(|d| d.kind == "input")
             .map(|d| d.name.clone())
             .collect();
-        let recur_output_count = classified.declarations.iter()
+        let recur_output_count = classified
+            .declarations
+            .iter()
             .filter(|d| d.kind == "output")
             .count();
         // The single output type (for recur() return-type inference)
         let recur_output_type: Option<serde_json::Value> = if recur_output_count == 1 {
-            classified.declarations.iter()
+            classified
+                .declarations
+                .iter()
                 .find(|d| d.kind == "output")
                 .and_then(|d| d.type_annotation.as_ref())
                 .map(|ta| self.type_ir(ta))
@@ -726,14 +904,14 @@ impl TypeChecker {
                 *self.t3_context.borrow_mut() = ctx.clone();
                 t3_context = ctx;
                 t2_context = None;
-                None  // function-call form never kept as a raw T1 variant
+                None // function-call form never kept as a raw T1 variant
             }
             Some(v) if v.contains('.') => {
                 // PROP-041 T2 dispatch
                 let ctx = self.handle_t2_variant(v, classified, &mut type_errors, size_registry);
                 t2_context = ctx;
                 t3_context = None;
-                None  // dotted-path never kept as a raw variant in @recur_context
+                None // dotted-path never kept as a raw variant in @recur_context
             }
             Some(v) => {
                 t2_context = None;
@@ -747,7 +925,8 @@ impl TypeChecker {
             }
         };
         // Positional index of the decreases variant in the input list
-        let decreases_variant_pos: Option<usize> = clean_decreases_variant.as_ref()
+        let decreases_variant_pos: Option<usize> = clean_decreases_variant
+            .as_ref()
             .and_then(|v| recur_input_names.iter().position(|n| n == v));
 
         // LAB-RACK-P13: pre-scan output declarations to build a map of
@@ -756,7 +935,9 @@ impl TypeChecker {
         // output type annotation before the output check runs.
         // Only entries whose expected type name appears in local_type_shapes are
         // recorded — primitive / Collection / Unknown expected types are excluded.
-        let output_type_hints: HashMap<String, String> = classified.declarations.iter()
+        let output_type_hints: HashMap<String, String> = classified
+            .declarations
+            .iter()
             .filter(|d| d.kind == "output")
             .filter_map(|d| {
                 let ann = d.type_annotation.as_ref()?;
@@ -777,7 +958,9 @@ impl TypeChecker {
         // recorded; non-Collection outputs are excluded. The behavior is
         // contextual: a free-standing array literal with no Collection output
         // hint stays Unknown (see the ArrayLiteral arm in infer_expr).
-        let mut collection_output_hints: HashMap<String, serde_json::Value> = classified.declarations.iter()
+        let mut collection_output_hints: HashMap<String, serde_json::Value> = classified
+            .declarations
+            .iter()
             .filter(|d| d.kind == "output")
             .filter_map(|d| {
                 let ann = d.type_annotation.as_ref()?;
@@ -798,8 +981,12 @@ impl TypeChecker {
         {
             let mut sealed_hints: HashMap<String, serde_json::Value> = HashMap::new();
             for d in &classified.declarations {
-                if d.kind != "output" && d.kind != "compute" { continue; }
-                let Some(ann) = d.type_annotation.as_ref() else { continue };
+                if d.kind != "output" && d.kind != "compute" {
+                    continue;
+                }
+                let Some(ann) = d.type_annotation.as_ref() else {
+                    continue;
+                };
                 let ir = self.type_ir(ann);
                 let tn = self.type_name(&ir);
                 if tn == "Option" || tn == "Result" {
@@ -816,10 +1003,16 @@ impl TypeChecker {
         {
             let mut elem_hints: HashMap<String, serde_json::Value> = HashMap::new();
             for d in &classified.declarations {
-                if d.kind != "output" && d.kind != "compute" { continue; }
-                let Some(ann) = d.type_annotation.as_ref() else { continue };
+                if d.kind != "output" && d.kind != "compute" {
+                    continue;
+                }
+                let Some(ann) = d.type_annotation.as_ref() else {
+                    continue;
+                };
                 let ir = self.type_ir(ann);
-                if self.type_name(&ir) != "Collection" { continue; }
+                if self.type_name(&ir) != "Collection" {
+                    continue;
+                }
                 if let Some(elem) = self.get_param(&ir, 0) {
                     elem_hints.insert(d.name.clone(), elem);
                 }
@@ -846,9 +1039,15 @@ impl TypeChecker {
             if d.kind != "compute" && d.kind != "snapshot" {
                 continue;
             }
-            let Some(record_type_name) = output_type_hints.get(&d.name) else { continue };
-            let Some(Expr::RecordLiteral { fields }) = d.expr.as_ref() else { continue };
-            let Some(shape) = local_type_shapes.get(record_type_name.as_str()) else { continue };
+            let Some(record_type_name) = output_type_hints.get(&d.name) else {
+                continue;
+            };
+            let Some(Expr::RecordLiteral { fields }) = d.expr.as_ref() else {
+                continue;
+            };
+            let Some(shape) = local_type_shapes.get(record_type_name.as_str()) else {
+                continue;
+            };
             for (field_name, field_expr) in fields {
                 if let Expr::Ref { name: ref_name } = field_expr {
                     if let Some(field_type_ir) = shape.get(field_name) {
@@ -901,12 +1100,20 @@ impl TypeChecker {
                 "loop" => {
                     let ty = self.type_ir(&serde_json::Value::String("Nil".to_string()));
                     symbol_types.insert(decl.name.clone(), ty.clone());
-                    
+
                     // G6 (PROP-039 canon OOF-L1): FiniteLoop (`for`) source must be Collection[T].
                     // Canon: OOF-L1 fires in TypeChecker when for_loop source is not Collection[T].
-                    let loop_class_opt = decl.options.as_ref()
+                    let loop_class_opt = decl
+                        .options
+                        .as_ref()
                         .and_then(|o| o.get("loop_class"))
-                        .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None });
+                        .and_then(|v| {
+                            if let crate::parser::WindowValue::Str(s) = v {
+                                Some(s.clone())
+                            } else {
+                                None
+                            }
+                        });
                     let is_finite_loop = loop_class_opt.as_deref() == Some("finite");
 
                     let mut loop_var_types = HashMap::new();
@@ -914,11 +1121,14 @@ impl TypeChecker {
                         let item_ty = if let Some(coll_ty) = symbol_types.get(ref_name) {
                             let ty_name = self.type_name(coll_ty);
                             if ty_name == "Array" || ty_name == "Collection" {
-                                let param_val = coll_ty.get("params")
+                                let param_val = coll_ty
+                                    .get("params")
                                     .and_then(|p| p.as_array())
                                     .and_then(|arr| arr.first())
                                     .cloned()
-                                    .unwrap_or_else(|| serde_json::Value::String("Unknown".to_string()));
+                                    .unwrap_or_else(|| {
+                                        serde_json::Value::String("Unknown".to_string())
+                                    });
                                 self.type_ir(&param_val)
                             } else {
                                 // G6: for FiniteLoop, non-Collection source is an OOF-L1 (canon meaning)
@@ -941,9 +1151,17 @@ impl TypeChecker {
 
                         // G1: prefer explicit item variable from classifier options.
                         // Falls back to singularize(collection) for backward compat.
-                        let item_var = decl.options.as_ref()
+                        let item_var = decl
+                            .options
+                            .as_ref()
                             .and_then(|o| o.get("item"))
-                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .and_then(|v| {
+                                if let crate::parser::WindowValue::Str(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
                             .unwrap_or_else(|| crate::classifier::singularize(ref_name));
 
                         let singular_loop = crate::classifier::singularize(&decl.name);
@@ -952,40 +1170,63 @@ impl TypeChecker {
                         loop_var_types.insert(singular_loop, item_ty.clone());
                         loop_var_types.insert("item".to_string(), item_ty);
                     }
-                    
+
                     let mut body_symbol_types = symbol_types.clone();
                     for (k, v) in loop_var_types {
                         body_symbol_types.insert(k, v);
                     }
-                    
+
                     let mut typed_body_nodes = Vec::new();
                     let mut lead_names: Vec<String> = Vec::new();
 
                     // Derive item_type string for gate 8 canon body
                     // Use body_symbol_types["item"] which has the element type already resolved
                     let item_type_str = {
-                        let item_var = decl.options.as_ref()
+                        let item_var = decl
+                            .options
+                            .as_ref()
                             .and_then(|o| o.get("item"))
-                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .and_then(|v| {
+                                if let crate::parser::WindowValue::Str(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
                             .unwrap_or_else(|| "item".to_string());
-                        body_symbol_types.get(&item_var)
+                        body_symbol_types
+                            .get(&item_var)
                             .or_else(|| body_symbol_types.get("item"))
-                            .and_then(|ty| ty.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                            .and_then(|ty| {
+                                ty.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(|s| s.to_string())
+                            })
                             .unwrap_or_else(|| "Unknown".to_string())
                     };
 
                     if let Some(body_nodes) = &decl.body_nodes {
                         // Extract item variable name for OOF-L7 checks
-                        let item_var = decl.options.as_ref()
+                        let item_var = decl
+                            .options
+                            .as_ref()
                             .and_then(|o| o.get("item"))
-                            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+                            .and_then(|v| {
+                                if let crate::parser::WindowValue::Str(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
                             .unwrap_or_else(|| "item".to_string());
 
                         for inner_decl in body_nodes {
                             match inner_decl.kind.as_str() {
                                 "lead" => {
                                     // PROP-039 gate 8: validate lead initial is a literal
-                                    let is_literal = inner_decl.expr.as_ref()
+                                    let is_literal = inner_decl
+                                        .expr
+                                        .as_ref()
                                         .map(|e| matches!(e, Expr::Literal { .. }))
                                         .unwrap_or(false);
                                     if !is_literal {
@@ -1001,19 +1242,31 @@ impl TypeChecker {
                                     }
                                     lead_names.push(inner_decl.name.clone());
                                     // Derive type from annotation (stored in classifier as JSON)
-                                    let lead_type_ir = inner_decl.type_annotation.as_ref()
+                                    let lead_type_ir = inner_decl
+                                        .type_annotation
+                                        .as_ref()
                                         .map(|t| self.type_ir(t))
-                                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                    let type_str = lead_type_ir.get("name")
+                                        .unwrap_or_else(|| {
+                                            self.type_ir(&serde_json::Value::String(
+                                                "Unknown".to_string(),
+                                            ))
+                                        });
+                                    let type_str = lead_type_ir
+                                        .get("name")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("Unknown")
                                         .to_string();
                                     // Add lead to body symbol types for subsequent computes
                                     body_symbol_types.insert(
                                         inner_decl.name.clone(),
-                                        self.type_ir(&serde_json::Value::String(type_str))
+                                        self.type_ir(&serde_json::Value::String(type_str)),
                                     );
-                                    typed_body_nodes.push(self.typed_decl(inner_decl, lead_type_ir, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                    typed_body_nodes.push(self.typed_decl(
+                                        inner_decl,
+                                        lead_type_ir,
+                                        inner_decl.expr.clone(),
+                                        inner_decl.deps.clone(),
+                                    ));
                                 }
                                 "compute" => {
                                     // PROP-039 gate 8: OOF-L7/OOF-L5 target checks.
@@ -1031,7 +1284,9 @@ impl TypeChecker {
                                             node: decl.name.clone(),
                                             line: None,
                                         });
-                                    } else if symbol_types.contains_key(target.as_str()) && !lead_names.contains(target) {
+                                    } else if symbol_types.contains_key(target.as_str())
+                                        && !lead_names.contains(target)
+                                    {
                                         type_errors.push(crate::classifier::ClassifierDiagnostic {
                                             rule: "OOF-L7".to_string(),
                                             message: format!(
@@ -1041,7 +1296,11 @@ impl TypeChecker {
                                             node: decl.name.clone(),
                                             line: None,
                                         });
-                                    } else if !lead_names.contains(target) && !symbol_types.contains_key(target.as_str()) && target != &item_var && target != "item" {
+                                    } else if !lead_names.contains(target)
+                                        && !symbol_types.contains_key(target.as_str())
+                                        && target != &item_var
+                                        && target != "item"
+                                    {
                                         type_errors.push(crate::classifier::ClassifierDiagnostic {
                                             rule: "OOF-L5".to_string(),
                                             message: format!(
@@ -1053,9 +1312,28 @@ impl TypeChecker {
                                         });
                                     }
 
-                                    let typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions, contract_registry, &classified.name);
-                                    body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
-                                    typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                    let typed_expr = self.infer_expr(
+                                        inner_decl.expr.as_ref().unwrap(),
+                                        &body_symbol_types,
+                                        olap_env,
+                                        &local_type_shapes,
+                                        &mut type_errors,
+                                        &mut type_warnings,
+                                        &inner_decl.name,
+                                        functions,
+                                        contract_registry,
+                                        &classified.name,
+                                    );
+                                    body_symbol_types.insert(
+                                        inner_decl.name.clone(),
+                                        typed_expr.resolved_type.clone(),
+                                    );
+                                    typed_body_nodes.push(self.typed_decl(
+                                        inner_decl,
+                                        typed_expr.resolved_type,
+                                        inner_decl.expr.clone(),
+                                        inner_decl.deps.clone(),
+                                    ));
                                     // PROP-039 gate 5: recur() in loop body is always OOF-R1
                                     if let Some(expr) = &inner_decl.expr {
                                         self.check_recur_in_expr(
@@ -1080,10 +1358,14 @@ impl TypeChecker {
                         }
                     }
 
-                    let mut typed_loop_decl = self.typed_decl(decl, ty, decl.expr.clone(), decl.deps.clone());
+                    let mut typed_loop_decl =
+                        self.typed_decl(decl, ty, decl.expr.clone(), decl.deps.clone());
                     // Store item_type in options for gate 8 emitter
                     if let Some(opts) = &mut typed_loop_decl.options {
-                        opts.insert("item_type".to_string(), crate::parser::WindowValue::Str(item_type_str));
+                        opts.insert(
+                            "item_type".to_string(),
+                            crate::parser::WindowValue::Str(item_type_str),
+                        );
                     }
                     typed_loop_decl.body_nodes = Some(typed_body_nodes);
                     typed_decls.push(typed_loop_decl);
@@ -1091,34 +1373,55 @@ impl TypeChecker {
                 "service_loop" => {
                     let ty = self.type_ir(&serde_json::Value::String("Nil".to_string()));
                     symbol_types.insert(decl.name.clone(), ty.clone());
-                    
+
                     let tick_ty = self.type_ir(&serde_json::Value::String("ClockTick".to_string()));
-                    
+
                     let mut body_symbol_types = symbol_types.clone();
                     body_symbol_types.insert(decl.name.clone(), tick_ty);
-                    
+
                     let mut typed_body_nodes = Vec::new();
                     if let Some(body_nodes) = &decl.body_nodes {
                         for inner_decl in body_nodes {
                             if inner_decl.kind == "compute" {
-                                let mut typed_expr = self.infer_expr(inner_decl.expr.as_ref().unwrap(), &body_symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &inner_decl.name, functions, contract_registry, &classified.name);
-                                body_symbol_types.insert(inner_decl.name.clone(), typed_expr.resolved_type.clone());
-                                typed_body_nodes.push(self.typed_decl(inner_decl, typed_expr.resolved_type, inner_decl.expr.clone(), inner_decl.deps.clone()));
+                                let mut typed_expr = self.infer_expr(
+                                    inner_decl.expr.as_ref().unwrap(),
+                                    &body_symbol_types,
+                                    olap_env,
+                                    &local_type_shapes,
+                                    &mut type_errors,
+                                    &mut type_warnings,
+                                    &inner_decl.name,
+                                    functions,
+                                    contract_registry,
+                                    &classified.name,
+                                );
+                                body_symbol_types.insert(
+                                    inner_decl.name.clone(),
+                                    typed_expr.resolved_type.clone(),
+                                );
+                                typed_body_nodes.push(self.typed_decl(
+                                    inner_decl,
+                                    typed_expr.resolved_type,
+                                    inner_decl.expr.clone(),
+                                    inner_decl.deps.clone(),
+                                ));
                             }
                         }
                     }
-                    
+
                     let mut typed_loop_decl = self.typed_decl(decl, ty, None, decl.deps.clone());
                     typed_loop_decl.body_nodes = Some(typed_body_nodes);
                     typed_decls.push(typed_loop_decl);
                 }
                 "fold_stream" => {
                     // fold_stream result type defaults to init arg type
-                    let mut res_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                    let mut res_type =
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                     if let Some(Expr::Call { args, .. }) = &decl.expr {
                         if args.len() >= 2 {
                             if let Expr::Literal { type_tag, .. } = &args[1] {
-                                res_type = self.type_ir(&serde_json::Value::String(type_tag.clone()));
+                                res_type =
+                                    self.type_ir(&serde_json::Value::String(type_tag.clone()));
                             }
                         }
                     }
@@ -1133,9 +1436,15 @@ impl TypeChecker {
                                         stream_symbols.insert(s.name.clone());
                                     }
                                 }
-                                let mut lambda_params: HashSet<String> = params.iter().cloned().collect();
+                                let mut lambda_params: HashSet<String> =
+                                    params.iter().cloned().collect();
                                 let mut escape_refs = Vec::new();
-                                self.collect_escape_refs(body, &stream_symbols, &mut lambda_params, &mut escape_refs);
+                                self.collect_escape_refs(
+                                    body,
+                                    &stream_symbols,
+                                    &mut lambda_params,
+                                    &mut escape_refs,
+                                );
                                 for ref_name in escape_refs {
                                     type_errors.push(ClassifierDiagnostic {
                                         rule: "OOF-S3".to_string(),
@@ -1149,18 +1458,34 @@ impl TypeChecker {
                     }
 
                     symbol_types.insert(decl.name.clone(), res_type.clone());
-                    typed_decls.push(self.typed_decl(decl, res_type, decl.expr.clone(), decl.deps.clone()));
+                    typed_decls.push(self.typed_decl(
+                        decl,
+                        res_type,
+                        decl.expr.clone(),
+                        decl.deps.clone(),
+                    ));
                 }
                 "invariant" => {
                     let predicate_ref = decl.predicate_ref.clone().unwrap_or_default();
                     let severity = decl.severity.clone().unwrap_or_else(|| "error".to_string());
-                    let pred_type = symbol_types.get(&predicate_ref).cloned().unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    let pred_type =
+                        symbol_types
+                            .get(&predicate_ref)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                            });
 
                     // TC-INV-1: invariant predicate must be Bool
-                    if self.type_name(&pred_type) != "Bool" && self.type_name(&pred_type) != "Unknown" {
+                    if self.type_name(&pred_type) != "Bool"
+                        && self.type_name(&pred_type) != "Unknown"
+                    {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-IV3".to_string(),
-                            message: format!("invariant predicate must be Bool, got {}", self.type_name(&pred_type)),
+                            message: format!(
+                                "invariant predicate must be Bool, got {}",
+                                self.type_name(&pred_type)
+                            ),
                             node: decl.name.clone(),
                             line: None,
                         });
@@ -1210,7 +1535,11 @@ impl TypeChecker {
                         label: decl.label.clone(),
                         message: decl.message.clone(),
                         overridable_with: decl.overridable_with.clone(),
-                        output_effect: Some(self.invariant_output_effect(&decl.severity.clone().unwrap_or_default())),
+                        output_effect: Some(
+                            self.invariant_output_effect(
+                                &decl.severity.clone().unwrap_or_default(),
+                            ),
+                        ),
                         warnings_from: None,
                         uncertain_from: None,
                         metrics_from: None,
@@ -1219,7 +1548,18 @@ impl TypeChecker {
                     });
                 }
                 "compute" | "snapshot" => {
-                    let mut typed_expr = self.infer_expr(decl.expr.as_ref().unwrap(), &symbol_types, olap_env, &local_type_shapes, &mut type_errors, &mut type_warnings, &decl.name, functions, contract_registry, &classified.name);
+                    let mut typed_expr = self.infer_expr(
+                        decl.expr.as_ref().unwrap(),
+                        &symbol_types,
+                        olap_env,
+                        &local_type_shapes,
+                        &mut type_errors,
+                        &mut type_warnings,
+                        &decl.name,
+                        functions,
+                        contract_registry,
+                        &classified.name,
+                    );
                     // PROP-039 gate 5: if recur_authorized and expr contains recur(),
                     // use the contract output type to resolve the compute node's type.
                     // This prevents a spurious OOF-TY0 at the output check when recur()
@@ -1240,12 +1580,15 @@ impl TypeChecker {
                     // named-record output or compute annotation, re-check the fold
                     // seed and lambda body against that expected `Acc`.
                     if self.type_name(&typed_expr.resolved_type) == "Unknown" {
-                        let fold_acc_hint = decl.type_annotation.as_ref()
+                        let fold_acc_hint = decl
+                            .type_annotation
+                            .as_ref()
                             .map(|ann| self.type_ir(ann))
                             .filter(|ir| local_type_shapes.contains_key(&self.type_name(ir)))
                             .or_else(|| {
-                                output_type_hints.get(&decl.name)
-                                    .map(|name| self.type_ir(&serde_json::Value::String(name.clone())))
+                                output_type_hints.get(&decl.name).map(|name| {
+                                    self.type_ir(&serde_json::Value::String(name.clone()))
+                                })
                             });
                         if let (Some(expected_acc), Some(Expr::Call { fn_name, args })) =
                             (fold_acc_hint, decl.expr.as_ref())
@@ -1297,7 +1640,9 @@ impl TypeChecker {
                     if self.type_name(&typed_expr.resolved_type) == "Unknown" {
                         if let Some(Expr::RecordLiteral { fields }) = decl.expr.as_ref() {
                             if let Some(expected_type_name) = output_type_hints.get(&decl.name) {
-                                if let Some(shape) = local_type_shapes.get(expected_type_name.as_str()).cloned() {
+                                if let Some(shape) =
+                                    local_type_shapes.get(expected_type_name.as_str()).cloned()
+                                {
                                     let errors_before = type_errors.len();
                                     self.check_record_literal_shape(
                                         fields,
@@ -1311,7 +1656,7 @@ impl TypeChecker {
                                     if type_errors.len() == errors_before {
                                         // All checks passed — upgrade compute node type
                                         typed_expr.resolved_type = self.type_ir(
-                                            &serde_json::Value::String(expected_type_name.clone())
+                                            &serde_json::Value::String(expected_type_name.clone()),
                                         );
                                     }
                                 }
@@ -1330,7 +1675,9 @@ impl TypeChecker {
                     // this contextual type (zero elements → zero checks → upgrade).
                     if self.type_name(&typed_expr.resolved_type) == "Unknown" {
                         if let Some(Expr::ArrayLiteral { items }) = decl.expr.as_ref() {
-                            if let Some(elem_type_ir) = collection_output_hints.get(&decl.name).cloned() {
+                            if let Some(elem_type_ir) =
+                                collection_output_hints.get(&decl.name).cloned()
+                            {
                                 let errors_before = type_errors.len();
                                 self.check_array_literal_shape(
                                     items,
@@ -1343,8 +1690,14 @@ impl TypeChecker {
                                 if type_errors.len() == errors_before {
                                     // All elements conform — upgrade to Collection[T].
                                     let mut col = serde_json::Map::new();
-                                    col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
-                                    col.insert("params".to_string(), serde_json::Value::Array(vec![elem_type_ir]));
+                                    col.insert(
+                                        "name".to_string(),
+                                        serde_json::Value::String("Collection".to_string()),
+                                    );
+                                    col.insert(
+                                        "params".to_string(),
+                                        serde_json::Value::Array(vec![elem_type_ir]),
+                                    );
                                     typed_expr.resolved_type = serde_json::Value::Object(col);
                                 }
                             }
@@ -1364,7 +1717,9 @@ impl TypeChecker {
                         if self.unknown_or_unknown_bearing(&typed_expr.resolved_type) {
                             // (a) inferred is Unknown or Unknown-bearing — annotation authoritative
                             typed_expr.resolved_type = ann_type;
-                        } else if !self.structurally_assignable(&typed_expr.resolved_type, &ann_type) {
+                        } else if !self
+                            .structurally_assignable(&typed_expr.resolved_type, &ann_type)
+                        {
                             // (c) concrete mismatch — emit OOF-TY0, bind annotation to avoid cascade
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-TY0".to_string(),
@@ -1384,11 +1739,18 @@ impl TypeChecker {
                     // igniter-string-core: rewrite concat calls before storing expr in TypedDecl.
                     // This resolves the Collection/Text ambiguity so the emitter emits the
                     // correct qualified fn name (stdlib.text.concat / stdlib.collection.concat).
-                    let rewritten_expr = decl.expr.as_ref()
+                    let rewritten_expr = decl
+                        .expr
+                        .as_ref()
                         .map(|e| self.rewrite_concat_calls(e, &symbol_types));
                     // PROP-044 P5: carry annotated_expr (variant_construct / match_node SIR) through to emitter.
                     let annotated = typed_expr.annotated_expr.take();
-                    let mut td = self.typed_decl(decl, typed_expr.resolved_type, rewritten_expr, decl.deps.clone());
+                    let mut td = self.typed_decl(
+                        decl,
+                        typed_expr.resolved_type,
+                        rewritten_expr,
+                        decl.deps.clone(),
+                    );
                     td.annotated_expr = annotated;
                     typed_decls.push(td);
                     // PROP-039 gate 5: validate recur() calls in compute expressions
@@ -1411,18 +1773,33 @@ impl TypeChecker {
                         // PROP-041 T2: OOF-R9 call-site structural-size check
                         if let Some(ctx) = &t2_context {
                             if ctx.kind == T2Kind::T2Pass {
-                                self.check_t2_callsite_in_expr(expr, &mut type_errors, &decl.name, ctx, &recur_input_names);
+                                self.check_t2_callsite_in_expr(
+                                    expr,
+                                    &mut type_errors,
+                                    &decl.name,
+                                    ctx,
+                                    &recur_input_names,
+                                );
                             }
                         }
                         // PROP-042 T3: OOF-R11 call-site numeric-measure check
                         if let Some(ctx) = &t3_context {
-                            self.check_t3_callsite_in_expr(expr, &mut type_errors, &decl.name, ctx, &recur_input_names, size_registry);
+                            self.check_t3_callsite_in_expr(
+                                expr,
+                                &mut type_errors,
+                                &decl.name,
+                                ctx,
+                                &recur_input_names,
+                                size_registry,
+                            );
                         }
                     }
                 }
                 "output" => {
                     let expected = self.type_ir(decl.type_annotation.as_ref().unwrap());
-                    let actual = symbol_types.get(&decl.name).cloned().unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    let actual = symbol_types.get(&decl.name).cloned().unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    });
 
                     // LANG-OUTPUT-TYPE-ASSIGNABILITY-P4: structural check supersedes the
                     // outer-name-only comparison and the LAB-RACK-P9 guard (D6).
@@ -1430,11 +1807,15 @@ impl TypeChecker {
                     // D3 (expected Unknown → true) at all depths. OOF-TY1 replaces OOF-TY0
                     // at the output boundary.
                     if !self.structurally_assignable(&actual, &expected)
-                        && !self.blocking_rule_present(&type_errors) {
+                        && !self.blocking_rule_present(&type_errors)
+                    {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY1".to_string(),
-                            message: format!("Output type mismatch: expected {}, got {}",
-                                             self.type_display(&expected), self.type_display(&actual)),
+                            message: format!(
+                                "Output type mismatch: expected {}, got {}",
+                                self.type_display(&expected),
+                                self.type_display(&actual)
+                            ),
                             node: decl.name.clone(),
                             line: None,
                         });
@@ -1476,9 +1857,21 @@ impl TypeChecker {
                         message: None,
                         overridable_with: None,
                         output_effect: None,
-                        warnings_from: if warnings_from.is_empty() { None } else { Some(warnings_from) },
-                        uncertain_from: if uncertain_from.is_empty() { None } else { Some(uncertain_from) },
-                        metrics_from: if metrics_from.is_empty() { None } else { Some(metrics_from) },
+                        warnings_from: if warnings_from.is_empty() {
+                            None
+                        } else {
+                            Some(warnings_from)
+                        },
+                        uncertain_from: if uncertain_from.is_empty() {
+                            None
+                        } else {
+                            Some(uncertain_from)
+                        },
+                        metrics_from: if metrics_from.is_empty() {
+                            None
+                        } else {
+                            Some(metrics_from)
+                        },
                         body_nodes: None,
                         annotated_expr: None,
                     });
@@ -1487,7 +1880,10 @@ impl TypeChecker {
             }
         }
 
-        let status = if type_errors.iter().any(|d| d.rule.starts_with("OOF-") || d.rule.starts_with("E-IO-")) {
+        let status = if type_errors
+            .iter()
+            .any(|d| d.rule.starts_with("OOF-") || d.rule.starts_with("E-IO-"))
+        {
             "blocked".to_string()
         } else {
             "accepted".to_string()
@@ -1503,19 +1899,30 @@ impl TypeChecker {
             symbols: {
                 let mut sorted_keys: Vec<&String> = symbol_types.keys().collect();
                 sorted_keys.sort();
-                sorted_keys.into_iter().map(|name| TypedSymbol {
-                    name: name.clone(),
-                    type_info: symbol_types.get(name).unwrap().clone(),
-                    resolved: self.type_name(symbol_types.get(name).unwrap()) != "Unknown",
-                }).collect()
+                sorted_keys
+                    .into_iter()
+                    .map(|name| TypedSymbol {
+                        name: name.clone(),
+                        type_info: symbol_types.get(name).unwrap().clone(),
+                        resolved: self.type_name(symbol_types.get(name).unwrap()) != "Unknown",
+                    })
+                    .collect()
             },
             declarations: typed_decls,
             type_errors: self.dedupe_errors(&type_errors),
-            type_warnings: if type_warnings.is_empty() { None } else { Some(self.dedupe_errors(&type_warnings)) },
+            type_warnings: if type_warnings.is_empty() {
+                None
+            } else {
+                Some(self.dedupe_errors(&type_warnings))
+            },
             decreases_variant: clean_decreases_variant,
             // PROP-041 T2: propagate structural-size evidence for SemanticIR structural_size_v1 emission
             decreases_variant_t2: t2_context.as_ref().and_then(|ctx| {
-                if ctx.kind == T2Kind::T2Pass { Some(ctx.dv.clone()) } else { None }
+                if ctx.kind == T2Kind::T2Pass {
+                    Some(ctx.dv.clone())
+                } else {
+                    None
+                }
             }),
             size_relation_evidence: t2_context.as_ref().and_then(|ctx| {
                 if ctx.kind == T2Kind::T2Pass {
@@ -1549,13 +1956,22 @@ impl TypeChecker {
     /// Build the per-typecheck size registry: STDLIB entries + user-declared entries.
     /// Keys are (TypeName, accessor); values are trust/source metadata.
     /// Source for user entries = module name (mirrors Ruby build_size_registry).
-    fn build_size_registry(&self, classified: &ClassifiedProgram) -> HashMap<(String, String), T2RegistryEntry> {
+    fn build_size_registry(
+        &self,
+        classified: &ClassifiedProgram,
+    ) -> HashMap<(String, String), T2RegistryEntry> {
         let mut registry = stdlib_size_registry();
-        let mod_name = classified.module.clone().unwrap_or_else(|| "unknown".to_string());
+        let mod_name = classified
+            .module
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         for sr in &classified.size_relations {
             registry.insert(
                 (sr.type_name.clone(), sr.accessor.clone()),
-                T2RegistryEntry { trust: "user_assumed".to_string(), source: mod_name.clone() },
+                T2RegistryEntry {
+                    trust: "user_assumed".to_string(),
+                    source: mod_name.clone(),
+                },
             );
         }
         registry
@@ -1565,22 +1981,28 @@ impl TypeChecker {
     /// Maps contract_name → ContractRegistryEntry.
     /// Built from ClassifiedProgram.contracts before the contract loop, so all
     /// contracts see the full module (order-independent single pass over declarations).
-    fn build_contract_registry(&self, classified: &ClassifiedProgram) -> HashMap<String, ContractRegistryEntry> {
+    fn build_contract_registry(
+        &self,
+        classified: &ClassifiedProgram,
+    ) -> HashMap<String, ContractRegistryEntry> {
         let mut registry = HashMap::new();
         for contract in &classified.contracts {
             let modifier = contract.modifier.clone();
-            let input_decls: Vec<&ClassifiedDecl> = contract.declarations.iter()
+            let input_decls: Vec<&ClassifiedDecl> = contract
+                .declarations
+                .iter()
                 .filter(|d| d.kind == "input")
                 .collect();
-            let output_decls: Vec<&ClassifiedDecl> = contract.declarations.iter()
+            let output_decls: Vec<&ClassifiedDecl> = contract
+                .declarations
+                .iter()
                 .filter(|d| d.kind == "output")
                 .collect();
 
             let input_count = input_decls.len();
-            let input_names: Vec<String> = input_decls.iter()
-                .map(|d| d.name.clone())
-                .collect();
-            let input_types: Vec<serde_json::Value> = input_decls.iter()
+            let input_names: Vec<String> = input_decls.iter().map(|d| d.name.clone()).collect();
+            let input_types: Vec<serde_json::Value> = input_decls
+                .iter()
                 .filter_map(|d| d.type_annotation.clone())
                 .collect();
 
@@ -1595,15 +2017,18 @@ impl TypeChecker {
                 None
             };
 
-            registry.insert(contract.name.clone(), ContractRegistryEntry {
-                modifier,
-                input_count,
-                input_names,
-                input_types,
-                single_output_type,
-                single_output_name,
-                contract_name: contract.name.clone(),
-            });
+            registry.insert(
+                contract.name.clone(),
+                ContractRegistryEntry {
+                    modifier,
+                    input_count,
+                    input_names,
+                    input_types,
+                    single_output_type,
+                    single_output_name,
+                    contract_name: contract.name.clone(),
+                },
+            );
         }
         registry
     }
@@ -1621,7 +2046,7 @@ impl TypeChecker {
             Some(p) => p,
             None => return None,
         };
-        let subject  = &dv[..dot_pos];
+        let subject = &dv[..dot_pos];
         let accessor = &dv[dot_pos + 1..];
 
         // Numeric accessor → OOF-R3 (design decision 4: not T2 territory)
@@ -1648,12 +2073,17 @@ impl TypeChecker {
 
         // Resolve the subject's declared type from input declarations.
         // type_annotation is a type_ir hash: {"kind":"type_ref","name":"Collection","params":[...]}
-        let type_name_str: String = classified.declarations.iter()
+        let type_name_str: String = classified
+            .declarations
+            .iter()
             .find(|d| d.kind == "input" && d.name == subject)
             .and_then(|d| d.type_annotation.as_ref())
             .map(|ta| {
                 if let Some(obj) = ta.as_object() {
-                    obj.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
+                    obj.get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string()
                 } else if let Some(s) = ta.as_str() {
                     s.split('[').next().unwrap_or("Unknown").trim().to_string()
                 } else {
@@ -1720,7 +2150,11 @@ impl TypeChecker {
                                     "recur() in '{}' — structural size call-site mismatch: \
                                      expected '{}.{}' at argument position {}, got: {}; \
                                      the recur() argument must be the declared structural accessor",
-                                    node_name, ctx.subject, ctx.accessor, subject_pos + 1, arg_desc
+                                    node_name,
+                                    ctx.subject,
+                                    ctx.accessor,
+                                    subject_pos + 1,
+                                    arg_desc
                                 ),
                                 node: node_name.to_string(),
                                 line: None,
@@ -1750,12 +2184,22 @@ impl TypeChecker {
             }
             // IfExpr: walk cond + then/else_block bodies.
             // Symmetric with check_recur_in_expr IfExpr handling — mirrors stmts + return_expr walk.
-            Expr::IfExpr { cond, then, else_block } => {
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
                 self.check_t2_callsite_in_expr(cond, type_errors, node_name, ctx, input_names);
                 // then block
                 for stmt in &then.stmts {
                     if let Stmt::Let { expr, .. } = stmt {
-                        self.check_t2_callsite_in_expr(expr, type_errors, node_name, ctx, input_names);
+                        self.check_t2_callsite_in_expr(
+                            expr,
+                            type_errors,
+                            node_name,
+                            ctx,
+                            input_names,
+                        );
                     }
                 }
                 if let Some(re) = &then.return_expr {
@@ -1765,11 +2209,23 @@ impl TypeChecker {
                 if let Some(eb) = else_block {
                     for stmt in &eb.stmts {
                         if let Stmt::Let { expr, .. } = stmt {
-                            self.check_t2_callsite_in_expr(expr, type_errors, node_name, ctx, input_names);
+                            self.check_t2_callsite_in_expr(
+                                expr,
+                                type_errors,
+                                node_name,
+                                ctx,
+                                input_names,
+                            );
                         }
                     }
                     if let Some(re) = &eb.return_expr {
-                        self.check_t2_callsite_in_expr(re, type_errors, node_name, ctx, input_names);
+                        self.check_t2_callsite_in_expr(
+                            re,
+                            type_errors,
+                            node_name,
+                            ctx,
+                            input_names,
+                        );
                     }
                 }
             }
@@ -1780,7 +2236,9 @@ impl TypeChecker {
     /// True when `expr` is exactly `subject.accessor` (field access on a ref).
     fn t2_structural_arg(&self, expr: &Expr, subject: &str, accessor: &str) -> bool {
         if let Expr::FieldAccess { object, field } = expr {
-            if field != accessor { return false; }
+            if field != accessor {
+                return false;
+            }
             if let Expr::Ref { name } = object.as_ref() {
                 return name == subject;
             }
@@ -1805,15 +2263,20 @@ impl TypeChecker {
         let (fn_name, arg_name) = parse_t3_call_form(variant)?;
 
         // Look up the function in NUMERIC_MEASURE_BUILTINS v0
-        if let Some(&(_, qualified_name, trust, source)) =
-            NUMERIC_MEASURE_BUILTINS_V0.iter().find(|&&(f, _, _, _)| f == fn_name)
+        if let Some(&(_, qualified_name, trust, source)) = NUMERIC_MEASURE_BUILTINS_V0
+            .iter()
+            .find(|&&(f, _, _, _)| f == fn_name)
         {
             // Recognized builtin — return T3 context; call-site check done separately
             Some(T3Context {
                 dv: variant.to_string(),
                 fn_name: fn_name.to_string(),
                 arg_name: arg_name.to_string(),
-                builtin: T3BuiltinEntry { qualified_name, trust, source },
+                builtin: T3BuiltinEntry {
+                    qualified_name,
+                    trust,
+                    source,
+                },
             })
         } else {
             // OOF-R10: unrecognized / deferred measure function
@@ -1851,7 +2314,8 @@ impl TypeChecker {
                 if let Some(subject_pos) = input_names.iter().position(|n| n == &ctx.arg_name) {
                     if subject_pos < args.len() {
                         let variant_arg = &args[subject_pos];
-                        if !self.t3_structurally_covered(variant_arg, &ctx.arg_name, size_registry) {
+                        if !self.t3_structurally_covered(variant_arg, &ctx.arg_name, size_registry)
+                        {
                             let arg_desc = syntactic_arg_desc(variant_arg);
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-R11".to_string(),
@@ -1871,41 +2335,129 @@ impl TypeChecker {
             }
             Expr::Call { fn_name: _, args } => {
                 for arg in args {
-                    self.check_t3_callsite_in_expr(arg, type_errors, node_name, ctx, input_names, size_registry);
+                    self.check_t3_callsite_in_expr(
+                        arg,
+                        type_errors,
+                        node_name,
+                        ctx,
+                        input_names,
+                        size_registry,
+                    );
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.check_t3_callsite_in_expr(left, type_errors, node_name, ctx, input_names, size_registry);
-                self.check_t3_callsite_in_expr(right, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(
+                    left,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
+                self.check_t3_callsite_in_expr(
+                    right,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
             }
             Expr::UnaryOp { operand, .. } => {
-                self.check_t3_callsite_in_expr(operand, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(
+                    operand,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
             }
             Expr::FieldAccess { object, .. } => {
-                self.check_t3_callsite_in_expr(object, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(
+                    object,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
             }
             Expr::IndexAccess { object, index } => {
-                self.check_t3_callsite_in_expr(object, type_errors, node_name, ctx, input_names, size_registry);
-                self.check_t3_callsite_in_expr(index, type_errors, node_name, ctx, input_names, size_registry);
+                self.check_t3_callsite_in_expr(
+                    object,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
+                self.check_t3_callsite_in_expr(
+                    index,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
             }
-            Expr::IfExpr { cond, then, else_block } => {
-                self.check_t3_callsite_in_expr(cond, type_errors, node_name, ctx, input_names, size_registry);
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
+                self.check_t3_callsite_in_expr(
+                    cond,
+                    type_errors,
+                    node_name,
+                    ctx,
+                    input_names,
+                    size_registry,
+                );
                 for stmt in &then.stmts {
                     if let crate::parser::Stmt::Let { expr, .. } = stmt {
-                        self.check_t3_callsite_in_expr(expr, type_errors, node_name, ctx, input_names, size_registry);
+                        self.check_t3_callsite_in_expr(
+                            expr,
+                            type_errors,
+                            node_name,
+                            ctx,
+                            input_names,
+                            size_registry,
+                        );
                     }
                 }
                 if let Some(re) = &then.return_expr {
-                    self.check_t3_callsite_in_expr(re, type_errors, node_name, ctx, input_names, size_registry);
+                    self.check_t3_callsite_in_expr(
+                        re,
+                        type_errors,
+                        node_name,
+                        ctx,
+                        input_names,
+                        size_registry,
+                    );
                 }
                 if let Some(eb) = else_block {
                     for stmt in &eb.stmts {
                         if let crate::parser::Stmt::Let { expr, .. } = stmt {
-                            self.check_t3_callsite_in_expr(expr, type_errors, node_name, ctx, input_names, size_registry);
+                            self.check_t3_callsite_in_expr(
+                                expr,
+                                type_errors,
+                                node_name,
+                                ctx,
+                                input_names,
+                                size_registry,
+                            );
                         }
                     }
                     if let Some(re) = &eb.return_expr {
-                        self.check_t3_callsite_in_expr(re, type_errors, node_name, ctx, input_names, size_registry);
+                        self.check_t3_callsite_in_expr(
+                            re,
+                            type_errors,
+                            node_name,
+                            ctx,
+                            input_names,
+                            size_registry,
+                        );
                     }
                 }
             }
@@ -1924,7 +2476,9 @@ impl TypeChecker {
     ) -> bool {
         if let Expr::FieldAccess { object, field } = expr {
             if let Expr::Ref { name } = object.as_ref() {
-                if name != subject { return false; }
+                if name != subject {
+                    return false;
+                }
                 // Check all (type, field) pairs in registry for this subject+field
                 // We don't have the type here, so match on field alone against any registered entry
                 // where the subject matches (mirrors Ruby which uses @size_registry.key?([subject_type, fld]))
@@ -1936,14 +2490,32 @@ impl TypeChecker {
 
     // ── end PROP-042 T3 private helpers ──────────────────────────────────────────
 
-    fn collect_escape_refs(&self, body: &ExprOrBlock, stream_symbols: &HashSet<String>, lambda_params: &mut HashSet<String>, escape_refs: &mut Vec<String>) {
+    fn collect_escape_refs(
+        &self,
+        body: &ExprOrBlock,
+        stream_symbols: &HashSet<String>,
+        lambda_params: &mut HashSet<String>,
+        escape_refs: &mut Vec<String>,
+    ) {
         match body {
-            ExprOrBlock::Expr(e) => self.collect_expr_escape_refs(e, stream_symbols, lambda_params, escape_refs),
+            ExprOrBlock::Expr(e) => {
+                self.collect_expr_escape_refs(e, stream_symbols, lambda_params, escape_refs)
+            }
             ExprOrBlock::Block(b) => {
                 for s in &b.stmts {
                     match s {
-                        Stmt::Let { expr, .. } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
-                        Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
+                        Stmt::Let { expr, .. } => self.collect_expr_escape_refs(
+                            expr,
+                            stream_symbols,
+                            lambda_params,
+                            escape_refs,
+                        ),
+                        Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(
+                            expr,
+                            stream_symbols,
+                            lambda_params,
+                            escape_refs,
+                        ),
                     }
                 }
                 if let Some(re) = &b.return_expr {
@@ -1953,7 +2525,13 @@ impl TypeChecker {
         }
     }
 
-    fn collect_expr_escape_refs(&self, expr: &Expr, stream_symbols: &HashSet<String>, lambda_params: &mut HashSet<String>, escape_refs: &mut Vec<String>) {
+    fn collect_expr_escape_refs(
+        &self,
+        expr: &Expr,
+        stream_symbols: &HashSet<String>,
+        lambda_params: &mut HashSet<String>,
+        escape_refs: &mut Vec<String>,
+    ) {
         match expr {
             Expr::Ref { name } => {
                 if stream_symbols.contains(name) && !lambda_params.contains(name) {
@@ -1984,12 +2562,26 @@ impl TypeChecker {
                     self.collect_expr_escape_refs(arg, stream_symbols, lambda_params, escape_refs);
                 }
             }
-            Expr::IfExpr { cond, then, else_block } => {
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
                 self.collect_expr_escape_refs(cond, stream_symbols, lambda_params, escape_refs);
                 for s in &then.stmts {
                     match s {
-                        Stmt::Let { expr, .. } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
-                        Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
+                        Stmt::Let { expr, .. } => self.collect_expr_escape_refs(
+                            expr,
+                            stream_symbols,
+                            lambda_params,
+                            escape_refs,
+                        ),
+                        Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(
+                            expr,
+                            stream_symbols,
+                            lambda_params,
+                            escape_refs,
+                        ),
                     }
                 }
                 if let Some(re) = &then.return_expr {
@@ -1998,12 +2590,27 @@ impl TypeChecker {
                 if let Some(eb) = else_block {
                     for s in &eb.stmts {
                         match s {
-                            Stmt::Let { expr, .. } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
-                            Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(expr, stream_symbols, lambda_params, escape_refs),
+                            Stmt::Let { expr, .. } => self.collect_expr_escape_refs(
+                                expr,
+                                stream_symbols,
+                                lambda_params,
+                                escape_refs,
+                            ),
+                            Stmt::ExprStmt { expr } => self.collect_expr_escape_refs(
+                                expr,
+                                stream_symbols,
+                                lambda_params,
+                                escape_refs,
+                            ),
                         }
                     }
                     if let Some(re) = &eb.return_expr {
-                        self.collect_expr_escape_refs(re, stream_symbols, lambda_params, escape_refs);
+                        self.collect_expr_escape_refs(
+                            re,
+                            stream_symbols,
+                            lambda_params,
+                            escape_refs,
+                        );
                     }
                 }
             }
@@ -2028,7 +2635,13 @@ impl TypeChecker {
         }
     }
 
-    fn typed_decl(&self, decl: &ClassifiedDecl, type_info: serde_json::Value, expr: Option<Expr>, deps: Vec<String>) -> TypedDecl {
+    fn typed_decl(
+        &self,
+        decl: &ClassifiedDecl,
+        type_info: serde_json::Value,
+        expr: Option<Expr>,
+        deps: Vec<String>,
+    ) -> TypedDecl {
         TypedDecl {
             decl_id: decl.decl_id.clone(),
             kind: decl.kind.clone(),
@@ -2115,18 +2728,26 @@ impl TypeChecker {
                         line: None,
                     });
                 } else {
-                    for (idx, (arg, input_name)) in args.iter().zip(recur_input_names.iter()).enumerate() {
-                        let expected_type = symbol_types.get(input_name)
-                            .cloned()
-                            .unwrap_or_else(|| serde_json::json!({"name": "Unknown", "params": []}));
+                    for (idx, (arg, input_name)) in
+                        args.iter().zip(recur_input_names.iter()).enumerate()
+                    {
+                        let expected_type = symbol_types.get(input_name).cloned().unwrap_or_else(
+                            || serde_json::json!({"name": "Unknown", "params": []}),
+                        );
                         let mut dummy_errors = Vec::new();
                         let mut dummy_warnings = Vec::new();
                         let empty_registry: HashMap<String, ContractRegistryEntry> = HashMap::new();
                         let arg_typed = self.infer_expr(
-                            arg, symbol_types, olap_env, type_shapes,
-                            &mut dummy_errors, &mut dummy_warnings,
-                            node_name, functions,
-                            &empty_registry, node_name,
+                            arg,
+                            symbol_types,
+                            olap_env,
+                            type_shapes,
+                            &mut dummy_errors,
+                            &mut dummy_warnings,
+                            node_name,
+                            functions,
+                            &empty_registry,
+                            node_name,
                         );
                         let actual = self.type_name(&arg_typed.resolved_type);
                         let expected = self.type_name(&expected_type);
@@ -2135,7 +2756,10 @@ impl TypeChecker {
                                 rule: "OOF-R6".to_string(),
                                 message: format!(
                                     "recur() arg {} type mismatch in '{}' — expected {}, got {}",
-                                    idx + 1, node_name, expected, actual
+                                    idx + 1,
+                                    node_name,
+                                    expected,
+                                    actual
                                 ),
                                 node: node_name.to_string(),
                                 line: None,
@@ -2167,42 +2791,214 @@ impl TypeChecker {
             // Recurse into sub-expressions
             Expr::Call { fn_name: _, args } => {
                 for arg in args {
-                    self.check_recur_in_expr(arg, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                    self.check_recur_in_expr(
+                        arg,
+                        recur_authorized,
+                        recur_input_names,
+                        recur_output_count,
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        decreases_variant,
+                        decreases_variant_pos,
+                    );
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.check_recur_in_expr(left, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
-                self.check_recur_in_expr(right, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(
+                    left,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
+                self.check_recur_in_expr(
+                    right,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
             }
             Expr::UnaryOp { operand, .. } => {
-                self.check_recur_in_expr(operand, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(
+                    operand,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
             }
             Expr::FieldAccess { object, .. } => {
-                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(
+                    object,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
             }
             Expr::IndexAccess { object, index } => {
-                self.check_recur_in_expr(object, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
-                self.check_recur_in_expr(index, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                self.check_recur_in_expr(
+                    object,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
+                self.check_recur_in_expr(
+                    index,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
             }
-            Expr::IfExpr { cond, then, else_block } => {
-                self.check_recur_in_expr(cond, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
+                self.check_recur_in_expr(
+                    cond,
+                    recur_authorized,
+                    recur_input_names,
+                    recur_output_count,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    decreases_variant,
+                    decreases_variant_pos,
+                );
                 // then/else_block are BlockBody — walk stmts and return_expr
                 for stmt in &then.stmts {
                     if let Stmt::Let { expr, .. } = stmt {
-                        self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                        self.check_recur_in_expr(
+                            expr,
+                            recur_authorized,
+                            recur_input_names,
+                            recur_output_count,
+                            symbol_types,
+                            olap_env,
+                            type_shapes,
+                            type_errors,
+                            type_warnings,
+                            node_name,
+                            functions,
+                            decreases_variant,
+                            decreases_variant_pos,
+                        );
                     }
                 }
                 if let Some(re) = &then.return_expr {
-                    self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                    self.check_recur_in_expr(
+                        re,
+                        recur_authorized,
+                        recur_input_names,
+                        recur_output_count,
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        decreases_variant,
+                        decreases_variant_pos,
+                    );
                 }
                 if let Some(eb) = else_block {
                     for stmt in &eb.stmts {
                         if let Stmt::Let { expr, .. } = stmt {
-                            self.check_recur_in_expr(expr, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                            self.check_recur_in_expr(
+                                expr,
+                                recur_authorized,
+                                recur_input_names,
+                                recur_output_count,
+                                symbol_types,
+                                olap_env,
+                                type_shapes,
+                                type_errors,
+                                type_warnings,
+                                node_name,
+                                functions,
+                                decreases_variant,
+                                decreases_variant_pos,
+                            );
                         }
                     }
                     if let Some(re) = &eb.return_expr {
-                        self.check_recur_in_expr(re, recur_authorized, recur_input_names, recur_output_count, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, decreases_variant, decreases_variant_pos);
+                        self.check_recur_in_expr(
+                            re,
+                            recur_authorized,
+                            recur_input_names,
+                            recur_output_count,
+                            symbol_types,
+                            olap_env,
+                            type_shapes,
+                            type_errors,
+                            type_warnings,
+                            node_name,
+                            functions,
+                            decreases_variant,
+                            decreases_variant_pos,
+                        );
                     }
                 }
             }
@@ -2230,7 +3026,8 @@ impl TypeChecker {
     }
 
     fn get_param(&self, type_info: &serde_json::Value, index: usize) -> Option<serde_json::Value> {
-        type_info.get("params")
+        type_info
+            .get("params")
             .and_then(|p| p.as_array())
             .and_then(|arr| arr.get(index))
             .map(|val| self.type_ir(val))
@@ -2244,19 +3041,44 @@ impl TypeChecker {
     }
 
     fn type_name(&self, type_info: &serde_json::Value) -> String {
-        type_info.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
+        type_info
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Unknown")
+            .to_string()
     }
 
-    fn structurally_assignable(&self, actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
-        if self.type_name(expected) == "Unknown" { return true; }   // D3: expected Unknown accepts any
-        if self.type_name(actual) == "Unknown"   { return false; }  // D2: actual Unknown always rejected
-        if self.type_name(actual) != self.type_name(expected) { return false; }
-        let actual_params = actual.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
-        let expected_params = expected.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
-        if actual_params.len() != expected_params.len() { return false; }
-        actual_params.iter().zip(expected_params.iter()).all(|(a, e)| {
-            self.structurally_assignable(&self.type_ir(a), &self.type_ir(e))
-        })
+    fn structurally_assignable(
+        &self,
+        actual: &serde_json::Value,
+        expected: &serde_json::Value,
+    ) -> bool {
+        if self.type_name(expected) == "Unknown" {
+            return true;
+        } // D3: expected Unknown accepts any
+        if self.type_name(actual) == "Unknown" {
+            return false;
+        } // D2: actual Unknown always rejected
+        if self.type_name(actual) != self.type_name(expected) {
+            return false;
+        }
+        let actual_params = actual
+            .get("params")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let expected_params = expected
+            .get("params")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if actual_params.len() != expected_params.len() {
+            return false;
+        }
+        actual_params
+            .iter()
+            .zip(expected_params.iter())
+            .all(|(a, e)| self.structurally_assignable(&self.type_ir(a), &self.type_ir(e)))
     }
 
     /// LANG-RUST-TYPED-COMPUTE-BINDING-P2: true when a type IR is Unknown or
@@ -2268,15 +3090,28 @@ impl TypeChecker {
         }
         t.get("params")
             .and_then(|p| p.as_array())
-            .map(|params| params.iter().any(|p| self.unknown_or_unknown_bearing(&self.type_ir(p))))
+            .map(|params| {
+                params
+                    .iter()
+                    .any(|p| self.unknown_or_unknown_bearing(&self.type_ir(p)))
+            })
             .unwrap_or(false)
     }
 
     fn type_display(&self, type_info: &serde_json::Value) -> String {
         let name = self.type_name(type_info);
-        let params = type_info.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
-        if params.is_empty() { return name; }
-        let rendered: Vec<String> = params.iter().map(|p| self.type_display(&self.type_ir(p))).collect();
+        let params = type_info
+            .get("params")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if params.is_empty() {
+            return name;
+        }
+        let rendered: Vec<String> = params
+            .iter()
+            .map(|p| self.type_display(&self.type_ir(p)))
+            .collect();
         format!("{}[{}]", name, rendered.join(","))
     }
 
@@ -2305,8 +3140,7 @@ impl TypeChecker {
                 rule: "OOF-COL4".to_string(),
                 message: format!(
                     "stdlib.collection.fold: accumulator record literal does not match {}: {}",
-                    expected_type_name,
-                    err.message
+                    expected_type_name, err.message
                 ),
                 node: node_name.to_string(),
                 line: err.line,
@@ -2493,7 +3327,8 @@ impl TypeChecker {
             });
         }
         let elem_type = if collection_name == "Collection" {
-            self.get_param(&collection_type, 0).unwrap_or_else(|| unknown.clone())
+            self.get_param(&collection_type, 0)
+                .unwrap_or_else(|| unknown.clone())
         } else {
             unknown.clone()
         };
@@ -2594,18 +3429,22 @@ impl TypeChecker {
     fn collection_text_type(&self) -> serde_json::Value {
         let text_inner = self.type_ir(&serde_json::Value::String("Text".to_string()));
         let mut col = serde_json::Map::new();
-        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
-        col.insert("params".to_string(), serde_json::Value::Array(vec![text_inner]));
+        col.insert(
+            "name".to_string(),
+            serde_json::Value::String("Collection".to_string()),
+        );
+        col.insert(
+            "params".to_string(),
+            serde_json::Value::Array(vec![text_inner]),
+        );
         serde_json::Value::Object(col)
     }
 
     /// Canonical return type for a stdlib.text.* op name.
     fn text_stdlib_return_type(&self, fn_name: &str) -> serde_json::Value {
         match fn_name {
-            "concat" | "trim" | "replace" | "replace_all" |
-            "byte_slice" | "rune_slice" | "grapheme_slice" => {
-                self.type_ir(&serde_json::Value::String("Text".to_string()))
-            }
+            "concat" | "trim" | "replace" | "replace_all" | "byte_slice" | "rune_slice"
+            | "grapheme_slice" => self.type_ir(&serde_json::Value::String("Text".to_string())),
             "contains" | "starts_with" | "ends_with" | "matches" => {
                 self.type_ir(&serde_json::Value::String("Bool".to_string()))
             }
@@ -2636,7 +3475,9 @@ impl TypeChecker {
                 rule: "OOF-TY0".to_string(),
                 message: format!(
                     "stdlib.text.{}: expected {} argument(s), got {}",
-                    fn_name, expected_count, typed_args.len()
+                    fn_name,
+                    expected_count,
+                    typed_args.len()
                 ),
                 node: node_name.to_string(),
                 line: None,
@@ -2652,7 +3493,10 @@ impl TypeChecker {
                     rule: "OOF-TY0".to_string(),
                     message: format!(
                         "stdlib.text.{} arg {}: expected {}, got {}",
-                        fn_name, idx + 1, expected, actual
+                        fn_name,
+                        idx + 1,
+                        expected,
+                        actual
                     ),
                     node: node_name.to_string(),
                     line: None,
@@ -2664,18 +3508,30 @@ impl TypeChecker {
 
     /// Infer the surface type name of an expression without a full type-inference pass.
     /// Used only to distinguish Collection vs Text for concat disambiguation.
-    fn quick_arg_type(&self, expr: &Expr, symbol_types: &HashMap<String, serde_json::Value>) -> String {
+    fn quick_arg_type(
+        &self,
+        expr: &Expr,
+        symbol_types: &HashMap<String, serde_json::Value>,
+    ) -> String {
         match expr {
-            Expr::Ref { name } => {
-                symbol_types.get(name)
-                    .map(|t| self.type_name(t))
-                    .unwrap_or_else(|| "Unknown".to_string())
-            }
+            Expr::Ref { name } => symbol_types
+                .get(name)
+                .map(|t| self.type_name(t))
+                .unwrap_or_else(|| "Unknown".to_string()),
             Expr::Literal { type_tag, .. } => type_tag.clone(),
             Expr::Call { fn_name, .. } => {
                 // Collection-producing fns
-                if matches!(fn_name.as_str(), "split" | "range" | "filter" | "map" | "flat_map"
-                    | "zip" | "take" | "stdlib.collection.concat") {
+                if matches!(
+                    fn_name.as_str(),
+                    "split"
+                        | "range"
+                        | "filter"
+                        | "map"
+                        | "flat_map"
+                        | "zip"
+                        | "take"
+                        | "stdlib.collection.concat"
+                ) {
                     "Collection".to_string()
                 } else if fn_name.starts_with("stdlib.text.") {
                     "Text".to_string()
@@ -2698,18 +3554,21 @@ impl TypeChecker {
     ) -> Expr {
         match expr {
             Expr::Call { fn_name, args } => {
-                let rewritten_args: Vec<Expr> = args.iter()
+                let rewritten_args: Vec<Expr> = args
+                    .iter()
                     .map(|a| self.rewrite_concat_calls(a, symbol_types))
                     .collect();
                 let new_fn = if fn_name == "concat" {
-                    let first_type = args.first()
+                    let first_type = args
+                        .first()
                         .map(|a| self.quick_arg_type(a, symbol_types))
                         .unwrap_or_else(|| "Unknown".to_string());
                     if first_type == "Collection" || first_type == "Unknown" {
                         "stdlib.collection.concat".to_string()
                     } else if first_type == "String" {
                         // LANG-STRING-TEXT-ALIAS-P2: String+String → stdlib.string.concat
-                        let second_type = args.get(1)
+                        let second_type = args
+                            .get(1)
                             .map(|a| self.quick_arg_type(a, symbol_types))
                             .unwrap_or_else(|| "Unknown".to_string());
                         if second_type == "String" {
@@ -2723,8 +3582,11 @@ impl TypeChecker {
                 } else {
                     fn_name.clone()
                 };
-                Expr::Call { fn_name: new_fn, args: rewritten_args }
-            },
+                Expr::Call {
+                    fn_name: new_fn,
+                    args: rewritten_args,
+                }
+            }
             Expr::BinaryOp { op, left, right } => Expr::BinaryOp {
                 op: op.clone(),
                 left: Box::new(self.rewrite_concat_calls(left, symbol_types)),
@@ -2742,39 +3604,55 @@ impl TypeChecker {
                 object: Box::new(self.rewrite_concat_calls(object, symbol_types)),
                 index: Box::new(self.rewrite_concat_calls(index, symbol_types)),
             },
-            Expr::IfExpr { cond, then, else_block } => {
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
                 use crate::parser::{BlockBody, Stmt};
                 fn rewrite_block(
                     tc: &TypeChecker,
                     block: &BlockBody,
                     sym: &HashMap<String, serde_json::Value>,
                 ) -> BlockBody {
-                    let stmts = block.stmts.iter().map(|s| match s {
-                        Stmt::Let { name, expr } => Stmt::Let {
-                            name: name.clone(),
-                            expr: tc.rewrite_concat_calls(expr, sym),
-                        },
-                        Stmt::ExprStmt { expr } => Stmt::ExprStmt {
-                            expr: tc.rewrite_concat_calls(expr, sym),
-                        },
-                    }).collect();
-                    let return_expr = block.return_expr.as_ref()
+                    let stmts = block
+                        .stmts
+                        .iter()
+                        .map(|s| match s {
+                            Stmt::Let { name, expr } => Stmt::Let {
+                                name: name.clone(),
+                                expr: tc.rewrite_concat_calls(expr, sym),
+                            },
+                            Stmt::ExprStmt { expr } => Stmt::ExprStmt {
+                                expr: tc.rewrite_concat_calls(expr, sym),
+                            },
+                        })
+                        .collect();
+                    let return_expr = block
+                        .return_expr
+                        .as_ref()
                         .map(|e| Box::new(tc.rewrite_concat_calls(e, sym)));
                     BlockBody { stmts, return_expr }
                 }
                 Expr::IfExpr {
                     cond: Box::new(self.rewrite_concat_calls(cond, symbol_types)),
                     then: rewrite_block(self, then, symbol_types),
-                    else_block: else_block.as_ref().map(|b| rewrite_block(self, b, symbol_types)),
+                    else_block: else_block
+                        .as_ref()
+                        .map(|b| rewrite_block(self, b, symbol_types)),
                 }
-            },
+            }
             Expr::ArrayLiteral { items } => Expr::ArrayLiteral {
-                items: items.iter().map(|i| self.rewrite_concat_calls(i, symbol_types)).collect(),
+                items: items
+                    .iter()
+                    .map(|i| self.rewrite_concat_calls(i, symbol_types))
+                    .collect(),
             },
             Expr::RecordLiteral { fields } => Expr::RecordLiteral {
-                fields: fields.iter().map(|(k, v)| {
-                    (k.clone(), self.rewrite_concat_calls(v, symbol_types))
-                }).collect(),
+                fields: fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), self.rewrite_concat_calls(v, symbol_types)))
+                    .collect(),
             },
             // Leaf nodes: clone as-is
             _ => expr.clone(),
@@ -2784,7 +3662,11 @@ impl TypeChecker {
     // ---- end igniter-string-core helpers ------------------------------------
 
     fn blocking_rule_present(&self, errors: &[ClassifierDiagnostic]) -> bool {
-        let blocking = ["OOF-P1", "OOF-CE4", "OOF-OS2", "OOF-H1", "OOF-BT1", "OOF-BT2", "OOF-BT3", "OOF-BT4", "OOF-TM1", "OOF-TM3", "OOF-TM4", "OOF-TM5", "OOF-TM6", "OOF-S3", "OOF-O3", "OOF-O4", "OOF-O5", "OOF-IV3"];
+        let blocking = [
+            "OOF-P1", "OOF-CE4", "OOF-OS2", "OOF-H1", "OOF-BT1", "OOF-BT2", "OOF-BT3", "OOF-BT4",
+            "OOF-TM1", "OOF-TM3", "OOF-TM4", "OOF-TM5", "OOF-TM6", "OOF-S3", "OOF-O3", "OOF-O4",
+            "OOF-O5", "OOF-IV3",
+        ];
         errors.iter().any(|e| blocking.contains(&e.rule.as_str()))
     }
 
@@ -2821,7 +3703,6 @@ impl TypeChecker {
                     deps: Vec::new(),
                     annotated_expr: None,
                 }
-
             }
             Expr::Symbol { value } => {
                 let ty = self.type_ir(&serde_json::Value::String("Symbol".to_string()));
@@ -2830,14 +3711,17 @@ impl TypeChecker {
                     deps: Vec::new(),
                     annotated_expr: None,
                 }
-
             }
             Expr::Ref { name } => {
                 let in_symbols = symbol_types.contains_key(name);
-                let in_olap    = olap_env.contains_key(name);
-                let ty = symbol_types.get(name).cloned()
+                let in_olap = olap_env.contains_key(name);
+                let ty = symbol_types
+                    .get(name)
+                    .cloned()
                     .or_else(|| olap_env.get(name).and_then(|o| o.get("type")).cloned())
-                    .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    .unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    });
                 // OOF-P1 fires only when the symbol is truly undeclared (not in symbol_types
                 // or olap_env). A declared symbol with Unknown type is acceptable — it is
                 // opaque (e.g. returned by call_contract), not missing.
@@ -2856,10 +3740,20 @@ impl TypeChecker {
                     deps: vec![name.clone()],
                     annotated_expr: None,
                 }
-
             }
             Expr::FieldAccess { object, field } => {
-                let obj_typed = self.infer_expr(object, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let obj_typed = self.infer_expr(
+                    object,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
                 let obj_type = self.type_name(&obj_typed.resolved_type);
 
                 // OOF-R3 v0 whitelist: Collection.tail / Collection.rest return Collection[T]
@@ -2893,10 +3787,13 @@ impl TypeChecker {
                     }
                 }
 
-                let field_type = type_shapes.get(&obj_type)
+                let field_type = type_shapes
+                    .get(&obj_type)
                     .and_then(|fields| fields.get(field))
                     .cloned()
-                    .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    .unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    });
 
                 if self.type_name(&field_type) == "Unknown" {
                     type_errors.push(ClassifierDiagnostic {
@@ -2912,12 +3809,39 @@ impl TypeChecker {
                     deps: obj_typed.deps,
                     annotated_expr: None,
                 }
-
             }
             Expr::BinaryOp { op, left, right } => {
-                let left_typed = self.infer_expr(left, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                let right_typed = self.infer_expr(right, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                let (resolved_op, res_type) = self.operator_type(op, &left_typed.resolved_type, &right_typed.resolved_type, type_errors, node_name);
+                let left_typed = self.infer_expr(
+                    left,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                let right_typed = self.infer_expr(
+                    right,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                let (resolved_op, res_type) = self.operator_type(
+                    op,
+                    &left_typed.resolved_type,
+                    &right_typed.resolved_type,
+                    type_errors,
+                    node_name,
+                );
 
                 let mut deps = left_typed.deps;
                 deps.append(&mut right_typed.deps.clone());
@@ -2928,13 +3852,33 @@ impl TypeChecker {
                     annotated_expr: None,
                 }
             }
-            Expr::IfExpr { cond, then, else_block } => {
+            Expr::IfExpr {
+                cond,
+                then,
+                else_block,
+            } => {
                 // cond must be Bool (OOF-IF1)
-                let cond_typed = self.infer_expr(cond, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                if self.type_name(&cond_typed.resolved_type) != "Bool" && self.type_name(&cond_typed.resolved_type) != "Unknown" {
+                let cond_typed = self.infer_expr(
+                    cond,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                if self.type_name(&cond_typed.resolved_type) != "Bool"
+                    && self.type_name(&cond_typed.resolved_type) != "Unknown"
+                {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-IF1".to_string(),
-                        message: format!("if_expr condition must be Bool, got {}", self.type_name(&cond_typed.resolved_type)),
+                        message: format!(
+                            "if_expr condition must be Bool, got {}",
+                            self.type_name(&cond_typed.resolved_type)
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
@@ -2949,7 +3893,8 @@ impl TypeChecker {
                         line: None,
                     });
                     return TypedExpression {
-                        resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                        resolved_type: self
+                            .type_ir(&serde_json::Value::String("Unknown".to_string())),
                         deps: cond_typed.deps,
                         annotated_expr: None,
                     };
@@ -2967,32 +3912,59 @@ impl TypeChecker {
                         line: None,
                     });
                     return TypedExpression {
-                        resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                        resolved_type: self
+                            .type_ir(&serde_json::Value::String("Unknown".to_string())),
                         deps: cond_typed.deps,
                         annotated_expr: None,
                     };
                 }
 
-                let then_typed = self.infer_expr(then_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                let else_typed = self.infer_expr(else_final.unwrap(), symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let then_typed = self.infer_expr(
+                    then_final.unwrap(),
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                let else_typed = self.infer_expr(
+                    else_final.unwrap(),
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
 
                 let then_name = self.type_name(&then_typed.resolved_type);
                 let else_name = self.type_name(&else_typed.resolved_type);
 
                 // OOF-IF3 check: then/else branch types must exact-match
-                let resolved_type = if then_name != "Unknown" && else_name != "Unknown" && then_name != else_name {
-                    type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-IF3".to_string(),
-                        message: format!("if_expr branch types must match: then={}, else={}", then_name, else_name),
-                        node: node_name.to_string(),
-                        line: None,
-                    });
-                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                } else if then_name == "Unknown" {
-                    else_typed.resolved_type
-                } else {
-                    then_typed.resolved_type
-                };
+                let resolved_type =
+                    if then_name != "Unknown" && else_name != "Unknown" && then_name != else_name {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-IF3".to_string(),
+                            message: format!(
+                                "if_expr branch types must match: then={}, else={}",
+                                then_name, else_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    } else if then_name == "Unknown" {
+                        else_typed.resolved_type
+                    } else {
+                        then_typed.resolved_type
+                    };
 
                 let mut deps = cond_typed.deps;
                 deps.append(&mut then_typed.deps.clone());
@@ -3015,15 +3987,47 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
+                        return TypedExpression {
+                            resolved_type: self
+                                .type_ir(&serde_json::Value::String("Unknown".to_string())),
+                            deps: Vec::new(),
+                            annotated_expr: None,
+                        };
                     }
-                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                    let as_of_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                    let history_typed = self.infer_expr(
+                        &args[0],
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                    let as_of_typed = self.infer_expr(
+                        &args[1],
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
 
-                    if self.type_name(&as_of_typed.resolved_type) != "DateTime" && self.type_name(&as_of_typed.resolved_type) != "Unknown" {
+                    if self.type_name(&as_of_typed.resolved_type) != "DateTime"
+                        && self.type_name(&as_of_typed.resolved_type) != "Unknown"
+                    {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TM3".to_string(),
-                            message: format!("history_at: as_of must be DateTime, got {}", self.type_name(&as_of_typed.resolved_type)),
+                            message: format!(
+                                "history_at: as_of must be DateTime, got {}",
+                                self.type_name(&as_of_typed.resolved_type)
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
@@ -3036,11 +4040,17 @@ impl TypeChecker {
                     }
 
                     let mut opt = serde_json::Map::new();
-                    opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+                    opt.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Option".to_string()),
+                    );
                     let mut inner_ty = serde_json::Map::new();
                     inner_ty.insert("name".to_string(), serde_json::Value::String(inner));
                     inner_ty.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-                    opt.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]));
+                    opt.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]),
+                    );
 
                     let mut deps = history_typed.deps;
                     deps.append(&mut as_of_typed.deps.clone());
@@ -3058,27 +4068,81 @@ impl TypeChecker {
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
+                        return TypedExpression {
+                            resolved_type: self
+                                .type_ir(&serde_json::Value::String("Unknown".to_string())),
+                            deps: Vec::new(),
+                            annotated_expr: None,
+                        };
                     }
                     if args.len() < 3 {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TM5".to_string(),
-                            message: "bihistory_at requires transaction_time (tt) argument".to_string(),
+                            message: "bihistory_at requires transaction_time (tt) argument"
+                                .to_string(),
                             node: node_name.to_string(),
                             line: None,
                         });
-                        return TypedExpression { resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())), deps: Vec::new(), annotated_expr: None };
+                        return TypedExpression {
+                            resolved_type: self
+                                .type_ir(&serde_json::Value::String("Unknown".to_string())),
+                            deps: Vec::new(),
+                            annotated_expr: None,
+                        };
                     }
-                    let history_typed = self.infer_expr(&args[0], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                    let vt_typed = self.infer_expr(&args[1], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                    let tt_typed = self.infer_expr(&args[2], symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                    let history_typed = self.infer_expr(
+                        &args[0],
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                    let vt_typed = self.infer_expr(
+                        &args[1],
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                    let tt_typed = self.infer_expr(
+                        &args[2],
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
 
                     for (idx, axis_ref) in [&vt_typed, &tt_typed].iter().enumerate() {
-                        let axis_name = if idx == 0 { "valid_time" } else { "transaction_time" };
-                        if self.type_name(&axis_ref.resolved_type) != "DateTime" && self.type_name(&axis_ref.resolved_type) != "Unknown" {
+                        let axis_name = if idx == 0 {
+                            "valid_time"
+                        } else {
+                            "transaction_time"
+                        };
+                        if self.type_name(&axis_ref.resolved_type) != "DateTime"
+                            && self.type_name(&axis_ref.resolved_type) != "Unknown"
+                        {
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-TM6".to_string(),
-                                message: format!("bihistory_at: {} must be DateTime, got {}", axis_name, self.type_name(&axis_ref.resolved_type)),
+                                message: format!(
+                                    "bihistory_at: {} must be DateTime, got {}",
+                                    axis_name,
+                                    self.type_name(&axis_ref.resolved_type)
+                                ),
                                 node: node_name.to_string(),
                                 line: None,
                             });
@@ -3091,11 +4155,17 @@ impl TypeChecker {
                     }
 
                     let mut opt = serde_json::Map::new();
-                    opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+                    opt.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Option".to_string()),
+                    );
                     let mut inner_ty = serde_json::Map::new();
                     inner_ty.insert("name".to_string(), serde_json::Value::String(inner));
                     inner_ty.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-                    opt.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]));
+                    opt.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![serde_json::Value::Object(inner_ty)]),
+                    );
 
                     let mut deps = history_typed.deps;
                     deps.append(&mut vt_typed.deps.clone());
@@ -3108,12 +4178,24 @@ impl TypeChecker {
                     }
                 } else {
                     let mut is_resolved = false;
-                    let mut resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                    let mut resolved_type =
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()));
                     let mut deps = Vec::new();
 
                     let mut typed_args = Vec::new();
                     for arg in args {
-                        let arg_typed = self.infer_expr(arg, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                        let arg_typed = self.infer_expr(
+                            arg,
+                            symbol_types,
+                            olap_env,
+                            type_shapes,
+                            type_errors,
+                            type_warnings,
+                            node_name,
+                            functions,
+                            contract_registry,
+                            current_contract_name,
+                        );
                         deps.extend(arg_typed.deps.clone());
                         typed_args.push(arg_typed);
                     }
@@ -3124,14 +4206,22 @@ impl TypeChecker {
                     // lower to sealed variant_construct nodes (precede user-fn/stdlib paths,
                     // mirroring the Ruby canon dispatch).
                     if Self::is_sealed_constructor(fn_name) {
-                        return self.infer_sealed_construct(fn_name, args, &typed_args, deps, type_errors, node_name);
+                        return self.infer_sealed_construct(
+                            fn_name,
+                            args,
+                            &typed_args,
+                            deps,
+                            type_errors,
+                            node_name,
+                        );
                     }
 
                     // Check user-defined functions
                     for f in functions {
                         if f.name == *fn_name {
                             is_resolved = true;
-                            resolved_type = self.type_ir(&serde_json::to_value(&f.return_type).unwrap());
+                            resolved_type =
+                                self.type_ir(&serde_json::to_value(&f.return_type).unwrap());
                             break;
                         }
                     }
@@ -3170,11 +4260,11 @@ impl TypeChecker {
                             line: None,
                         });
                         TypedExpression {
-                            resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                            resolved_type: self
+                                .type_ir(&serde_json::Value::String("Unknown".to_string())),
                             deps: Vec::new(),
                             annotated_expr: None,
                         }
-
                     }
                 }
             }
@@ -3183,12 +4273,22 @@ impl TypeChecker {
                     if let Some(point) = olap_env.get(name) {
                         if let Expr::SliceRecord { fields } = index.as_ref() {
                             // Check dimensions: OOF-O4
-                            let expected_dims: HashMap<String, serde_json::Value> = point.get("dimensions").unwrap().as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                            let expected_dims: HashMap<String, serde_json::Value> = point
+                                .get("dimensions")
+                                .unwrap()
+                                .as_object()
+                                .unwrap()
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
                             for expected_dim in expected_dims.keys() {
                                 if !fields.contains_key(expected_dim) {
                                     type_errors.push(ClassifierDiagnostic {
                                         rule: "OOF-O4".to_string(),
-                                        message: format!("OLAPPoint access missing required dimension: {}", expected_dim),
+                                        message: format!(
+                                            "OLAPPoint access missing required dimension: {}",
+                                            expected_dim
+                                        ),
                                         node: node_name.to_string(),
                                         line: None,
                                     });
@@ -3198,15 +4298,32 @@ impl TypeChecker {
                             // Validate dimensions types: OOF-O5
                             let mut deps = Vec::new();
                             for (dim_name, slice_expr) in fields {
-                                let slice_typed = self.infer_expr(slice_expr, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                let slice_typed = self.infer_expr(
+                                    slice_expr,
+                                    symbol_types,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                );
                                 deps.append(&mut slice_typed.deps.clone());
                                 if let Some(expected_type) = expected_dims.get(dim_name) {
                                     let expected_name = self.type_name(expected_type);
                                     let slice_name = self.type_name(&slice_typed.resolved_type);
-                                    if expected_name != "Unknown" && slice_name != "Unknown" && expected_name != slice_name {
+                                    if expected_name != "Unknown"
+                                        && slice_name != "Unknown"
+                                        && expected_name != slice_name
+                                    {
                                         type_errors.push(ClassifierDiagnostic {
                                             rule: "OOF-O5".to_string(),
-                                            message: format!("OLAPPoint dimension '{}' expected {}, got {}", dim_name, expected_name, slice_name),
+                                            message: format!(
+                                                "OLAPPoint dimension '{}' expected {}, got {}",
+                                                dim_name, expected_name, slice_name
+                                            ),
                                             node: node_name.to_string(),
                                             line: None,
                                         });
@@ -3216,14 +4333,15 @@ impl TypeChecker {
 
                             let measure_type = point.get("measure_type").unwrap().clone();
                             return TypedExpression {
-                                 resolved_type: measure_type,
-                                 deps,
+                                resolved_type: measure_type,
+                                deps,
                                 annotated_expr: None,
                             };
                         } else {
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-O4".to_string(),
-                                message: "OLAPPoint access requires a dimension slice record".to_string(),
+                                message: "OLAPPoint access requires a dimension slice record"
+                                    .to_string(),
                                 node: node_name.to_string(),
                                 line: None,
                             });
@@ -3241,17 +4359,30 @@ impl TypeChecker {
                     deps: Vec::new(),
                     annotated_expr: None,
                 }
-
             }
             Expr::Lambda { params, body } => {
                 let mut local_symbol_types = symbol_types.clone();
                 for param in params {
-                    local_symbol_types.insert(param.clone(), self.type_ir(&serde_json::Value::String("Integer".to_string())));
+                    local_symbol_types.insert(
+                        param.clone(),
+                        self.type_ir(&serde_json::Value::String("Integer".to_string())),
+                    );
                 }
                 let mut temp_errors = Vec::new();
                 let deps = match body.as_ref() {
                     ExprOrBlock::Expr(e) => {
-                        let body_typed = self.infer_expr(e, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                        let body_typed = self.infer_expr(
+                            e,
+                            &local_symbol_types,
+                            olap_env,
+                            type_shapes,
+                            &mut temp_errors,
+                            type_warnings,
+                            node_name,
+                            functions,
+                            contract_registry,
+                            current_contract_name,
+                        );
                         body_typed.deps
                     }
                     ExprOrBlock::Block(block) => {
@@ -3259,18 +4390,56 @@ impl TypeChecker {
                         for stmt in &block.stmts {
                             match stmt {
                                 Stmt::Let { name, expr } => {
-                                    local_symbol_types.insert(name.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                    local_symbol_types.insert(
+                                        name.clone(),
+                                        self.type_ir(&serde_json::Value::String(
+                                            "Unknown".to_string(),
+                                        )),
+                                    );
+                                    let stmt_typed = self.infer_expr(
+                                        expr,
+                                        &local_symbol_types,
+                                        olap_env,
+                                        type_shapes,
+                                        &mut temp_errors,
+                                        type_warnings,
+                                        node_name,
+                                        functions,
+                                        contract_registry,
+                                        current_contract_name,
+                                    );
                                     block_deps.extend(stmt_typed.deps);
                                 }
                                 Stmt::ExprStmt { expr } => {
-                                    let stmt_typed = self.infer_expr(expr, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                                    let stmt_typed = self.infer_expr(
+                                        expr,
+                                        &local_symbol_types,
+                                        olap_env,
+                                        type_shapes,
+                                        &mut temp_errors,
+                                        type_warnings,
+                                        node_name,
+                                        functions,
+                                        contract_registry,
+                                        current_contract_name,
+                                    );
                                     block_deps.extend(stmt_typed.deps);
                                 }
                             }
                         }
                         if let Some(re) = &block.return_expr {
-                            let re_typed = self.infer_expr(re, &local_symbol_types, olap_env, type_shapes, &mut temp_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                            let re_typed = self.infer_expr(
+                                re,
+                                &local_symbol_types,
+                                olap_env,
+                                type_shapes,
+                                &mut temp_errors,
+                                type_warnings,
+                                node_name,
+                                functions,
+                                contract_registry,
+                                current_contract_name,
+                            );
                             block_deps.extend(re_typed.deps);
                         }
                         block_deps
@@ -3313,9 +4482,16 @@ impl TypeChecker {
                 let mut deps = Vec::new();
                 for expr in fields.values() {
                     let typed = self.infer_expr(
-                        expr, symbol_types, olap_env, type_shapes,
-                        type_errors, type_warnings, node_name, functions,
-                        contract_registry, current_contract_name,
+                        expr,
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
                     );
                     deps.extend(typed.deps);
                 }
@@ -3341,9 +4517,16 @@ impl TypeChecker {
                 let mut deps = Vec::new();
                 for item in items {
                     let typed = self.infer_expr(
-                        item, symbol_types, olap_env, type_shapes,
-                        type_errors, type_warnings, node_name, functions,
-                        contract_registry, current_contract_name,
+                        item,
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
                     );
                     deps.extend(typed.deps);
                 }
@@ -3354,19 +4537,46 @@ impl TypeChecker {
                 }
             }
             // PROP-044 P5: variant construct — `ArmName { field: expr, ... }`
-            Expr::VariantConstruct { arm, fields } => {
-                self.infer_variant_construct(arm, fields, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name)
-            }
+            Expr::VariantConstruct { arm, fields } => self.infer_variant_construct(
+                arm,
+                fields,
+                symbol_types,
+                olap_env,
+                type_shapes,
+                type_errors,
+                type_warnings,
+                node_name,
+                functions,
+                contract_registry,
+                current_contract_name,
+            ),
             // PROP-044 P5: match expression — `match subject { Arm { bindings } => body, ... }`
-            Expr::MatchExpr { subject, arms } => {
-                self.infer_match_expr(subject, arms, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name)
-            }
+            Expr::MatchExpr { subject, arms } => self.infer_match_expr(
+                subject,
+                arms,
+                symbol_types,
+                olap_env,
+                type_shapes,
+                type_errors,
+                type_warnings,
+                node_name,
+                functions,
+                contract_registry,
+                current_contract_name,
+            ),
             // LANG-UNARY-OPERATORS-P4: ! : Bool -> Bool, - : Integer -> Integer
             Expr::UnaryOp { op, operand } => {
                 let operand_typed = self.infer_expr(
-                    operand, symbol_types, olap_env, type_shapes,
-                    type_errors, type_warnings, node_name, functions,
-                    contract_registry, current_contract_name,
+                    operand,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
                 );
                 let operand_type_name = self.type_name(&operand_typed.resolved_type);
                 let (_fn_name, result_type_name) = match op.as_str() {
@@ -3409,7 +4619,8 @@ impl TypeChecker {
                     }
                 };
                 TypedExpression {
-                    resolved_type: self.type_ir(&serde_json::Value::String(result_type_name.to_string())),
+                    resolved_type: self
+                        .type_ir(&serde_json::Value::String(result_type_name.to_string())),
                     deps: operand_typed.deps,
                     annotated_expr: None,
                 }
@@ -3426,7 +4637,6 @@ impl TypeChecker {
                     deps: Vec::new(),
                     annotated_expr: None,
                 }
-
             }
         }
     }
@@ -3452,7 +4662,14 @@ impl TypeChecker {
         }
     }
 
-    fn operator_type(&self, op: &str, left: &serde_json::Value, right: &serde_json::Value, type_errors: &mut Vec<ClassifierDiagnostic>, node_name: &str) -> (String, serde_json::Value) {
+    fn operator_type(
+        &self,
+        op: &str,
+        left: &serde_json::Value,
+        right: &serde_json::Value,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+    ) -> (String, serde_json::Value) {
         let left_name = self.type_name(left);
         let right_name = self.type_name(right);
 
@@ -3482,12 +4699,24 @@ impl TypeChecker {
                         let r_s = right_scale.parse::<i64>().unwrap_or(0);
                         let sum_scale = l_s + r_s;
                         let mut sum_type = serde_json::Map::new();
-                        sum_type.insert("name".to_string(), serde_json::Value::String("Decimal".to_string()));
+                        sum_type.insert(
+                            "name".to_string(),
+                            serde_json::Value::String("Decimal".to_string()),
+                        );
                         let mut inner = serde_json::Map::new();
-                        inner.insert("name".to_string(), serde_json::Value::String(sum_scale.to_string()));
+                        inner.insert(
+                            "name".to_string(),
+                            serde_json::Value::String(sum_scale.to_string()),
+                        );
                         inner.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-                        sum_type.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner)]));
-                        return ("stdlib.decimal.mul".to_string(), serde_json::Value::Object(sum_type));
+                        sum_type.insert(
+                            "params".to_string(),
+                            serde_json::Value::Array(vec![serde_json::Value::Object(inner)]),
+                        );
+                        return (
+                            "stdlib.decimal.mul".to_string(),
+                            serde_json::Value::Object(sum_type),
+                        );
                     }
                     _ => {}
                 }
@@ -3504,13 +4733,13 @@ impl TypeChecker {
         if left_name == right_name && is_numeric(left_name.as_str()) {
             let bool_ir = self.type_ir(&serde_json::Value::String("Bool".to_string()));
             match op {
-                "+"  => return ("stdlib.integer.add".to_string(), left.clone()),
-                "-"  => return ("stdlib.integer.sub".to_string(), left.clone()),
-                "*"  => return ("stdlib.integer.mul".to_string(), left.clone()),
-                "/"  => return ("stdlib.integer.div".to_string(), left.clone()),
-                "<"  => return ("stdlib.integer.lt".to_string(),  bool_ir),
+                "+" => return ("stdlib.integer.add".to_string(), left.clone()),
+                "-" => return ("stdlib.integer.sub".to_string(), left.clone()),
+                "*" => return ("stdlib.integer.mul".to_string(), left.clone()),
+                "/" => return ("stdlib.integer.div".to_string(), left.clone()),
+                "<" => return ("stdlib.integer.lt".to_string(), bool_ir),
                 "<=" => return ("stdlib.integer.lte".to_string(), bool_ir),
-                ">"  => return ("stdlib.integer.gt".to_string(),  bool_ir),
+                ">" => return ("stdlib.integer.gt".to_string(), bool_ir),
                 ">=" => return ("stdlib.integer.gte".to_string(), bool_ir),
                 "==" => return ("stdlib.primitive.eq".to_string(), bool_ir),
                 _ => {}
@@ -3523,17 +4752,26 @@ impl TypeChecker {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Integer, got {}+{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Integer, got {}+{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.integer.add".to_string(), self.type_ir(&serde_json::Value::String("Integer".to_string())))
+                (
+                    "stdlib.integer.add".to_string(),
+                    self.type_ir(&serde_json::Value::String("Integer".to_string())),
+                )
             }
             "++" => {
                 if left_name == "String" && right_name == "String" {
-                    ("stdlib.string.concat".to_string(), self.type_ir(&serde_json::Value::String("String".to_string())))
+                    (
+                        "stdlib.string.concat".to_string(),
+                        self.type_ir(&serde_json::Value::String("String".to_string())),
+                    )
                 } else if left_name == "Collection" && right_name == "Collection" {
                     ("stdlib.collection.concat".to_string(), left.clone())
                 } else {
@@ -3545,7 +4783,10 @@ impl TypeChecker {
                             line: None,
                         });
                     }
-                    ("stdlib.unsupported.++".to_string(), self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                    (
+                        "stdlib.unsupported.++".to_string(),
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    )
                 }
             }
             "-" => {
@@ -3553,65 +4794,95 @@ impl TypeChecker {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Integer, got {}-{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Integer, got {}-{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.integer.sub".to_string(), self.type_ir(&serde_json::Value::String("Integer".to_string())))
+                (
+                    "stdlib.integer.sub".to_string(),
+                    self.type_ir(&serde_json::Value::String("Integer".to_string())),
+                )
             }
             "*" => {
                 if left_name != "Integer" || right_name != "Integer" {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Integer, got {}*{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Integer, got {}*{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.integer.mul".to_string(), self.type_ir(&serde_json::Value::String("Integer".to_string())))
+                (
+                    "stdlib.integer.mul".to_string(),
+                    self.type_ir(&serde_json::Value::String("Integer".to_string())),
+                )
             }
             "/" => {
                 if left_name != "Integer" || right_name != "Integer" {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Integer, got {}/{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Integer, got {}/{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.integer.div".to_string(), self.type_ir(&serde_json::Value::String("Integer".to_string())))
+                (
+                    "stdlib.integer.div".to_string(),
+                    self.type_ir(&serde_json::Value::String("Integer".to_string())),
+                )
             }
             ">" => {
                 if left_name != "Integer" || right_name != "Integer" {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Integer, got {}+{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Integer, got {}+{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.integer.gt".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.integer.gt".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             "&&" => {
                 if left_name != "Bool" || right_name != "Bool" {
                     if left_name != "Unknown" && right_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("Type mismatch: expected Bool, got {}+{}", left_name, right_name),
+                            message: format!(
+                                "Type mismatch: expected Bool, got {}+{}",
+                                left_name, right_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
                     }
                 }
-                ("stdlib.bool.and".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.bool.and".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             // LAB-RACK-P6: equality operator for primitive types.
             // Compatible pairs: (String, String), (Text, Text), (Text, String), (String, Text),
@@ -3622,24 +4893,30 @@ impl TypeChecker {
             "==" => {
                 let compatible = matches!(
                     (left_name.as_str(), right_name.as_str()),
-                    ("String",  "String")  |
-                    ("Text",    "Text")    |
-                    ("String",  "Text")    |
-                    ("Text",    "String")  |
-                    ("Integer", "Integer") |
-                    ("Bool",    "Bool")    |
-                    ("Unknown", _)         |
-                    (_,         "Unknown")
+                    ("String", "String")
+                        | ("Text", "Text")
+                        | ("String", "Text")
+                        | ("Text", "String")
+                        | ("Integer", "Integer")
+                        | ("Bool", "Bool")
+                        | ("Unknown", _)
+                        | (_, "Unknown")
                 );
                 if !compatible {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-TY0".to_string(),
-                        message: format!("Type mismatch for ==: cannot compare {} with {}", left_name, right_name),
+                        message: format!(
+                            "Type mismatch for ==: cannot compare {} with {}",
+                            left_name, right_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                ("stdlib.primitive.eq".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.primitive.eq".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             // LAB-RACK-P6: less-than for Integer only.
             // String/Text/Bool comparisons with < are not supported in v0 (OOF-TY0).
@@ -3651,12 +4928,18 @@ impl TypeChecker {
                 {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-TY0".to_string(),
-                        message: format!("Type mismatch for <: expected Integer on both sides, got {} < {}", left_name, right_name),
+                        message: format!(
+                            "Type mismatch for <: expected Integer on both sides, got {} < {}",
+                            left_name, right_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                ("stdlib.integer.lt".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.integer.lt".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             "<=" => {
                 if (left_name != "Integer" || right_name != "Integer")
@@ -3665,12 +4948,18 @@ impl TypeChecker {
                 {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-TY0".to_string(),
-                        message: format!("Type mismatch for <=: expected Integer on both sides, got {} <= {}", left_name, right_name),
+                        message: format!(
+                            "Type mismatch for <=: expected Integer on both sides, got {} <= {}",
+                            left_name, right_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                ("stdlib.integer.lte".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.integer.lte".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             ">=" => {
                 if (left_name != "Integer" || right_name != "Integer")
@@ -3679,12 +4968,18 @@ impl TypeChecker {
                 {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-TY0".to_string(),
-                        message: format!("Type mismatch for >=: expected Integer on both sides, got {} >= {}", left_name, right_name),
+                        message: format!(
+                            "Type mismatch for >=: expected Integer on both sides, got {} >= {}",
+                            left_name, right_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                ("stdlib.integer.gte".to_string(), self.type_ir(&serde_json::Value::String("Bool".to_string())))
+                (
+                    "stdlib.integer.gte".to_string(),
+                    self.type_ir(&serde_json::Value::String("Bool".to_string())),
+                )
             }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
@@ -3693,7 +4988,10 @@ impl TypeChecker {
                     node: node_name.to_string(),
                     line: None,
                 });
-                (format!("stdlib.unsupported.{}", op), self.type_ir(&serde_json::Value::String("Unknown".to_string())))
+                (
+                    format!("stdlib.unsupported.{}", op),
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                )
             }
         }
     }
@@ -3708,7 +5006,10 @@ impl TypeChecker {
             for arm in &vd.arms {
                 let mut field_map: HashMap<String, serde_json::Value> = HashMap::new();
                 for field in &arm.fields {
-                    field_map.insert(field.name.clone(), self.type_ir(&serde_json::to_value(&field.type_annotation).unwrap()));
+                    field_map.insert(
+                        field.name.clone(),
+                        self.type_ir(&serde_json::to_value(&field.type_annotation).unwrap()),
+                    );
                 }
                 arm_map.insert(arm.name.clone(), field_map);
             }
@@ -3718,19 +5019,30 @@ impl TypeChecker {
     }
 
     /// Build SIR-ready variant_declarations for TypedProgram.
-    fn build_variant_declarations_sir(&self, classified: &ClassifiedProgram) -> Vec<serde_json::Value> {
-        classified.variant_declarations.iter().map(|vd| {
-            let arms: Vec<serde_json::Value> = vd.arms.iter().map(|arm| {
-                let fields: Vec<serde_json::Value> = arm.fields.iter().map(|f| {
+    fn build_variant_declarations_sir(
+        &self,
+        classified: &ClassifiedProgram,
+    ) -> Vec<serde_json::Value> {
+        classified
+            .variant_declarations
+            .iter()
+            .map(|vd| {
+                let arms: Vec<serde_json::Value> = vd
+                    .arms
+                    .iter()
+                    .map(|arm| {
+                        let fields: Vec<serde_json::Value> = arm.fields.iter().map(|f| {
                     serde_json::json!({
                         "name": f.name,
                         "type": self.type_ir(&serde_json::to_value(&f.type_annotation).unwrap())
                     })
                 }).collect();
-                serde_json::json!({ "name": arm.name, "fields": fields })
-            }).collect();
-            serde_json::json!({ "kind": "variant_decl", "name": vd.name, "arms": arms })
-        }).collect()
+                        serde_json::json!({ "name": arm.name, "fields": fields })
+                    })
+                    .collect();
+                serde_json::json!({ "kind": "variant_decl", "name": vd.name, "arms": arms })
+            })
+            .collect()
     }
 
     fn variant_type_exists(&self, name: &str) -> bool {
@@ -3747,7 +5059,11 @@ impl TypeChecker {
     }
 
     /// Serialize an Expr to JSON and attach resolved_type for SIR annotation.
-    fn annotate_expr_with_type(&self, expr: &Expr, resolved_type: &serde_json::Value) -> serde_json::Value {
+    fn annotate_expr_with_type(
+        &self,
+        expr: &Expr,
+        resolved_type: &serde_json::Value,
+    ) -> serde_json::Value {
         let mut v = serde_json::to_value(expr).unwrap_or(serde_json::Value::Null);
         if let serde_json::Value::Object(ref mut m) = v {
             m.insert("resolved_type".to_string(), resolved_type.clone());
@@ -3758,15 +5074,28 @@ impl TypeChecker {
     /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: type-IR builders for sealed sumtypes.
     fn make_option_ir(&self, inner: serde_json::Value) -> serde_json::Value {
         let mut m = serde_json::Map::new();
-        m.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+        m.insert(
+            "name".to_string(),
+            serde_json::Value::String("Option".to_string()),
+        );
         m.insert("params".to_string(), serde_json::Value::Array(vec![inner]));
         serde_json::Value::Object(m)
     }
 
-    fn make_result_ir(&self, ok_ty: serde_json::Value, err_ty: serde_json::Value) -> serde_json::Value {
+    fn make_result_ir(
+        &self,
+        ok_ty: serde_json::Value,
+        err_ty: serde_json::Value,
+    ) -> serde_json::Value {
         let mut m = serde_json::Map::new();
-        m.insert("name".to_string(), serde_json::Value::String("Result".to_string()));
-        m.insert("params".to_string(), serde_json::Value::Array(vec![ok_ty, err_ty]));
+        m.insert(
+            "name".to_string(),
+            serde_json::Value::String("Result".to_string()),
+        );
+        m.insert(
+            "params".to_string(),
+            serde_json::Value::Array(vec![ok_ty, err_ty]),
+        );
         serde_json::Value::Object(m)
     }
 
@@ -3801,36 +5130,64 @@ impl TypeChecker {
         if args.len() != expected_arity {
             type_errors.push(ClassifierDiagnostic {
                 rule: "OOF-TY0".to_string(),
-                message: format!("{} requires {} argument{}", fn_name, expected_arity, if expected_arity == 1 { "" } else { "s" }),
+                message: format!(
+                    "{} requires {} argument{}",
+                    fn_name,
+                    expected_arity,
+                    if expected_arity == 1 { "" } else { "s" }
+                ),
                 node: node_name.to_string(),
                 line: None,
             });
-            return TypedExpression { resolved_type: unknown, deps: Vec::new(), annotated_expr: None };
+            return TypedExpression {
+                resolved_type: unknown,
+                deps: Vec::new(),
+                annotated_expr: None,
+            };
         }
 
-        let (arm, variant, resolved_type, fields): (&str, &str, serde_json::Value, serde_json::Map<String, serde_json::Value>) = match fn_name {
+        let (arm, variant, resolved_type, fields): (
+            &str,
+            &str,
+            serde_json::Value,
+            serde_json::Map<String, serde_json::Value>,
+        ) = match fn_name {
             "some" => {
                 let inner = typed_args[0].resolved_type.clone();
                 let mut f = serde_json::Map::new();
-                f.insert("value".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                f.insert(
+                    "value".to_string(),
+                    self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type),
+                );
                 ("Some", "Option", self.make_option_ir(inner), f)
             }
             "none" => {
                 let inner = self.sealed_hint_param(node_name, "Option", 0);
-                ("None", "Option", self.make_option_ir(inner), serde_json::Map::new())
+                (
+                    "None",
+                    "Option",
+                    self.make_option_ir(inner),
+                    serde_json::Map::new(),
+                )
             }
             "ok" => {
                 let t = typed_args[0].resolved_type.clone();
                 let e = self.sealed_hint_param(node_name, "Result", 1);
                 let mut f = serde_json::Map::new();
-                f.insert("value".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                f.insert(
+                    "value".to_string(),
+                    self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type),
+                );
                 ("Ok", "Result", self.make_result_ir(t, e), f)
             }
             "err" => {
                 let e = typed_args[0].resolved_type.clone();
                 let t = self.sealed_hint_param(node_name, "Result", 0);
                 let mut f = serde_json::Map::new();
-                f.insert("error".to_string(), self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type));
+                f.insert(
+                    "error".to_string(),
+                    self.annotate_expr_with_type(&args[0], &typed_args[0].resolved_type),
+                );
                 ("Err", "Result", self.make_result_ir(t, e), f)
             }
             _ => unreachable!(),
@@ -3873,7 +5230,10 @@ impl TypeChecker {
         if variant_name.is_none() {
             type_errors.push(ClassifierDiagnostic {
                 rule: "OOF-KIND2".to_string(),
-                message: format!("variant_construct arm '{}' is not declared in any variant", arm),
+                message: format!(
+                    "variant_construct arm '{}' is not declared in any variant",
+                    arm
+                ),
                 node: node_name.to_string(),
                 line: None,
             });
@@ -3895,7 +5255,18 @@ impl TypeChecker {
         let errors_before = type_errors.len();
 
         for (fname, fexpr) in fields {
-            let typed_f = self.infer_expr(fexpr, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+            let typed_f = self.infer_expr(
+                fexpr,
+                symbol_types,
+                olap_env,
+                type_shapes,
+                type_errors,
+                type_warnings,
+                node_name,
+                functions,
+                contract_registry,
+                current_contract_name,
+            );
             let field_type = &typed_f.resolved_type;
             if let Some(expected) = arm_field_shapes.get(fname) {
                 let actual_name = self.type_name(field_type);
@@ -3903,7 +5274,10 @@ impl TypeChecker {
                 if actual_name != expected_name && actual_name != "Unknown" {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-KIND2".to_string(),
-                        message: format!("{}::{} field '{}': expected {}, got {}", variant_name, arm, fname, expected_name, actual_name),
+                        message: format!(
+                            "{}::{} field '{}': expected {}, got {}",
+                            variant_name, arm, fname, expected_name, actual_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
@@ -3911,20 +5285,29 @@ impl TypeChecker {
             } else {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-KIND2".to_string(),
-                    message: format!("field '{}' is not declared in {}::{}", fname, variant_name, arm),
+                    message: format!(
+                        "field '{}' is not declared in {}::{}",
+                        fname, variant_name, arm
+                    ),
                     node: node_name.to_string(),
                     line: None,
                 });
             }
             all_deps.extend(typed_f.deps);
-            typed_fields.insert(fname.clone(), self.annotate_expr_with_type(fexpr, &typed_f.resolved_type));
+            typed_fields.insert(
+                fname.clone(),
+                self.annotate_expr_with_type(fexpr, &typed_f.resolved_type),
+            );
         }
 
         for required in arm_field_shapes.keys() {
             if !fields.contains_key(required.as_str()) {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-KIND2".to_string(),
-                    message: format!("{}::{} is missing required field '{}'", variant_name, arm, required),
+                    message: format!(
+                        "{}::{} is missing required field '{}'",
+                        variant_name, arm, required
+                    ),
                     node: node_name.to_string(),
                     line: None,
                 });
@@ -3937,7 +5320,8 @@ impl TypeChecker {
 
         // Build SIR-ready annotated_expr only when no errors from this construct
         let annotated = if type_errors.len() == errors_before {
-            let fields_map: serde_json::Map<String, serde_json::Value> = typed_fields.into_iter().collect();
+            let fields_map: serde_json::Map<String, serde_json::Value> =
+                typed_fields.into_iter().collect();
             Some(serde_json::json!({
                 "kind": "variant_construct",
                 "arm": arm,
@@ -3972,14 +5356,28 @@ impl TypeChecker {
         contract_registry: &HashMap<String, ContractRegistryEntry>,
         current_contract_name: &str,
     ) -> TypedExpression {
-        let subject_typed = self.infer_expr(subject, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+        let subject_typed = self.infer_expr(
+            subject,
+            symbol_types,
+            olap_env,
+            type_shapes,
+            type_errors,
+            type_warnings,
+            node_name,
+            functions,
+            contract_registry,
+            current_contract_name,
+        );
         let subject_type_name = self.type_name(&subject_typed.resolved_type);
 
         // OOF-KIND4: non-variant subject (suppress if Unknown — prior error already explains it)
         if subject_type_name != "Unknown" && !self.variant_type_exists(&subject_type_name) {
             type_errors.push(ClassifierDiagnostic {
                 rule: "OOF-KIND4".to_string(),
-                message: format!("match subject has type '{}' which is not a variant type", subject_type_name),
+                message: format!(
+                    "match subject has type '{}' which is not a variant type",
+                    subject_type_name
+                ),
                 node: node_name.to_string(),
                 line: None,
             });
@@ -3993,7 +5391,18 @@ impl TypeChecker {
         // Degraded mode when subject is Unknown (prior error)
         if !self.variant_type_exists(&subject_type_name) {
             for arm in arms {
-                self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                self.infer_expr(
+                    &arm.body,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
             }
             return TypedExpression {
                 resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
@@ -4019,8 +5428,20 @@ impl TypeChecker {
 
             if pattern.wildcard {
                 has_wildcard = true;
-                let body_typed = self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
-                let annotated_body = self.annotate_expr_with_type(&arm.body, &body_typed.resolved_type);
+                let body_typed = self.infer_expr(
+                    &arm.body,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                let annotated_body =
+                    self.annotate_expr_with_type(&arm.body, &body_typed.resolved_type);
                 arm_types.push(body_typed.resolved_type.clone());
                 all_deps.extend(body_typed.deps);
                 typed_arms.push(serde_json::json!({
@@ -4037,7 +5458,11 @@ impl TypeChecker {
             if covered_arms.contains_key(arm_name.as_str()) {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-KIND3".to_string(),
-                    message: format!("arm '{}' is unreachable — already covered at position {}", arm_name, covered_arms[arm_name.as_str()]),
+                    message: format!(
+                        "arm '{}' is unreachable — already covered at position {}",
+                        arm_name,
+                        covered_arms[arm_name.as_str()]
+                    ),
                     node: node_name.to_string(),
                     line: None,
                 });
@@ -4049,11 +5474,25 @@ impl TypeChecker {
             if !declared_arms.contains_key(arm_name.as_str()) {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-KIND2".to_string(),
-                    message: format!("arm '{}' is not declared in variant '{}'", arm_name, subject_type_name),
+                    message: format!(
+                        "arm '{}' is not declared in variant '{}'",
+                        arm_name, subject_type_name
+                    ),
                     node: node_name.to_string(),
                     line: None,
                 });
-                let body_typed = self.infer_expr(&arm.body, symbol_types, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+                let body_typed = self.infer_expr(
+                    &arm.body,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
                 arm_types.push(body_typed.resolved_type.clone());
                 all_deps.extend(body_typed.deps);
                 continue;
@@ -4070,25 +5509,51 @@ impl TypeChecker {
             let mut arm_scope = symbol_types.clone();
             for binding in &pattern.bindings {
                 if arm_field_shapes.contains_key(binding.as_str()) {
-                    let field_type = bind_types.get(binding.as_str()).cloned()
-                        .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    let field_type =
+                        bind_types
+                            .get(binding.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                            });
                     arm_scope.insert(binding.clone(), field_type);
                 } else {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-KIND2".to_string(),
-                        message: format!("binding '{}' is not a field of {}::{}", binding, subject_type_name, arm_name),
+                        message: format!(
+                            "binding '{}' is not a field of {}::{}",
+                            binding, subject_type_name, arm_name
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
-                    arm_scope.insert(binding.clone(), self.type_ir(&serde_json::Value::String("Unknown".to_string())));
+                    arm_scope.insert(
+                        binding.clone(),
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    );
                 }
             }
 
-            let body_typed = self.infer_expr(&arm.body, &arm_scope, olap_env, type_shapes, type_errors, type_warnings, node_name, functions, contract_registry, current_contract_name);
+            let body_typed = self.infer_expr(
+                &arm.body,
+                &arm_scope,
+                olap_env,
+                type_shapes,
+                type_errors,
+                type_warnings,
+                node_name,
+                functions,
+                contract_registry,
+                current_contract_name,
+            );
             let annotated_body = self.annotate_expr_with_type(&arm.body, &body_typed.resolved_type);
             arm_types.push(body_typed.resolved_type.clone());
             all_deps.extend(body_typed.deps);
-            let bindings_json: Vec<serde_json::Value> = pattern.bindings.iter().map(|b| serde_json::Value::String(b.clone())).collect();
+            let bindings_json: Vec<serde_json::Value> = pattern
+                .bindings
+                .iter()
+                .map(|b| serde_json::Value::String(b.clone()))
+                .collect();
             typed_arms.push(serde_json::json!({
                 "pattern": serde_json::json!({ "wildcard": false, "arm": arm_name, "bindings": bindings_json }),
                 "body": annotated_body,
@@ -4097,19 +5562,27 @@ impl TypeChecker {
         }
 
         // OOF-KIND1: non-exhaustive
-        let uncovered: Vec<&String> = declared_arms.keys().filter(|k| !covered_arms.contains_key(k.as_str())).collect();
+        let uncovered: Vec<&String> = declared_arms
+            .keys()
+            .filter(|k| !covered_arms.contains_key(k.as_str()))
+            .collect();
         if !uncovered.is_empty() && !has_wildcard {
             let mut missing: Vec<String> = uncovered.iter().map(|s| s.to_string()).collect();
             missing.sort();
             type_errors.push(ClassifierDiagnostic {
                 rule: "OOF-KIND1".to_string(),
-                message: format!("match on '{}' is non-exhaustive — missing arms: {}", subject_type_name, missing.join(", ")),
+                message: format!(
+                    "match on '{}' is non-exhaustive — missing arms: {}",
+                    subject_type_name,
+                    missing.join(", ")
+                ),
                 node: node_name.to_string(),
                 line: None,
             });
         }
 
-        let result_type = self.unify_match_arm_types(&arm_types, &subject_type_name, node_name, type_errors);
+        let result_type =
+            self.unify_match_arm_types(&arm_types, &subject_type_name, node_name, type_errors);
         all_deps.sort();
         all_deps.dedup();
 
@@ -4128,7 +5601,9 @@ impl TypeChecker {
             });
             // LANG-SUMTYPE-CONSTRUCT-MATCH-P3: sealed-only marker (Option/Result subjects).
             if sealed {
-                node.as_object_mut().unwrap().insert("sealed".to_string(), serde_json::Value::Bool(true));
+                node.as_object_mut()
+                    .unwrap()
+                    .insert("sealed".to_string(), serde_json::Value::Bool(true));
             }
             Some(node)
         } else {
@@ -4154,7 +5629,8 @@ impl TypeChecker {
             return self.type_ir(&serde_json::Value::String("Unknown".to_string()));
         }
         // Top-level Unknown arms contribute nothing to the join (legacy behavior).
-        let present: Vec<&serde_json::Value> = arm_types.iter()
+        let present: Vec<&serde_json::Value> = arm_types
+            .iter()
             .filter(|t| self.type_name(t) != "Unknown")
             .collect();
         if present.is_empty() {
@@ -4166,7 +5642,11 @@ impl TypeChecker {
         if names.len() > 1 {
             type_errors.push(ClassifierDiagnostic {
                 rule: "OOF-KIND5".to_string(),
-                message: format!("match on '{}' has divergent arm result types: {}", subject_type, names.join(", ")),
+                message: format!(
+                    "match on '{}' has divergent arm result types: {}",
+                    subject_type,
+                    names.join(", ")
+                ),
                 node: node_name.to_string(),
                 line: None,
             });
@@ -4186,7 +5666,11 @@ impl TypeChecker {
             };
         }
         if let Some(j) = &joined {
-            let has_params = j.get("params").and_then(|p| p.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
+            let has_params = j
+                .get("params")
+                .and_then(|p| p.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
             if has_params && !self.unknown_or_unknown_bearing(j) {
                 return j.clone();
             }
@@ -4200,17 +5684,39 @@ impl TypeChecker {
     /// the caller degrades to the legacy bare family result. No diagnostic is emitted
     /// here (P2 reserves OOF-KIND7 for a future strictness card; OOF-KIND6 is already
     /// taken by PROP-044-P9 reserved-field-name checks).
-    fn join_match_param_types(&self, a: &serde_json::Value, b: &serde_json::Value) -> Option<serde_json::Value> {
+    fn join_match_param_types(
+        &self,
+        a: &serde_json::Value,
+        b: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
         let na = self.type_name(a);
         let nb = self.type_name(b);
-        if na == "Unknown" { return Some(b.clone()); }
-        if nb == "Unknown" { return Some(a.clone()); }
-        if na != nb { return None; }
-        if a == b { return Some(a.clone()); }   // identical — preserve all keys, zero change
+        if na == "Unknown" {
+            return Some(b.clone());
+        }
+        if nb == "Unknown" {
+            return Some(a.clone());
+        }
+        if na != nb {
+            return None;
+        }
+        if a == b {
+            return Some(a.clone());
+        } // identical — preserve all keys, zero change
 
-        let pa = a.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
-        let pb = b.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
-        if pa.len() != pb.len() { return None; }
+        let pa = a
+            .get("params")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let pb = b
+            .get("params")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if pa.len() != pb.len() {
+            return None;
+        }
 
         let mut joined_params = Vec::with_capacity(pa.len());
         for (x, y) in pa.iter().zip(pb.iter()) {
@@ -4221,7 +5727,10 @@ impl TypeChecker {
         }
         let mut obj = serde_json::Map::new();
         obj.insert("name".to_string(), serde_json::Value::String(na));
-        obj.insert("params".to_string(), serde_json::Value::Array(joined_params));
+        obj.insert(
+            "params".to_string(),
+            serde_json::Value::Array(joined_params),
+        );
         Some(serde_json::Value::Object(obj))
     }
 
@@ -4309,7 +5818,9 @@ impl TypeChecker {
                     // level, no global inference or retroactive symbol mutation.
                     // If the expected type is not a named record (Map[...],
                     // Collection[...], scalar) → skip (Unknown-compatible).
-                    Expr::RecordLiteral { fields: inner_fields } => {
+                    Expr::RecordLiteral {
+                        fields: inner_fields,
+                    } => {
                         if let Some(inner_shape) = type_shapes.get(expected_field_type.as_str()) {
                             self.check_record_literal_shape(
                                 inner_fields,
@@ -4325,8 +5836,12 @@ impl TypeChecker {
                         // skip — Unknown-compatible, no false positive.
                     }
                     _ => {
-                        if let Some(actual_field_type) = self.infer_field_expr_type(field_expr, symbol_types) {
-                            if actual_field_type != expected_field_type && actual_field_type != "Unknown" {
+                        if let Some(actual_field_type) =
+                            self.infer_field_expr_type(field_expr, symbol_types)
+                        {
+                            if actual_field_type != expected_field_type
+                                && actual_field_type != "Unknown"
+                            {
                                 type_errors.push(ClassifierDiagnostic {
                                     rule: "OOF-TY0".to_string(),
                                     message: format!(
@@ -4432,16 +5947,29 @@ impl TypeChecker {
     /// More complex field expressions (arithmetic, function calls, etc.) return None.
     // LAB-MAP-RUST-P1: Map[String,V] type IR builder helpers ----------------------
 
-    fn make_map_type_ir(&self, key_type: serde_json::Value, val_type: serde_json::Value) -> serde_json::Value {
+    fn make_map_type_ir(
+        &self,
+        key_type: serde_json::Value,
+        val_type: serde_json::Value,
+    ) -> serde_json::Value {
         let mut m = serde_json::Map::new();
-        m.insert("name".to_string(), serde_json::Value::String("Map".to_string()));
-        m.insert("params".to_string(), serde_json::Value::Array(vec![key_type, val_type]));
+        m.insert(
+            "name".to_string(),
+            serde_json::Value::String("Map".to_string()),
+        );
+        m.insert(
+            "params".to_string(),
+            serde_json::Value::Array(vec![key_type, val_type]),
+        );
         serde_json::Value::Object(m)
     }
 
     fn make_option_type_ir(&self, inner: serde_json::Value) -> serde_json::Value {
         let mut m = serde_json::Map::new();
-        m.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
+        m.insert(
+            "name".to_string(),
+            serde_json::Value::String("Option".to_string()),
+        );
         m.insert("params".to_string(), serde_json::Value::Array(vec![inner]));
         serde_json::Value::Object(m)
     }
@@ -4462,9 +5990,11 @@ impl TypeChecker {
         if name != "Map" {
             return;
         }
-        let key_type = self.get_param(&type_ir, 0)
+        let key_type = self
+            .get_param(&type_ir, 0)
             .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
-        let val_type = self.get_param(&type_ir, 1)
+        let val_type = self
+            .get_param(&type_ir, 1)
             .unwrap_or_else(|| self.type_ir(&serde_json::Value::String("Unknown".to_string())));
         let key_name = self.type_name(&key_type);
         let val_name = self.type_name(&val_type);
@@ -4550,7 +6080,10 @@ fn is_recursive(body: &crate::parser::BlockBody, fn_name: &str) -> bool {
 
 fn expr_has_call(expr: &Expr, fn_name: &str) -> bool {
     match expr {
-        Expr::Call { fn_name: callee, args } => {
+        Expr::Call {
+            fn_name: callee,
+            args,
+        } => {
             if callee == fn_name {
                 return true;
             }
@@ -4559,36 +6092,30 @@ fn expr_has_call(expr: &Expr, fn_name: &str) -> bool {
         Expr::BinaryOp { left, right, .. } => {
             expr_has_call(left, fn_name) || expr_has_call(right, fn_name)
         }
-        Expr::UnaryOp { operand, .. } => {
-            expr_has_call(operand, fn_name)
-        }
-        Expr::FieldAccess { object, .. } => {
-            expr_has_call(object, fn_name)
-        }
+        Expr::UnaryOp { operand, .. } => expr_has_call(operand, fn_name),
+        Expr::FieldAccess { object, .. } => expr_has_call(object, fn_name),
         Expr::IndexAccess { object, index } => {
             expr_has_call(object, fn_name) || expr_has_call(index, fn_name)
         }
-        Expr::SliceRecord { fields } => {
-            fields.values().any(|v| expr_has_call(v, fn_name))
+        Expr::SliceRecord { fields } => fields.values().any(|v| expr_has_call(v, fn_name)),
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
+            expr_has_call(cond, fn_name)
+                || is_recursive(then, fn_name)
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| is_recursive(eb, fn_name))
         }
-        Expr::IfExpr { cond, then, else_block } => {
-            expr_has_call(cond, fn_name) || 
-            is_recursive(then, fn_name) || 
-            else_block.as_ref().map_or(false, |eb| is_recursive(eb, fn_name))
-        }
-        Expr::Lambda { body, .. } => {
-            match body.as_ref() {
-                ExprOrBlock::Expr(e) => expr_has_call(e, fn_name),
-                ExprOrBlock::Block(b) => is_recursive(b, fn_name),
-            }
-        }
-        Expr::ArrayLiteral { items } => {
-            items.iter().any(|item| expr_has_call(item, fn_name))
-        }
-        Expr::RecordLiteral { fields } => {
-            fields.values().any(|v| expr_has_call(v, fn_name))
-        }
-        _ => false
+        Expr::Lambda { body, .. } => match body.as_ref() {
+            ExprOrBlock::Expr(e) => expr_has_call(e, fn_name),
+            ExprOrBlock::Block(b) => is_recursive(b, fn_name),
+        },
+        Expr::ArrayLiteral { items } => items.iter().any(|item| expr_has_call(item, fn_name)),
+        Expr::RecordLiteral { fields } => fields.values().any(|v| expr_has_call(v, fn_name)),
+        _ => false,
     }
 }
 
@@ -4624,15 +6151,19 @@ fn expr_has_now(expr: &Expr) -> bool {
         Expr::FieldAccess { object, .. } => expr_has_now(object),
         Expr::IndexAccess { object, index } => expr_has_now(object) || expr_has_now(index),
         Expr::SliceRecord { fields } => fields.values().any(expr_has_now),
-        Expr::IfExpr { cond, then, else_block } => {
-            expr_has_now(cond) || block_has_now(then) || else_block.as_ref().map_or(false, block_has_now)
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
+            expr_has_now(cond)
+                || block_has_now(then)
+                || else_block.as_ref().map_or(false, block_has_now)
         }
-        Expr::Lambda { body, .. } => {
-            match body.as_ref() {
-                ExprOrBlock::Expr(e) => expr_has_now(e),
-                ExprOrBlock::Block(b) => block_has_now(b),
-            }
-        }
+        Expr::Lambda { body, .. } => match body.as_ref() {
+            ExprOrBlock::Expr(e) => expr_has_now(e),
+            ExprOrBlock::Block(b) => block_has_now(b),
+        },
         Expr::ArrayLiteral { items } => items.iter().any(expr_has_now),
         Expr::RecordLiteral { fields } => fields.values().any(expr_has_now),
         _ => false,
@@ -4669,7 +6200,11 @@ fn syntactic_decrease(expr: &Expr, variant_name: &str) -> bool {
 
 // ── SCC-based OOF-L4 gate (LAB-FUNCTION-RECURSION-P4) ────────────────────────
 
-fn block_collect_calls(body: &crate::parser::BlockBody, fn_names: &HashSet<String>, out: &mut HashSet<String>) {
+fn block_collect_calls(
+    body: &crate::parser::BlockBody,
+    fn_names: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
     for stmt in &body.stmts {
         let expr = match stmt {
             Stmt::Let { expr, .. } | Stmt::ExprStmt { expr } => expr,
@@ -4710,29 +6245,45 @@ fn expr_collect_calls(expr: &Expr, fn_names: &HashSet<String>, out: &mut HashSet
             expr_collect_calls(index, fn_names, out);
         }
         Expr::SliceRecord { fields } => {
-            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+            for v in fields.values() {
+                expr_collect_calls(v, fn_names, out);
+            }
         }
-        Expr::IfExpr { cond, then, else_block } => {
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
             expr_collect_calls(cond, fn_names, out);
             block_collect_calls(then, fn_names, out);
-            if let Some(eb) = else_block { block_collect_calls(eb, fn_names, out); }
+            if let Some(eb) = else_block {
+                block_collect_calls(eb, fn_names, out);
+            }
         }
         Expr::Lambda { body, .. } => match body.as_ref() {
             ExprOrBlock::Expr(e) => expr_collect_calls(e, fn_names, out),
             ExprOrBlock::Block(b) => block_collect_calls(b, fn_names, out),
         },
         Expr::ArrayLiteral { items } => {
-            for item in items { expr_collect_calls(item, fn_names, out); }
+            for item in items {
+                expr_collect_calls(item, fn_names, out);
+            }
         }
         Expr::RecordLiteral { fields } => {
-            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+            for v in fields.values() {
+                expr_collect_calls(v, fn_names, out);
+            }
         }
         Expr::VariantConstruct { fields, .. } => {
-            for v in fields.values() { expr_collect_calls(v, fn_names, out); }
+            for v in fields.values() {
+                expr_collect_calls(v, fn_names, out);
+            }
         }
         Expr::MatchExpr { subject, arms } => {
             expr_collect_calls(subject, fn_names, out);
-            for arm in arms { expr_collect_calls(&arm.body, fn_names, out); }
+            for arm in arms {
+                expr_collect_calls(&arm.body, fn_names, out);
+            }
         }
         _ => {}
     }
@@ -4791,7 +6342,9 @@ impl TarjanScc {
                 self.on_stack.remove(&w);
                 let is_root = w == v;
                 scc.push(w);
-                if is_root { break; }
+                if is_root {
+                    break;
+                }
             }
             scc.sort();
             self.sccs.push(scc);
@@ -4815,7 +6368,12 @@ fn syntactic_arg_desc(expr: &Expr) -> String {
         Expr::Ref { name } => name.clone(),
         Expr::Literal { value, .. } => value.to_string(),
         Expr::BinaryOp { op, left, right } => {
-            format!("{} {} {}", syntactic_arg_desc(left), op, syntactic_arg_desc(right))
+            format!(
+                "{} {} {}",
+                syntactic_arg_desc(left),
+                op,
+                syntactic_arg_desc(right)
+            )
         }
         Expr::FieldAccess { object, field } => {
             format!("{}.{}", syntactic_arg_desc(object), field)

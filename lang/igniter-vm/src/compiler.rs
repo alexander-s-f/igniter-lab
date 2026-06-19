@@ -1,10 +1,10 @@
 // src/compiler.rs
 // Ahead-of-Time (AOT) Compiler translating SemanticIR AST node graphs to Compiled IVM Bytecode
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use crate::instructions::*;
 use crate::value::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct Compiler {
     instructions: Vec<Instruction>,
@@ -45,7 +45,11 @@ impl Compiler {
     // field) or "name" matches. Falls back to contracts[0] when None (default behavior).
     // Fails closed with a descriptive error listing available contract names when the
     // requested entry is not found.
-    pub fn compile_entry(&mut self, contract_jv: &serde_json::Value, entry_name: Option<&str>) -> Result<Vec<Instruction>, String> {
+    pub fn compile_entry(
+        &mut self,
+        contract_jv: &serde_json::Value,
+        entry_name: Option<&str>,
+    ) -> Result<Vec<Instruction>, String> {
         self.instructions.clear();
         self.compute_node_registers.clear();
         self.next_register = 1000;
@@ -54,47 +58,60 @@ impl Compiler {
 
         // Extract contract object: support semantic_ir_program format or direct contract JSON.
         // LAB-RACK-P7: with entry_name, search by contract_name; else contracts[0] (default).
-        let contract_obj = if let Some(contracts_arr) = contract_jv.get("contracts").and_then(|c| c.as_array()) {
-            if let Some(name) = entry_name {
-                contracts_arr.iter()
-                    .find(|c| {
-                        c.get("contract_name").and_then(|n| n.as_str()) == Some(name)
-                            || c.get("name").and_then(|n| n.as_str()) == Some(name)
-                    })
-                    .ok_or_else(|| {
-                        let available: Vec<&str> = contracts_arr.iter()
-                            .filter_map(|c| {
-                                c.get("contract_name").and_then(|n| n.as_str())
-                                    .or_else(|| c.get("name").and_then(|n| n.as_str()))
-                            })
-                            .collect();
-                        format!(
-                            "Entry '{}' not found in igapp (available: [{}])",
-                            name,
-                            if available.is_empty() { "none".to_string() } else { available.join(", ") }
-                        )
-                    })?
+        let contract_obj =
+            if let Some(contracts_arr) = contract_jv.get("contracts").and_then(|c| c.as_array()) {
+                if let Some(name) = entry_name {
+                    contracts_arr
+                        .iter()
+                        .find(|c| {
+                            c.get("contract_name").and_then(|n| n.as_str()) == Some(name)
+                                || c.get("name").and_then(|n| n.as_str()) == Some(name)
+                        })
+                        .ok_or_else(|| {
+                            let available: Vec<&str> = contracts_arr
+                                .iter()
+                                .filter_map(|c| {
+                                    c.get("contract_name")
+                                        .and_then(|n| n.as_str())
+                                        .or_else(|| c.get("name").and_then(|n| n.as_str()))
+                                })
+                                .collect();
+                            format!(
+                                "Entry '{}' not found in igapp (available: [{}])",
+                                name,
+                                if available.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    available.join(", ")
+                                }
+                            )
+                        })?
+                } else {
+                    contracts_arr
+                        .get(0)
+                        .ok_or("No contracts found in semantic_ir_program")?
+                }
             } else {
-                contracts_arr.get(0).ok_or("No contracts found in semantic_ir_program")?
-            }
-        } else {
-            contract_jv
-        };
+                contract_jv
+            };
 
-        let modifier = contract_obj.get("modifier")
+        let modifier = contract_obj
+            .get("modifier")
             .and_then(|m| m.as_str())
             .unwrap_or("pure");
 
-        let contract_name = contract_obj.get("name")
+        let contract_name = contract_obj
+            .get("name")
             .or_else(|| contract_obj.get("contract_id"))
             .and_then(|n| n.as_str())
             .unwrap_or("");
 
         if modifier == "privileged" {
-            let tokens = contract_jv.get("capability_tokens")
+            let tokens = contract_jv
+                .get("capability_tokens")
                 .or_else(|| contract_obj.get("capability_tokens"))
                 .and_then(|t| t.as_array());
-            
+
             let has_token = if let Some(arr) = tokens {
                 arr.iter().any(|t| t.as_str() == Some(contract_name))
             } else {
@@ -108,7 +125,8 @@ impl Compiler {
         verify_ast_constraints(contract_obj, modifier)?;
 
         // Determine if contract has compute_nodes or nodes
-        let nodes_val = contract_obj.get("compute_nodes")
+        let nodes_val = contract_obj
+            .get("compute_nodes")
             .or_else(|| contract_obj.get("nodes"));
 
         if let Some(nodes_arr) = nodes_val.and_then(|v| v.as_array()) {
@@ -125,12 +143,14 @@ impl Compiler {
             for node in nodes_arr {
                 let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("");
                 // LAB-SRCMAP-P2: tag every instruction emitted for this node.
-                self.current_node_id = node.get("node_id").and_then(|n| n.as_str()).map(String::from);
+                self.current_node_id = node
+                    .get("node_id")
+                    .and_then(|n| n.as_str())
+                    .map(String::from);
                 if kind == "loop_node" || kind == "service_loop_node" {
                     self.compile_expr(node)?;
                 } else {
-                    let expr = node.get("expression")
-                        .or_else(|| node.get("expr"));
+                    let expr = node.get("expression").or_else(|| node.get("expr"));
 
                     if let Some(e) = expr {
                         self.compile_expr(e)?;
@@ -174,7 +194,8 @@ impl Compiler {
             self.emit(OP_RET, vec![]);
         } else {
             // Traditional single-expression compilation
-            let expr = contract_obj.get("expression")
+            let expr = contract_obj
+                .get("expression")
                 .ok_or("Contract is missing 'expression' or 'nodes' AST node")?;
 
             self.compile_expr(expr)?;
@@ -206,14 +227,20 @@ impl Compiler {
             .or_else(|| contract_jv.get("input_ports"))
             .and_then(|d| d.as_array())
             .map(|inputs| {
-                inputs.iter()
-                    .filter_map(|inp| inp.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                inputs
+                    .iter()
+                    .filter_map(|inp| {
+                        inp.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect()
             })
             .unwrap_or_default();
 
         // Modifier (for pure-only enforcement at dispatch time)
-        let modifier = contract_jv.get("modifier")
+        let modifier = contract_jv
+            .get("modifier")
             .and_then(|m| m.as_str())
             .unwrap_or("pure")
             .to_string();
@@ -238,7 +265,8 @@ impl Compiler {
     }
 
     fn compile_expr(&mut self, node: &serde_json::Value) -> Result<(), String> {
-        let kind = node.get("kind")
+        let kind = node
+            .get("kind")
             .ok_or("Expression node must be a Hash with a 'kind' key")?
             .as_str()
             .ok_or("kind must be a string")?;
@@ -250,7 +278,9 @@ impl Compiler {
             }
 
             "symbol" => {
-                let val = node.get("value").ok_or("Missing symbol value")?
+                let val = node
+                    .get("value")
+                    .ok_or("Missing symbol value")?
                     .as_str()
                     .ok_or("symbol value must be a string")?;
                 self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(val))]);
@@ -261,15 +291,19 @@ impl Compiler {
                 let end = node.get("end").ok_or("Missing end in range")?;
                 self.compile_expr(start)?;
                 self.compile_expr(end)?;
-                self.emit(OP_CALL, vec![Value::String(Arc::from("range")), Value::Integer(2)]);
+                self.emit(
+                    OP_CALL,
+                    vec![Value::String(Arc::from("range")), Value::Integer(2)],
+                );
             }
 
             "ref" => {
-                let name = node.get("name")
+                let name = node
+                    .get("name")
                     .ok_or("Missing ref name")?
                     .as_str()
                     .ok_or("name must be string")?;
-                
+
                 if let Some(&reg_idx) = self.compute_node_registers.get(name) {
                     self.emit(OP_LOAD_REG, vec![Value::Integer(reg_idx)]);
                 } else {
@@ -280,7 +314,8 @@ impl Compiler {
             "binary_op" => {
                 let left = node.get("left").ok_or("Missing left operand")?;
                 let right = node.get("right").ok_or("Missing right operand")?;
-                let op = node.get("operator")
+                let op = node
+                    .get("operator")
                     .or_else(|| node.get("op"))
                     .ok_or("Missing operator")?
                     .as_str()
@@ -290,19 +325,45 @@ impl Compiler {
                 self.compile_expr(right)?;
 
                 match op {
-                    "+" => { self.emit(OP_ADD, vec![]); }
-                    "-" => { self.emit(OP_SUB, vec![]); }
-                    "*" => { self.emit(OP_MUL, vec![]); }
-                    "/" => { self.emit(OP_DIV, vec![]); }
-                    "==" => { self.emit(OP_EQ, vec![]); }
-                    ">" => { self.emit(OP_GT, vec![]); }
-                    "<" => { self.emit(OP_LT, vec![]); }
-                    "<=" => { self.emit(OP_LE, vec![]); }
-                    ">=" => { self.emit(OP_GE, vec![]); }
-                    "!=" => { self.emit(OP_NE, vec![]); }
-                    "&&" => { self.emit(OP_AND, vec![]); }
-                    "||" => { self.emit(OP_OR, vec![]); }
-                    "++" => { self.emit(OP_CONCAT, vec![]); }
+                    "+" => {
+                        self.emit(OP_ADD, vec![]);
+                    }
+                    "-" => {
+                        self.emit(OP_SUB, vec![]);
+                    }
+                    "*" => {
+                        self.emit(OP_MUL, vec![]);
+                    }
+                    "/" => {
+                        self.emit(OP_DIV, vec![]);
+                    }
+                    "==" => {
+                        self.emit(OP_EQ, vec![]);
+                    }
+                    ">" => {
+                        self.emit(OP_GT, vec![]);
+                    }
+                    "<" => {
+                        self.emit(OP_LT, vec![]);
+                    }
+                    "<=" => {
+                        self.emit(OP_LE, vec![]);
+                    }
+                    ">=" => {
+                        self.emit(OP_GE, vec![]);
+                    }
+                    "!=" => {
+                        self.emit(OP_NE, vec![]);
+                    }
+                    "&&" => {
+                        self.emit(OP_AND, vec![]);
+                    }
+                    "||" => {
+                        self.emit(OP_OR, vec![]);
+                    }
+                    "++" => {
+                        self.emit(OP_CONCAT, vec![]);
+                    }
                     _ => return Err(format!("Unsupported binary operator: {}", op)),
                 }
             }
@@ -315,7 +376,10 @@ impl Compiler {
                     node.get("fn")
                 } else {
                     node.get("fn").or(Some(&op_fallback))
-                }.ok_or("Missing operator/fn")?.as_str().ok_or("operator/fn must be a string")?;
+                }
+                .ok_or("Missing operator/fn")?
+                .as_str()
+                .ok_or("operator/fn must be a string")?;
 
                 let operands = if kind == "apply" {
                     node.get("operands")
@@ -323,28 +387,63 @@ impl Compiler {
                     node.get("args")
                 } else {
                     node.get("args").or_else(|| node.get("operands"))
-                }.ok_or("Missing operands/args")?.as_array().ok_or("operands/args must be an array")?;
+                }
+                .ok_or("Missing operands/args")?
+                .as_array()
+                .ok_or("operands/args must be an array")?;
 
                 for operand in operands {
                     self.compile_expr(operand)?;
                 }
 
                 match op {
-                    "+" | "add" => { self.emit(OP_ADD, vec![]); }
-                    "-" | "sub" => { self.emit(OP_SUB, vec![]); }
-                    "*" | "mul" => { self.emit(OP_MUL, vec![]); }
-                    "/" | "div" => { self.emit(OP_DIV, vec![]); }
-                    "==" | "eq" => { self.emit(OP_EQ, vec![]); }
-                    ">" | "gt" => { self.emit(OP_GT, vec![]); }
-                    "<" | "lt" => { self.emit(OP_LT, vec![]); }
-                    "<=" | "le" => { self.emit(OP_LE, vec![]); }
-                    ">=" | "ge" => { self.emit(OP_GE, vec![]); }
-                    "!=" | "ne" => { self.emit(OP_NE, vec![]); }
-                    "&&" | "and" => { self.emit(OP_AND, vec![]); }
-                    "||" | "or" => { self.emit(OP_OR, vec![]); }
-                    "++" | "concat" => { self.emit(OP_CONCAT, vec![]); }
+                    "+" | "add" => {
+                        self.emit(OP_ADD, vec![]);
+                    }
+                    "-" | "sub" => {
+                        self.emit(OP_SUB, vec![]);
+                    }
+                    "*" | "mul" => {
+                        self.emit(OP_MUL, vec![]);
+                    }
+                    "/" | "div" => {
+                        self.emit(OP_DIV, vec![]);
+                    }
+                    "==" | "eq" => {
+                        self.emit(OP_EQ, vec![]);
+                    }
+                    ">" | "gt" => {
+                        self.emit(OP_GT, vec![]);
+                    }
+                    "<" | "lt" => {
+                        self.emit(OP_LT, vec![]);
+                    }
+                    "<=" | "le" => {
+                        self.emit(OP_LE, vec![]);
+                    }
+                    ">=" | "ge" => {
+                        self.emit(OP_GE, vec![]);
+                    }
+                    "!=" | "ne" => {
+                        self.emit(OP_NE, vec![]);
+                    }
+                    "&&" | "and" => {
+                        self.emit(OP_AND, vec![]);
+                    }
+                    "||" | "or" => {
+                        self.emit(OP_OR, vec![]);
+                    }
+                    "++" | "concat" => {
+                        self.emit(OP_CONCAT, vec![]);
+                    }
                     _ => {
-                        self.emit(OP_CALL, vec![Value::String(Arc::from(op)), Value::Integer(operands.len() as i64)]);
+                        self.emit(
+                            OP_CALL,
+                            vec![
+                                Value::String(Arc::from(op)),
+                                Value::Integer(operands.len() as i64),
+                            ],
+                        );
                     }
                 }
             }
@@ -352,13 +451,30 @@ impl Compiler {
             "if_expr" => {
                 // The front-end emits two if_expr shapes: condition/then_branch/else_branch
                 // and cond/then/else. Accept both (LAB-VM-DISPATCH-IF-SHAPE).
-                let cond = node.get("condition").or_else(|| node.get("cond")).ok_or("Missing if condition")?;
-                let then_b = node.get("then_branch").or_else(|| node.get("then")).ok_or("Missing then branch")?;
-                let else_b = node.get("else_branch").or_else(|| node.get("else")).ok_or("Missing else branch")?;
+                let cond = node
+                    .get("condition")
+                    .or_else(|| node.get("cond"))
+                    .ok_or("Missing if condition")?;
+                let then_b = node
+                    .get("then_branch")
+                    .or_else(|| node.get("then"))
+                    .ok_or("Missing then branch")?;
+                let else_b = node
+                    .get("else_branch")
+                    .or_else(|| node.get("else"))
+                    .ok_or("Missing else branch")?;
                 // A cond/then/else branch may be a block { return_expr, stmts }; v0 uses
                 // return_expr (stmts are empty in practice — non-empty is a follow-up).
-                let then_b = if then_b.get("kind").is_none() { then_b.get("return_expr").unwrap_or(then_b) } else { then_b };
-                let else_b = if else_b.get("kind").is_none() { else_b.get("return_expr").unwrap_or(else_b) } else { else_b };
+                let then_b = if then_b.get("kind").is_none() {
+                    then_b.get("return_expr").unwrap_or(then_b)
+                } else {
+                    then_b
+                };
+                let else_b = if else_b.get("kind").is_none() {
+                    else_b.get("return_expr").unwrap_or(else_b)
+                } else {
+                    else_b
+                };
 
                 self.compile_expr(cond)?;
 
@@ -379,28 +495,35 @@ impl Compiler {
                 let end_idx = self.instructions.len() as i64;
 
                 // Re-emit instructions with resolved placeholder targets
-                self.instructions[jmp_unless_idx].args = vec![Value::Integer(else_branch_start_idx)];
+                self.instructions[jmp_unless_idx].args =
+                    vec![Value::Integer(else_branch_start_idx)];
                 self.instructions[jmp_end_idx].args = vec![Value::Integer(end_idx)];
             }
 
             "temporal_read" => {
-                let store_ref = node.get("store_ref")
+                let store_ref = node
+                    .get("store_ref")
                     .ok_or("Missing store_ref")?
                     .as_str()
                     .ok_or("store_ref must be string")?;
-                let as_of_ref = node.get("as_of_ref")
+                let as_of_ref = node
+                    .get("as_of_ref")
                     .ok_or("Missing as_of_ref")?
                     .as_str()
                     .ok_or("as_of_ref must be string")?;
 
-                self.emit(OP_LOAD_AS_OF, vec![
-                    Value::String(Arc::from(store_ref)),
-                    Value::String(Arc::from(as_of_ref)),
-                ]);
+                self.emit(
+                    OP_LOAD_AS_OF,
+                    vec![
+                        Value::String(Arc::from(store_ref)),
+                        Value::String(Arc::from(as_of_ref)),
+                    ],
+                );
             }
 
             "emit_observation" => {
-                let obs_kind = node.get("observation_kind")
+                let obs_kind = node
+                    .get("observation_kind")
                     .ok_or("Missing observation_kind")?
                     .as_str()
                     .ok_or("observation_kind must be string")?;
@@ -417,10 +540,18 @@ impl Compiler {
                 //   2. If `name` is a register holding a Record, load the record + OP_GET_FIELD to extract.
                 //   3. Otherwise, OP_LOAD_REF "name.field" (inputs/temporal_context lookup fallback).
                 let object = node.get("object").ok_or("Missing object in field_access")?;
-                let field = node.get("field").ok_or("Missing field in field_access")?.as_str().ok_or("field must be string")?;
+                let field = node
+                    .get("field")
+                    .ok_or("Missing field in field_access")?
+                    .as_str()
+                    .ok_or("field must be string")?;
 
                 if let Some("ref") = object.get("kind").and_then(|k| k.as_str()) {
-                    let name = object.get("name").ok_or("Missing name in ref")?.as_str().ok_or("name must be string")?;
+                    let name = object
+                        .get("name")
+                        .ok_or("Missing name in ref")?
+                        .as_str()
+                        .ok_or("name must be string")?;
                     let full_name = format!("{}.{}", name, field);
                     if let Some(&reg_idx) = self.compute_node_registers.get(&full_name) {
                         // Pre-computed sub-field register — load directly
@@ -459,9 +590,13 @@ impl Compiler {
                 let mut n = node.clone();
                 let mut refs = std::collections::BTreeSet::new();
                 collect_ref_names(&n, &mut refs);
-                let captures: Vec<serde_json::Value> = refs.iter()
-                    .filter_map(|name| self.compute_node_registers.get(name)
-                        .map(|&reg| serde_json::json!({ "name": name, "reg": reg })))
+                let captures: Vec<serde_json::Value> = refs
+                    .iter()
+                    .filter_map(|name| {
+                        self.compute_node_registers
+                            .get(name)
+                            .map(|&reg| serde_json::json!({ "name": name, "reg": reg }))
+                    })
                     .collect();
                 if let Some(obj) = n.as_object_mut() {
                     obj.insert("captures".to_string(), serde_json::Value::Array(captures));
@@ -473,53 +608,81 @@ impl Compiler {
 
             "loop_node" => {
                 // G3c: kind="loop_node" (was "loop"); G3b: finite loops have max_steps=0 (unlimited)
-                let loop_name = node.get("name").and_then(|n| n.as_str()).ok_or("Missing loop name")?;
-                let collection = node.get("expr").or_else(|| node.get("expression")).ok_or("Missing loop collection expr")?;
+                let loop_name = node
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .ok_or("Missing loop name")?;
+                let collection = node
+                    .get("expr")
+                    .or_else(|| node.get("expression"))
+                    .ok_or("Missing loop collection expr")?;
 
                 // Compile collection expression (pushes collection to stack)
                 self.compile_expr(collection)?;
 
                 // G3b: read max_steps from top-level (new emitter) or options (old compat)
                 // max_steps=0 means FiniteLoop (unlimited — VM uses u64::MAX, see vm.rs OP_LOOP_START)
-                let max_steps = node.get("max_steps")
+                let max_steps = node
+                    .get("max_steps")
                     .and_then(|ms| ms.as_i64())
-                    .or_else(|| node.get("options")
-                        .and_then(|o| o.get("max_steps"))
-                        .and_then(|ms| ms.as_i64().or_else(|| ms.get("value").and_then(|v| v.as_i64()))))
+                    .or_else(|| {
+                        node.get("options")
+                            .and_then(|o| o.get("max_steps"))
+                            .and_then(|ms| {
+                                ms.as_i64()
+                                    .or_else(|| ms.get("value").and_then(|v| v.as_i64()))
+                            })
+                    })
                     .unwrap_or(0);
-                
+
                 // 1. LOOP_START (pops collection, creates frame)
-                self.emit(OP_LOOP_START, vec![Value::String(Arc::from(loop_name)), Value::Integer(max_steps)]);
-                
+                self.emit(
+                    OP_LOOP_START,
+                    vec![
+                        Value::String(Arc::from(loop_name)),
+                        Value::Integer(max_steps),
+                    ],
+                );
+
                 // 2. Loop header JMP target (start of iteration)
                 let loop_header_ip = self.instructions.len() as i64;
-                
+
                 // 3. LOOP_STEP (checks fuel, pushes next item, jumps to exit if done)
                 let loop_step_idx = self.emit(OP_LOOP_STEP, vec![Value::Integer(0)]);
-                
+
                 // 4. Bind loop variables to a new register
                 let item_reg = self.next_register;
                 self.next_register += 1;
-                
+
                 // G1: use explicit item variable name from IR if present,
                 // otherwise fall back to singularize(loop_name) for backward compat.
-                let explicit_item = node.get("item").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let explicit_item = node
+                    .get("item")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let default_item = singularize(loop_name);
-                let primary_item = explicit_item.clone().unwrap_or_else(|| default_item.clone());
-                let mut var_names = vec![primary_item.clone(), "item".to_string(), singularize(loop_name)];
+                let primary_item = explicit_item
+                    .clone()
+                    .unwrap_or_else(|| default_item.clone());
+                let mut var_names = vec![
+                    primary_item.clone(),
+                    "item".to_string(),
+                    singularize(loop_name),
+                ];
                 if let Some(coll_ref) = collection.get("name").and_then(|n| n.as_str()) {
                     var_names.push(singularize(coll_ref));
                 }
                 var_names.sort();
                 var_names.dedup();
-                
+
                 for var_name in &var_names {
-                    self.compute_node_registers.insert(var_name.clone(), item_reg);
+                    self.compute_node_registers
+                        .insert(var_name.clone(), item_reg);
                 }
-                
+
                 // 5. Store current item from stack into loop variable register
                 self.emit(OP_STORE_REG, vec![Value::Integer(item_reg)]);
-                
+
                 // 6. Register registers for loop body compute nodes
                 let body_nodes = node.get("body_nodes").and_then(|b| b.as_array());
                 if let Some(body) = body_nodes {
@@ -528,59 +691,75 @@ impl Compiler {
                             if !self.compute_node_registers.contains_key(inner_name) {
                                 let reg = self.next_register;
                                 self.next_register += 1;
-                                self.compute_node_registers.insert(inner_name.to_string(), reg);
+                                self.compute_node_registers
+                                    .insert(inner_name.to_string(), reg);
                             }
                         }
                     }
-                    
+
                     // Compile loop body compute nodes
                     for inner in body {
-                        let inner_expr = inner.get("expr").or_else(|| inner.get("expression")).ok_or("Missing loop body compute expr")?;
+                        let inner_expr = inner
+                            .get("expr")
+                            .or_else(|| inner.get("expression"))
+                            .ok_or("Missing loop body compute expr")?;
                         self.compile_expr(inner_expr)?;
-                        
+
                         if let Some(inner_name) = inner.get("name").and_then(|n| n.as_str()) {
                             let reg = *self.compute_node_registers.get(inner_name).unwrap();
                             self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
                         }
                     }
                 }
-                
+
                 // 7. JMP back to loop header (OP_LOOP_STEP)
                 self.emit(OP_JMP, vec![Value::Integer(loop_header_ip)]);
-                
+
                 // 8. Push Nil as the result of the loop expression
                 self.emit(OP_PUSH_LIT, vec![Value::Nil]);
-                
+
                 // 9. Update OP_LOOP_STEP exit IP
                 let exit_ip = (self.instructions.len() - 1) as i64;
                 self.instructions[loop_step_idx].args = vec![Value::Integer(exit_ip)];
             }
 
             "service_loop_node" => {
-                let loop_name = node.get("name").and_then(|n| n.as_str()).ok_or("Missing service loop name")?;
-                
+                let loop_name = node
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .ok_or("Missing service loop name")?;
+
                 // Get interval value (milliseconds)
-                let interval_val = node.get("interval").and_then(|i| i.get("value")).and_then(|v| v.as_i64()).ok_or("Missing interval value")?;
-                let interval_unit = node.get("interval").and_then(|i| i.get("unit")).and_then(|u| u.as_str()).ok_or("Missing interval unit")?;
-                
+                let interval_val = node
+                    .get("interval")
+                    .and_then(|i| i.get("value"))
+                    .and_then(|v| v.as_i64())
+                    .ok_or("Missing interval value")?;
+                let interval_unit = node
+                    .get("interval")
+                    .and_then(|i| i.get("unit"))
+                    .and_then(|u| u.as_str())
+                    .ok_or("Missing interval unit")?;
+
                 let interval_ms = match interval_unit {
                     "seconds" => interval_val * 1000,
                     "minutes" => interval_val * 60 * 1000,
                     "hours" => interval_val * 60 * 60 * 1000,
                     _ => interval_val,
                 };
-                
+
                 // Load temporal clock tick timestamp into loop tick variable register
                 let tick_reg = self.next_register;
                 self.next_register += 1;
-                self.compute_node_registers.insert(loop_name.to_string(), tick_reg);
-                
+                self.compute_node_registers
+                    .insert(loop_name.to_string(), tick_reg);
+
                 // 1. OP_LOAD_TICK pushes tick value onto stack
                 self.emit(OP_LOAD_TICK, vec![Value::Integer(interval_ms)]);
-                
+
                 // 2. Store it in tick register
                 self.emit(OP_STORE_REG, vec![Value::Integer(tick_reg)]);
-                
+
                 // 3. Register registers for loop body compute nodes and compile them
                 let body_nodes = node.get("body_nodes").and_then(|b| b.as_array());
                 if let Some(body) = body_nodes {
@@ -589,46 +768,60 @@ impl Compiler {
                             if !self.compute_node_registers.contains_key(inner_name) {
                                 let reg = self.next_register;
                                 self.next_register += 1;
-                                self.compute_node_registers.insert(inner_name.to_string(), reg);
+                                self.compute_node_registers
+                                    .insert(inner_name.to_string(), reg);
                             }
                         }
                     }
-                    
+
                     for inner in body {
-                        let inner_expr = inner.get("expr").or_else(|| inner.get("expression")).ok_or("Missing service loop body compute expr")?;
+                        let inner_expr = inner
+                            .get("expr")
+                            .or_else(|| inner.get("expression"))
+                            .ok_or("Missing service loop body compute expr")?;
                         self.compile_expr(inner_expr)?;
-                        
+
                         if let Some(inner_name) = inner.get("name").and_then(|n| n.as_str()) {
                             let reg = *self.compute_node_registers.get(inner_name).unwrap();
                             self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
                         }
                     }
                 }
-                
+
                 // 4. Push Nil as the result of the service loop
                 self.emit(OP_PUSH_LIT, vec![Value::Nil]);
             }
 
             "unary" | "unary_op" => {
-                let op = node.get("op")
+                let op = node
+                    .get("op")
                     .or_else(|| node.get("operator"))
                     .ok_or("Missing unary operator")?
                     .as_str()
                     .ok_or("unary operator must be string")?;
-                let operand = node.get("operand")
+                let operand = node
+                    .get("operand")
                     .or_else(|| node.get("expr"))
                     .or_else(|| node.get("expression"))
                     .ok_or("Missing unary operand")?;
                 self.compile_expr(operand)?;
                 match op {
-                    "!" => { self.emit(OP_NOT, vec![]); }
-                    "-" => { self.emit(OP_NEG, vec![]); }
+                    "!" => {
+                        self.emit(OP_NOT, vec![]);
+                    }
+                    "-" => {
+                        self.emit(OP_NEG, vec![]);
+                    }
                     _ => return Err(format!("Unsupported unary operator: {}", op)),
                 }
             }
 
             "array" | "array_literal" => {
-                let items = node.get("items").ok_or("Missing items in array")?.as_array().ok_or("items must be array")?;
+                let items = node
+                    .get("items")
+                    .ok_or("Missing items in array")?
+                    .as_array()
+                    .ok_or("items must be array")?;
                 for item in items {
                     self.compile_expr(item)?;
                 }
@@ -636,7 +829,11 @@ impl Compiler {
             }
 
             "record" | "record_literal" => {
-                let fields = node.get("fields").ok_or("Missing fields in record")?.as_object().ok_or("fields must be object")?;
+                let fields = node
+                    .get("fields")
+                    .ok_or("Missing fields in record")?
+                    .as_object()
+                    .ok_or("fields must be object")?;
                 let mut sorted_keys: Vec<String> = fields.keys().cloned().collect();
                 sorted_keys.sort();
                 for key in &sorted_keys {
@@ -659,23 +856,25 @@ impl Compiler {
             }
 
             "let" => {
-                let expr = node.get("expr")
+                let expr = node
+                    .get("expr")
                     .or_else(|| node.get("value"))
                     .or_else(|| node.get("expression"))
                     .ok_or("Missing let value expression")?;
-                let name = node.get("name")
+                let name = node
+                    .get("name")
                     .ok_or("Missing let variable name")?
                     .as_str()
                     .ok_or("let variable name must be string")?;
-                
+
                 self.compile_expr(expr)?;
-                
+
                 let reg = self.next_register;
                 self.next_register += 1;
                 self.compute_node_registers.insert(name.to_string(), reg);
-                
+
                 self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
-                
+
                 if let Some(body) = node.get("body") {
                     self.compile_expr(body)?;
                 } else {
@@ -691,14 +890,24 @@ impl Compiler {
                 let mut lam = node.clone();
                 let mut params = std::collections::HashSet::new();
                 if let Some(ps) = node.get("params").and_then(|p| p.as_array()) {
-                    for p in ps { if let Some(s) = p.as_str() { params.insert(s.to_string()); } }
+                    for p in ps {
+                        if let Some(s) = p.as_str() {
+                            params.insert(s.to_string());
+                        }
+                    }
                 }
                 let mut refs = std::collections::BTreeSet::new();
-                if let Some(body) = node.get("body") { collect_ref_names(body, &mut refs); }
-                let captures: Vec<serde_json::Value> = refs.iter()
+                if let Some(body) = node.get("body") {
+                    collect_ref_names(body, &mut refs);
+                }
+                let captures: Vec<serde_json::Value> = refs
+                    .iter()
                     .filter(|n| !params.contains(n.as_str()))
-                    .filter_map(|n| self.compute_node_registers.get(n)
-                        .map(|&reg| serde_json::json!({ "name": n, "reg": reg })))
+                    .filter_map(|n| {
+                        self.compute_node_registers
+                            .get(n)
+                            .map(|&reg| serde_json::json!({ "name": n, "reg": reg }))
+                    })
                     .collect();
                 if let Some(obj) = lam.as_object_mut() {
                     obj.insert("captures".to_string(), serde_json::Value::Array(captures));
@@ -716,13 +925,16 @@ impl Compiler {
             //   + payload fields verbatim
             // No Value::Variant. No OP_PUSH_VARIANT.
             "variant_construct" => {
-                let arm_name = node.get("arm")
+                let arm_name = node
+                    .get("arm")
                     .and_then(|a| a.as_str())
                     .ok_or("variant_construct: missing arm")?;
-                let variant_name = node.get("variant")
+                let variant_name = node
+                    .get("variant")
                     .and_then(|v| v.as_str())
                     .unwrap_or(arm_name);
-                let fields_obj = node.get("fields")
+                let fields_obj = node
+                    .get("fields")
                     .and_then(|f| f.as_object())
                     .ok_or("variant_construct: missing fields object")?;
 
@@ -739,8 +951,9 @@ impl Compiler {
                     } else if key == "__variant" {
                         self.emit(OP_PUSH_LIT, vec![Value::String(Arc::from(variant_name))]);
                     } else {
-                        let field_expr = fields_obj.get(key.as_str())
-                            .ok_or_else(|| format!("variant_construct: missing field expr for '{}'", key))?;
+                        let field_expr = fields_obj.get(key.as_str()).ok_or_else(|| {
+                            format!("variant_construct: missing field expr for '{}'", key)
+                        })?;
                         self.compile_expr(field_expr)?;
                     }
                 }
@@ -767,10 +980,12 @@ impl Compiler {
             // No OP_MATCH. No Value::Variant.
             "match_node" | "match_expr" => {
                 let subject = node.get("subject").ok_or("match_node: missing subject")?;
-                let arms = node.get("arms")
+                let arms = node
+                    .get("arms")
                     .and_then(|a| a.as_array())
                     .ok_or("match_node: missing arms array")?;
-                let has_wildcard = node.get("has_wildcard")
+                let has_wildcard = node
+                    .get("has_wildcard")
                     .and_then(|w| w.as_bool())
                     .unwrap_or(false);
 
@@ -796,7 +1011,11 @@ impl Compiler {
                     let bindings: Vec<String> = pattern
                         .and_then(|p| p.get("bindings"))
                         .and_then(|b| b.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     let body = arm.get("body").ok_or("match_node: missing arm body")?;
 
@@ -823,7 +1042,10 @@ impl Compiler {
                         let outer = self.compute_node_registers.get(binding).copied();
                         saved_outer.push((binding.clone(), outer));
                         self.emit(OP_LOAD_REG, vec![Value::Integer(subject_reg)]);
-                        self.emit(OP_GET_FIELD, vec![Value::String(Arc::from(binding.as_str()))]);
+                        self.emit(
+                            OP_GET_FIELD,
+                            vec![Value::String(Arc::from(binding.as_str()))],
+                        );
                         let reg = self.next_register;
                         self.next_register += 1;
                         self.emit(OP_STORE_REG, vec![Value::Integer(reg)]);
@@ -837,8 +1059,12 @@ impl Compiler {
                     // otherwise remove the binding entirely.
                     for (name, maybe_outer) in &saved_outer {
                         match maybe_outer {
-                            Some(outer_reg) => { self.compute_node_registers.insert(name.clone(), *outer_reg); }
-                            None => { self.compute_node_registers.remove(name); }
+                            Some(outer_reg) => {
+                                self.compute_node_registers.insert(name.clone(), *outer_reg);
+                            }
+                            None => {
+                                self.compute_node_registers.remove(name);
+                            }
                         }
                     }
 
@@ -894,10 +1120,17 @@ fn singularize(s: &str) -> String {
 fn verify_ast_constraints(node: &serde_json::Value, modifier: &str) -> Result<(), String> {
     if let Some(kind) = node.get("kind").and_then(|k| k.as_str()) {
         if kind == "emit_observation" && (modifier == "pure" || modifier == "observed") {
-            return Err("OOF-M1: emit_observation is not allowed in pure or observed contracts".to_string());
+            return Err(
+                "OOF-M1: emit_observation is not allowed in pure or observed contracts".to_string(),
+            );
         }
-        if kind == "compensation" && (modifier == "pure" || modifier == "observed" || modifier == "irreversible") {
-            return Err("OOF-M1: compensation is not allowed in pure, observed, or irreversible contracts".to_string());
+        if kind == "compensation"
+            && (modifier == "pure" || modifier == "observed" || modifier == "irreversible")
+        {
+            return Err(
+                "OOF-M1: compensation is not allowed in pure, observed, or irreversible contracts"
+                    .to_string(),
+            );
         }
     }
     if let Some(obj) = node.as_object() {
@@ -924,9 +1157,15 @@ fn collect_ref_names(v: &serde_json::Value, out: &mut std::collections::BTreeSet
                     out.insert(name.to_string());
                 }
             }
-            for (_, child) in map.iter() { collect_ref_names(child, out); }
+            for (_, child) in map.iter() {
+                collect_ref_names(child, out);
+            }
         }
-        serde_json::Value::Array(arr) => { for c in arr.iter() { collect_ref_names(c, out); } }
+        serde_json::Value::Array(arr) => {
+            for c in arr.iter() {
+                collect_ref_names(c, out);
+            }
+        }
         _ => {}
     }
 }

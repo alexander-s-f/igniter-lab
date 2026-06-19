@@ -1,11 +1,11 @@
 // tests/reactive_tests.rs
 // End-to-end reactive projection pipeline integration tests with tbackend
 
+use igniter_vm::pipeline::ProjectionPipeline;
+use igniter_vm::tbackend::LedgerTcpBackend;
 use std::collections::HashMap;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
-use igniter_vm::tbackend::LedgerTcpBackend;
-use igniter_vm::pipeline::ProjectionPipeline;
 
 struct TBackendDaemon {
     child: std::process::Child,
@@ -51,7 +51,7 @@ async fn test_reactive_pipeline_integration() {
     // Connect and verify tbackend is pingable
     let tbackend_addr = format!("127.0.0.1:{}", port);
     let client = LedgerTcpBackend::new(&tbackend_addr);
-    
+
     // We can ping to be absolutely sure
     let mut online = false;
     for _ in 0..10 {
@@ -66,7 +66,7 @@ async fn test_reactive_pipeline_integration() {
     // Initialize ProjectionPipeline
     // Listener port: 8099
     let listener_port = 8099;
-    
+
     // Let's use the TechnicianBonusCalculator contract JSON
     let contract_json = serde_json::json!({
         "contract_id": "TechnicianBonusCalculator",
@@ -111,12 +111,15 @@ async fn test_reactive_pipeline_integration() {
         &tbackend_addr,
         listener_port,
         "technician_jobs",
-        "computed_bonuses"
+        "computed_bonuses",
     );
 
     // Start pipeline
     let default_inputs = HashMap::new();
-    pipeline.start(default_inputs).await.expect("Failed to start pipeline");
+    pipeline
+        .start(default_inputs)
+        .await
+        .expect("Failed to start pipeline");
 
     // Write a fact of value 5 to technician_jobs store over TCP socket
     let now = chrono::Utc::now().timestamp() as f64;
@@ -134,9 +137,15 @@ async fn test_reactive_pipeline_integration() {
         }
     });
 
-    let write_resp = client.send_req(write_req).await.expect("Failed to write trigger fact");
+    let write_resp = client
+        .send_req(write_req)
+        .await
+        .expect("Failed to write trigger fact");
     assert!(
-        write_resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+        write_resp
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         "write_fact failed! Response: {:?}",
         write_resp
     );
@@ -151,11 +160,23 @@ async fn test_reactive_pipeline_integration() {
         "key": "global",
         "as_of": now + 10.0
     });
-    
-    let query_resp = client.send_req(query_req).await.expect("Failed to query target store");
-    assert!(query_resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false), "Query returned error: {:?}", query_resp);
-    
-    let fact = query_resp.get("fact").expect("No fact found in query response");
+
+    let query_resp = client
+        .send_req(query_req)
+        .await
+        .expect("Failed to query target store");
+    assert!(
+        query_resp
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        "Query returned error: {:?}",
+        query_resp
+    );
+
+    let fact = query_resp
+        .get("fact")
+        .expect("No fact found in query response");
     assert!(!fact.is_null(), "Fact is null!");
     let val = fact.get("value").expect("No value found in fact");
     assert_eq!(val, &serde_json::json!(1000));

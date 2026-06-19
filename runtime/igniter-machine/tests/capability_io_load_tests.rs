@@ -6,7 +6,9 @@
 //! genuine stress on the atomic gate (P18) and the sharded backend. No code tuning here.
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
-use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE};
+use igniter_machine::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE,
+};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::observability::observe;
 use igniter_machine::single_flight::{run_write_effect_atomic, SingleFlight};
@@ -18,25 +20,38 @@ use std::time::{Duration, Instant};
 const CAP: &str = "IO.LoadCapability";
 
 fn mrt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap()
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
 }
 fn passport() -> Arc<CapabilityPassport> {
     Arc::new(CapabilityPassport {
-        subject: "host".into(), capability_id: CAP.into(), scopes: vec!["write".into()],
-        issued_at: 0.0, expires_at: Some(1e9), revoked: false, evidence_digest: "s".into(),
+        subject: "host".into(),
+        capability_id: CAP.into(),
+        scopes: vec!["write".into()],
+        issued_at: 0.0,
+        expires_at: Some(1e9),
+        revoked: false,
+        evidence_digest: "s".into(),
     })
 }
 fn write_req(idem: &str, v: i64) -> WriteRequest {
     WriteRequest {
-        capability_id: CAP.into(), operation: "put".into(), idempotency_key: idem.into(),
+        capability_id: CAP.into(),
+        operation: "put".into(),
+        idempotency_key: idem.into(),
         payload: json!({ "store": "orders", "key": format!("ord-{idem}"), "value": { "n": v } }),
     }
 }
 fn pct(sorted_us: &[u128], p: f64) -> u128 {
-    if sorted_us.is_empty() { return 0; }
+    if sorted_us.is_empty() {
+        return 0;
+    }
     let idx = ((sorted_us.len() as f64 - 1.0) * p).round() as usize;
     sorted_us[idx]
 }
@@ -69,10 +84,28 @@ fn same_key_storm_one_effect() {
         let start = Instant::now();
         let mut handles = Vec::with_capacity(N);
         for _ in 0..N {
-            let (sf, reg, receipts, clk, p, req) = (sf.clone(), reg.clone(), receipts.clone(), clk.clone(), p.clone(), req.clone());
+            let (sf, reg, receipts, clk, p, req) = (
+                sf.clone(),
+                reg.clone(),
+                receipts.clone(),
+                clk.clone(),
+                p.clone(),
+                req.clone(),
+            );
             handles.push(tokio::spawn(async move {
                 let t = Instant::now();
-                let out = run_write_effect_atomic(&sf, &reg, &receipts, &clk, &p, "write", &req, RunMode::Live).await.unwrap();
+                let out = run_write_effect_atomic(
+                    &sf,
+                    &reg,
+                    &receipts,
+                    &clk,
+                    &p,
+                    "write",
+                    &req,
+                    RunMode::Live,
+                )
+                .await
+                .unwrap();
                 (out.state, t.elapsed().as_micros())
             }));
         }
@@ -80,17 +113,35 @@ fn same_key_storm_one_effect() {
         let mut lat = Vec::with_capacity(N);
         for h in handles {
             let (state, us) = h.await.unwrap();
-            if state == WriteState::Committed { committed += 1; }
+            if state == WriteState::Committed {
+                committed += 1;
+            }
             lat.push(us);
         }
         let wall = start.elapsed();
 
         // CORRECTNESS FIRST
-        assert_eq!(exec.applied_count(), 1, "a same-key storm performs the effect EXACTLY ONCE");
-        assert_eq!(committed, N, "every request observes committed (one executed, the rest replay)");
+        assert_eq!(
+            exec.applied_count(),
+            1,
+            "a same-key storm performs the effect EXACTLY ONCE"
+        );
+        assert_eq!(
+            committed, N,
+            "every request observes committed (one executed, the rest replay)"
+        );
         // exactly one committed receipt fact for the storm key (plus the prepared)
-        let storm = receipts.facts_for(RECEIPTS_STORE, "IO.LoadCapability:storm", None, None).await.unwrap();
-        assert_eq!(storm.iter().filter(|f| f.value["state"] == json!("committed")).count(), 1);
+        let storm = receipts
+            .facts_for(RECEIPTS_STORE, "IO.LoadCapability:storm", None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            storm
+                .iter()
+                .filter(|f| f.value["state"] == json!("committed"))
+                .count(),
+            1
+        );
 
         report("same_key_storm", N, wall, lat);
     });
@@ -114,11 +165,28 @@ fn distinct_keys_parallel_no_duplicates() {
         let start = Instant::now();
         let mut handles = Vec::with_capacity(N);
         for i in 0..N {
-            let (sf, reg, receipts, clk, p) = (sf.clone(), reg.clone(), receipts.clone(), clk.clone(), p.clone());
+            let (sf, reg, receipts, clk, p) = (
+                sf.clone(),
+                reg.clone(),
+                receipts.clone(),
+                clk.clone(),
+                p.clone(),
+            );
             let req = Arc::new(write_req(&format!("k{i}"), i as i64));
             handles.push(tokio::spawn(async move {
                 let t = Instant::now();
-                let out = run_write_effect_atomic(&sf, &reg, &receipts, &clk, &p, "write", &req, RunMode::Live).await.unwrap();
+                let out = run_write_effect_atomic(
+                    &sf,
+                    &reg,
+                    &receipts,
+                    &clk,
+                    &p,
+                    "write",
+                    &req,
+                    RunMode::Live,
+                )
+                .await
+                .unwrap();
                 (out.state, t.elapsed().as_micros())
             }));
         }
@@ -126,16 +194,25 @@ fn distinct_keys_parallel_no_duplicates() {
         let mut lat = Vec::with_capacity(N);
         for h in handles {
             let (state, us) = h.await.unwrap();
-            if state == WriteState::Committed { committed += 1; }
+            if state == WriteState::Committed {
+                committed += 1;
+            }
             lat.push(us);
         }
         let wall = start.elapsed();
 
         // CORRECTNESS: every distinct key commits exactly once; no duplicate committed per key
         assert_eq!(committed, N);
-        assert_eq!(exec.applied_count(), N, "each distinct key performs its effect once");
+        assert_eq!(
+            exec.applied_count(),
+            N,
+            "each distinct key performs its effect once"
+        );
         let snap = observe(&receipts).await.unwrap();
-        assert_eq!(snap.metrics.committed, N, "exactly N committed receipts — no duplicates");
+        assert_eq!(
+            snap.metrics.committed, N,
+            "exactly N committed receipts — no duplicates"
+        );
 
         report("distinct_keys", N, wall, lat);
     });
@@ -159,21 +236,53 @@ fn mixed_outcomes_snapshot_sane() {
 
         let mut handles = Vec::with_capacity(N);
         for i in 0..N {
-            let (sf, reg, receipts, clk, p) = (sf.clone(), reg.clone(), receipts.clone(), clk.clone(), p.clone());
+            let (sf, reg, receipts, clk, p) = (
+                sf.clone(),
+                reg.clone(),
+                receipts.clone(),
+                clk.clone(),
+                p.clone(),
+            );
             let req = Arc::new(write_req(&format!("t{i}"), i as i64));
             handles.push(tokio::spawn(async move {
-                run_write_effect_atomic(&sf, &reg, &receipts, &clk, &p, "write", &req, RunMode::Live).await.unwrap().state
+                run_write_effect_atomic(
+                    &sf,
+                    &reg,
+                    &receipts,
+                    &clk,
+                    &p,
+                    "write",
+                    &req,
+                    RunMode::Live,
+                )
+                .await
+                .unwrap()
+                .state
             }));
         }
         let mut unknown = 0;
         for h in handles {
-            if h.await.unwrap() == WriteState::UnknownExternalState { unknown += 1; }
+            if h.await.unwrap() == WriteState::UnknownExternalState {
+                unknown += 1;
+            }
         }
-        assert_eq!(unknown, N, "every timeout is unknown — none silently commits");
+        assert_eq!(
+            unknown, N,
+            "every timeout is unknown — none silently commits"
+        );
 
         let snap = observe(&receipts).await.unwrap();
-        assert_eq!(snap.metrics.committed, 0, "no committed effects under all-timeout load");
-        assert_eq!(snap.metrics.unknown, N, "all N surfaced as unknown in the P23 snapshot");
-        eprintln!("[load:mixed] n={N} unknown={} committed={}", snap.metrics.unknown, snap.metrics.committed);
+        assert_eq!(
+            snap.metrics.committed, 0,
+            "no committed effects under all-timeout load"
+        );
+        assert_eq!(
+            snap.metrics.unknown, N,
+            "all N surfaced as unknown in the P23 snapshot"
+        );
+        eprintln!(
+            "[load:mixed] n={N} unknown={} committed={}",
+            snap.metrics.unknown, snap.metrics.committed
+        );
     });
 }

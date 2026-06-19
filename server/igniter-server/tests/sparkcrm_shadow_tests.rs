@@ -32,7 +32,10 @@ use tokio::net::{TcpListener, TcpStream};
 const CAP: &str = "IO.LeadStore"; // host-owned fake capability — NOT a live SparkCRM endpoint.
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -49,12 +52,29 @@ fn cpass(subject: &str, cap: &str, scopes: &[&str]) -> CapabilityPassport {
     }
 }
 fn vendor() -> CapabilityPassport {
-    cpass("vendor:acme", "coordination", &["create_pool", "import_capsule", "activate_capsule", "grant_access", "accept_recipe", "invoke"])
+    cpass(
+        "vendor:acme",
+        "coordination",
+        &[
+            "create_pool",
+            "import_capsule",
+            "activate_capsule",
+            "grant_access",
+            "accept_recipe",
+            "invoke",
+        ],
+    )
 }
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 })
-        .await
-        .unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 async fn leadoffer_bytes() -> Vec<u8> {
     let m = IgniterMachine::new(None, "in_memory").unwrap();
@@ -100,14 +120,33 @@ async fn prod(n: usize) -> (CoordinationHub, IngressRouter) {
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&vendor(), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(&vendor(), "svc", "candidate", PoolVisibility::Private)
+        .await
+        .unwrap();
     let bytes = leadoffer_bytes().await;
     let mut digest = String::new();
     for _ in 0..n {
-        digest = h.add_capsule(&vendor(), "svc", bytes.clone(), vec![]).await.unwrap().capsule_id;
+        digest = h
+            .add_capsule(&vendor(), "svc", bytes.clone(), vec![])
+            .await
+            .unwrap()
+            .capsule_id;
     }
-    h.accept_recipe(&cpass("dev", "coordination", &["accept_recipe"]), "svc", recipe(&digest, n as u32)).await.unwrap();
-    h.grant(&cpass("dev", "coordination", &["grant_access"]), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    h.accept_recipe(
+        &cpass("dev", "coordination", &["accept_recipe"]),
+        "svc",
+        recipe(&digest, n as u32),
+    )
+    .await
+    .unwrap();
+    h.grant(
+        &cpass("dev", "coordination", &["grant_access"]),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     let mut r = IngressRouter::new();
     r.route("/w", "svc");
     r.token("vtok", vendor());
@@ -148,7 +187,11 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
     }
 }
 /// Host binds ALL THREE logical app targets to the one fixture machine route (infra binding).
-fn effect_host<'a>(router: &'a IngressRouter, hub: &'a CoordinationHub, cfg: &'a EffectBridgeConfig<'a>) -> MachineEffectHost<'a> {
+fn effect_host<'a>(
+    router: &'a IngressRouter,
+    hub: &'a CoordinationHub,
+    cfg: &'a EffectBridgeConfig<'a>,
+) -> MachineEffectHost<'a> {
     let mut eh = MachineEffectHost::new(router, hub, cfg);
     eh.bind_target("lead-intake", "/w");
     eh.bind_target("lead-bid", "/w");
@@ -157,7 +200,13 @@ fn effect_host<'a>(router: &'a IngressRouter, hub: &'a CoordinationHub, cfg: &'a
 }
 
 /// One real loopback webhook POST → (status, body json). Carries bearer + auction id + correlation.
-async fn webhook(addr: std::net::SocketAddr, path: &str, auction_id: &str, corr: &str, body: &Value) -> (u16, Value) {
+async fn webhook(
+    addr: std::net::SocketAddr,
+    path: &str,
+    auction_id: &str,
+    corr: &str,
+    body: &Value,
+) -> (u16, Value) {
     let mut s = TcpStream::connect(addr).await.unwrap();
     let body_s = body.to_string();
     let req = format!(
@@ -168,7 +217,12 @@ async fn webhook(addr: std::net::SocketAddr, path: &str, auction_id: &str, corr:
     let mut resp = Vec::new();
     s.read_to_end(&mut resp).await.unwrap();
     let text = String::from_utf8_lossy(&resp).to_string();
-    let status = text.lines().next().and_then(|l| l.split_whitespace().nth(1)).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let status = text
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0);
     let body_start = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(text.len());
     let body_json: Value = serde_json::from_str(text[body_start..].trim()).unwrap_or(Value::Null);
     (status, body_json)
@@ -199,11 +253,19 @@ fn test_sparkcrm_targets_execute_through_machine() {
             ("/webhook/bids", "AUC-B", fx::lead_bid()),
             ("/webhook/status", "AUC-S", fx::lead_status()),
         ] {
-            let (status, body_json) = tokio::join!(serve_once_effect(&listener, &app, &eh), webhook(addr, path, auc, "corr", &body)).1;
+            let (status, body_json) = tokio::join!(
+                serve_once_effect(&listener, &app, &eh),
+                webhook(addr, path, auc, "corr", &body)
+            )
+            .1;
             assert_eq!(status, 200, "{path} committed");
             assert_eq!(body_json["status"], json!("committed"));
         }
-        assert_eq!(st.exec.applied_count(), 3, "three distinct targets → three effects");
+        assert_eq!(
+            st.exec.applied_count(),
+            3,
+            "three distinct targets → three effects"
+        );
     });
 }
 
@@ -221,23 +283,42 @@ fn test_bounded_fresh_auction_attempts_up_to_limit() {
 
         let body = fx::lead_intake(); // identical body each send (same lead); attempt is host-injected.
         for _ in 0..5 {
-            let (status, _) = tokio::join!(serve_once_effect(&listener, &app, &eh), webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)).1;
+            let (status, _) = tokio::join!(
+                serve_once_effect(&listener, &app, &eh),
+                webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)
+            )
+            .1;
             assert_eq!(status, 200);
         }
-        assert_eq!(st.exec.applied_count(), 5, "five accepted duplicates → five fresh effects");
+        assert_eq!(
+            st.exec.applied_count(),
+            5,
+            "five accepted duplicates → five fresh effects"
+        );
 
         // distinct effect receipts per attempt, keyed CAP:AUC-DUP:attempt.
         let mut digests = Vec::new();
         for attempt in 0..5 {
             let key = format!("{CAP}:AUC-DUP:{attempt}");
             let idem = receipt_field(&st.receipts, &key, "idempotency_key").await;
-            assert_eq!(idem, Some(json!(format!("AUC-DUP:{attempt}"))), "attempt {attempt} receipt exists");
-            digests.push(receipt_field(&st.receipts, &key, "payload_digest").await.unwrap());
+            assert_eq!(
+                idem,
+                Some(json!(format!("AUC-DUP:{attempt}"))),
+                "attempt {attempt} receipt exists"
+            );
+            digests.push(
+                receipt_field(&st.receipts, &key, "payload_digest")
+                    .await
+                    .unwrap(),
+            );
         }
         // codes are deterministic in attempt (code = base + attempt) → distinct payload digests.
         for i in 0..digests.len() {
             for j in (i + 1)..digests.len() {
-                assert_ne!(digests[i], digests[j], "attempt {i} vs {j}: distinct deterministic code");
+                assert_ne!(
+                    digests[i], digests[j],
+                    "attempt {i} vs {j}: distinct deterministic code"
+                );
             }
         }
     });
@@ -256,10 +337,19 @@ fn test_deterministic_code_is_reproducible_across_runs() {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let body = fx::lead_intake();
-            let _ = tokio::join!(serve_once_effect(&listener, &app, &eh), webhook(addr, "/webhook/leads", "AUC-R", "auc-corr", &body));
-            receipt_field(&st.receipts, &format!("{CAP}:AUC-R:0"), "payload_digest").await.unwrap()
+            let _ = tokio::join!(
+                serve_once_effect(&listener, &app, &eh),
+                webhook(addr, "/webhook/leads", "AUC-R", "auc-corr", &body)
+            );
+            receipt_field(&st.receipts, &format!("{CAP}:AUC-R:0"), "payload_digest")
+                .await
+                .unwrap()
         }
-        assert_eq!(first_digest().await, first_digest().await, "attempt 0 code is reproducible");
+        assert_eq!(
+            first_digest().await,
+            first_digest().await,
+            "attempt 0 code is reproducible"
+        );
     });
 }
 
@@ -278,16 +368,33 @@ fn test_after_limit_dedup_last_replays_fifth_attempt() {
         let body = fx::lead_intake();
         let mut last = Value::Null;
         for _ in 0..5 {
-            last = tokio::join!(serve_once_effect(&listener, &app, &eh), webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)).1 .1;
+            last = tokio::join!(
+                serve_once_effect(&listener, &app, &eh),
+                webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)
+            )
+            .1
+             .1;
         }
         assert_eq!(st.exec.applied_count(), 5);
 
         // 6th send: past max_fresh=5 → dedup_last replays the recorded 5th response, NO new effect.
-        let (status6, body6) = tokio::join!(serve_once_effect(&listener, &app, &eh), webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)).1;
+        let (status6, body6) = tokio::join!(
+            serve_once_effect(&listener, &app, &eh),
+            webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)
+        )
+        .1;
         assert_eq!(status6, 200);
-        assert_eq!(body6, last, "6th request replays the 5th attempt's response");
+        assert_eq!(
+            body6, last,
+            "6th request replays the 5th attempt's response"
+        );
         assert_eq!(st.exec.applied_count(), 5, "no new effect past the bound");
-        assert!(receipt_field(&st.receipts, &format!("{CAP}:AUC-DUP:5"), "state").await.is_none(), "no attempt-5 receipt");
+        assert!(
+            receipt_field(&st.receipts, &format!("{CAP}:AUC-DUP:5"), "state")
+                .await
+                .is_none(),
+            "no attempt-5 receipt"
+        );
     });
 }
 

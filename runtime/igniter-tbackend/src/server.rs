@@ -1,18 +1,18 @@
+use crate::fact::FactData;
 use crate::timeline::ShardedFactLog;
 use crate::wal::FileBackend;
-use std::collections::HashMap;
-use crate::fact::FactData;
 use magnus::{value::ReprValue, Error, TryConvert, Value};
+use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::json;
-use std::net::{TcpListener, TcpStream};
+use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use std::sync::mpsc::channel;
-use parking_lot::Mutex;
 
 #[derive(Deserialize)]
 struct Request {
@@ -63,7 +63,11 @@ impl MetricsTracker {
     pub fn to_json(&self) -> serde_json::Value {
         let reqs = self.total_requests.load(Ordering::Relaxed);
         let lat = self.total_latency_us.load(Ordering::Relaxed);
-        let avg_lat = if reqs > 0 { lat as f64 / reqs as f64 } else { 0.0 };
+        let avg_lat = if reqs > 0 {
+            lat as f64 / reqs as f64
+        } else {
+            0.0
+        };
 
         serde_json::json!({
             "total_requests": reqs,
@@ -92,7 +96,9 @@ struct ConnectionGuard {
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.metrics.active_connections.fetch_sub(1, Ordering::Relaxed);
+        self.metrics
+            .active_connections
+            .fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -105,18 +111,21 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Option<(Vec<u8>, usize)
         return Err(e);
     }
     let len = u32::from_be_bytes(len_buf) as usize;
-    
+
     let mut body = vec![0u8; len];
     stream.read_exact(&mut body)?;
-    
+
     let mut crc_buf = [0u8; 4];
     stream.read_exact(&mut crc_buf)?;
     let crc = u32::from_be_bytes(crc_buf);
-    
+
     if crc != crc32fast::hash(&body) {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "CRC mismatch"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "CRC mismatch",
+        ));
     }
-    
+
     let total_read = 4 + len + 4;
     Ok(Some((body, total_read)))
 }
@@ -124,12 +133,12 @@ fn read_frame(stream: &mut TcpStream) -> std::io::Result<Option<(Vec<u8>, usize)
 fn write_frame(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<usize> {
     let len = body.len() as u32;
     let crc = crc32fast::hash(body);
-    
+
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(body)?;
     stream.write_all(&crc.to_be_bytes())?;
     stream.flush()?;
-    
+
     let total_written = 4 + body.len() + 4;
     Ok(total_written)
 }
@@ -140,7 +149,9 @@ pub struct StoreEngine {
 }
 
 fn is_valid_store_name(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn get_or_create_engine(
@@ -158,7 +169,7 @@ fn get_or_create_engine(
     if let Some(engine) = map.get(store_name) {
         return engine.clone();
     }
-    
+
     let log = Arc::new(ShardedFactLog::new());
     let wal = if let Some(ref dir) = data_dir {
         let path = format!("{}/{}.wal", dir, store_name);
@@ -173,14 +184,17 @@ fn get_or_create_engine(
                 Some(wal_arc)
             }
             Err(e) => {
-                println!("[TBackend Server] Error initializing WAL file for {}: {}", store_name, e);
+                println!(
+                    "[TBackend Server] Error initializing WAL file for {}: {}",
+                    store_name, e
+                );
                 None
             }
         }
     } else {
         None
     };
-    
+
     let engine = Arc::new(StoreEngine { log, wal });
     map.insert(store_name.to_string(), engine.clone());
     engine
@@ -199,7 +213,7 @@ fn handle_request(
             return json!({ "ok": false, "error": format!("Invalid JSON request: {}", e) });
         }
     };
-    
+
     match req.op.as_str() {
         "ping" => {
             metrics.ping_ops.fetch_add(1, Ordering::Relaxed);
@@ -333,7 +347,12 @@ impl Server {
         } else {
             match TryConvert::try_convert(pool_size_val) {
                 Ok(x) => x,
-                Err(_) => return Err(Error::new(magnus::exception::runtime_error(), "thread_pool_size must be an integer")),
+                Err(_) => {
+                    return Err(Error::new(
+                        magnus::exception::runtime_error(),
+                        "thread_pool_size must be an integer",
+                    ))
+                }
             }
         };
 
@@ -361,18 +380,22 @@ impl Server {
             }
         }
 
-        let listener = TcpListener::bind(format!("{}:{}", host, port))
-            .map_err(|e| Error::new(magnus::exception::runtime_error(), format!("Bind failed: {}", e)))?;
-        
+        let listener = TcpListener::bind(format!("{}:{}", host, port)).map_err(|e| {
+            Error::new(
+                magnus::exception::runtime_error(),
+                format!("Bind failed: {}", e),
+            )
+        })?;
+
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
-        
+
         let metrics = Arc::new(MetricsTracker::new());
         let metrics_t = metrics.clone();
-        
+
         // Custom thread-safe connection distribution queue
         let (tx, rx) = channel::<TcpStream>();
         let rx = Arc::new(Mutex::new(rx));
-        
+
         let engines_t = engines.clone();
         let data_dir_t = data_dir.clone();
 
@@ -382,7 +405,7 @@ impl Server {
             let engines_c = engines_t.clone();
             let data_dir_c = data_dir_t.clone();
             let metrics_c = metrics_t.clone();
-            
+
             thread::spawn(move || {
                 loop {
                     // Block worker thread until a connection is available in the queue
@@ -390,32 +413,43 @@ impl Server {
                         Ok(s) => s,
                         Err(_) => break, // Channel closed, gracefully exit worker thread
                     };
-                    
+
                     let _ = stream.set_nodelay(true);
                     let _ = stream.set_nonblocking(false); // Explicitly ensure stream is blocking (crucial for non-blocking listener inherits on macOS)!
                     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30))); // Prevent slot starvation
-                    
+
                     metrics_c.active_connections.fetch_add(1, Ordering::Relaxed);
-                    let _guard = ConnectionGuard { metrics: metrics_c.clone() };
-                    
+                    let _guard = ConnectionGuard {
+                        metrics: metrics_c.clone(),
+                    };
+
                     loop {
                         match read_frame(&mut stream) {
                             Ok(Some((body, bytes_read))) => {
                                 metrics_c.total_requests.fetch_add(1, Ordering::Relaxed);
-                                metrics_c.bytes_read.fetch_add(bytes_read as u64, Ordering::Relaxed);
-                                
+                                metrics_c
+                                    .bytes_read
+                                    .fetch_add(bytes_read as u64, Ordering::Relaxed);
+
                                 let start_time = Instant::now();
-                                let resp = handle_request(&body, &engines_c, &data_dir_c, &metrics_c);
+                                let resp =
+                                    handle_request(&body, &engines_c, &data_dir_c, &metrics_c);
                                 let elapsed = start_time.elapsed().as_micros() as u64;
-                                metrics_c.total_latency_us.fetch_add(elapsed, Ordering::Relaxed);
-                                
+                                metrics_c
+                                    .total_latency_us
+                                    .fetch_add(elapsed, Ordering::Relaxed);
+
                                 let resp_bytes = serde_json::to_vec(&resp).unwrap_or_default();
                                 match write_frame(&mut stream, &resp_bytes) {
                                     Ok(bytes_written) => {
-                                        metrics_c.bytes_written.fetch_add(bytes_written as u64, Ordering::Relaxed);
+                                        metrics_c
+                                            .bytes_written
+                                            .fetch_add(bytes_written as u64, Ordering::Relaxed);
                                     }
                                     Err(e) => {
-                                        metrics_c.errors_encountered.fetch_add(1, Ordering::Relaxed);
+                                        metrics_c
+                                            .errors_encountered
+                                            .fetch_add(1, Ordering::Relaxed);
                                         println!("[Worker Thread {}] Write error: {}", i, e);
                                         break;
                                     }
@@ -442,7 +476,7 @@ impl Server {
                 if shutdown_rx.try_recv().is_ok() {
                     break;
                 }
-                
+
                 let stream = match listener.accept() {
                     Ok((s, _)) => s,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -451,7 +485,7 @@ impl Server {
                     }
                     Err(_) => break,
                 };
-                
+
                 // Dispatch connection into the worker pool queue
                 if tx.send(stream).is_err() {
                     break; // Workers have closed

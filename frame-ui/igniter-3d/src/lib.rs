@@ -32,9 +32,18 @@ pub const VERTS: [(&str, f64, f64, f64); 8] = [
 
 /// The 12 cube edges as vertex-id pairs (back face, front face, connectors).
 pub const EDGES: [(&str, &str); 12] = [
-    ("v0", "v1"), ("v1", "v2"), ("v2", "v3"), ("v3", "v0"),
-    ("v4", "v5"), ("v5", "v6"), ("v6", "v7"), ("v7", "v4"),
-    ("v0", "v4"), ("v1", "v5"), ("v2", "v6"), ("v3", "v7"),
+    ("v0", "v1"),
+    ("v1", "v2"),
+    ("v2", "v3"),
+    ("v3", "v0"),
+    ("v4", "v5"),
+    ("v5", "v6"),
+    ("v6", "v7"),
+    ("v7", "v4"),
+    ("v0", "v4"),
+    ("v1", "v5"),
+    ("v2", "v6"),
+    ("v3", "v7"),
 ];
 
 const ANGLE_STEP: f64 = 0.12; // radians per tick
@@ -85,8 +94,11 @@ pub struct WireframeRenderHost {
 
 impl RenderHost for WireframeRenderHost {
     fn render(&self, frame: &Frame) -> String {
-        let pos: HashMap<&str, (i64, i64)> =
-            frame.nodes.iter().map(|n| (n.id.as_str(), (n.sx, n.sy))).collect();
+        let pos: HashMap<&str, (i64, i64)> = frame
+            .nodes
+            .iter()
+            .map(|n| (n.id.as_str(), (n.sx, n.sy)))
+            .collect();
         let mut body = String::new();
         for (a, b) in EDGES.iter() {
             if let (Some(&(ax, ay)), Some(&(bx, by))) = (pos.get(a), pos.get(b)) {
@@ -119,14 +131,27 @@ pub struct Cube3dRuntime {
 
 impl Cube3dRuntime {
     pub fn new() -> Self {
-        let camera = Camera { width: 400, height: 400, scale: 150.0, depth: 4.0 };
-        let viewport = Viewport { css_w: 800.0, css_h: 800.0, frame_w: 400, frame_h: 400 };
+        let camera = Camera {
+            width: 400,
+            height: 400,
+            scale: 150.0,
+            depth: 4.0,
+        };
+        let viewport = Viewport {
+            css_w: 800.0,
+            css_h: 800.0,
+            frame_w: 400,
+            frame_h: 400,
+        };
         let inner = FrameRuntime::new(
             cube_world(),
             tick_reducer(),
             camera,
             viewport,
-            Box::new(WireframeRenderHost { width: 400, height: 400 }),
+            Box::new(WireframeRenderHost {
+                width: 400,
+                height: 400,
+            }),
         );
         Self { inner }
     }

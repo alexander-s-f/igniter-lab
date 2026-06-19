@@ -72,13 +72,25 @@ fn valid_passport_authorizes_and_records_digest() {
         let store = receipts();
         let p = passport("svc:reader", "echo", &["read"]);
 
-        let out = run_effect_with_passport(&reg, &store, &clock(10.0), &p, "read", &req("echo", "k1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &p,
+            "read",
+            &req("echo", "k1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(echo.call_count(), 1);
 
-        let fact = store.read_as_of(RECEIPTS_STORE, "echo:k1", f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, "echo:k1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["authority_digest"], json!(p.authority_digest()));
     });
 }
@@ -95,12 +107,24 @@ fn wrong_capability_refused_no_receipt() {
         // passport is for a DIFFERENT capability than the request
         let p = passport("svc", "other-cap", &["read"]);
 
-        let out = run_effect_with_passport(&reg, &store, &clock(10.0), &p, "read", &req("echo", "w1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &p,
+            "read",
+            &req("echo", "w1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
-        assert!(store.read_as_of(RECEIPTS_STORE, "echo:w1", f64::MAX).await.unwrap().is_none());
+        assert!(store
+            .read_as_of(RECEIPTS_STORE, "echo:w1", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -113,12 +137,24 @@ fn missing_scope_refused_no_receipt() {
         let store = receipts();
         let p = passport("svc", "echo", &["read"]); // has "read", not "write"
 
-        let out = run_effect_with_passport(&reg, &store, &clock(10.0), &p, "write", &req("echo", "s1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &p,
+            "write",
+            &req("echo", "s1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
-        assert!(store.read_as_of(RECEIPTS_STORE, "echo:s1", f64::MAX).await.unwrap().is_none());
+        assert!(store
+            .read_as_of(RECEIPTS_STORE, "echo:s1", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -132,12 +168,24 @@ fn revoked_passport_refused_no_receipt() {
         let mut p = passport("svc", "echo", &["read"]);
         p.revoked = true;
 
-        let out = run_effect_with_passport(&reg, &store, &clock(10.0), &p, "read", &req("echo", "rv1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &p,
+            "read",
+            &req("echo", "rv1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
-        assert!(store.read_as_of(RECEIPTS_STORE, "echo:rv1", f64::MAX).await.unwrap().is_none());
+        assert!(store
+            .read_as_of(RECEIPTS_STORE, "echo:rv1", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
     });
 }
 
@@ -152,16 +200,32 @@ fn expiry_uses_injected_clock() {
         p.expires_at = Some(100.0);
 
         // clock past expiry → Expired refusal, no receipt
-        let expired = run_effect_with_passport(&reg, &store, &clock(200.0), &p, "read", &req("echo", "e1", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let expired = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(200.0),
+            &p,
+            "read",
+            &req("echo", "e1", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(expired.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 0);
 
         // clock before expiry → authorized
-        let ok = run_effect_with_passport(&reg, &store, &clock(50.0), &p, "read", &req("echo", "e2", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let ok = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(50.0),
+            &p,
+            "read",
+            &req("echo", "e2", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(ok.kind, OutcomeKind::Succeeded);
         assert_eq!(echo.call_count(), 1);
     });
@@ -170,14 +234,26 @@ fn expiry_uses_injected_clock() {
 #[test]
 fn verify_passport_unit_refusals() {
     let p = passport("svc", "cap", &["read"]);
-    assert_eq!(verify_passport(&p, "other", "read", &clock(1.0)).unwrap_err(), AuthRefusal::WrongCapability);
-    assert_eq!(verify_passport(&p, "cap", "write", &clock(1.0)).unwrap_err(), AuthRefusal::MissingScope);
+    assert_eq!(
+        verify_passport(&p, "other", "read", &clock(1.0)).unwrap_err(),
+        AuthRefusal::WrongCapability
+    );
+    assert_eq!(
+        verify_passport(&p, "cap", "write", &clock(1.0)).unwrap_err(),
+        AuthRefusal::MissingScope
+    );
     let mut rev = p.clone();
     rev.revoked = true;
-    assert_eq!(verify_passport(&rev, "cap", "read", &clock(1.0)).unwrap_err(), AuthRefusal::Revoked);
+    assert_eq!(
+        verify_passport(&rev, "cap", "read", &clock(1.0)).unwrap_err(),
+        AuthRefusal::Revoked
+    );
     let mut exp = p.clone();
     exp.expires_at = Some(10.0);
-    assert_eq!(verify_passport(&exp, "cap", "read", &clock(20.0)).unwrap_err(), AuthRefusal::Expired);
+    assert_eq!(
+        verify_passport(&exp, "cap", "read", &clock(20.0)).unwrap_err(),
+        AuthRefusal::Expired
+    );
     assert!(verify_passport(&p, "cap", "read", &clock(1.0)).is_ok());
 }
 
@@ -194,22 +270,46 @@ fn replay_requires_same_authority_digest() {
         let b = passport("svc:B", "echo", &["read", "extra"]); // different subject + scopes → different digest
 
         // live with passport A
-        run_effect_with_passport(&reg, &store, &clock(10.0), &a, "read", &req("echo", "k", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &a,
+            "read",
+            &req("echo", "k", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(echo.call_count(), 1);
 
         // same idempotency key but DIFFERENT authority → refused, executor not re-run
-        let mismatch = run_effect_with_passport(&reg, &store, &clock(11.0), &b, "read", &req("echo", "k", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let mismatch = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(11.0),
+            &b,
+            "read",
+            &req("echo", "k", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(mismatch.kind, OutcomeKind::Denied);
         assert_eq!(echo.call_count(), 1);
 
         // same authority A → legitimate replay, executor still not re-run
-        let replay = run_effect_with_passport(&reg, &store, &clock(12.0), &a, "read", &req("echo", "k", json!(1)), RunMode::Live)
-            .await
-            .unwrap();
+        let replay = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(12.0),
+            &a,
+            "read",
+            &req("echo", "k", json!(1)),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(replay.kind, OutcomeKind::Succeeded);
         assert_eq!(echo.call_count(), 1);
     });
@@ -227,13 +327,25 @@ fn executor_denial_remains_denial_as_data() {
         let p = passport("svc", "echo", &["read"]);
 
         // passport authorizes (preflight passes) but the executor itself denies
-        let out = run_effect_with_passport(&reg, &store, &clock(10.0), &p, "read", &req("echo", "d1", json!({"key": "__forbidden__"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &store,
+            &clock(10.0),
+            &p,
+            "read",
+            &req("echo", "d1", json!({"key": "__forbidden__"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(kv.call_count(), 1, "executor was reached (passport passed)");
 
-        let fact = store.read_as_of(RECEIPTS_STORE, "echo:d1", f64::MAX).await.unwrap().unwrap();
+        let fact = store
+            .read_as_of(RECEIPTS_STORE, "echo:d1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["outcome_kind"], json!("denied"));
         assert_eq!(fact.value["authority_digest"], json!(p.authority_digest()));
     });
@@ -245,7 +357,8 @@ fn executor_denial_remains_denial_as_data() {
 fn authority_is_host_side_not_contract() {
     rt().block_on(async {
         let m = IgniterMachine::new(None, "in_memory").unwrap();
-        m.load_program(&[FIXTURE.to_string()], "ExecuteQuery").unwrap();
+        m.load_program(&[FIXTURE.to_string()], "ExecuteQuery")
+            .unwrap();
         let mut kv = HashMap::new();
         kv.insert("x".to_string(), json!(1));
         let exec = Arc::new(KvReadExecutor::new(STORAGE_CAP, kv));
@@ -271,7 +384,12 @@ fn authority_is_host_side_not_contract() {
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(exec.call_count(), 1);
 
-        let fact = m.storage.read_as_of(RECEIPTS_STORE, "IO.StorageCapability:h1", f64::MAX).await.unwrap().unwrap();
+        let fact = m
+            .storage
+            .read_as_of(RECEIPTS_STORE, "IO.StorageCapability:h1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fact.value["authority_digest"], json!(p.authority_digest()));
     });
 }

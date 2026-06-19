@@ -2,10 +2,10 @@
 // Lab-only Capability Passport and Manifest Loader for IVM
 // Route: EXPERIMENTAL / LAB-ONLY
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -68,9 +68,10 @@ impl CapabilityGrant {
         // Every absolute path allowed by child must be explicitly allowed by parent
         for path in &self.allowed_absolute_paths {
             let clean_child_abs = clean_and_resolve_path(Path::new(path));
-            let matched = parent.allowed_absolute_paths.iter().any(|p_path| {
-                clean_and_resolve_path(Path::new(p_path)) == clean_child_abs
-            });
+            let matched = parent
+                .allowed_absolute_paths
+                .iter()
+                .any(|p_path| clean_and_resolve_path(Path::new(p_path)) == clean_child_abs);
             if !matched {
                 return false;
             }
@@ -200,11 +201,15 @@ pub fn load_and_verify_passport(
     }
 
     // COMPATIBILITY-ONLY: Legacy io_child alias map fallback
-    if capability_bindings.contains_key("io_child_read") && !capability_bindings.contains_key("io_child") {
+    if capability_bindings.contains_key("io_child_read")
+        && !capability_bindings.contains_key("io_child")
+    {
         eprintln!("[LEGACY COMPATIBILITY WARNING] Triggered legacy io_child alias fallback for io_child_read");
         capability_bindings.insert("io_child".to_string(), "io_child_read".to_string());
     }
-    if capability_bindings.contains_key("io_child_write") && !capability_bindings.contains_key("io_child") {
+    if capability_bindings.contains_key("io_child_write")
+        && !capability_bindings.contains_key("io_child")
+    {
         eprintln!("[LEGACY COMPATIBILITY WARNING] Triggered legacy io_child alias fallback for io_child_write");
         capability_bindings.insert("io_child".to_string(), "io_child_write".to_string());
     }
@@ -220,10 +225,18 @@ pub fn load_and_verify_passport(
                 if param_name == "io_child_read" || param_name == "io_child_write" {
                     match caller_bindings.get("io_child") {
                         Some(k) => k,
-                        None => return Err(format!("PassportError: missing capability binding for parameter '{}'", param_name)),
+                        None => {
+                            return Err(format!(
+                                "PassportError: missing capability binding for parameter '{}'",
+                                param_name
+                            ))
+                        }
                     }
                 } else {
-                    return Err(format!("PassportError: missing capability binding for parameter '{}'", param_name));
+                    return Err(format!(
+                        "PassportError: missing capability binding for parameter '{}'",
+                        param_name
+                    ));
                 }
             }
         };
@@ -231,24 +244,40 @@ pub fn load_and_verify_passport(
         // Find caller active grant
         let caller_grant = match caller_active_grants.get(caller_grant_key) {
             Some(g) => g,
-            None => return Err(format!("PassportError: caller does not hold active grant '{}'", caller_grant_key)),
+            None => {
+                return Err(format!(
+                    "PassportError: caller does not hold active grant '{}'",
+                    caller_grant_key
+                ))
+            }
         };
 
         // Find required capability in passport
         let required_use = match passport.required_capabilities.get(cap_id) {
             Some(rc) => rc,
-            None => return Err(format!("PassportError: required capability config '{}' not found in passport", cap_id)),
+            None => {
+                return Err(format!(
+                    "PassportError: required capability config '{}' not found in passport",
+                    cap_id
+                ))
+            }
         };
 
         // Resolve sandbox path: "out/sandbox/sub" is resolved relative to the parent caller's sandbox_dir
         let callee_sandbox_dir = if required_use.sandbox_dir == "out/sandbox/sub" {
-            Path::new(&caller_grant.sandbox_dir).join("sub").to_string_lossy().into_owned()
+            Path::new(&caller_grant.sandbox_dir)
+                .join("sub")
+                .to_string_lossy()
+                .into_owned()
         } else {
             required_use.sandbox_dir.clone()
         };
 
         let callee_grant = CapabilityGrant {
-            capability_id: format!("{}:delegated:TwoCapabilities:{}", caller_grant.capability_id, param_name),
+            capability_id: format!(
+                "{}:delegated:TwoCapabilities:{}",
+                caller_grant.capability_id, param_name
+            ),
             resource_type: "IO.Capability".to_string(),
             sandbox_dir: callee_sandbox_dir,
             allowed_absolute_paths: required_use.allowed_absolute_paths.clone(),
@@ -272,7 +301,10 @@ pub fn load_and_verify_passport(
     for (cap_id, _) in &passport.required_capabilities {
         let is_bound = capability_bindings.values().any(|v| v == cap_id);
         if !is_bound {
-            return Err(format!("PassportError: missing capability binding for required capability '{}'", cap_id));
+            return Err(format!(
+                "PassportError: missing capability binding for required capability '{}'",
+                cap_id
+            ));
         }
     }
 

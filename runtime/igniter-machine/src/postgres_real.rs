@@ -60,7 +60,10 @@ impl TokioPostgresReadAdapter {
         tokio::spawn(async move {
             let _ = connection.await;
         });
-        Ok(Self { client: Arc::new(client), queries: AtomicU64::new(0) })
+        Ok(Self {
+            client: Arc::new(client),
+            queries: AtomicU64::new(0),
+        })
     }
 
     /// How many real queries were actually executed (a replayed effect must NOT increment this).
@@ -80,20 +83,35 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
                 "real adapter v0 requires an explicit projection".to_string(),
             );
         }
-        let cols: Vec<String> = plan.projection.iter().map(|c| format!("{}::text", quote_ident(c))).collect();
+        let cols: Vec<String> = plan
+            .projection
+            .iter()
+            .map(|c| format!("{}::text", quote_ident(c)))
+            .collect();
 
         // eq-only filters; values bound as $1..$n; column cast ::text for a uniform text compare.
         let mut where_parts: Vec<String> = Vec::new();
         let mut params: Vec<String> = Vec::new();
         for f in &plan.filters {
             if f.op != "eq" {
-                return PostgresReadResult::QueryError(format!("unsupported filter op in v0: {}", f.op));
+                return PostgresReadResult::QueryError(format!(
+                    "unsupported filter op in v0: {}",
+                    f.op
+                ));
             }
             params.push(value_to_text(&f.value));
-            where_parts.push(format!("{}::text = ${}", quote_ident(&f.field), params.len()));
+            where_parts.push(format!(
+                "{}::text = ${}",
+                quote_ident(&f.field),
+                params.len()
+            ));
         }
 
-        let mut sql = format!("SELECT {} FROM {}", cols.join(", "), quote_ident(&plan.source));
+        let mut sql = format!(
+            "SELECT {} FROM {}",
+            cols.join(", "),
+            quote_ident(&plan.source)
+        );
         if !where_parts.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&where_parts.join(" AND "));
@@ -158,9 +176,13 @@ fn classify_write_error(e: &tokio_postgres::Error) -> PostgresWriteResult {
         Some(db) => {
             let code = db.code().code().to_string();
             match code.as_str() {
-                "40001" | "40P01" => PostgresWriteResult::SerializationFailure(format!("{code}: {e}")),
+                "40001" | "40P01" => {
+                    PostgresWriteResult::SerializationFailure(format!("{code}: {e}"))
+                }
                 "42501" => PostgresWriteResult::Denied(format!("{code}: insufficient privilege")),
-                c if c.starts_with("23") => PostgresWriteResult::ConstraintViolation(format!("{c}: {e}")),
+                c if c.starts_with("23") => {
+                    PostgresWriteResult::ConstraintViolation(format!("{c}: {e}"))
+                }
                 _ => PostgresWriteResult::ConstraintViolation(format!("{code}: {e}")),
             }
         }
@@ -182,7 +204,12 @@ pub struct TokioPostgresWriteAdapter {
 impl TokioPostgresWriteAdapter {
     /// Connect and bind to one host-owned `target(key_column, columns…)`. DSN from a
     /// SecretProvider/env — never hardcoded, never in a receipt. NoTls loopback (TLS = later slice).
-    pub async fn connect(dsn: &str, target: &str, key_column: &str, columns: &[&str]) -> Result<Self, tokio_postgres::Error> {
+    pub async fn connect(
+        dsn: &str,
+        target: &str,
+        key_column: &str,
+        columns: &[&str],
+    ) -> Result<Self, tokio_postgres::Error> {
         let (client, connection) = tokio_postgres::connect(dsn, NoTls).await?;
         tokio::spawn(async move {
             let _ = connection.await;
@@ -218,7 +245,11 @@ impl TokioPostgresWriteAdapter {
 
 #[async_trait]
 impl PostgresWriteAdapter for TokioPostgresWriteAdapter {
-    async fn transact(&self, intent: &PostgresWriteIntent, idempotency_key: &str) -> PostgresWriteResult {
+    async fn transact(
+        &self,
+        intent: &PostgresWriteIntent,
+        idempotency_key: &str,
+    ) -> PostgresWriteResult {
         self.attempts.fetch_add(1, Ordering::SeqCst);
 
         // Build the business insert column/placeholder/conflict clauses from the HOST-configured
@@ -227,11 +258,16 @@ impl PostgresWriteAdapter for TokioPostgresWriteAdapter {
         let biz_cols: Vec<String> = std::iter::once(quote_ident(&self.key_column))
             .chain(self.columns.iter().map(|c| quote_ident(c)))
             .collect();
-        let biz_placeholders: Vec<String> = (0..biz_cols.len()).map(|i| format!("${}", 5 + i)).collect();
+        let biz_placeholders: Vec<String> =
+            (0..biz_cols.len()).map(|i| format!("${}", 5 + i)).collect();
         let on_conflict = if self.columns.is_empty() {
             "DO NOTHING".to_string()
         } else {
-            let sets: Vec<String> = self.columns.iter().map(|c| format!("{0}=EXCLUDED.{0}", quote_ident(c))).collect();
+            let sets: Vec<String> = self
+                .columns
+                .iter()
+                .map(|c| format!("{0}=EXCLUDED.{0}", quote_ident(c)))
+                .collect();
             format!("DO UPDATE SET {}", sets.join(", "))
         };
 
@@ -262,7 +298,8 @@ impl PostgresWriteAdapter for TokioPostgresWriteAdapter {
         for c in &self.columns {
             params.push(json_to_opt_text(intent.values.get(c)));
         }
-        let param_refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+        let param_refs: Vec<&(dyn ToSql + Sync)> =
+            params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
 
         match self.client.query_one(sql.as_str(), &param_refs).await {
             Ok(row) => {

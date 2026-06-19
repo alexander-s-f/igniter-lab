@@ -7,7 +7,9 @@
 //! Read-only: no writes, no HTTP, no scheduler.
 
 use igniter_machine::backend::{RemoteTcpBackend, RocksDBBackend, TBackend};
-use igniter_machine::capability::{CapabilityExecutorRegistry, OutcomeKind, RunMode, RECEIPTS_STORE};
+use igniter_machine::capability::{
+    CapabilityExecutorRegistry, OutcomeKind, RunMode, RECEIPTS_STORE,
+};
 use igniter_machine::executors::TBackendReadExecutor;
 use igniter_machine::fact::Fact;
 use igniter_machine::machine::IgniterMachine;
@@ -73,7 +75,11 @@ fn real_rocksdb_read_succeeds_and_writes_receipt() {
         let backend: Arc<dyn TBackend> = Arc::new(RocksDBBackend::new(dir.clone()).unwrap());
         // seed the "external" data store (setup — not the executor writing)
         backend
-            .write_fact(fact("catalog", "sku-1", json!({"name": "widget", "qty": 7})))
+            .write_fact(fact(
+                "catalog",
+                "sku-1",
+                json!({"name": "widget", "qty": 7}),
+            ))
             .await
             .unwrap();
 
@@ -120,20 +126,39 @@ fn real_read_idempotency_replays_without_backend() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
 
-        let first = run_service(&m, &reg, &read_req("same", "catalog", "sku-2"), RunMode::Live)
-            .await
-            .unwrap();
-        let second = run_service(&m, &reg, &read_req("same", "catalog", "sku-2"), RunMode::Live)
-            .await
-            .unwrap();
+        let first = run_service(
+            &m,
+            &reg,
+            &read_req("same", "catalog", "sku-2"),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let second = run_service(
+            &m,
+            &reg,
+            &read_req("same", "catalog", "sku-2"),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(first.result, json!({"qty": 42}));
         assert_eq!(second.result, json!({"qty": 42}));
-        assert_eq!(exec.read_count(), 1, "real backend read must happen once per idempotency key");
+        assert_eq!(
+            exec.read_count(),
+            1,
+            "real backend read must happen once per idempotency key"
+        );
 
         // explicit replay mode also bypasses the real backend
-        let replay = run_service(&m, &reg, &read_req("same", "catalog", "sku-2"), RunMode::Replay)
-            .await
-            .unwrap();
+        let replay = run_service(
+            &m,
+            &reg,
+            &read_req("same", "catalog", "sku-2"),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(replay.result, json!({"qty": 42}));
         assert_eq!(exec.read_count(), 1);
 
@@ -153,9 +178,14 @@ fn missing_record_is_permanent_failure_not_panic() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
 
-        let out = run_service(&m, &reg, &read_req("m1", "catalog", "absent"), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_service(
+            &m,
+            &reg,
+            &read_req("m1", "catalog", "absent"),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         // definite "not found" — permanent, NOT unknown_external_state
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
         assert_eq!(exec.read_count(), 1);
@@ -189,7 +219,10 @@ fn backend_unavailable_is_unknown_external_state() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(receipt.value["outcome_kind"], json!("unknown_external_state"));
+        assert_eq!(
+            receipt.value["outcome_kind"],
+            json!("unknown_external_state")
+        );
     });
 }
 
@@ -212,12 +245,21 @@ fn contract_body_cannot_read_real_backend() {
 
         // dispatch runs only the VM — no executor registry, so no real read can happen
         let _ = m.dispatch("ExecuteQuery", json!({"plan": {}})).await;
-        assert_eq!(exec.read_count(), 0, "contract body must not read the real backend");
+        assert_eq!(
+            exec.read_count(),
+            0,
+            "contract body must not read the real backend"
+        );
 
         // only the host entrypoint reaches the real substrate
-        run_service(&m, &reg, &read_req("io1", "catalog", "sku-3"), RunMode::Live)
-            .await
-            .unwrap();
+        run_service(
+            &m,
+            &reg,
+            &read_req("io1", "catalog", "sku-3"),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(exec.read_count(), 1);
 
         let _ = std::fs::remove_dir_all(&dir);

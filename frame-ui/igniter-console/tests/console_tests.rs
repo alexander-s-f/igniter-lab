@@ -21,7 +21,13 @@ fn console_builds_the_ide_shell_around_the_artifact() {
     assert_eq!(c.len(), 1, "initial frame recorded");
     assert_eq!(c.selected(), 0);
     let svg = c.render_svg();
-    for needle in ["replay", "frame viewer", "lineage", "frame diff", "Lead \u{b7} Ada"] {
+    for needle in [
+        "replay",
+        "frame viewer",
+        "lineage",
+        "frame diff",
+        "Lead \u{b7} Ada",
+    ] {
         assert!(svg.contains(needle), "console shell missing: {needle}");
     }
 }
@@ -29,11 +35,17 @@ fn console_builds_the_ide_shell_around_the_artifact() {
 #[test]
 fn viewer_click_forwards_to_target_and_records_a_frame() {
     let mut c = Console::from_artifact(JSON).unwrap();
-    assert!(viewer_click(&mut c, 106.0, 105.0), "click in viewer forwards (select Grace)");
+    assert!(
+        viewer_click(&mut c, 106.0, 105.0),
+        "click in viewer forwards (select Grace)"
+    );
     assert_eq!(c.len(), 2, "a new frame was recorded");
     assert_eq!(c.selected(), 1, "selection follows the live frame");
     assert!(c.is_live());
-    assert!(c.render_svg().contains("Lead \u{b7} Grace"), "the embedded target frame followed selection");
+    assert!(
+        c.render_svg().contains("Lead \u{b7} Grace"),
+        "the embedded target frame followed selection"
+    );
 }
 
 #[test]
@@ -45,7 +57,10 @@ fn replay_strip_scrubs_history_without_mutating_target() {
     assert_eq!(c.selected(), 0, "time-travelled to the initial frame");
     assert!(!c.is_live());
     assert_eq!(c.len(), 2, "scrubbing did not record or mutate");
-    assert!(c.render_svg().contains("Lead \u{b7} Ada"), "viewer shows the historical frame");
+    assert!(
+        c.render_svg().contains("Lead \u{b7} Ada"),
+        "viewer shows the historical frame"
+    );
 }
 
 #[test]
@@ -53,9 +68,18 @@ fn frame_diff_reports_node_level_changes() {
     let mut c = Console::from_artifact(JSON).unwrap();
     viewer_click(&mut c, 106.0, 105.0); // Ada → Grace : main fields swap, panels/list/inspector change
     let diff = c.diff_json();
-    assert!(diff.contains("fld:Grace:priority") && diff.contains("\"added\""), "Grace's fields appear");
-    assert!(diff.contains("fld:Ada:priority") && diff.contains("\"removed\""), "Ada's fields leave");
-    assert!(diff.contains("panel:main") && diff.contains("\"changed\""), "the main panel title changed");
+    assert!(
+        diff.contains("fld:Grace:priority") && diff.contains("\"added\""),
+        "Grace's fields appear"
+    );
+    assert!(
+        diff.contains("fld:Ada:priority") && diff.contains("\"removed\""),
+        "Ada's fields leave"
+    );
+    assert!(
+        diff.contains("panel:main") && diff.contains("\"changed\""),
+        "the main panel title changed"
+    );
 }
 
 #[test]
@@ -68,7 +92,10 @@ fn lineage_inspector_reflects_the_selected_step() {
 
     c.select_step(0); // scrub to the initial frame
     let init: serde_json::Value = serde_json::from_str(&c.lineage_json()).unwrap();
-    assert!(init["effect_receipt_id"].is_null(), "the initial frame has no effect");
+    assert!(
+        init["effect_receipt_id"].is_null(),
+        "the initial frame has no effect"
+    );
     assert_eq!(init["step"], 0);
 }
 
@@ -79,7 +106,10 @@ fn typing_forwards_through_the_console_to_the_reducer() {
     c.key("h");
     c.key("i");
     assert!(c.is_live());
-    assert!(c.render_svg().contains("hi"), "keystrokes routed to the target field (reducer owns it)");
+    assert!(
+        c.render_svg().contains("hi"),
+        "keystrokes routed to the target field (reducer owns it)"
+    );
     // a frame was recorded per accepted keystroke (focus + 2 keys → 3 events past init)
     assert!(c.len() >= 3);
 }

@@ -4,15 +4,17 @@
 //   G3b: FiniteLoop `for Name item in source { body }` parse + IR
 //   G3c: SemanticIR shape — kind="loop_node", loop_class, termination, source_ref
 
+use igniter_compiler::classifier::Classifier;
+use igniter_compiler::emitter::Emitter;
 use igniter_compiler::lexer::Lexer;
 use igniter_compiler::parser::Parser;
-use igniter_compiler::classifier::Classifier;
 use igniter_compiler::typechecker::TypeChecker;
-use igniter_compiler::emitter::Emitter;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-fn run_pipeline(src: &str) -> (
+fn run_pipeline(
+    src: &str,
+) -> (
     igniter_compiler::classifier::ClassifiedProgram,
     igniter_compiler::typechecker::TypedProgram,
     igniter_compiler::emitter::EmitResult,
@@ -31,21 +33,29 @@ fn run_pipeline(src: &str) -> (
 }
 
 fn oof_codes(classified: &igniter_compiler::classifier::ClassifiedProgram) -> Vec<String> {
-    classified.contracts.iter()
+    classified
+        .contracts
+        .iter()
         .flat_map(|c| c.oof_log.iter().map(|d| d.rule.clone()))
         .collect()
 }
 
-fn loop_nodes_from_emit(emit_res: &igniter_compiler::emitter::EmitResult) -> Vec<serde_json::Value> {
+fn loop_nodes_from_emit(
+    emit_res: &igniter_compiler::emitter::EmitResult,
+) -> Vec<serde_json::Value> {
     let sir_opt = emit_res.semantic_ir.as_ref();
     let contracts = sir_opt
         .and_then(|s| s.get("contracts"))
         .and_then(|c| c.as_array())
         .cloned()
         .unwrap_or_default();
-    contracts.iter()
+    contracts
+        .iter()
         .flat_map(|c| {
-            c.get("nodes").and_then(|n| n.as_array()).cloned().unwrap_or_default()
+            c.get("nodes")
+                .and_then(|n| n.as_array())
+                .cloned()
+                .unwrap_or_default()
         })
         .filter(|n| {
             let kind = n.get("kind").and_then(|k| k.as_str()).unwrap_or("");
@@ -170,7 +180,10 @@ recursive contract NoDecreases {
     let (classified, _, _) = run_pipeline(src);
     let codes = oof_codes(&classified);
     assert!(codes.iter().any(|c| c == "OOF-R2"), "Expected OOF-R2");
-    assert!(!codes.iter().any(|c| c == "OOF-R4"), "OOF-R4 should not fire without decreases fuel");
+    assert!(
+        !codes.iter().any(|c| c == "OOF-R4"),
+        "OOF-R4 should not fire without decreases fuel"
+    );
 }
 
 // ─── G3b: FiniteLoop parser ──────────────────────────────────────────────────
@@ -190,7 +203,9 @@ contract SumAll {
 "#;
     let (classified, _, emit_res) = run_pipeline(src);
     // Must not produce parse-level OOF-P0 for unknown "for" keyword
-    let all_oof: Vec<_> = classified.oof_log.iter()
+    let all_oof: Vec<_> = classified
+        .oof_log
+        .iter()
         .chain(classified.contracts.iter().flat_map(|c| c.oof_log.iter()))
         .filter(|d| d.rule == "OOF-P0")
         .collect();
@@ -202,7 +217,10 @@ contract SumAll {
 
     // Should produce a loop_node in SemanticIR
     let nodes = loop_nodes_from_emit(&emit_res);
-    assert!(!nodes.is_empty(), "Expected at least one loop_node in SemanticIR");
+    assert!(
+        !nodes.is_empty(),
+        "Expected at least one loop_node in SemanticIR"
+    );
 }
 
 #[test]
@@ -225,7 +243,9 @@ contract Check {
     let mut parser = Parser::new(tokens);
     let parsed = parser.parse();
 
-    let unbounded_oof_l1: Vec<_> = parsed.parse_errors.iter()
+    let unbounded_oof_l1: Vec<_> = parsed
+        .parse_errors
+        .iter()
         .filter(|e| e.rule == "OOF-L1" && e.message.contains("unbounded"))
         .collect();
     assert!(
@@ -254,10 +274,14 @@ contract ShapeCheck {
     let nodes = loop_nodes_from_emit(&emit_res);
     assert!(!nodes.is_empty(), "Expected loop_node in SemanticIR");
 
-    let finite: Vec<_> = nodes.iter()
+    let finite: Vec<_> = nodes
+        .iter()
         .filter(|n| n.get("loop_class").and_then(|v| v.as_str()) == Some("finite"))
         .collect();
-    assert!(!finite.is_empty(), "Expected loop_class='finite' for `for` loop");
+    assert!(
+        !finite.is_empty(),
+        "Expected loop_class='finite' for `for` loop"
+    );
 
     let node = &finite[0];
     assert_eq!(
@@ -297,10 +321,14 @@ contract BudgetShape {
     let nodes = loop_nodes_from_emit(&emit_res);
     assert!(!nodes.is_empty(), "Expected loop_node in SemanticIR");
 
-    let budgeted: Vec<_> = nodes.iter()
+    let budgeted: Vec<_> = nodes
+        .iter()
         .filter(|n| n.get("loop_class").and_then(|v| v.as_str()) == Some("budgeted"))
         .collect();
-    assert!(!budgeted.is_empty(), "Expected loop_class='budgeted' for `loop` with max_steps");
+    assert!(
+        !budgeted.is_empty(),
+        "Expected loop_class='budgeted' for `loop` with max_steps"
+    );
 
     let node = &budgeted[0];
     assert_eq!(node.get("kind").and_then(|v| v.as_str()), Some("loop_node"));
@@ -338,7 +366,9 @@ contract Check {
 }
 "#;
     let (_, typed, _) = run_pipeline(src);
-    let codes: Vec<_> = typed.contracts.iter()
+    let codes: Vec<_> = typed
+        .contracts
+        .iter()
         .flat_map(|c| c.type_errors.iter().map(|e| e.rule.clone()))
         .collect();
     assert!(
@@ -362,7 +392,9 @@ contract Check {
 }
 "#;
     let (_, typed, _) = run_pipeline(src);
-    let codes: Vec<_> = typed.contracts.iter()
+    let codes: Vec<_> = typed
+        .contracts
+        .iter()
         .flat_map(|c| c.type_errors.iter().map(|e| e.rule.clone()))
         .collect();
     assert!(
@@ -389,7 +421,9 @@ contract Check {
 "#;
     let (_, typed, _) = run_pipeline(src);
     // BudgetedLocalLoop should NOT emit canon OOF-L1 for non-Collection source
-    let canon_oof_l1: Vec<_> = typed.contracts.iter()
+    let canon_oof_l1: Vec<_> = typed
+        .contracts
+        .iter()
         .flat_map(|c| c.type_errors.iter())
         .filter(|e| e.rule == "OOF-L1" && e.message.contains("canon OOF-L1"))
         .collect();
@@ -415,16 +449,21 @@ contract KindCheck {
 }
 "#;
     let (_, _, emit_res) = run_pipeline(src);
-    let sir = emit_res.semantic_ir.as_ref().expect("semantic_ir must be present");
+    let sir = emit_res
+        .semantic_ir
+        .as_ref()
+        .expect("semantic_ir must be present");
     let all_nodes_json = serde_json::to_string(sir).unwrap();
 
     assert!(
-        !all_nodes_json.contains("\"kind\":\"loop\"") && !all_nodes_json.contains("\"kind\": \"loop\""),
+        !all_nodes_json.contains("\"kind\":\"loop\"")
+            && !all_nodes_json.contains("\"kind\": \"loop\""),
         "SemanticIR must not contain kind='loop'; found in: {}",
         &all_nodes_json[..all_nodes_json.len().min(500)]
     );
     assert!(
-        all_nodes_json.contains("\"kind\":\"loop_node\"") || all_nodes_json.contains("\"kind\": \"loop_node\""),
+        all_nodes_json.contains("\"kind\":\"loop_node\"")
+            || all_nodes_json.contains("\"kind\": \"loop_node\""),
         "SemanticIR must contain kind='loop_node'"
     );
 }

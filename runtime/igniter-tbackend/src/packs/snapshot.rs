@@ -1,12 +1,12 @@
 // src/packs/snapshot.rs
 // Bitemporal Rollups, Memory Index Pruning & Atomic WAL Compaction Pack for TBackend
 
-use crate::kernel::{PackManifest, ServerKernel, ServerPack, BackgroundService, StoreEngine};
+use crate::kernel::{BackgroundService, PackManifest, ServerKernel, ServerPack, StoreEngine};
 use crate::pure_core::FactData;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
-use parking_lot::RwLock;
 
 // ── Rollup Domain Model ──────────────────────────────────────────────────────
 
@@ -33,7 +33,9 @@ pub struct RollupRegistry {
 
 impl RollupRegistry {
     pub fn new() -> Self {
-        Self { policies: HashMap::new() }
+        Self {
+            policies: HashMap::new(),
+        }
     }
 }
 
@@ -53,16 +55,24 @@ fn resolve_field_as_value(fact: &FactData, path: &str) -> Option<serde_json::Val
         return fact.valid_time.map(|vt| serde_json::json!(vt));
     }
     if path == "producer" {
-        return fact.producer.as_ref().map(|p| serde_json::Value::String(p.clone()));
+        return fact
+            .producer
+            .as_ref()
+            .map(|p| serde_json::Value::String(p.clone()));
     }
     if path == "causation" {
-        return fact.causation.as_ref().map(|c| serde_json::Value::String(c.clone()));
+        return fact
+            .causation
+            .as_ref()
+            .map(|c| serde_json::Value::String(c.clone()));
     }
     if path.starts_with("value.") {
         let sub_path = &path[6..];
         let mut current = &fact.value;
         for part in sub_path.split('.') {
-            if part.is_empty() { continue; }
+            if part.is_empty() {
+                continue;
+            }
             current = current.get(part)?;
         }
         return Some(current.clone());
@@ -85,7 +95,10 @@ fn resolve_field_as_f64(fact: &FactData, path: &str) -> Option<f64> {
 
 // ── Rollup & Compaction Sweep Orchestration ─────────────────────────────────
 
-fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Result<(usize, usize), String> {
+fn run_rollup_and_compaction(
+    policy: &RollupPolicy,
+    kernel: &ServerKernel,
+) -> Result<(usize, usize), String> {
     let source_engine = match kernel.get_or_create_engine(&policy.source_store) {
         Some(e) => e,
         None => return Err(format!("Source store '{}' not found", policy.source_store)),
@@ -104,7 +117,9 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
     let cut_off = now - policy.retention_period;
 
     // 1. Gather all historical facts for the source store
-    let all_facts = source_engine.log.facts_for_store(&policy.source_store, None, None);
+    let all_facts = source_engine
+        .log
+        .facts_for_store(&policy.source_store, None, None);
 
     let mut cold_facts = Vec::new();
     let mut warm_facts = Vec::new();
@@ -145,7 +160,16 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
         }
 
         for agg in &policy.aggregates {
-            let key_name = format!("{}_{}", agg.op, if agg.field.is_empty() { "fact" } else { &agg.field }).replace(".", "_");
+            let key_name = format!(
+                "{}_{}",
+                agg.op,
+                if agg.field.is_empty() {
+                    "fact"
+                } else {
+                    &agg.field
+                }
+            )
+            .replace(".", "_");
 
             match agg.op.as_str() {
                 "count" => {
@@ -167,7 +191,11 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
                             count += 1;
                         }
                     }
-                    let avg_val = if count > 0 { sum_val / count as f64 } else { 0.0 };
+                    let avg_val = if count > 0 {
+                        sum_val / count as f64
+                    } else {
+                        0.0
+                    };
                     computed.insert(key_name, serde_json::json!(avg_val));
                 }
                 "min" => {
@@ -181,7 +209,10 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
                             }
                         }
                     }
-                    computed.insert(key_name, serde_json::json!(if found { min_val } else { 0.0 }));
+                    computed.insert(
+                        key_name,
+                        serde_json::json!(if found { min_val } else { 0.0 }),
+                    );
                 }
                 "max" => {
                     let mut max_val = f64::NEG_INFINITY;
@@ -194,13 +225,20 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
                             }
                         }
                     }
-                    computed.insert(key_name, serde_json::json!(if found { max_val } else { 0.0 }));
+                    computed.insert(
+                        key_name,
+                        serde_json::json!(if found { max_val } else { 0.0 }),
+                    );
                 }
                 _ => {}
             }
         }
 
-        let summary_key = format!("rollup-{}-{}", policy.id, uuid::Uuid::new_v4().to_string()[0..8].to_string());
+        let summary_key = format!(
+            "rollup-{}-{}",
+            policy.id,
+            uuid::Uuid::new_v4().to_string()[0..8].to_string()
+        );
         let summary_fact = FactData {
             id: uuid::Uuid::new_v4().to_string(),
             store: policy.target_store.clone(),
@@ -212,11 +250,16 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
             valid_time: Some(now),
             schema_version: 1,
             producer: Some("SnapshotPack".to_string()),
-            derivation: Some(format!("Rollup from {} (Pruned {} raw facts)", policy.source_store, group_facts.len())),
+            derivation: Some(format!(
+                "Rollup from {} (Pruned {} raw facts)",
+                policy.source_store,
+                group_facts.len()
+            )),
         };
 
         if let Some(ref fb) = target_engine.wal {
-            fb.write_fact_data(&summary_fact).map_err(|e| e.to_string())?;
+            fb.write_fact_data(&summary_fact)
+                .map_err(|e| e.to_string())?;
         }
         target_engine.log.push(summary_fact);
         created_summaries += 1;
@@ -230,7 +273,8 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
         let real_path = format!("{}/{}.wal", dir, policy.source_store);
 
         // Open temporary WAL and write warm facts only
-        let temp_wal = crate::pure_core::FileBackend::new_pure(&temp_path).map_err(|e| e.to_string())?;
+        let temp_wal =
+            crate::pure_core::FileBackend::new_pure(&temp_path).map_err(|e| e.to_string())?;
         for fact in &warm_facts {
             temp_wal.write_fact_data(fact).map_err(|e| e.to_string())?;
         }
@@ -241,7 +285,8 @@ fn run_rollup_and_compaction(policy: &RollupPolicy, kernel: &ServerKernel) -> Re
         std::fs::rename(&temp_path, &real_path).map_err(|e| e.to_string())?;
 
         // Open fresh compacted WAL
-        let new_wal = crate::pure_core::FileBackend::new_pure(&real_path).map_err(|e| e.to_string())?;
+        let new_wal =
+            crate::pure_core::FileBackend::new_pure(&real_path).map_err(|e| e.to_string())?;
 
         // Rebuild sharded in-memory index log
         let new_log = Arc::new(crate::pure_core::ShardedFactLog::new());
@@ -311,7 +356,10 @@ impl BackgroundService for CompactorService {
                             }
                         }
                         Err(e) => {
-                            eprintln!("[Compactor Error] Failed automatic sweep for policy {}: {}", policy.id, e);
+                            eprintln!(
+                                "[Compactor Error] Failed automatic sweep for policy {}: {}",
+                                policy.id, e
+                            );
                         }
                     }
                 }
@@ -405,11 +453,14 @@ impl ServerPack for SnapshotPack {
 
         // 2. Register "snapshot_policy_list" Command Route
         let registry_c = self.registry.clone();
-        command_reg.register("snapshot_policy_list", Arc::new(move |_req, _kernel| {
-            let map = registry_c.read();
-            let list: Vec<RollupPolicy> = map.policies.values().cloned().collect();
-            serde_json::json!({ "ok": true, "policies": list })
-        }));
+        command_reg.register(
+            "snapshot_policy_list",
+            Arc::new(move |_req, _kernel| {
+                let map = registry_c.read();
+                let list: Vec<RollupPolicy> = map.policies.values().cloned().collect();
+                serde_json::json!({ "ok": true, "policies": list })
+            }),
+        );
 
         // 3. Register "snapshot_trigger" Command Route
         let registry_c = self.registry.clone();

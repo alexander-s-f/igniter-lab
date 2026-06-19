@@ -24,15 +24,15 @@ pub mod postgres_write;
 pub mod reconcile;
 pub mod recovery;
 pub mod registry;
-pub mod secrets;
 pub mod retry;
 pub mod retry_queue;
+pub mod secrets;
 pub mod service_loop;
 pub mod serving_loop;
 pub mod single_flight;
 pub mod sparkcrm;
-pub mod write;
 pub mod wal;
+pub mod write;
 
 // NOTE: the Ruby/magnus FFI (`Igniter::Machine`) was removed 2026-06-17 as a dead rudiment — it
 // no longer compiled, had no gem/extconf build harness, and in-process embedding is explicitly NOT

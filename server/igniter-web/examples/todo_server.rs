@@ -12,20 +12,40 @@ use std::path::PathBuf;
 use std::thread;
 
 fn src(rel: &str) -> PathBuf {
-    PathBuf::from(format!("{}/examples/todo_app/{}", env!("CARGO_MANIFEST_DIR"), rel))
+    PathBuf::from(format!(
+        "{}/examples/todo_app/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        rel
+    ))
 }
 
 /// One loopback request → (status, body text).
-fn http_call(addr: &str, method: &str, path: &str, idem: Option<&str>, body: &str) -> (u16, String) {
+fn http_call(
+    addr: &str,
+    method: &str,
+    path: &str,
+    idem: Option<&str>,
+    body: &str,
+) -> (u16, String) {
     let mut s = TcpStream::connect(addr).unwrap();
-    let idem_h = idem.map(|k| format!("Idempotency-Key: {k}\r\n")).unwrap_or_default();
-    let req = format!("{method} {path} HTTP/1.1\r\nHost: x\r\n{idem_h}Content-Length: {}\r\n\r\n{}", body.len(), body);
+    let idem_h = idem
+        .map(|k| format!("Idempotency-Key: {k}\r\n"))
+        .unwrap_or_default();
+    let req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: x\r\n{idem_h}Content-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
     s.write_all(req.as_bytes()).unwrap();
     s.flush().unwrap();
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).unwrap();
     let text = String::from_utf8_lossy(&raw).to_string();
-    let status: u16 = text.split_whitespace().nth(1).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let status: u16 = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0);
     let bs = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(text.len());
     (status, text[bs..].trim().to_string())
 }
@@ -46,10 +66,10 @@ fn main() -> std::io::Result<()> {
         ("GET", "/health", None, ""),
         ("GET", "/todos", None, ""),
         ("GET", "/todos/42", None, ""),
-        ("POST", "/todos/42/done", None, ""),         // keyless → 400
+        ("POST", "/todos/42/done", None, ""), // keyless → 400
         ("POST", "/todos/42/done", Some("evt-1"), "{}"), // keyed → InvokeEffect (202)
-        ("GET", "/missing", None, ""),                // 404
-        ("POST", "/health", None, ""),                // 405
+        ("GET", "/missing", None, ""),        // 404
+        ("POST", "/health", None, ""),        // 405
     ];
     let n = script.len();
     let addr_c = addr.clone();

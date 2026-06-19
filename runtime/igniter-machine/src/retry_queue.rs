@@ -103,9 +103,18 @@ pub fn backoff_due(now: f64, attempt: u32, base_delay: f64) -> f64 {
     now + base_delay * 2f64.powi(attempt as i32)
 }
 
-async fn write_intent(receipts: &Arc<dyn TBackend>, now: f64, intent: &RetryIntent) -> Result<(), EngineError> {
+async fn write_intent(
+    receipts: &Arc<dyn TBackend>,
+    now: f64,
+    intent: &RetryIntent,
+) -> Result<(), EngineError> {
     let fact = Fact {
-        id: format!("retry:{}:a{}:{}", intent.base_key, intent.attempt, intent.state.as_str()),
+        id: format!(
+            "retry:{}:a{}:{}",
+            intent.base_key,
+            intent.attempt,
+            intent.state.as_str()
+        ),
         store: RETRY_QUEUE_STORE.to_string(),
         key: intent.base_key.clone(),
         value: intent.to_value(),
@@ -155,12 +164,17 @@ fn current_intents(facts: Vec<Fact>) -> Vec<RetryIntent> {
         if f.store != RETRY_QUEUE_STORE {
             continue;
         }
-        let e = latest.entry(f.key.clone()).or_insert((f64::NEG_INFINITY, Value::Null));
+        let e = latest
+            .entry(f.key.clone())
+            .or_insert((f64::NEG_INFINITY, Value::Null));
         if f.transaction_time >= e.0 {
             *e = (f.transaction_time, f.value);
         }
     }
-    latest.into_values().filter_map(|(_, v)| RetryIntent::from_value(&v)).collect()
+    latest
+        .into_values()
+        .filter_map(|(_, v)| RetryIntent::from_value(&v))
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -196,7 +210,10 @@ pub async fn drain_due_retries(
     let mut reports = Vec::new();
 
     for intent in intents {
-        if intent.state != IntentState::Pending || intent.due_at > now || intent.authority_digest != auth {
+        if intent.state != IntentState::Pending
+            || intent.due_at > now
+            || intent.authority_digest != auth
+        {
             continue; // not pending / not due / not ours to drain
         }
 
@@ -205,7 +222,10 @@ pub async fn drain_due_retries(
             let mut t = intent.clone();
             t.state = IntentState::Exhausted;
             write_intent(receipts, now, &t).await?;
-            reports.push(DrainReport { base_key: intent.base_key.clone(), action: DrainAction::Exhausted });
+            reports.push(DrainReport {
+                base_key: intent.base_key.clone(),
+                action: DrainAction::Exhausted,
+            });
             continue;
         }
 
@@ -216,37 +236,122 @@ pub async fn drain_due_retries(
             idempotency_key: format!("{}:a{}", intent.base_key, next),
             payload: intent.payload.clone(),
         };
-        let out = run_write_effect(registry, receipts, clock, passport, &intent.required_scope, &req, RunMode::Live).await?;
+        let out = run_write_effect(
+            registry,
+            receipts,
+            clock,
+            passport,
+            &intent.required_scope,
+            &req,
+            RunMode::Live,
+        )
+        .await?;
 
         let action = match out.state {
-            WriteState::Committed => transition(receipts, now, &intent, next, IntentState::Done, intent.due_at, DrainAction::Committed).await?,
+            WriteState::Committed => {
+                transition(
+                    receipts,
+                    now,
+                    &intent,
+                    next,
+                    IntentState::Done,
+                    intent.due_at,
+                    DrainAction::Committed,
+                )
+                .await?
+            }
             WriteState::Retryable => {
                 let due = backoff_due(now, next, base_delay);
-                transition(receipts, now, &intent, next, IntentState::Pending, due, DrainAction::Rescheduled(due)).await?
+                transition(
+                    receipts,
+                    now,
+                    &intent,
+                    next,
+                    IntentState::Pending,
+                    due,
+                    DrainAction::Rescheduled(due),
+                )
+                .await?
             }
             WriteState::UnknownExternalState => {
-                match reconcile_unknown_write(receipts, substrate, clock, &req.capability_id, &req.idempotency_key).await? {
+                match reconcile_unknown_write(
+                    receipts,
+                    substrate,
+                    clock,
+                    &req.capability_id,
+                    &req.idempotency_key,
+                )
+                .await?
+                {
                     ReconcileResult::ResolvedCommitted => {
-                        transition(receipts, now, &intent, next, IntentState::Done, intent.due_at, DrainAction::Committed).await?
+                        transition(
+                            receipts,
+                            now,
+                            &intent,
+                            next,
+                            IntentState::Done,
+                            intent.due_at,
+                            DrainAction::Committed,
+                        )
+                        .await?
                     }
                     ReconcileResult::ResolvedPermanentFailure => {
                         // proven not landed → safe to reschedule the next attempt
                         let due = backoff_due(now, next, base_delay);
-                        transition(receipts, now, &intent, next, IntentState::Pending, due, DrainAction::Rescheduled(due)).await?
+                        transition(
+                            receipts,
+                            now,
+                            &intent,
+                            next,
+                            IntentState::Pending,
+                            due,
+                            DrainAction::Rescheduled(due),
+                        )
+                        .await?
                     }
                     ReconcileResult::StillUnknown | ReconcileResult::NotApplicable(_) => {
-                        transition(receipts, now, &intent, next, IntentState::Blocked, intent.due_at, DrainAction::Blocked).await?
+                        transition(
+                            receipts,
+                            now,
+                            &intent,
+                            next,
+                            IntentState::Blocked,
+                            intent.due_at,
+                            DrainAction::Blocked,
+                        )
+                        .await?
                     }
                 }
             }
             WriteState::Denied | WriteState::PermanentFailure => {
-                transition(receipts, now, &intent, next, IntentState::Abandoned, intent.due_at, DrainAction::Abandoned).await?
+                transition(
+                    receipts,
+                    now,
+                    &intent,
+                    next,
+                    IntentState::Abandoned,
+                    intent.due_at,
+                    DrainAction::Abandoned,
+                )
+                .await?
             }
             WriteState::Prepared | WriteState::Aborted => {
-                transition(receipts, now, &intent, next, IntentState::Blocked, intent.due_at, DrainAction::Blocked).await?
+                transition(
+                    receipts,
+                    now,
+                    &intent,
+                    next,
+                    IntentState::Blocked,
+                    intent.due_at,
+                    DrainAction::Blocked,
+                )
+                .await?
             }
         };
-        reports.push(DrainReport { base_key: intent.base_key.clone(), action });
+        reports.push(DrainReport {
+            base_key: intent.base_key.clone(),
+            action,
+        });
     }
 
     Ok(reports)

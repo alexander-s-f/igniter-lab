@@ -21,13 +21,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
 }
 
-const SCOPES: &[&str] = &["create_pool", "import_capsule", "activate_capsule", "grant_access", "accept_recipe", "invoke"];
+const SCOPES: &[&str] = &[
+    "create_pool",
+    "import_capsule",
+    "activate_capsule",
+    "grant_access",
+    "accept_recipe",
+    "invoke",
+];
 
 fn passport(subject: &str) -> CapabilityPassport {
     CapabilityPassport {
@@ -42,7 +52,15 @@ fn passport(subject: &str) -> CapabilityPassport {
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 
 /// A capsule whose entry contract mints a distinct `code = base + attempt` — so a repeated
@@ -54,7 +72,13 @@ async fn offer_capsule_bytes() -> Vec<u8> {
     m.checkpoint_bytes().await.unwrap()
 }
 
-fn policy(mode: &str, max_fresh: u32, after_limit: &str, variant: bool, require_key: bool) -> DuplicatePolicy {
+fn policy(
+    mode: &str,
+    max_fresh: u32,
+    after_limit: &str,
+    variant: bool,
+    require_key: bool,
+) -> DuplicatePolicy {
     DuplicatePolicy {
         mode: mode.into(),
         key_header: "x-vendor-event-id".into(),
@@ -68,10 +92,19 @@ fn policy(mode: &str, max_fresh: u32, after_limit: &str, variant: bool, require_
 
 fn recipe(digest: &str, dp: Option<DuplicatePolicy>) -> ServiceRecipe {
     ServiceRecipe {
-        recipe_id: "r1".into(), capsule_digest: digest.into(), entry_contract: "Offer".into(),
-        input_schema_digest: None, capability_bindings: vec![], required_scopes: vec!["invoke".into()],
-        receipt_policy: "audit".into(), retry_policy_ref: None, pool_sizing: 1,
-        created_by: "alice".into(), accepted_by: None, accepted_at: None, duplicate_policy: dp,
+        recipe_id: "r1".into(),
+        capsule_digest: digest.into(),
+        entry_contract: "Offer".into(),
+        input_schema_digest: None,
+        capability_bindings: vec![],
+        required_scopes: vec!["invoke".into()],
+        receipt_policy: "audit".into(),
+        retry_policy_ref: None,
+        pool_sizing: 1,
+        created_by: "alice".into(),
+        accepted_by: None,
+        accepted_at: None,
+        duplicate_policy: dp,
     }
 }
 
@@ -82,11 +115,30 @@ async fn prod_hub(dp: Option<DuplicatePolicy>) -> (CoordinationHub, Arc<dyn TBac
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = offer_capsule_bytes().await;
-    let cref = h.add_capsule(&passport("alice"), "svc", bytes, vec![]).await.unwrap();
-    h.accept_recipe(&passport("dev"), "svc", recipe(&cref.capsule_id, dp)).await.unwrap();
-    h.grant(&passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    let cref = h
+        .add_capsule(&passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
+    h.accept_recipe(&passport("dev"), "svc", recipe(&cref.capsule_id, dp))
+        .await
+        .unwrap();
+    h.grant(
+        &passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     (h, audit)
 }
 
@@ -99,10 +151,18 @@ fn router() -> IngressRouter {
 
 fn req(key: &str, base: i64) -> IngressRequest {
     let mut headers = HashMap::new();
-    headers.insert("authorization".to_string(), "Bearer vendortoken".to_string());
+    headers.insert(
+        "authorization".to_string(),
+        "Bearer vendortoken".to_string(),
+    );
     headers.insert("x-vendor-event-id".to_string(), key.to_string());
     headers.insert("x-correlation-id".to_string(), format!("corr-{}", base));
-    IngressRequest { method: "POST".to_string(), path: "/webhook/acme".to_string(), headers, body: json!({"base": base}) }
+    IngressRequest {
+        method: "POST".to_string(),
+        path: "/webhook/acme".to_string(),
+        headers,
+        body: json!({"base": base}),
+    }
 }
 
 // 1: dedup_strict — repeat returns the recorded response, no re-activation
@@ -135,7 +195,13 @@ fn treat_as_fresh_distinct_code_per_attempt() {
         assert_eq!(b.body, json!(1001));
         assert_eq!(c.body, json!(1002));
         let hist = h.ingress_dedup_history("/webhook/acme", "E1").await;
-        assert_eq!(hist.iter().filter(|x| x["decision"] == json!("accepted") || x["decision"] == json!("fresh_duplicate")).count(), 3);
+        assert_eq!(
+            hist.iter()
+                .filter(|x| x["decision"] == json!("accepted")
+                    || x["decision"] == json!("fresh_duplicate"))
+                .count(),
+            3
+        );
     });
 }
 
@@ -152,7 +218,10 @@ fn bounded_fresh_then_dedup_last() {
             }
             v
         };
-        assert_eq!(outs, vec![json!(1000), json!(1001), json!(1002), json!(1002)]); // 4th = dedup last
+        assert_eq!(
+            outs,
+            vec![json!(1000), json!(1001), json!(1002), json!(1002)]
+        ); // 4th = dedup last
         let hist = h.ingress_dedup_history("/webhook/acme", "E1").await;
         assert_eq!(hist.last().unwrap()["decision"], json!("replayed"));
     });
@@ -222,8 +291,16 @@ fn policy_in_recipe_and_missing_key_required() {
         // a request with NO duplicate key, under require_key → 400 (before activation)
         let router = router();
         let mut headers = HashMap::new();
-        headers.insert("authorization".to_string(), "Bearer vendortoken".to_string());
-        let no_key = IngressRequest { method: "POST".into(), path: "/webhook/acme".into(), headers, body: json!({"base": 1000}) };
+        headers.insert(
+            "authorization".to_string(),
+            "Bearer vendortoken".to_string(),
+        );
+        let no_key = IngressRequest {
+            method: "POST".into(),
+            path: "/webhook/acme".into(),
+            headers,
+            body: json!({"base": 1000}),
+        };
         assert_eq!(router.handle(&h, &no_key).await.status, 400);
     });
 }

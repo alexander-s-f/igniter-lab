@@ -32,12 +32,20 @@ async fn main() {
         vec![
             ("post_l".into(), json!({ "x": -1.5, "y": 0.0, "z": 0.0 })),
             ("post_r".into(), json!({ "x": 1.5, "y": 0.0, "z": 0.0 })),
-            ("e1".into(), json!({ "x": -1.0, "y": 0.0, "z": 0.0, "on_click": { "action": "move_right" } })),
+            (
+                "e1".into(),
+                json!({ "x": -1.0, "y": 0.0, "z": 0.0, "on_click": { "action": "move_right" } }),
+            ),
         ],
         move_right_reducer(),
     );
     let camera = Camera::default();
-    let vp = Viewport { css_w: 800.0, css_h: 800.0, frame_w: 400, frame_h: 400 };
+    let vp = Viewport {
+        css_w: 800.0,
+        css_h: 800.0,
+        frame_w: 400,
+        frame_h: 400,
+    };
 
     // click e1 as it walks right: screen sx 150 → 200 → 250 (CSS = sx*2), sy 200 → CSS 400
     let pointer_log = [(300.0, 400.0), (400.0, 400.0), (500.0, 400.0)];

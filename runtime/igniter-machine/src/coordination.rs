@@ -306,7 +306,15 @@ impl CoordinationHub {
                 Err(a) => {
                     let r = PoolRefusal::Unauthenticated(a);
                     let _ = self
-                        .write_audit(&actor, operation, pool_id, target_capsule, "", "denied", Some(&r.reason()))
+                        .write_audit(
+                            &actor,
+                            operation,
+                            pool_id,
+                            target_capsule,
+                            "",
+                            "denied",
+                            Some(&r.reason()),
+                        )
                         .await;
                     return Err(r);
                 }
@@ -318,7 +326,15 @@ impl CoordinationHub {
             None => {
                 let r = PoolRefusal::UnknownAgent;
                 let _ = self
-                    .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "denied", Some(&r.reason()))
+                    .write_audit(
+                        &actor,
+                        operation,
+                        pool_id,
+                        target_capsule,
+                        &authority_digest,
+                        "denied",
+                        Some(&r.reason()),
+                    )
                     .await;
                 return Err(r);
             }
@@ -326,7 +342,15 @@ impl CoordinationHub {
         if agent.status != AgentStatus::Active {
             let r = PoolRefusal::AgentNotActive;
             let _ = self
-                .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "denied", Some(&r.reason()))
+                .write_audit(
+                    &actor,
+                    operation,
+                    pool_id,
+                    target_capsule,
+                    &authority_digest,
+                    "denied",
+                    Some(&r.reason()),
+                )
                 .await;
             return Err(r);
         }
@@ -336,7 +360,15 @@ impl CoordinationHub {
         if let (Some(pid), Some(req_right)) = (pool_id, right) {
             if let Err(r) = self.pool_authorized(&actor, is_developer, pid, req_right) {
                 let _ = self
-                    .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "denied", Some(&r.reason()))
+                    .write_audit(
+                        &actor,
+                        operation,
+                        pool_id,
+                        target_capsule,
+                        &authority_digest,
+                        "denied",
+                        Some(&r.reason()),
+                    )
                     .await;
                 return Err(r);
             }
@@ -344,7 +376,15 @@ impl CoordinationHub {
 
         // allowed
         let _ = self
-            .write_audit(&actor, operation, pool_id, target_capsule, &authority_digest, "allowed", None)
+            .write_audit(
+                &actor,
+                operation,
+                pool_id,
+                target_capsule,
+                &authority_digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(authority_digest)
     }
@@ -356,7 +396,8 @@ impl CoordinationHub {
         let id = identity.agent_id.clone();
         let kind = format!("{:?}", identity.kind);
         self.agents.insert(id.clone(), identity);
-        self.write_audit(&id, "register", None, None, "", "allowed", Some(&kind)).await
+        self.write_audit(&id, "register", None, None, "", "allowed", Some(&kind))
+            .await
     }
 
     pub fn set_agent_status(&mut self, agent_id: &str, status: AgentStatus) {
@@ -373,7 +414,8 @@ impl CoordinationHub {
         name: &str,
         visibility: PoolVisibility,
     ) -> Result<(), PoolRefusal> {
-        self.guard(passport, "create_pool", None, None, None).await?;
+        self.guard(passport, "create_pool", None, None, None)
+            .await?;
         let pool = CapsulePool {
             pool_id: pool_id.to_string(),
             name: name.to_string(),
@@ -395,8 +437,14 @@ impl CoordinationHub {
         bytes: Vec<u8>,
         labels: Vec<String>,
     ) -> Result<CapsuleRef, PoolRefusal> {
-        self.guard(passport, "import_capsule", Some(pool_id), Some(PoolRight::ImportCapsule), None)
-            .await?;
+        self.guard(
+            passport,
+            "import_capsule",
+            Some(pool_id),
+            Some(PoolRight::ImportCapsule),
+            None,
+        )
+        .await?;
         let digest = digest_bytes(&bytes);
         self.content.entry(digest.clone()).or_insert(bytes); // dedup by content
         let cref = CapsuleRef {
@@ -419,8 +467,14 @@ impl CoordinationHub {
         passport: &CapabilityPassport,
         pool_id: &str,
     ) -> Result<Vec<CapsuleRef>, PoolRefusal> {
-        self.guard(passport, "list_capsules", Some(pool_id), Some(PoolRight::ListCapsules), None)
-            .await?;
+        self.guard(
+            passport,
+            "list_capsules",
+            Some(pool_id),
+            Some(PoolRight::ListCapsules),
+            None,
+        )
+        .await?;
         Ok(self
             .pools
             .get(pool_id)
@@ -436,7 +490,8 @@ impl CoordinationHub {
         pool_id: &str,
         right: PoolRight,
     ) -> Result<(), PoolRefusal> {
-        self.guard(passport, right.as_str(), Some(pool_id), Some(right), None).await?;
+        self.guard(passport, right.as_str(), Some(pool_id), Some(right), None)
+            .await?;
         Ok(())
     }
 
@@ -449,8 +504,14 @@ impl CoordinationHub {
         to_agent: &str,
         right: PoolRight,
     ) -> Result<(), PoolRefusal> {
-        self.guard(passport, "grant_access", Some(pool_id), Some(PoolRight::GrantAccess), None)
-            .await?;
+        self.guard(
+            passport,
+            "grant_access",
+            Some(pool_id),
+            Some(PoolRight::GrantAccess),
+            None,
+        )
+        .await?;
         self.grants.push(PoolGrant {
             pool_id: pool_id.to_string(),
             agent_id: to_agent.to_string(),
@@ -471,8 +532,14 @@ impl CoordinationHub {
         to_agent: &str,
         promote: Option<PoolVisibility>,
     ) -> Result<(), PoolRefusal> {
-        self.guard(passport, "admin_pool", Some(pool_id), Some(PoolRight::AdminPool), None)
-            .await?;
+        self.guard(
+            passport,
+            "admin_pool",
+            Some(pool_id),
+            Some(PoolRight::AdminPool),
+            None,
+        )
+        .await?;
         if let Some(pool) = self.pools.get_mut(pool_id) {
             pool.owner_agent_id = to_agent.to_string();
             if let Some(v) = promote {
@@ -542,7 +609,10 @@ pub struct Message {
 
 impl CoordinationHub {
     fn is_active_agent(&self, id: &str) -> bool {
-        self.agents.get(id).map(|a| a.status == AgentStatus::Active).unwrap_or(false)
+        self.agents
+            .get(id)
+            .map(|a| a.status == AgentStatus::Active)
+            .unwrap_or(false)
     }
 
     /// Authenticate a subject for a message op (no audit, no IO): passport (P5) + registered +
@@ -554,7 +624,10 @@ impl CoordinationHub {
     ) -> Result<(String, bool), PoolRefusal> {
         let digest = verify_passport(passport, COORDINATION_CAPABILITY, operation, &self.clock)
             .map_err(PoolRefusal::Unauthenticated)?;
-        let agent = self.agents.get(&passport.subject).ok_or(PoolRefusal::UnknownAgent)?;
+        let agent = self
+            .agents
+            .get(&passport.subject)
+            .ok_or(PoolRefusal::UnknownAgent)?;
         if agent.status != AgentStatus::Active {
             return Err(PoolRefusal::AgentNotActive);
         }
@@ -615,7 +688,11 @@ impl CoordinationHub {
                     body_digest: v["body_digest"].as_str().unwrap_or("").to_string(),
                     capsule_refs: v["capsule_refs"]
                         .as_array()
-                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(String::from))
+                                .collect()
+                        })
                         .unwrap_or_default(),
                     requires_ack: v["requires_ack"].as_bool().unwrap_or(false),
                     in_reply_to: v["in_reply_to"].as_str().map(String::from),
@@ -667,7 +744,15 @@ impl CoordinationHub {
         };
         let _ = self.write_message(&m).await;
         let _ = self
-            .write_audit(&actor, "send_message", None, None, &digest, "allowed", Some(kind.as_str()))
+            .write_audit(
+                &actor,
+                "send_message",
+                None,
+                None,
+                &digest,
+                "allowed",
+                Some(kind.as_str()),
+            )
             .await;
         Ok(message_id)
     }
@@ -680,8 +765,16 @@ impl CoordinationHub {
         body: &[u8],
         capsule_refs: Vec<String>,
     ) -> Result<String, PoolRefusal> {
-        self.send_message(passport, DEVELOPER_RECIPIENT, thread_id, MessageKind::Escalation, body, capsule_refs, true)
-            .await
+        self.send_message(
+            passport,
+            DEVELOPER_RECIPIENT,
+            thread_id,
+            MessageKind::Escalation,
+            body,
+            capsule_refs,
+            true,
+        )
+        .await
     }
 
     /// Acknowledge a request addressed to the subject. Links the ack to the request via
@@ -704,7 +797,9 @@ impl CoordinationHub {
         let request = match request {
             Some(r) if r.kind == MessageKind::Request && r.requires_ack && r.to == actor => r,
             _ => {
-                let e = PoolRefusal::Invalid("request not found, not ackable, or not addressed to you".to_string());
+                let e = PoolRefusal::Invalid(
+                    "request not found, not ackable, or not addressed to you".to_string(),
+                );
                 self.deny_msg(&actor, "ack", &digest, &e).await;
                 return Err(e);
             }
@@ -724,7 +819,15 @@ impl CoordinationHub {
         };
         let _ = self.write_message(&m).await;
         let _ = self
-            .write_audit(&actor, "ack", None, Some(request_id), &digest, "allowed", None)
+            .write_audit(
+                &actor,
+                "ack",
+                None,
+                Some(request_id),
+                &digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(message_id)
     }
@@ -749,7 +852,12 @@ impl CoordinationHub {
             self.deny_msg(&actor, "read_message", &digest, &e).await;
             return Err(e);
         }
-        let inbox: Vec<Message> = self.all_messages().await.into_iter().filter(|m| m.to == agent_id).collect();
+        let inbox: Vec<Message> = self
+            .all_messages()
+            .await
+            .into_iter()
+            .filter(|m| m.to == agent_id)
+            .collect();
         let _ = self
             .write_audit(&actor, "read_message", None, None, &digest, "allowed", None)
             .await;
@@ -771,15 +879,30 @@ impl CoordinationHub {
                 return Err(e);
             }
         };
-        let thread: Vec<Message> = self.all_messages().await.into_iter().filter(|m| m.thread_id == thread_id).collect();
-        let participant = thread.iter().any(|m| m.from_agent == actor || m.to == actor);
+        let thread: Vec<Message> = self
+            .all_messages()
+            .await
+            .into_iter()
+            .filter(|m| m.thread_id == thread_id)
+            .collect();
+        let participant = thread
+            .iter()
+            .any(|m| m.from_agent == actor || m.to == actor);
         if !participant && !is_dev {
             let e = PoolRefusal::NotGranted;
             self.deny_msg(&actor, "read_message", &digest, &e).await;
             return Err(e);
         }
         let _ = self
-            .write_audit(&actor, "read_message", Some(thread_id), None, &digest, "allowed", None)
+            .write_audit(
+                &actor,
+                "read_message",
+                Some(thread_id),
+                None,
+                &digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(thread)
     }
@@ -909,7 +1032,11 @@ impl CoordinationHub {
         let v = &fact.value;
         let rights = v["rights_granted"]
             .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().and_then(PoolRight::from_str)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().and_then(PoolRight::from_str))
+                    .collect()
+            })
             .unwrap_or_default();
         Some(TransferEnvelope {
             transfer_id: v["transfer_id"].as_str().unwrap_or("").to_string(),
@@ -954,10 +1081,12 @@ impl CoordinationHub {
             return Err(e);
         }
         // the capsule must actually be in the source pool.
-        let cref = self
-            .pools
-            .get(from_pool)
-            .and_then(|p| p.capsule_refs.iter().find(|r| r.capsule_id == capsule_id).cloned());
+        let cref = self.pools.get(from_pool).and_then(|p| {
+            p.capsule_refs
+                .iter()
+                .find(|r| r.capsule_id == capsule_id)
+                .cloned()
+        });
         let cref = match cref {
             Some(c) => c,
             None => {
@@ -988,7 +1117,15 @@ impl CoordinationHub {
         };
         let _ = self.write_transfer(&env).await;
         let _ = self
-            .write_audit(&actor, "propose_transfer", Some(from_pool), Some(capsule_id), &digest, "allowed", None)
+            .write_audit(
+                &actor,
+                "propose_transfer",
+                Some(from_pool),
+                Some(capsule_id),
+                &digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(transfer_id)
     }
@@ -1026,7 +1163,15 @@ impl CoordinationHub {
             // idempotent: re-accepting a committed transfer is a replay, no second import.
             TransferState::Accepted => {
                 let _ = self
-                    .write_audit(&actor, "accept_transfer", Some(&env.to_pool), Some(&env.capsule_id), &digest, "allowed", Some("idempotent"))
+                    .write_audit(
+                        &actor,
+                        "accept_transfer",
+                        Some(&env.to_pool),
+                        Some(&env.capsule_id),
+                        &digest,
+                        "allowed",
+                        Some("idempotent"),
+                    )
                     .await;
                 return Ok(TransferState::Accepted);
             }
@@ -1038,7 +1183,8 @@ impl CoordinationHub {
             TransferState::Proposed => {}
         }
         // ACL: the acceptor must be able to import into the target pool.
-        if let Err(e) = self.pool_authorized(&actor, is_dev, &env.to_pool, PoolRight::ImportCapsule) {
+        if let Err(e) = self.pool_authorized(&actor, is_dev, &env.to_pool, PoolRight::ImportCapsule)
+        {
             self.deny_msg(&actor, "accept_transfer", &digest, &e).await;
             return Err(e);
         }
@@ -1070,7 +1216,15 @@ impl CoordinationHub {
         committed.state = TransferState::Accepted;
         let _ = self.write_transfer(&committed).await;
         let _ = self
-            .write_audit(&actor, "accept_transfer", Some(&env.to_pool), Some(&env.capsule_id), &digest, "allowed", None)
+            .write_audit(
+                &actor,
+                "accept_transfer",
+                Some(&env.to_pool),
+                Some(&env.capsule_id),
+                &digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(TransferState::Accepted)
     }
@@ -1081,7 +1235,13 @@ impl CoordinationHub {
         passport: &CapabilityPassport,
         transfer_id: &str,
     ) -> Result<TransferState, PoolRefusal> {
-        self.terminalize(passport, transfer_id, TransferState::Rejected, "reject_transfer").await
+        self.terminalize(
+            passport,
+            transfer_id,
+            TransferState::Rejected,
+            "reject_transfer",
+        )
+        .await
     }
 
     /// Revoke a proposed transfer (proposer or developer) → prevents any future accept.
@@ -1091,7 +1251,13 @@ impl CoordinationHub {
         passport: &CapabilityPassport,
         transfer_id: &str,
     ) -> Result<TransferState, PoolRefusal> {
-        self.terminalize(passport, transfer_id, TransferState::Revoked, "revoke_transfer").await
+        self.terminalize(
+            passport,
+            transfer_id,
+            TransferState::Revoked,
+            "revoke_transfer",
+        )
+        .await
     }
 
     /// Shared terminal transition for reject/revoke (no import; just a state fact). `reject` is
@@ -1132,7 +1298,17 @@ impl CoordinationHub {
         }
         match env.state {
             s if s == target => {
-                let _ = self.write_audit(&actor, op, None, None, &digest, "allowed", Some("idempotent")).await;
+                let _ = self
+                    .write_audit(
+                        &actor,
+                        op,
+                        None,
+                        None,
+                        &digest,
+                        "allowed",
+                        Some("idempotent"),
+                    )
+                    .await;
                 return Ok(target);
             }
             TransferState::Proposed => {}
@@ -1145,7 +1321,9 @@ impl CoordinationHub {
         let mut next = env.clone();
         next.state = target;
         let _ = self.write_transfer(&next).await;
-        let _ = self.write_audit(&actor, op, None, None, &digest, "allowed", None).await;
+        let _ = self
+            .write_audit(&actor, op, None, None, &digest, "allowed", None)
+            .await;
         Ok(target)
     }
 }
@@ -1258,10 +1436,21 @@ impl CoordinationHub {
 
     /// The accepted recipe bound to a production pool (latest fact), if any.
     pub async fn read_recipe(&self, pool_id: &str) -> Option<ServiceRecipe> {
-        let fact = self.audit.read_as_of(RECIPES_STORE, pool_id, f64::MAX).await.ok().flatten()?;
+        let fact = self
+            .audit
+            .read_as_of(RECIPES_STORE, pool_id, f64::MAX)
+            .await
+            .ok()
+            .flatten()?;
         let v = &fact.value;
         let str_vec = |k: &str| -> Vec<String> {
-            v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+            v[k].as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
         };
         Some(ServiceRecipe {
             recipe_id: v["recipe_id"].as_str().unwrap_or("").to_string(),
@@ -1283,7 +1472,10 @@ impl CoordinationHub {
                         mode: p["mode"].as_str().unwrap_or("off").to_string(),
                         key_header: p["key_header"].as_str().unwrap_or("").to_string(),
                         max_fresh: p["max_fresh"].as_u64().unwrap_or(0) as u32,
-                        after_limit: p["after_limit"].as_str().unwrap_or("dedup_last").to_string(),
+                        after_limit: p["after_limit"]
+                            .as_str()
+                            .unwrap_or("dedup_last")
+                            .to_string(),
                         seed_field: p["seed_field"].as_str().unwrap_or("attempt").to_string(),
                         variant_payload: p["variant_payload"].as_bool().unwrap_or(false),
                         require_key: p["require_key"].as_bool().unwrap_or(false),
@@ -1338,8 +1530,16 @@ impl CoordinationHub {
     /// All duplicate-tracking facts for a `(route, duplicate_key)`, oldest first.
     pub async fn ingress_dedup_history(&self, route: &str, duplicate_key: &str) -> Vec<Value> {
         let key = format!("{}:{}", route, duplicate_key);
-        let mut facts = self.audit.facts_for(INGRESS_DEDUP_STORE, &key, None, None).await.unwrap_or_default();
-        facts.sort_by(|a, b| a.transaction_time.partial_cmp(&b.transaction_time).unwrap_or(std::cmp::Ordering::Equal));
+        let mut facts = self
+            .audit
+            .facts_for(INGRESS_DEDUP_STORE, &key, None, None)
+            .await
+            .unwrap_or_default();
+        facts.sort_by(|a, b| {
+            a.transaction_time
+                .partial_cmp(&b.transaction_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         facts.into_iter().map(|f| f.value).collect()
     }
 
@@ -1369,7 +1569,11 @@ impl CoordinationHub {
         let present = self
             .pools
             .get(pool_id)
-            .map(|p| p.capsule_refs.iter().any(|r| r.content_digest == recipe.capsule_digest))
+            .map(|p| {
+                p.capsule_refs
+                    .iter()
+                    .any(|r| r.content_digest == recipe.capsule_digest)
+            })
             .unwrap_or(false);
         if !present {
             let e = PoolRefusal::Invalid("recipe capsule_digest not present in pool".to_string());
@@ -1384,7 +1588,15 @@ impl CoordinationHub {
         }
         let _ = self.write_recipe(pool_id, &recipe).await;
         let _ = self
-            .write_audit(&actor, "accept_recipe", Some(pool_id), None, &digest, "allowed", None)
+            .write_audit(
+                &actor,
+                "accept_recipe",
+                Some(pool_id),
+                None,
+                &digest,
+                "allowed",
+                None,
+            )
             .await;
         Ok(())
     }
@@ -1415,14 +1627,22 @@ impl CoordinationHub {
                 return Err(e);
             }
         };
-        let production = self.pools.get(pool_id).map(|p| p.visibility == PoolVisibility::Production).unwrap_or(false);
+        let production = self
+            .pools
+            .get(pool_id)
+            .map(|p| p.visibility == PoolVisibility::Production)
+            .unwrap_or(false);
         if !production {
             let e = PoolRefusal::Invalid("pool is not in production".to_string());
             self.deny_msg(&actor, "invoke", &digest, &e).await;
             return Err(e);
         }
         // the caller's passport must carry the recipe's required scopes.
-        if !recipe.required_scopes.iter().all(|s| passport.scopes.iter().any(|p| p == s)) {
+        if !recipe
+            .required_scopes
+            .iter()
+            .all(|s| passport.scopes.iter().any(|p| p == s))
+        {
             let e = PoolRefusal::Invalid("missing required invoke scope".to_string());
             self.deny_msg(&actor, "invoke", &digest, &e).await;
             return Err(e);
@@ -1436,7 +1656,11 @@ impl CoordinationHub {
         let matches = self
             .pools
             .get(pool_id)
-            .map(|p| p.capsule_refs.iter().any(|r| r.content_digest == recipe.capsule_digest))
+            .map(|p| {
+                p.capsule_refs
+                    .iter()
+                    .any(|r| r.content_digest == recipe.capsule_digest)
+            })
             .unwrap_or(false);
         if !matches {
             let e = PoolRefusal::Invalid("capsule digest mismatch".to_string());
@@ -1470,7 +1694,15 @@ impl CoordinationHub {
             }
         };
         let _ = self
-            .write_audit(&actor, "invoke", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&recipe.entry_contract))
+            .write_audit(
+                &actor,
+                "invoke",
+                Some(pool_id),
+                Some(&recipe.capsule_digest),
+                &digest,
+                "allowed",
+                Some(&recipe.entry_contract),
+            )
             .await;
         Ok(result)
     }
@@ -1528,13 +1760,21 @@ impl CoordinationHub {
                 return Err(e);
             }
         };
-        let production = self.pools.get(pool_id).map(|p| p.visibility == PoolVisibility::Production).unwrap_or(false);
+        let production = self
+            .pools
+            .get(pool_id)
+            .map(|p| p.visibility == PoolVisibility::Production)
+            .unwrap_or(false);
         if !production {
             let e = PoolRefusal::Invalid("pool is not in production".to_string());
             self.deny_msg(&actor, op, &digest, &e).await;
             return Err(e);
         }
-        if !recipe.required_scopes.iter().all(|s| passport.scopes.iter().any(|p| p == s)) {
+        if !recipe
+            .required_scopes
+            .iter()
+            .all(|s| passport.scopes.iter().any(|p| p == s))
+        {
             let e = PoolRefusal::Invalid("missing required invoke scope".to_string());
             self.deny_msg(&actor, op, &digest, &e).await;
             return Err(e);
@@ -1573,7 +1813,12 @@ impl CoordinationHub {
             Some(r) => self
                 .pools
                 .get(pool_id)
-                .map(|p| p.capsule_refs.iter().filter(|c| c.content_digest == r.capsule_digest).count())
+                .map(|p| {
+                    p.capsule_refs
+                        .iter()
+                        .filter(|c| c.content_digest == r.capsule_digest)
+                        .count()
+                })
                 .unwrap_or(0),
             None => 0,
         }
@@ -1582,7 +1827,13 @@ impl CoordinationHub {
     fn replica_refs(&self, pool_id: &str, digest: &str) -> Vec<CapsuleRef> {
         self.pools
             .get(pool_id)
-            .map(|p| p.capsule_refs.iter().filter(|c| c.content_digest == digest).cloned().collect())
+            .map(|p| {
+                p.capsule_refs
+                    .iter()
+                    .filter(|c| c.content_digest == digest)
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -1605,10 +1856,21 @@ impl CoordinationHub {
             return Err(e);
         }
         let idx = replica_index % replicas.len();
-        match self.activate_digest(&recipe.capsule_digest, &recipe.entry_contract, inputs).await {
+        match self
+            .activate_digest(&recipe.capsule_digest, &recipe.entry_contract, inputs)
+            .await
+        {
             Ok(result) => {
                 let _ = self
-                    .write_audit(&actor, "invoke", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&format!("replica:{}/{}", idx, replicas.len())))
+                    .write_audit(
+                        &actor,
+                        "invoke",
+                        Some(pool_id),
+                        Some(&recipe.capsule_digest),
+                        &digest,
+                        "allowed",
+                        Some(&format!("replica:{}/{}", idx, replicas.len())),
+                    )
                     .await;
                 Ok(result)
             }
@@ -1643,13 +1905,28 @@ impl CoordinationHub {
                 out.push((i, Err("replica disabled".to_string())));
                 continue;
             }
-            match self.activate_digest(&recipe.capsule_digest, &recipe.entry_contract, inputs.clone()).await {
+            match self
+                .activate_digest(
+                    &recipe.capsule_digest,
+                    &recipe.entry_contract,
+                    inputs.clone(),
+                )
+                .await
+            {
                 Ok(v) => out.push((i, Ok(v))),
                 Err(e) => out.push((i, Err(e.reason()))),
             }
         }
         let _ = self
-            .write_audit(&actor, "invoke_fanout", Some(pool_id), Some(&recipe.capsule_digest), &digest, "allowed", Some(&format!("fanout:{}", replicas.len())))
+            .write_audit(
+                &actor,
+                "invoke_fanout",
+                Some(pool_id),
+                Some(&recipe.capsule_digest),
+                &digest,
+                "allowed",
+                Some(&format!("fanout:{}", replicas.len())),
+            )
             .await;
         Ok(out)
     }

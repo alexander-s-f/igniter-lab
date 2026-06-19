@@ -107,19 +107,30 @@ impl Console {
     /// Build a console around a ViewArtifact-authored workbench (the app being inspected).
     pub fn from_artifact(json: &str) -> Result<Self, ViewError> {
         let target = WorkbenchRuntime::from_artifact(json)?;
-        let mut c = Self { target, log: Vec::new(), selected: 0 };
+        let mut c = Self {
+            target,
+            log: Vec::new(),
+            selected: 0,
+        };
         c.record("(init)");
         Ok(c)
     }
 
     fn record(&mut self, label: &str) {
-        let lin: Value = serde_json::from_str(&self.target.lineage_json()).unwrap_or_else(|_| json!({}));
+        let lin: Value =
+            serde_json::from_str(&self.target.lineage_json()).unwrap_or_else(|_| json!({}));
         let frame = self.target.frame();
         self.log.push(FrameRecord {
             step: self.log.len(),
             frame_index: self.target.frame_index(),
-            input_receipt: lin.get("input_receipt_id").and_then(|v| v.as_str()).map(String::from),
-            effect_receipt: lin.get("effect_receipt_id").and_then(|v| v.as_str()).map(String::from),
+            input_receipt: lin
+                .get("input_receipt_id")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            effect_receipt: lin
+                .get("effect_receipt_id")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             render_digest: self.target.render_digest(),
             world_digest: frame.world_digest.clone(),
             svg: self.target.render_svg(),
@@ -190,7 +201,10 @@ impl Console {
         if self.selected == 0 {
             return Vec::new();
         }
-        diff_frames(&self.log[self.selected - 1].frame, &self.log[self.selected].frame)
+        diff_frames(
+            &self.log[self.selected - 1].frame,
+            &self.log[self.selected].frame,
+        )
     }
 
     // ── console chrome: interactive nodes (strip chips + the viewer box) for hit-testing ──
@@ -202,10 +216,29 @@ impl Console {
         let mut nodes: Vec<ProjectedNode> = Vec::new();
         for i in 0..self.log.len() {
             let (x, y, w, h) = Self::chip_rect(i);
-            nodes.push(node(format!("step:{i}"), x, y, w, h, Some(json!({ "action": "select" }))));
+            nodes.push(node(
+                format!("step:{i}"),
+                x,
+                y,
+                w,
+                h,
+                Some(json!({ "action": "select" })),
+            ));
         }
-        nodes.push(node("viewer".into(), VX, VY, VW, VH, Some(json!({ "action": "forward" }))));
-        Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes }
+        nodes.push(node(
+            "viewer".into(),
+            VX,
+            VY,
+            VW,
+            VH,
+            Some(json!({ "action": "forward" })),
+        ));
+        Frame {
+            frame_index: 0,
+            world_digest: String::new(),
+            source_receipt_id: None,
+            nodes,
+        }
     }
 
     /// Route a console-space pointer click: a strip chip → select that step (time-travel); inside
@@ -213,7 +246,9 @@ impl Console {
     /// the console reacted.
     pub fn click(&mut self, cx: f64, cy: f64) -> bool {
         let chrome = self.chrome();
-        let Some(hit) = hit_test(&chrome, cx.round() as i64, cy.round() as i64) else { return false };
+        let Some(hit) = hit_test(&chrome, cx.round() as i64, cy.round() as i64) else {
+            return false;
+        };
         let id = hit.id.clone();
         if let Some(rest) = id.strip_prefix("step:") {
             if let Ok(i) = rest.parse::<usize>() {
@@ -233,22 +268,62 @@ impl Console {
     /// Render the whole IDE shell (strip + viewer + lineage + diff) to one SVG.
     pub fn render_svg(&self) -> String {
         let mut b = String::new();
-        b.push_str(&format!("<svg viewBox=\"0 0 {CW} {CH}\" xmlns=\"http://www.w3.org/2000/svg\">\n"));
-        b.push_str(&format!("  <rect width=\"{CW}\" height=\"{CH}\" fill=\"#010409\"/>\n"));
+        b.push_str(&format!(
+            "<svg viewBox=\"0 0 {CW} {CH}\" xmlns=\"http://www.w3.org/2000/svg\">\n"
+        ));
+        b.push_str(&format!(
+            "  <rect width=\"{CW}\" height=\"{CH}\" fill=\"#010409\"/>\n"
+        ));
 
         // panels
         panel(&mut b, 16, 12, 908, 58, "replay");
-        panel(&mut b, 16, 82, 600, 406, &format!("frame viewer — step {}/{}{}", self.selected, self.log.len() - 1, if self.is_live() { " (live)" } else { " (replay)" }));
+        panel(
+            &mut b,
+            16,
+            82,
+            600,
+            406,
+            &format!(
+                "frame viewer — step {}/{}{}",
+                self.selected,
+                self.log.len() - 1,
+                if self.is_live() {
+                    " (live)"
+                } else {
+                    " (replay)"
+                }
+            ),
+        );
         panel(&mut b, 632, 82, 292, 200, "lineage");
         panel(&mut b, 632, 292, 292, 196, "frame diff vs prev");
 
         // replay strip: a chip per recorded frame
         for (i, rec) in self.log.iter().enumerate() {
             let (x, y, w, h) = Self::chip_rect(i);
-            let fill = if i == self.selected { "#1f6feb" } else { "#161b22" };
+            let fill = if i == self.selected {
+                "#1f6feb"
+            } else {
+                "#161b22"
+            };
             rect(&mut b, x, y, w, h, 6, fill, "#30363d");
-            text(&mut b, x + w / 2, y + 16, 11, "#e6edf3", "middle", &format!("f{}", rec.frame_index));
-            text(&mut b, x + w / 2, y + 30, 9, "#8b949e", "middle", &short(&rec.render_digest, 5));
+            text(
+                &mut b,
+                x + w / 2,
+                y + 16,
+                11,
+                "#e6edf3",
+                "middle",
+                &format!("f{}", rec.frame_index),
+            );
+            text(
+                &mut b,
+                x + w / 2,
+                y + 30,
+                9,
+                "#8b949e",
+                "middle",
+                &short(&rec.render_digest, 5),
+            );
         }
 
         // frame viewer: embed the selected frame's own SVG (nested svg, re-scaled into the box)
@@ -261,7 +336,10 @@ impl Console {
         b.push_str(&embedded);
         // visual diff overlay ON TOP of the embedded frame (added/removed/moved/changed)
         if self.selected > 0 {
-            b.push_str(&diff_overlay_svg(&self.log[self.selected - 1].frame, &self.log[self.selected].frame));
+            b.push_str(&diff_overlay_svg(
+                &self.log[self.selected - 1].frame,
+                &self.log[self.selected].frame,
+            ));
         }
 
         // lineage inspector
@@ -272,14 +350,41 @@ impl Console {
         };
         kv(&mut b, &mut ly, "step", &rec.step.to_string());
         kv(&mut b, &mut ly, "event", &rec.label);
-        kv(&mut b, &mut ly, "input", rec.input_receipt.as_deref().unwrap_or("—"));
-        kv(&mut b, &mut ly, "effect", rec.effect_receipt.as_deref().unwrap_or("—"));
-        kv(&mut b, &mut ly, "frame", &format!("frame:{}", rec.frame_index));
+        kv(
+            &mut b,
+            &mut ly,
+            "input",
+            rec.input_receipt.as_deref().unwrap_or("—"),
+        );
+        kv(
+            &mut b,
+            &mut ly,
+            "effect",
+            rec.effect_receipt.as_deref().unwrap_or("—"),
+        );
+        kv(
+            &mut b,
+            &mut ly,
+            "frame",
+            &format!("frame:{}", rec.frame_index),
+        );
         kv(&mut b, &mut ly, "render", &short(&rec.render_digest, 10));
 
         // host action / effect receipt lineage (P19) — only when this frame carried a bound action
         if let Some(a) = &rec.host_action {
-            text(&mut b, 644, ly, 12, "#a371f7", "start", &format!("action: {} ({})", esc(&a.action_name), esc(&short(&a.contract, 14))));
+            text(
+                &mut b,
+                644,
+                ly,
+                12,
+                "#a371f7",
+                "start",
+                &format!(
+                    "action: {} ({})",
+                    esc(&a.action_name),
+                    esc(&short(&a.contract, 14))
+                ),
+            );
             ly += 22;
             let state = a.effect_state.as_deref().unwrap_or("—");
             let color = match state {
@@ -288,15 +393,39 @@ impl Console {
                 "unknown_external_state" => "#d29922",
                 _ => "#9da7b3",
             };
-            let rcpt = a.effect_receipt_id.as_deref().map(|r| short(r, 16)).unwrap_or_else(|| "—".into());
-            text(&mut b, 644, ly, 12, color, "start", &format!("receipt: {state} {rcpt}"));
+            let rcpt = a
+                .effect_receipt_id
+                .as_deref()
+                .map(|r| short(r, 16))
+                .unwrap_or_else(|| "—".into());
+            text(
+                &mut b,
+                644,
+                ly,
+                12,
+                color,
+                "start",
+                &format!("receipt: {state} {rcpt}"),
+            );
         }
 
         // frame diff
         let diff = self.diff();
         let mut dy = 320;
         if diff.is_empty() {
-            text(&mut b, 644, dy, 12, "#6e7681", "start", if self.selected == 0 { "(initial frame)" } else { "(no change)" });
+            text(
+                &mut b,
+                644,
+                dy,
+                12,
+                "#6e7681",
+                "start",
+                if self.selected == 0 {
+                    "(initial frame)"
+                } else {
+                    "(no change)"
+                },
+            );
         } else {
             for ch in diff.iter().take(7) {
                 let color = match ch.change.as_str() {
@@ -305,11 +434,27 @@ impl Console {
                     "moved" => "#58a6ff",
                     _ => "#d29922",
                 };
-                text(&mut b, 644, dy, 11, color, "start", &format!("{:<7} {}", ch.change, short(&ch.id, 22)));
+                text(
+                    &mut b,
+                    644,
+                    dy,
+                    11,
+                    color,
+                    "start",
+                    &format!("{:<7} {}", ch.change, short(&ch.id, 22)),
+                );
                 dy += 20;
             }
             if diff.len() > 7 {
-                text(&mut b, 644, dy, 11, "#6e7681", "start", &format!("… +{} more", diff.len() - 7));
+                text(
+                    &mut b,
+                    644,
+                    dy,
+                    11,
+                    "#6e7681",
+                    "start",
+                    &format!("… +{} more", diff.len() - 7),
+                );
             }
         }
 
@@ -330,7 +475,11 @@ impl Console {
         obj.to_string()
     }
     pub fn diff_json(&self) -> String {
-        let d: Vec<Value> = self.diff().iter().map(|c| json!({ "id": c.id, "change": c.change })).collect();
+        let d: Vec<Value> = self
+            .diff()
+            .iter()
+            .map(|c| json!({ "id": c.id, "change": c.change }))
+            .collect();
         Value::Array(d).to_string()
     }
 
@@ -339,12 +488,26 @@ impl Console {
         if self.selected == 0 {
             return String::new();
         }
-        diff_overlay_svg(&self.log[self.selected - 1].frame, &self.log[self.selected].frame)
+        diff_overlay_svg(
+            &self.log[self.selected - 1].frame,
+            &self.log[self.selected].frame,
+        )
     }
 }
 
 fn node(id: String, x: i64, y: i64, w: i64, h: i64, intent: Option<Value>) -> ProjectedNode {
-    ProjectedNode { id, x: x as f64, y: y as f64, z: 0.0, sx: x, sy: y, intent, sw: Some(w), sh: Some(h), data: Value::Null }
+    ProjectedNode {
+        id,
+        x: x as f64,
+        y: y as f64,
+        z: 0.0,
+        sx: x,
+        sy: y,
+        intent,
+        sw: Some(w),
+        sh: Some(h),
+        data: Value::Null,
+    }
 }
 
 fn diff_frames(prev: &Frame, cur: &Frame) -> Vec<NodeChange> {
@@ -353,19 +516,31 @@ fn diff_frames(prev: &Frame, cur: &Frame) -> Vec<NodeChange> {
     let mut out = Vec::new();
     for n in &cur.nodes {
         match pm.get(n.id.as_str()) {
-            None => out.push(NodeChange { id: n.id.clone(), change: "added".into() }),
+            None => out.push(NodeChange {
+                id: n.id.clone(),
+                change: "added".into(),
+            }),
             Some(p) => {
                 if p.sx != n.sx || p.sy != n.sy {
-                    out.push(NodeChange { id: n.id.clone(), change: "moved".into() });
+                    out.push(NodeChange {
+                        id: n.id.clone(),
+                        change: "moved".into(),
+                    });
                 } else if p.data != n.data {
-                    out.push(NodeChange { id: n.id.clone(), change: "changed".into() });
+                    out.push(NodeChange {
+                        id: n.id.clone(),
+                        change: "changed".into(),
+                    });
                 }
             }
         }
     }
     for n in &prev.nodes {
         if !cm.contains_key(n.id.as_str()) {
-            out.push(NodeChange { id: n.id.clone(), change: "removed".into() });
+            out.push(NodeChange {
+                id: n.id.clone(),
+                change: "removed".into(),
+            });
         }
     }
     out
@@ -395,7 +570,9 @@ pub fn diff_overlay_svg(prev: &Frame, cur: &Frame) -> String {
     let mut s = String::new();
     for ch in diff_frames(prev, cur) {
         let src = if ch.change == "removed" { prev } else { cur };
-        let Some((sx, sy, w, h)) = bounds(src, &ch.id) else { continue }; // omit point nodes
+        let Some((sx, sy, w, h)) = bounds(src, &ch.id) else {
+            continue;
+        }; // omit point nodes
         let (vx, vy, vw, vh) = viewer_rect(sx, sy, w, h);
         let (cls, stroke, dash) = match ch.change.as_str() {
             "added" => ("diff-added", "#3fb950", ""),
@@ -422,7 +599,9 @@ pub fn diff_overlay_svg(prev: &Frame, cur: &Frame) -> String {
 
 // ── tiny SVG helpers (the console chrome; the target frame is embedded verbatim) ──
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 fn rect(b: &mut String, x: i64, y: i64, w: i64, h: i64, r: i64, fill: &str, stroke: &str) {
     b.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{r}\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n"));

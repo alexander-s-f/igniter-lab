@@ -16,7 +16,10 @@ use serde_json::Value;
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn clock() -> Arc<dyn ClockProvider> {
@@ -43,12 +46,23 @@ fn passport(subject: &str, scopes: &[&str]) -> CapabilityPassport {
 }
 
 const ALL_SCOPES: &[&str] = &[
-    "create_pool", "import_capsule", "list_capsules", "activate_capsule", "fork_capsule",
-    "grant_access", "admin_pool",
+    "create_pool",
+    "import_capsule",
+    "list_capsules",
+    "activate_capsule",
+    "fork_capsule",
+    "grant_access",
+    "admin_pool",
 ];
 
 fn agent(id: &str, kind: AgentKind) -> AgentIdentity {
-    AgentIdentity { agent_id: id.to_string(), kind, label: id.to_string(), status: AgentStatus::Active, registered_at: 0.0 }
+    AgentIdentity {
+        agent_id: id.to_string(),
+        kind,
+        label: id.to_string(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    }
 }
 
 async fn audit_events(audit: &Arc<dyn TBackend>) -> Vec<Value> {
@@ -68,18 +82,29 @@ async fn audit_events(audit: &Arc<dyn TBackend>) -> Vec<Value> {
 fn owner_creates_pool_and_adds_capsule() {
     rt().block_on(async {
         let (mut h, audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
         let p = passport("alice", ALL_SCOPES);
 
-        h.create_pool(&p, "pool1", "Alice's pool", PoolVisibility::Private).await.unwrap();
-        let cref = h.add_capsule(&p, "pool1", b"capsule-bytes-A".to_vec(), vec!["v1".into()]).await.unwrap();
+        h.create_pool(&p, "pool1", "Alice's pool", PoolVisibility::Private)
+            .await
+            .unwrap();
+        let cref = h
+            .add_capsule(&p, "pool1", b"capsule-bytes-A".to_vec(), vec!["v1".into()])
+            .await
+            .unwrap();
 
         assert_eq!(h.pool("pool1").unwrap().capsule_refs.len(), 1);
         assert_eq!(cref.content_digest.len(), 64); // blake3 hex
-        // audited
+                                                   // audited
         let evs = audit_events(&audit).await;
-        assert!(evs.iter().any(|e| e["operation"] == "create_pool" && e["outcome"] == "allowed"));
-        assert!(evs.iter().any(|e| e["operation"] == "import_capsule" && e["outcome"] == "allowed"));
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "create_pool" && e["outcome"] == "allowed"));
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "import_capsule" && e["outcome"] == "allowed"));
     });
 }
 
@@ -89,16 +114,37 @@ fn owner_creates_pool_and_adds_capsule() {
 fn other_agent_denied_without_grant() {
     rt().block_on(async {
         let (mut h, _audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
-        h.register_agent(agent("bob", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
+        h.register_agent(agent("bob", AgentKind::Agent))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "pool1", "p", PoolVisibility::Private).await.unwrap();
-        h.add_capsule(&alice, "pool1", b"x".to_vec(), vec![]).await.unwrap();
+        h.create_pool(&alice, "pool1", "p", PoolVisibility::Private)
+            .await
+            .unwrap();
+        h.add_capsule(&alice, "pool1", b"x".to_vec(), vec![])
+            .await
+            .unwrap();
 
         let bob = passport("bob", ALL_SCOPES);
-        assert_eq!(h.list_capsules(&bob, "pool1").await.unwrap_err(), PoolRefusal::NotGranted);
-        assert_eq!(h.check_right(&bob, "pool1", PoolRight::ActivateCapsule).await.unwrap_err(), PoolRefusal::NotGranted);
-        assert_eq!(h.check_right(&bob, "pool1", PoolRight::ForkCapsule).await.unwrap_err(), PoolRefusal::NotGranted);
+        assert_eq!(
+            h.list_capsules(&bob, "pool1").await.unwrap_err(),
+            PoolRefusal::NotGranted
+        );
+        assert_eq!(
+            h.check_right(&bob, "pool1", PoolRight::ActivateCapsule)
+                .await
+                .unwrap_err(),
+            PoolRefusal::NotGranted
+        );
+        assert_eq!(
+            h.check_right(&bob, "pool1", PoolRight::ForkCapsule)
+                .await
+                .unwrap_err(),
+            PoolRefusal::NotGranted
+        );
     });
 }
 
@@ -108,16 +154,29 @@ fn other_agent_denied_without_grant() {
 fn explicit_grant_enables_only_granted_op() {
     rt().block_on(async {
         let (mut h, _audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
-        h.register_agent(agent("bob", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
+        h.register_agent(agent("bob", AgentKind::Agent))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "pool1", "p", PoolVisibility::Shared).await.unwrap();
+        h.create_pool(&alice, "pool1", "p", PoolVisibility::Shared)
+            .await
+            .unwrap();
 
-        h.grant(&alice, "pool1", "bob", PoolRight::ListCapsules).await.unwrap();
+        h.grant(&alice, "pool1", "bob", PoolRight::ListCapsules)
+            .await
+            .unwrap();
 
         let bob = passport("bob", ALL_SCOPES);
         assert!(h.list_capsules(&bob, "pool1").await.is_ok()); // granted
-        assert_eq!(h.check_right(&bob, "pool1", PoolRight::ForkCapsule).await.unwrap_err(), PoolRefusal::NotGranted); // not granted
+        assert_eq!(
+            h.check_right(&bob, "pool1", PoolRight::ForkCapsule)
+                .await
+                .unwrap_err(),
+            PoolRefusal::NotGranted
+        ); // not granted
     });
 }
 
@@ -127,18 +186,37 @@ fn explicit_grant_enables_only_granted_op() {
 fn content_addressed_dedup() {
     rt().block_on(async {
         let (mut h, _audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "p1", "p1", PoolVisibility::Private).await.unwrap();
-        h.create_pool(&alice, "p2", "p2", PoolVisibility::Private).await.unwrap();
+        h.create_pool(&alice, "p1", "p1", PoolVisibility::Private)
+            .await
+            .unwrap();
+        h.create_pool(&alice, "p2", "p2", PoolVisibility::Private)
+            .await
+            .unwrap();
 
-        let r1 = h.add_capsule(&alice, "p1", b"same-bytes".to_vec(), vec![]).await.unwrap();
-        let r2 = h.add_capsule(&alice, "p2", b"same-bytes".to_vec(), vec![]).await.unwrap();
-        let r3 = h.add_capsule(&alice, "p1", b"different".to_vec(), vec![]).await.unwrap();
+        let r1 = h
+            .add_capsule(&alice, "p1", b"same-bytes".to_vec(), vec![])
+            .await
+            .unwrap();
+        let r2 = h
+            .add_capsule(&alice, "p2", b"same-bytes".to_vec(), vec![])
+            .await
+            .unwrap();
+        let r3 = h
+            .add_capsule(&alice, "p1", b"different".to_vec(), vec![])
+            .await
+            .unwrap();
 
         assert_eq!(r1.content_digest, r2.content_digest); // same content → same digest
         assert_ne!(r1.content_digest, r3.content_digest);
-        assert_eq!(h.content_count(), 2, "identical bytes are stored once (dedup)");
+        assert_eq!(
+            h.content_count(),
+            2,
+            "identical bytes are stored once (dedup)"
+        );
     });
 }
 
@@ -148,24 +226,43 @@ fn content_addressed_dedup() {
 fn developer_grants_and_takes_ownership_audited() {
     rt().block_on(async {
         let (mut h, audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
-        h.register_agent(agent("dev", AgentKind::Developer)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
+        h.register_agent(agent("dev", AgentKind::Developer))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "candidate", "candidate service", PoolVisibility::Private).await.unwrap();
+        h.create_pool(
+            &alice,
+            "candidate",
+            "candidate service",
+            PoolVisibility::Private,
+        )
+        .await
+        .unwrap();
 
         // the developer (NOT the owner) can grant on the pool — conductor privilege, audited.
         let dev = passport("dev", ALL_SCOPES);
-        h.grant(&dev, "candidate", "carol", PoolRight::ListCapsules).await.unwrap();
+        h.grant(&dev, "candidate", "carol", PoolRight::ListCapsules)
+            .await
+            .unwrap();
 
         // dev→prod handoff: developer takes ownership and promotes to production.
-        h.transfer_ownership(&dev, "candidate", "dev", Some(PoolVisibility::Production)).await.unwrap();
+        h.transfer_ownership(&dev, "candidate", "dev", Some(PoolVisibility::Production))
+            .await
+            .unwrap();
         let pool = h.pool("candidate").unwrap();
         assert_eq!(pool.owner_agent_id, "dev");
         assert_eq!(pool.visibility, PoolVisibility::Production);
 
         let evs = audit_events(&audit).await;
-        assert!(evs.iter().any(|e| e["operation"] == "admin_pool" && e["actor"] == "dev" && e["outcome"] == "allowed"));
-        assert!(evs.iter().any(|e| e["operation"] == "grant_access" && e["actor"] == "dev" && e["outcome"] == "allowed"));
+        assert!(evs.iter().any(|e| e["operation"] == "admin_pool"
+            && e["actor"] == "dev"
+            && e["outcome"] == "allowed"));
+        assert!(evs.iter().any(|e| e["operation"] == "grant_access"
+            && e["actor"] == "dev"
+            && e["outcome"] == "allowed"));
     });
 }
 
@@ -175,17 +272,28 @@ fn developer_grants_and_takes_ownership_audited() {
 fn revoked_agent_cannot_access() {
     rt().block_on(async {
         let (mut h, _audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
-        h.register_agent(agent("bob", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
+        h.register_agent(agent("bob", AgentKind::Agent))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "pool1", "p", PoolVisibility::Shared).await.unwrap();
-        h.grant(&alice, "pool1", "bob", PoolRight::ListCapsules).await.unwrap();
+        h.create_pool(&alice, "pool1", "p", PoolVisibility::Shared)
+            .await
+            .unwrap();
+        h.grant(&alice, "pool1", "bob", PoolRight::ListCapsules)
+            .await
+            .unwrap();
 
         // bob works while active, then is revoked
         let bob = passport("bob", ALL_SCOPES);
         assert!(h.list_capsules(&bob, "pool1").await.is_ok());
         h.set_agent_status("bob", AgentStatus::Revoked);
-        assert_eq!(h.list_capsules(&bob, "pool1").await.unwrap_err(), PoolRefusal::AgentNotActive);
+        assert_eq!(
+            h.list_capsules(&bob, "pool1").await.unwrap_err(),
+            PoolRefusal::AgentNotActive
+        );
     });
 }
 
@@ -195,18 +303,27 @@ fn revoked_agent_cannot_access() {
 fn passport_failure_refused_before_acl() {
     rt().block_on(async {
         let (mut h, audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
         // passport for alice WITHOUT the import_capsule scope
         let alice_full = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice_full, "pool1", "p", PoolVisibility::Private).await.unwrap();
+        h.create_pool(&alice_full, "pool1", "p", PoolVisibility::Private)
+            .await
+            .unwrap();
 
         let alice_no_import = passport("alice", &["create_pool", "list_capsules"]);
-        let err = h.add_capsule(&alice_no_import, "pool1", b"x".to_vec(), vec![]).await.unwrap_err();
+        let err = h
+            .add_capsule(&alice_no_import, "pool1", b"x".to_vec(), vec![])
+            .await
+            .unwrap_err();
         assert!(matches!(err, PoolRefusal::Unauthenticated(_)));
         assert_eq!(h.content_count(), 0, "no state change on a refused op");
 
         let evs = audit_events(&audit).await;
-        assert!(evs.iter().any(|e| e["operation"] == "import_capsule" && e["outcome"] == "denied"));
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "import_capsule" && e["outcome"] == "denied"));
     });
 }
 
@@ -216,12 +333,20 @@ fn passport_failure_refused_before_acl() {
 fn every_operation_is_audited() {
     rt().block_on(async {
         let (mut h, audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
-        h.register_agent(agent("bob", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
+        h.register_agent(agent("bob", AgentKind::Agent))
+            .await
+            .unwrap();
         let alice = passport("alice", ALL_SCOPES);
         let bob = passport("bob", ALL_SCOPES);
-        h.create_pool(&alice, "pool1", "p", PoolVisibility::Private).await.unwrap();
-        h.add_capsule(&alice, "pool1", b"x".to_vec(), vec![]).await.unwrap();
+        h.create_pool(&alice, "pool1", "p", PoolVisibility::Private)
+            .await
+            .unwrap();
+        h.add_capsule(&alice, "pool1", b"x".to_vec(), vec![])
+            .await
+            .unwrap();
         let _ = h.list_capsules(&bob, "pool1").await; // denied
 
         let evs = audit_events(&audit).await;
@@ -230,7 +355,9 @@ fn every_operation_is_audited() {
         assert!(evs.iter().any(|e| e["outcome"] == "allowed"));
         assert!(evs.iter().any(|e| e["outcome"] == "denied"));
         // facts carry the actor + authority digest
-        assert!(evs.iter().all(|e| e.get("actor").is_some() && e.get("authority_digest").is_some()));
+        assert!(evs
+            .iter()
+            .all(|e| e.get("actor").is_some() && e.get("authority_digest").is_some()));
     });
 }
 
@@ -240,7 +367,9 @@ fn every_operation_is_audited() {
 fn runtime_vendor_actor_schema_supported() {
     rt().block_on(async {
         let (mut h, _audit) = hub();
-        h.register_agent(agent("alice", AgentKind::Agent)).await.unwrap();
+        h.register_agent(agent("alice", AgentKind::Agent))
+            .await
+            .unwrap();
         // a non-agent subject — a vendor runtime actor — is a first-class identity
         h.register_agent(AgentIdentity {
             agent_id: "vendor:acme".to_string(),
@@ -253,11 +382,23 @@ fn runtime_vendor_actor_schema_supported() {
         .unwrap();
 
         let alice = passport("alice", ALL_SCOPES);
-        h.create_pool(&alice, "prodpool", "service", PoolVisibility::Production).await.unwrap();
-        h.grant(&alice, "prodpool", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+        h.create_pool(&alice, "prodpool", "service", PoolVisibility::Production)
+            .await
+            .unwrap();
+        h.grant(
+            &alice,
+            "prodpool",
+            "vendor:acme",
+            PoolRight::ActivateCapsule,
+        )
+        .await
+        .unwrap();
 
         // the vendor subject authenticates + is authorized by the ACL like any subject
         let vendor = passport("vendor:acme", &["activate_capsule"]);
-        assert!(h.check_right(&vendor, "prodpool", PoolRight::ActivateCapsule).await.is_ok());
+        assert!(h
+            .check_right(&vendor, "prodpool", PoolRight::ActivateCapsule)
+            .await
+            .is_ok());
     });
 }

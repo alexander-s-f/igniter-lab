@@ -1,13 +1,13 @@
 // src/vm.rs
 // Stack-based, register-gated execution Virtual Machine (IVM) in pure Rust
 
+use crate::instructions::*;
+use crate::tbackend::TBackend;
+use crate::value::Value;
+use igniter_stdlib::decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::value::Value;
-use crate::instructions::*;
-use crate::tbackend::TBackend;
-use igniter_stdlib::decimal::Decimal;
 // LAB-STR-UNICODE-P2: UAX #29 extended grapheme cluster segmentation
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -37,7 +37,9 @@ fn stdlib_string_char_at(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(Arc::from("")));
     }
     let idx = raw_index as usize;
-    let result = s.chars().nth(idx)
+    let result = s
+        .chars()
+        .nth(idx)
         .map(|ch| ch.to_string())
         .unwrap_or_default();
     Ok(Value::String(Arc::from(result.as_str())))
@@ -131,8 +133,15 @@ impl VM {
         positional_args: &[Value],
         temporal_context: &HashMap<String, Value>,
     ) -> Result<Value, String> {
-        let current_depth = temporal_context.get("__call_depth__")
-            .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
+        let current_depth = temporal_context
+            .get("__call_depth__")
+            .and_then(|v| {
+                if let Value::Integer(d) = v {
+                    Some(*d)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(0);
         if current_depth >= MAX_CALL_DEPTH {
             return Err(format!(
@@ -140,10 +149,20 @@ impl VM {
                 MAX_CALL_DEPTH
             ));
         }
-        let call_chain_str = temporal_context.get("__call_chain__")
-            .and_then(|v| if let Value::String(s) = v { Some(s.as_ref().to_string()) } else { None })
+        let call_chain_str = temporal_context
+            .get("__call_chain__")
+            .and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s.as_ref().to_string())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_default();
-        let chain_names: Vec<&str> = call_chain_str.split(',').filter(|s| !s.is_empty()).collect();
+        let chain_names: Vec<&str> = call_chain_str
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .collect();
         if chain_names.contains(&callee_name) {
             return Err(format!(
                 "call_contract: dispatch cycle detected ({} -> {}); self-recursion and cycles closed in v0",
@@ -151,14 +170,20 @@ impl VM {
                 callee_name
             ));
         }
-        let entry = self.dispatch_table.get(callee_name)
+        let entry = self
+            .dispatch_table
+            .get(callee_name)
             .ok_or_else(|| {
                 let mut av: Vec<&str> = self.dispatch_table.keys().map(|s| s.as_str()).collect();
                 av.sort();
                 format!(
                     "call_contract: no contract named '{}' in igapp (available: [{}])",
                     callee_name,
-                    if av.is_empty() { "none".to_string() } else { av.join(", ") }
+                    if av.is_empty() {
+                        "none".to_string()
+                    } else {
+                        av.join(", ")
+                    }
                 )
             })?
             .clone();
@@ -171,10 +196,15 @@ impl VM {
         if positional_args.len() != entry.input_names.len() {
             return Err(format!(
                 "call_contract: contract '{}' expects {} input(s) [{}], got {}",
-                callee_name, entry.input_names.len(), entry.input_names.join(", "), positional_args.len()
+                callee_name,
+                entry.input_names.len(),
+                entry.input_names.join(", "),
+                positional_args.len()
             ));
         }
-        let callee_inputs: HashMap<String, Value> = entry.input_names.iter()
+        let callee_inputs: HashMap<String, Value> = entry
+            .input_names
+            .iter()
             .zip(positional_args.iter())
             .map(|(name, val)| (name.clone(), val.clone()))
             .collect();
@@ -184,8 +214,14 @@ impl VM {
             format!("{},{}", call_chain_str, callee_name)
         };
         let mut callee_temporal = temporal_context.clone();
-        callee_temporal.insert("__call_depth__".to_string(), Value::Integer(current_depth + 1));
-        callee_temporal.insert("__call_chain__".to_string(), Value::String(Arc::from(new_chain.as_str())));
+        callee_temporal.insert(
+            "__call_depth__".to_string(),
+            Value::Integer(current_depth + 1),
+        );
+        callee_temporal.insert(
+            "__call_chain__".to_string(),
+            Value::String(Arc::from(new_chain.as_str())),
+        );
         Box::pin(self.execute(&entry.bytecode, &callee_inputs, &callee_temporal)).await
     }
 
@@ -195,7 +231,8 @@ impl VM {
         inputs: &HashMap<String, Value>,
         temporal_context: &HashMap<String, Value>,
     ) -> Result<Value, String> {
-        self.execute_with_grants(instructions, inputs, temporal_context, &HashMap::new()).await
+        self.execute_with_grants(instructions, inputs, temporal_context, &HashMap::new())
+            .await
     }
 
     pub async fn execute_with_grants(
@@ -234,10 +271,12 @@ impl VM {
                 }
 
                 OP_LOAD_REF => {
-                    let name = inst.args.get(0)
+                    let name = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing reference symbol name")?
                         .as_str()?;
-                    
+
                     let val = if let Some(v) = inputs.get(name) {
                         v.clone()
                     } else if let Some(v) = temporal_context.get(name) {
@@ -245,100 +284,178 @@ impl VM {
                     } else if resolved_grants.contains_key(name) {
                         Value::String(Arc::from(name))
                     } else {
-                        return Err(format!("Reference symbol '{}' not found in inputs or temporal context", name));
+                        return Err(format!(
+                            "Reference symbol '{}' not found in inputs or temporal context",
+                            name
+                        ));
                     };
                     stack.push(val);
                     ip += 1;
                 }
 
                 OP_STORE_REG => {
-                    let reg_idx = inst.args.get(0)
+                    let reg_idx = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing register index")?
                         .as_integer()?;
-                    
+
                     let val = stack.pop().ok_or("Stack underflow during STORE_REG")?;
                     registers.insert(reg_idx, val);
                     ip += 1;
                 }
 
                 OP_LOAD_REG => {
-                    let reg_idx = inst.args.get(0)
+                    let reg_idx = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing register index")?
                         .as_integer()?;
-                    
-                    let val = registers.get(&reg_idx)
+
+                    let val = registers
+                        .get(&reg_idx)
                         .ok_or_else(|| format!("Register index {} is uninitialized", reg_idx))?;
                     stack.push(val.clone());
                     ip += 1;
                 }
 
                 OP_ADD => {
-                    let b = stack.pop().ok_or("Stack underflow during ADD second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during ADD first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during ADD second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during ADD first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             match da.add(&db) {
-                                Ok(res_dec) => Value::Decimal { value: res_dec.value, scale: res_dec.scale },
+                                Ok(res_dec) => Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                },
                                 Err(e) => return Err(e),
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
-                        _ => return Err(format!("Invalid operand types for ADD: {:?} + {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for ADD: {:?} + {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_SUB => {
-                    let b = stack.pop().ok_or("Stack underflow during SUB second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during SUB first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during SUB second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during SUB first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             match da.sub(&db) {
-                                Ok(res_dec) => Value::Decimal { value: res_dec.value, scale: res_dec.scale },
+                                Ok(res_dec) => Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                },
                                 Err(e) => return Err(e),
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av - bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av - bv),
-                        _ => return Err(format!("Invalid operand types for SUB: {:?} - {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for SUB: {:?} - {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_MUL => {
-                    let b = stack.pop().ok_or("Stack underflow during MUL second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during MUL first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during MUL second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during MUL first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             let res_dec = da.mul(&db);
-                            Value::Decimal { value: res_dec.value, scale: res_dec.scale }
+                            Value::Decimal {
+                                value: res_dec.value,
+                                scale: res_dec.scale,
+                            }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av * bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av * bv),
-                        _ => return Err(format!("Invalid operand types for MUL: {:?} * {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for MUL: {:?} * {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_DIV => {
-                    let b = stack.pop().ok_or("Stack underflow during DIV second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during DIV first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during DIV second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during DIV first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             match da.div(&db) {
-                                Ok(res_dec) => Value::Decimal { value: res_dec.value, scale: res_dec.scale },
+                                Ok(res_dec) => Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                },
                                 Err(e) => return Err(e),
                             }
                         }
@@ -354,41 +471,75 @@ impl VM {
                             }
                             Value::Float(av / bv)
                         }
-                        _ => return Err(format!("Invalid operand types for DIV: {:?} / {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for DIV: {:?} / {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_EQ => {
-                    let b = stack.pop().ok_or("Stack underflow during EQ second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during EQ first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during EQ second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during EQ first operand")?;
                     stack.push(Value::Bool(a == b));
                     ip += 1;
                 }
 
                 OP_GT => {
-                    let b = stack.pop().ok_or("Stack underflow during GT second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during GT first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during GT second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during GT first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             Value::Bool(da.to_f64() > db.to_f64())
                         }
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av > bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av > bv),
-                        _ => return Err(format!("Invalid operand types for GT: {:?} > {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for GT: {:?} > {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_LT => {
-                    let b = stack.pop().ok_or("Stack underflow during LT second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during LT first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during LT second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during LT first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             Value::Bool(da.to_f64() < db.to_f64())
@@ -396,17 +547,32 @@ impl VM {
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av < bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av < bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av < bv),
-                        _ => return Err(format!("Invalid operand types for LT: {:?} < {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for LT: {:?} < {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_LE => {
-                    let b = stack.pop().ok_or("Stack underflow during LE second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during LE first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during LE second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during LE first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             Value::Bool(da.to_f64() <= db.to_f64())
@@ -414,17 +580,32 @@ impl VM {
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av <= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av <= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av <= bv),
-                        _ => return Err(format!("Invalid operand types for LE: {:?} <= {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for LE: {:?} <= {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_GE => {
-                    let b = stack.pop().ok_or("Stack underflow during GE second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during GE first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during GE second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during GE first operand")?;
                     let res = match (&a, &b) {
-                        (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
                             Value::Bool(da.to_f64() >= db.to_f64())
@@ -432,36 +613,57 @@ impl VM {
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av >= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av >= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av >= bv),
-                        _ => return Err(format!("Invalid operand types for GE: {:?} >= {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for GE: {:?} >= {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_NE => {
-                    let b = stack.pop().ok_or("Stack underflow during NE second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during NE first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during NE second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during NE first operand")?;
                     stack.push(Value::Bool(a != b));
                     ip += 1;
                 }
 
                 OP_AND => {
-                    let b = stack.pop().ok_or("Stack underflow during AND second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during AND first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during AND second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during AND first operand")?;
                     let res = match (&a, &b) {
                         (Value::Bool(av), Value::Bool(bv)) => Value::Bool(*av && *bv),
-                        _ => return Err(format!("Invalid operand types for AND: {:?} && {:?}", a, b)),
+                        _ => {
+                            return Err(format!(
+                                "Invalid operand types for AND: {:?} && {:?}",
+                                a, b
+                            ))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_OR => {
-                    let b = stack.pop().ok_or("Stack underflow during OR second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during OR first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during OR second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during OR first operand")?;
                     let res = match (&a, &b) {
                         (Value::Bool(av), Value::Bool(bv)) => Value::Bool(*av || *bv),
-                        _ => return Err(format!("Invalid operand types for OR: {:?} || {:?}", a, b)),
+                        _ => {
+                            return Err(format!("Invalid operand types for OR: {:?} || {:?}", a, b))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
@@ -478,8 +680,12 @@ impl VM {
                 }
 
                 OP_CONCAT => {
-                    let b = stack.pop().ok_or("Stack underflow during CONCAT second operand")?;
-                    let a = stack.pop().ok_or("Stack underflow during CONCAT first operand")?;
+                    let b = stack
+                        .pop()
+                        .ok_or("Stack underflow during CONCAT second operand")?;
+                    let a = stack
+                        .pop()
+                        .ok_or("Stack underflow during CONCAT first operand")?;
                     let res = match (&a, &b) {
                         (Value::String(av), Value::String(bv)) => {
                             let mut s = av.to_string();
@@ -491,18 +697,28 @@ impl VM {
                             list.extend_from_slice(bv);
                             Value::Array(Arc::new(list))
                         }
-                        _ => return Err(format!("Invalid operand types for CONCAT: {:?} ++ {:?}", a, b)),
+                        _ => {
+                            return Err(format!(
+                                "Invalid operand types for CONCAT: {:?} ++ {:?}",
+                                a, b
+                            ))
+                        }
                     };
                     stack.push(res);
                     ip += 1;
                 }
 
                 OP_PUSH_ARRAY => {
-                    let count = inst.args.get(0)
+                    let count = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing element count argument for PUSH_ARRAY")?
                         .as_integer()?;
                     if count < 0 {
-                        return Err(format!("Invalid negative element count for PUSH_ARRAY: {}", count));
+                        return Err(format!(
+                            "Invalid negative element count for PUSH_ARRAY: {}",
+                            count
+                        ));
                     }
                     let mut items = Vec::with_capacity(count as usize);
                     for _ in 0..count {
@@ -515,15 +731,22 @@ impl VM {
                 }
 
                 OP_PUSH_RECORD => {
-                    let key_count = inst.args.get(0)
+                    let key_count = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing key count argument for PUSH_RECORD")?
                         .as_integer()?;
                     if key_count < 0 {
-                        return Err(format!("Invalid negative key count for PUSH_RECORD: {}", key_count));
+                        return Err(format!(
+                            "Invalid negative key count for PUSH_RECORD: {}",
+                            key_count
+                        ));
                     }
                     let mut map = std::collections::BTreeMap::new();
                     for i in (0..key_count).rev() {
-                        let key_val = inst.args.get((i + 1) as usize)
+                        let key_val = inst
+                            .args
+                            .get((i + 1) as usize)
                             .ok_or("Missing key string for PUSH_RECORD")?;
                         let key_str = key_val.as_str()?;
                         let val = stack.pop().ok_or("Stack underflow during PUSH_RECORD")?;
@@ -534,16 +757,23 @@ impl VM {
                 }
 
                 OP_CALL => {
-                    let fn_name_val = inst.args.get(0).ok_or("Missing function name for OP_CALL")?;
+                    let fn_name_val = inst
+                        .args
+                        .get(0)
+                        .ok_or("Missing function name for OP_CALL")?;
                     let fn_name = fn_name_val.as_str()?;
-                    let arg_count = inst.args.get(1).ok_or("Missing arg count for OP_CALL")?.as_integer()?;
-                    
+                    let arg_count = inst
+                        .args
+                        .get(1)
+                        .ok_or("Missing arg count for OP_CALL")?
+                        .as_integer()?;
+
                     let mut args = Vec::with_capacity(arg_count as usize);
                     for _ in 0..arg_count {
                         args.push(stack.pop().ok_or("Stack underflow during OP_CALL")?);
                     }
                     args.reverse();
-                    
+
                     // Closure captures (LAB-VM-HOF-CLOSURE-CONVERSION-P1): if any arg is
                     // a lambda carrying a `captures` list, resolve those enclosing compute
                     // registers and expose them to the lambda body via `inputs` (which
@@ -566,7 +796,9 @@ impl VM {
                         inputs
                     } else {
                         let mut m = inputs.clone();
-                        for (k, v) in captured { m.insert(k, v); }
+                        for (k, v) in captured {
+                            m.insert(k, v);
+                        }
                         aug_inputs = m;
                         &aug_inputs
                     };
@@ -576,25 +808,25 @@ impl VM {
                     // bare names. (Same alignment the text.* ops already received.)
                     let fn_name = match fn_name {
                         "stdlib.collection.filter" => "filter",
-                        "stdlib.collection.map"    => "map",
-                        "stdlib.collection.fold"   => "fold",
+                        "stdlib.collection.map" => "map",
+                        "stdlib.collection.fold" => "fold",
                         "stdlib.collection.reduce" => "reduce",
-                        "stdlib.collection.count"  => "count",
-                        "stdlib.collection.range"  => "range",
-                        "stdlib.collection.first"  => "first",
-                        "stdlib.collection.last"   => "last",
-                        "stdlib.collection.sum"    => "sum",
-                        "stdlib.collection.take"   => "take",
-                        "stdlib.collection.zip"    => "zip",
-                        "stdlib.collection.any"    => "any",
-                        "stdlib.collection.all"    => "all",
-                        "stdlib.collection.find"   => "find",
+                        "stdlib.collection.count" => "count",
+                        "stdlib.collection.range" => "range",
+                        "stdlib.collection.first" => "first",
+                        "stdlib.collection.last" => "last",
+                        "stdlib.collection.sum" => "sum",
+                        "stdlib.collection.take" => "take",
+                        "stdlib.collection.zip" => "zip",
+                        "stdlib.collection.any" => "any",
+                        "stdlib.collection.all" => "all",
+                        "stdlib.collection.find" => "find",
                         "stdlib.collection.filter_map" => "filter_map",
                         // concat -> lenient bare handler (Array+Array merge, else string
                         // concat); the front-end sometimes types a string concat as
                         // collection.concat.
                         "stdlib.collection.concat" => "concat",
-                        "stdlib.string.concat"     => "concat",
+                        "stdlib.string.concat" => "concat",
                         other => other,
                     };
 
@@ -610,25 +842,37 @@ impl VM {
                         }
                         "stdlib.IO.read_text" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.IO.read_text expects 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.IO.read_text expects 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let path_str = args[0].as_str()?;
                             let cap_name = args[1].as_str()?;
-                            
+
                             let grant = resolved_grants.get(cap_name)
                                 .ok_or_else(|| format!("AmbientAccessViolation: Stack frame does not possess capability grant '{}'", cap_name))?;
-                                
+
                             if !grant.read_allowed {
-                                return Err(format!("CapabilityError: Local grant '{}' does not allow read", cap_name));
+                                return Err(format!(
+                                    "CapabilityError: Local grant '{}' does not allow read",
+                                    cap_name
+                                ));
                             }
-                            
-                            let cap_json = serde_json::to_string(grant).map_err(|e| e.to_string())?;
-                            
-                            let c_path = std::ffi::CString::new(path_str).map_err(|e| e.to_string())?;
-                            let c_cap_json = std::ffi::CString::new(cap_json).map_err(|e| e.to_string())?;
-                            
+
+                            let cap_json =
+                                serde_json::to_string(grant).map_err(|e| e.to_string())?;
+
+                            let c_path =
+                                std::ffi::CString::new(path_str).map_err(|e| e.to_string())?;
+                            let c_cap_json =
+                                std::ffi::CString::new(cap_json).map_err(|e| e.to_string())?;
+
                             let res_ptr = unsafe {
-                                igniter_stdlib::io::stdlib_io_read_text(c_path.as_ptr(), c_cap_json.as_ptr())
+                                igniter_stdlib::io::stdlib_io_read_text(
+                                    c_path.as_ptr(),
+                                    c_cap_json.as_ptr(),
+                                )
                             };
                             if res_ptr.is_null() {
                                 return Err("C ABI function returned null".to_string());
@@ -638,54 +882,83 @@ impl VM {
                             unsafe {
                                 igniter_stdlib::io::stdlib_io_free_string(res_ptr);
                             }
-                            
+
                             let res_val: serde_json::Value = serde_json::from_str(&res_str)
                                 .map_err(|e| format!("Failed to parse stdlib response: {}", e))?;
-                                
+
                             if let Some(err) = res_val.get("err") {
                                 return Err(format!("FFI Read error: {:?}", err));
                             }
-                            
+
                             // Capture observation
-                            let mut metadata = res_val.get("metadata")
+                            let mut metadata = res_val
+                                .get("metadata")
                                 .and_then(|v| v.as_object())
                                 .cloned()
                                 .unwrap_or_default();
-                            metadata.insert("delegation_chain".to_string(), serde_json::json!(grant.capability_id));
-                            let obs_id = format!("obs/io-read/{}", uuid::Uuid::new_v4().to_string().replace("-", "")[0..16].to_string());
-                            metadata.insert("observation_id".to_string(), serde_json::json!(obs_id));
-                            metadata.insert("kind".to_string(), serde_json::json!("io_read_observation"));
-                            
+                            metadata.insert(
+                                "delegation_chain".to_string(),
+                                serde_json::json!(grant.capability_id),
+                            );
+                            let obs_id = format!(
+                                "obs/io-read/{}",
+                                uuid::Uuid::new_v4().to_string().replace("-", "")[0..16]
+                                    .to_string()
+                            );
+                            metadata
+                                .insert("observation_id".to_string(), serde_json::json!(obs_id));
+                            metadata.insert(
+                                "kind".to_string(),
+                                serde_json::json!("io_read_observation"),
+                            );
+
                             let mut sink = self.observation_sink.lock().await;
                             sink.push(serde_json::Value::Object(metadata));
-                            
-                            let ok_str = res_val.get("ok").and_then(|v| v.as_str()).ok_or("Invalid FFI response")?;
+
+                            let ok_str = res_val
+                                .get("ok")
+                                .and_then(|v| v.as_str())
+                                .ok_or("Invalid FFI response")?;
                             Value::String(Arc::from(ok_str))
                         }
 
                         "stdlib.IO.write_text" => {
                             if args.len() != 3 {
-                                return Err(format!("stdlib.IO.write_text expects 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.IO.write_text expects 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let path_str = args[0].as_str()?;
                             let content_str = args[1].as_str()?;
                             let cap_name = args[2].as_str()?;
-                            
+
                             let grant = resolved_grants.get(cap_name)
                                 .ok_or_else(|| format!("AmbientAccessViolation: Stack frame does not possess capability grant '{}'", cap_name))?;
-                                
+
                             if !grant.write_allowed {
-                                return Err(format!("CapabilityError: Local grant '{}' does not allow write", cap_name));
+                                return Err(format!(
+                                    "CapabilityError: Local grant '{}' does not allow write",
+                                    cap_name
+                                ));
                             }
-                            
-                            let cap_json = serde_json::to_string(grant).map_err(|e| e.to_string())?;
-                            
-                            let c_path = std::ffi::CString::new(path_str).map_err(|e| e.to_string())?;
-                            let c_content = std::ffi::CString::new(content_str).map_err(|e| e.to_string())?;
-                            let c_cap_json = std::ffi::CString::new(cap_json).map_err(|e| e.to_string())?;
-                            
+
+                            let cap_json =
+                                serde_json::to_string(grant).map_err(|e| e.to_string())?;
+
+                            let c_path =
+                                std::ffi::CString::new(path_str).map_err(|e| e.to_string())?;
+                            let c_content =
+                                std::ffi::CString::new(content_str).map_err(|e| e.to_string())?;
+                            let c_cap_json =
+                                std::ffi::CString::new(cap_json).map_err(|e| e.to_string())?;
+
                             let res_ptr = unsafe {
-                                igniter_stdlib::io::stdlib_io_write_text(c_path.as_ptr(), c_content.as_ptr(), c_cap_json.as_ptr())
+                                igniter_stdlib::io::stdlib_io_write_text(
+                                    c_path.as_ptr(),
+                                    c_content.as_ptr(),
+                                    c_cap_json.as_ptr(),
+                                )
                             };
                             if res_ptr.is_null() {
                                 return Err("C ABI function returned null".to_string());
@@ -695,33 +968,45 @@ impl VM {
                             unsafe {
                                 igniter_stdlib::io::stdlib_io_free_string(res_ptr);
                             }
-                            
+
                             let res_val: serde_json::Value = serde_json::from_str(&res_str)
                                 .map_err(|e| format!("Failed to parse stdlib response: {}", e))?;
-                                
+
                             if let Some(err) = res_val.get("err") {
                                 return Err(format!("FFI Write error: {:?}", err));
                             }
-                            
+
                             // Capture receipt
-                            let mut ok_obj = res_val.get("ok")
+                            let mut ok_obj = res_val
+                                .get("ok")
                                 .and_then(|v| v.as_object())
                                 .cloned()
                                 .unwrap_or_default();
-                            ok_obj.insert("delegation_chain".to_string(), serde_json::json!(grant.capability_id));
-                            let receipt_id = format!("rcpt/io-write/{}", uuid::Uuid::new_v4().to_string().replace("-", "")[0..16].to_string());
+                            ok_obj.insert(
+                                "delegation_chain".to_string(),
+                                serde_json::json!(grant.capability_id),
+                            );
+                            let receipt_id = format!(
+                                "rcpt/io-write/{}",
+                                uuid::Uuid::new_v4().to_string().replace("-", "")[0..16]
+                                    .to_string()
+                            );
                             ok_obj.insert("receipt_id".to_string(), serde_json::json!(receipt_id));
-                            ok_obj.insert("kind".to_string(), serde_json::json!("io_write_receipt"));
-                            
+                            ok_obj
+                                .insert("kind".to_string(), serde_json::json!("io_write_receipt"));
+
                             let mut sink = self.observation_sink.lock().await;
                             sink.push(serde_json::Value::Object(ok_obj.clone()));
-                            
+
                             Value::from_json(&serde_json::Value::Object(ok_obj))
                         }
 
                         "count" => {
                             if args.len() != 1 {
-                                return Err(format!("count expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "count expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             match &args[0] {
                                 Value::Array(a) => Value::Integer(a.len() as i64),
@@ -742,9 +1027,12 @@ impl VM {
                             }
                             let value = match &args[0] {
                                 Value::Integer(v) => *v,
-                                other => return Err(format!(
-                                    "stdlib.decimal.decimal: value must be Integer, got {:?}", other
-                                )),
+                                other => {
+                                    return Err(format!(
+                                        "stdlib.decimal.decimal: value must be Integer, got {:?}",
+                                        other
+                                    ))
+                                }
                             };
                             let scale = match &args[1] {
                                 Value::Integer(s) if *s >= 0 => *s as u32,
@@ -756,14 +1044,20 @@ impl VM {
                         }
                         "length" => {
                             if args.len() != 1 {
-                                return Err(format!("length expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "length expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             Value::Integer(s.len() as i64)
                         }
                         "concat" => {
                             if args.len() != 2 {
-                                return Err(format!("concat expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "concat expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             match (&args[0], &args[1]) {
                                 (Value::Array(a), Value::Array(b)) => {
@@ -780,28 +1074,41 @@ impl VM {
                         }
                         "trim" => {
                             if args.len() != 1 {
-                                return Err(format!("trim expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "trim expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             Value::String(Arc::from(s.trim()))
                         }
                         "split" => {
                             if args.len() != 2 {
-                                return Err(format!("split expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "split expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let sep = args[1].as_str()?;
                             // LAB-STR-UNICODE-P3: align bare handler with stdlib.text.split policy
                             // empty delimiter is an operational error (v0 policy); no bypass via legacy name
                             if sep.is_empty() {
-                                return Err("split: empty delimiter is an operational error (v0 policy)".to_string());
+                                return Err(
+                                    "split: empty delimiter is an operational error (v0 policy)"
+                                        .to_string(),
+                                );
                             }
-                            let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
+                            let parts: Vec<Value> =
+                                s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
                             Value::Array(Arc::new(parts))
                         }
                         "contains" => {
                             if args.len() != 2 {
-                                return Err(format!("contains expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "contains expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let sub = args[1].as_str()?;
@@ -809,7 +1116,10 @@ impl VM {
                         }
                         "starts_with" => {
                             if args.len() != 2 {
-                                return Err(format!("starts_with expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "starts_with expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let prefix = args[1].as_str()?;
@@ -819,7 +1129,10 @@ impl VM {
                         // LAB-RACK-P5: align VM OP_CALL dispatch with compiler stdlib.text.* naming
                         "stdlib.text.starts_with" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.text.starts_with expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.starts_with expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let prefix = args[1].as_str()?;
@@ -827,7 +1140,10 @@ impl VM {
                         }
                         "stdlib.text.split" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.text.split expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.split expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let sep = args[1].as_str()?;
@@ -835,12 +1151,16 @@ impl VM {
                             if sep.is_empty() {
                                 return Err("stdlib.text.split: empty delimiter is an operational error (v0 policy)".to_string());
                             }
-                            let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
+                            let parts: Vec<Value> =
+                                s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
                             Value::Array(Arc::new(parts))
                         }
                         "stdlib.text.byte_length" => {
                             if args.len() != 1 {
-                                return Err(format!("stdlib.text.byte_length expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.byte_length expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             Value::Integer(s.len() as i64)
@@ -850,7 +1170,10 @@ impl VM {
                         // Policy: Text = valid UTF-8; rune = Unicode scalar; grapheme = UAX #29
                         "stdlib.text.rune_length" => {
                             if args.len() != 1 {
-                                return Err(format!("stdlib.text.rune_length expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.rune_length expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             Value::Integer(s.chars().count() as i64)
@@ -864,14 +1187,17 @@ impl VM {
                         }
                         "stdlib.text.byte_slice" => {
                             if args.len() != 3 {
-                                return Err(format!("stdlib.text.byte_slice expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.byte_slice expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let raw_start = args[1].as_integer()?;
-                            let raw_end   = args[2].as_integer()?;
-                            let byte_len  = s.len() as i64;
+                            let raw_end = args[2].as_integer()?;
+                            let byte_len = s.len() as i64;
                             let start = raw_start.max(0).min(byte_len) as usize;
-                            let end   = raw_end.max(0).min(byte_len) as usize;
+                            let end = raw_end.max(0).min(byte_len) as usize;
                             if start >= end {
                                 Value::String(Arc::from(""))
                             } else {
@@ -881,18 +1207,22 @@ impl VM {
                         }
                         "stdlib.text.rune_slice" => {
                             if args.len() != 3 {
-                                return Err(format!("stdlib.text.rune_slice expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.rune_slice expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let raw_start = args[1].as_integer()?;
-                            let raw_end   = args[2].as_integer()?;
+                            let raw_end = args[2].as_integer()?;
                             let rune_count = s.chars().count() as i64;
                             let start = raw_start.max(0).min(rune_count) as usize;
-                            let end   = raw_end.max(0).min(rune_count) as usize;
+                            let end = raw_end.max(0).min(rune_count) as usize;
                             if start >= end {
                                 Value::String(Arc::from(""))
                             } else {
-                                let result: String = s.chars().skip(start).take(end - start).collect();
+                                let result: String =
+                                    s.chars().skip(start).take(end - start).collect();
                                 Value::String(Arc::from(result.as_str()))
                             }
                         }
@@ -902,11 +1232,11 @@ impl VM {
                             }
                             let s = args[0].as_str()?;
                             let raw_start = args[1].as_integer()?;
-                            let raw_end   = args[2].as_integer()?;
+                            let raw_end = args[2].as_integer()?;
                             let graphemes: Vec<&str> = s.graphemes(true).collect();
                             let g_count = graphemes.len() as i64;
                             let start = raw_start.max(0).min(g_count) as usize;
-                            let end   = raw_end.max(0).min(g_count) as usize;
+                            let end = raw_end.max(0).min(g_count) as usize;
                             if start >= end {
                                 Value::String(Arc::from(""))
                             } else {
@@ -915,9 +1245,12 @@ impl VM {
                         }
                         "stdlib.text.ends_with" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.text.ends_with expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.ends_with expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let s      = args[0].as_str()?;
+                            let s = args[0].as_str()?;
                             let suffix = args[1].as_str()?;
                             Value::Bool(s.ends_with(suffix))
                         }
@@ -926,42 +1259,56 @@ impl VM {
                         // (None == Value::Nil for no-match / out-of-range / unmatched optional group).
                         "matches" | "stdlib.regexp.matches" => {
                             if args.len() != 2 {
-                                return Err(format!("matches expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "matches expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let text    = args[0].as_str()?;
+                            let text = args[0].as_str()?;
                             let pattern = args[1].as_str()?;
                             match regex::Regex::new(pattern) {
                                 Ok(re) => Value::Bool(re.is_match(text)),
-                                Err(e) => return Err(format!("regexp.matches: invalid pattern: {}", e)),
+                                Err(e) => {
+                                    return Err(format!("regexp.matches: invalid pattern: {}", e))
+                                }
                             }
                         }
                         "capture" | "stdlib.regexp.capture" => {
                             if args.len() != 3 {
-                                return Err(format!("capture expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "capture expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let text    = args[0].as_str()?;
+                            let text = args[0].as_str()?;
                             let pattern = args[1].as_str()?;
-                            let index   = args[2].as_integer()?;
+                            let index = args[2].as_integer()?;
                             match regex::Regex::new(pattern) {
                                 Ok(re) => {
                                     if index < 0 {
                                         Value::Nil
                                     } else {
-                                        match re.captures(text).and_then(|c| c.get(index as usize)) {
+                                        match re.captures(text).and_then(|c| c.get(index as usize))
+                                        {
                                             Some(m) => Value::String(Arc::from(m.as_str())),
                                             None => Value::Nil,
                                         }
                                     }
                                 }
-                                Err(e) => return Err(format!("regexp.capture: invalid pattern: {}", e)),
+                                Err(e) => {
+                                    return Err(format!("regexp.capture: invalid pattern: {}", e))
+                                }
                             }
                         }
                         "stdlib.text.replace" => {
                             if args.len() != 3 {
-                                return Err(format!("stdlib.text.replace expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.replace expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let s           = args[0].as_str()?;
-                            let pattern     = args[1].as_str()?;
+                            let s = args[0].as_str()?;
+                            let pattern = args[1].as_str()?;
                             let replacement = args[2].as_str()?;
                             if pattern.is_empty() {
                                 return Err("stdlib.text.replace: empty pattern is an operational error (v0 policy)".to_string());
@@ -970,10 +1317,13 @@ impl VM {
                         }
                         "stdlib.text.replace_all" => {
                             if args.len() != 3 {
-                                return Err(format!("stdlib.text.replace_all expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.replace_all expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let s           = args[0].as_str()?;
-                            let pattern     = args[1].as_str()?;
+                            let s = args[0].as_str()?;
+                            let pattern = args[1].as_str()?;
                             let replacement = args[2].as_str()?;
                             if pattern.is_empty() {
                                 return Err("stdlib.text.replace_all: empty pattern is an operational error (v0 policy)".to_string());
@@ -984,7 +1334,10 @@ impl VM {
                         // Compiler emits stdlib.text.* names; these aliases bridge legacy bare-name handlers.
                         "stdlib.text.concat" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.text.concat expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.concat expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let a = args[0].as_str()?;
                             let b = args[1].as_str()?;
@@ -992,22 +1345,31 @@ impl VM {
                         }
                         "stdlib.text.trim" => {
                             if args.len() != 1 {
-                                return Err(format!("stdlib.text.trim expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.trim expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             Value::String(Arc::from(s.trim()))
                         }
                         "stdlib.text.contains" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.text.contains expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.text.contains expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
-                            let s   = args[0].as_str()?;
+                            let s = args[0].as_str()?;
                             let sub = args[1].as_str()?;
                             Value::Bool(s.contains(sub))
                         }
                         "stdlib.collection.concat" => {
                             if args.len() != 2 {
-                                return Err(format!("stdlib.collection.concat expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "stdlib.collection.concat expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             match (&args[0], &args[1]) {
                                 (Value::Array(a), Value::Array(b)) => {
@@ -1015,13 +1377,19 @@ impl VM {
                                     merged.extend(b.iter().cloned());
                                     Value::Array(Arc::new(merged))
                                 }
-                                _ => return Err("stdlib.collection.concat: both arguments must be collections".to_string()),
+                                _ => return Err(
+                                    "stdlib.collection.concat: both arguments must be collections"
+                                        .to_string(),
+                                ),
                             }
                         }
                         // ── end LAB-STR-UNICODE-P2 ──────────────────────────────────────────
                         "diff_seconds" => {
                             if args.len() != 2 {
-                                return Err(format!("diff_seconds expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "diff_seconds expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let dt1_str = args[0].as_str()?;
                             let dt2_str = args[1].as_str()?;
@@ -1031,7 +1399,10 @@ impl VM {
                         }
                         "add_seconds" => {
                             if args.len() != 2 {
-                                return Err(format!("add_seconds expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "add_seconds expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let dt_str = args[0].as_str()?;
                             let seconds = args[1].as_integer()?;
@@ -1041,20 +1412,29 @@ impl VM {
                         }
                         "parse_datetime" => {
                             if args.len() != 2 {
-                                return Err(format!("parse_datetime expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "parse_datetime expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let s = args[0].as_str()?;
                             let fmt = args[1].as_str()?;
                             if let Ok(dt) = chrono::DateTime::parse_from_str(s, fmt) {
                                 let utc_dt = dt.with_timezone(&chrono::Utc);
-                                Value::String(Arc::from(utc_dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+                                Value::String(Arc::from(
+                                    utc_dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                                ))
                             } else if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
                                 let dt = ndt.and_utc();
-                                Value::String(Arc::from(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+                                Value::String(Arc::from(
+                                    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                                ))
                             } else if let Ok(nd) = chrono::NaiveDate::parse_from_str(s, fmt) {
                                 if let Some(ndt) = nd.and_hms_opt(0, 0, 0) {
                                     let dt = ndt.and_utc();
-                                    Value::String(Arc::from(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()))
+                                    Value::String(Arc::from(
+                                        dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                                    ))
                                 } else {
                                     Value::Nil
                                 }
@@ -1064,7 +1444,10 @@ impl VM {
                         }
                         "format_datetime" => {
                             if args.len() != 2 {
-                                return Err(format!("format_datetime expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "format_datetime expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let dt_str = args[0].as_str()?;
                             let fmt = args[1].as_str()?;
@@ -1073,7 +1456,10 @@ impl VM {
                         }
                         "is_before" => {
                             if args.len() != 2 {
-                                return Err(format!("is_before expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "is_before expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let dt1_str = args[0].as_str()?;
                             let dt2_str = args[1].as_str()?;
@@ -1083,7 +1469,10 @@ impl VM {
                         }
                         "is_after" => {
                             if args.len() != 2 {
-                                return Err(format!("is_after expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "is_after expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let dt1_str = args[0].as_str()?;
                             let dt2_str = args[1].as_str()?;
@@ -1093,7 +1482,10 @@ impl VM {
                         }
                         "first" => {
                             if args.len() != 1 {
-                                return Err(format!("first expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "first expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             match &args[0] {
                                 Value::Array(a) => a.first().cloned().unwrap_or(Value::Nil),
@@ -1103,7 +1495,10 @@ impl VM {
                         }
                         "last" => {
                             if args.len() != 1 {
-                                return Err(format!("last expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "last expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             match &args[0] {
                                 Value::Array(a) => a.last().cloned().unwrap_or(Value::Nil),
@@ -1128,8 +1523,13 @@ impl VM {
                             let mut has_decimal = false;
                             for item in array.iter() {
                                 match item {
-                                    Value::Integer(i) => { sum_integer += *i; }
-                                    Value::Float(f) => { sum_float += *f; has_float = true; }
+                                    Value::Integer(i) => {
+                                        sum_integer += *i;
+                                    }
+                                    Value::Float(f) => {
+                                        sum_float += *f;
+                                        has_float = true;
+                                    }
                                     Value::Decimal { value: v, scale: s } => {
                                         if !has_decimal {
                                             sum_decimal = Decimal::new(0, *s);
@@ -1139,11 +1539,19 @@ impl VM {
                                         sum_decimal = sum_decimal.add(&d)?;
                                     }
                                     Value::Nil => {}
-                                    _ => return Err(format!("Unsupported type for scalar sum: {:?}", item)),
+                                    _ => {
+                                        return Err(format!(
+                                            "Unsupported type for scalar sum: {:?}",
+                                            item
+                                        ))
+                                    }
                                 }
                             }
                             if has_decimal {
-                                Value::Decimal { value: sum_decimal.value, scale: sum_decimal.scale }
+                                Value::Decimal {
+                                    value: sum_decimal.value,
+                                    scale: sum_decimal.scale,
+                                }
                             } else if has_float {
                                 Value::Float(sum_float + sum_integer as f64)
                             } else {
@@ -1152,7 +1560,10 @@ impl VM {
                         }
                         "sum" => {
                             if args.len() != 2 {
-                                return Err(format!("sum expects 1 or 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "sum expects 1 or 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1167,8 +1578,12 @@ impl VM {
 
                             for item in array.iter() {
                                 let val = match item {
-                                    Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
-                                    _ => return Err("sum expects record items in array".to_string()),
+                                    Value::Record(map) => {
+                                        map.get(field).cloned().unwrap_or(Value::Nil)
+                                    }
+                                    _ => {
+                                        return Err("sum expects record items in array".to_string())
+                                    }
                                 };
                                 match val {
                                     Value::Integer(i) => {
@@ -1184,18 +1599,26 @@ impl VM {
                                         sum_decimal = sum_decimal.add(&d)?;
                                     }
                                     Value::Nil => {}
-                                    _ => return Err(format!("Unsupported type for sum: {:?}", val)),
+                                    _ => {
+                                        return Err(format!("Unsupported type for sum: {:?}", val))
+                                    }
                                 }
                             }
                             if has_decimal {
-                                Value::Decimal { value: sum_decimal.value, scale: sum_decimal.scale }
+                                Value::Decimal {
+                                    value: sum_decimal.value,
+                                    scale: sum_decimal.scale,
+                                }
                             } else {
                                 Value::Integer(sum_integer)
                             }
                         }
                         "take" => {
                             if args.len() != 2 {
-                                return Err(format!("take expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "take expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1211,7 +1634,10 @@ impl VM {
                         }
                         "avg" => {
                             if args.len() != 2 {
-                                return Err(format!("avg expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "avg expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1229,8 +1655,14 @@ impl VM {
 
                                 for item in array.iter() {
                                     let val = match item {
-                                        Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
-                                        _ => return Err("avg expects record items in array".to_string()),
+                                        Value::Record(map) => {
+                                            map.get(field).cloned().unwrap_or(Value::Nil)
+                                        }
+                                        _ => {
+                                            return Err(
+                                                "avg expects record items in array".to_string()
+                                            )
+                                        }
                                     };
                                     match val {
                                         Value::Integer(i) => {
@@ -1248,14 +1680,22 @@ impl VM {
                                             count += 1;
                                         }
                                         Value::Nil => {}
-                                        _ => return Err(format!("Unsupported type for avg: {:?}", val)),
+                                        _ => {
+                                            return Err(format!(
+                                                "Unsupported type for avg: {:?}",
+                                                val
+                                            ))
+                                        }
                                     }
                                 }
 
                                 if count == 0 {
                                     Value::Nil
                                 } else if has_decimal {
-                                    Value::Decimal { value: sum_decimal.value / count, scale: sum_decimal.scale }
+                                    Value::Decimal {
+                                        value: sum_decimal.value / count,
+                                        scale: sum_decimal.scale,
+                                    }
                                 } else {
                                     Value::Integer(sum_integer / count)
                                 }
@@ -1263,11 +1703,18 @@ impl VM {
                         }
                         "min" | "max" => {
                             if args.len() != 2 {
-                                return Err(format!("min/max expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "min/max expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
-                                _ => return Err("min/max first argument must be an array".to_string()),
+                                _ => {
+                                    return Err(
+                                        "min/max first argument must be an array".to_string()
+                                    )
+                                }
                             };
                             if array.is_empty() {
                                 Value::Nil
@@ -1277,25 +1724,57 @@ impl VM {
 
                                 for item in array.iter() {
                                     let val = match item {
-                                        Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
+                                        Value::Record(map) => {
+                                            map.get(field).cloned().unwrap_or(Value::Nil)
+                                        }
                                         _ => return Err("min/max expects record items".to_string()),
                                     };
-                                    if val == Value::Nil { continue; }
+                                    if val == Value::Nil {
+                                        continue;
+                                    }
                                     match &extremum {
-                                        None => { extremum = Some(val); }
+                                        None => {
+                                            extremum = Some(val);
+                                        }
                                         Some(current) => {
                                             let is_better = match (fn_name, &val, current) {
-                                                ("min", Value::Integer(x), Value::Integer(y)) => x < y,
-                                                ("max", Value::Integer(x), Value::Integer(y)) => x > y,
-                                                ("min", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                    ((*av as f64) / 10f64.powi(*as_ as i32)) < ((*bv as f64) / 10f64.powi(*bs as i32))
+                                                ("min", Value::Integer(x), Value::Integer(y)) => {
+                                                    x < y
                                                 }
-                                                ("max", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                    ((*av as f64) / 10f64.powi(*as_ as i32)) > ((*bv as f64) / 10f64.powi(*bs as i32))
+                                                ("max", Value::Integer(x), Value::Integer(y)) => {
+                                                    x > y
+                                                }
+                                                (
+                                                    "min",
+                                                    Value::Decimal {
+                                                        value: av,
+                                                        scale: as_,
+                                                    },
+                                                    Value::Decimal {
+                                                        value: bv,
+                                                        scale: bs,
+                                                    },
+                                                ) => {
+                                                    ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                        < ((*bv as f64) / 10f64.powi(*bs as i32))
+                                                }
+                                                (
+                                                    "max",
+                                                    Value::Decimal {
+                                                        value: av,
+                                                        scale: as_,
+                                                    },
+                                                    Value::Decimal {
+                                                        value: bv,
+                                                        scale: bs,
+                                                    },
+                                                ) => {
+                                                    ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                        > ((*bv as f64) / 10f64.powi(*bs as i32))
                                                 }
                                                 ("min", Value::Float(x), Value::Float(y)) => x < y,
                                                 ("max", Value::Float(x), Value::Float(y)) => x > y,
-                                                _ => false
+                                                _ => false,
                                             };
                                             if is_better {
                                                 extremum = Some(val);
@@ -1308,7 +1787,10 @@ impl VM {
                         }
                         "zip" => {
                             if args.len() != 2 {
-                                return Err(format!("zip expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "zip expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array_a = match &args[0] {
                                 Value::Array(a) => a,
@@ -1330,7 +1812,10 @@ impl VM {
                         }
                         "range" => {
                             if args.len() != 2 {
-                                return Err(format!("range expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "range expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let start = args[0].as_integer()?;
                             let end = args[1].as_integer()?;
@@ -1342,19 +1827,28 @@ impl VM {
                         }
                         "stdlib.option.wrap" | "some" => {
                             if args.len() != 1 {
-                                return Err(format!("some expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "some expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             args[0].clone()
                         }
                         "none" => {
                             if args.len() != 0 {
-                                return Err(format!("none expects exactly 0 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "none expects exactly 0 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             Value::Nil
                         }
                         "ok" => {
                             if args.len() != 1 {
-                                return Err(format!("ok expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "ok expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let mut map = std::collections::BTreeMap::new();
                             map.insert("ok".to_string(), args[0].clone());
@@ -1362,7 +1856,10 @@ impl VM {
                         }
                         "err" => {
                             if args.len() != 1 {
-                                return Err(format!("err expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "err expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let mut map = std::collections::BTreeMap::new();
                             map.insert("err".to_string(), args[0].clone());
@@ -1370,19 +1867,28 @@ impl VM {
                         }
                         "is_some" | "some?" => {
                             if args.len() != 1 {
-                                return Err(format!("is_some expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "is_some expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             Value::Bool(args[0] != Value::Nil)
                         }
                         "is_none" | "none?" => {
                             if args.len() != 1 {
-                                return Err(format!("is_none expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "is_none expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             Value::Bool(args[0] == Value::Nil)
                         }
                         "is_ok" | "ok?" => {
                             if args.len() != 1 {
-                                return Err(format!("is_ok expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "is_ok expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let is_ok = match &args[0] {
                                 Value::Record(map) => map.contains_key("ok"),
@@ -1392,7 +1898,10 @@ impl VM {
                         }
                         "is_err" | "err?" => {
                             if args.len() != 1 {
-                                return Err(format!("is_err expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "is_err expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             let is_err = match &args[0] {
                                 Value::Record(map) => map.contains_key("err"),
@@ -1402,7 +1911,10 @@ impl VM {
                         }
                         "unwrap" => {
                             if args.len() != 1 {
-                                return Err(format!("unwrap expects exactly 1 argument, got {}", args.len()));
+                                return Err(format!(
+                                    "unwrap expects exactly 1 argument, got {}",
+                                    args.len()
+                                ));
                             }
                             match &args[0] {
                                 Value::Record(map) => {
@@ -1412,12 +1924,21 @@ impl VM {
                                         return Err(format!("Unwrapped Err: {:?}", args[0]));
                                     }
                                 }
-                                _ => return Err(format!("unwrap expects a Result, got {:?}", args[0])),
+                                _ => {
+                                    return Err(format!(
+                                        "unwrap expects a Result, got {:?}",
+                                        args[0]
+                                    ))
+                                }
                             }
                         }
                         "or_else" | "unwrap_or" => {
                             if args.len() != 2 {
-                                return Err(format!("{} expects exactly 2 arguments, got {}", fn_name, args.len()));
+                                return Err(format!(
+                                    "{} expects exactly 2 arguments, got {}",
+                                    fn_name,
+                                    args.len()
+                                ));
                             }
                             let val = &args[0];
                             let fallback = &args[1];
@@ -1437,72 +1958,116 @@ impl VM {
                         }
                         "stdlib.numeric.add" | "add" => {
                             if args.len() != 2 {
-                                return Err(format!("add expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "add expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             match (&args[0], &args[1]) {
-                                (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
                                     let da = Decimal::new(*av, *as_);
                                     let db = Decimal::new(*bv, *bs);
                                     let res_dec = da.add(&db)?;
-                                    Value::Decimal { value: res_dec.value, scale: res_dec.scale }
+                                    Value::Decimal {
+                                        value: res_dec.value,
+                                        scale: res_dec.scale,
+                                    }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
                                 (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
-                                _ => return Err(format!("Invalid operand types for add: {:?} + {:?}", args[0], args[1])),
+                                _ => {
+                                    return Err(format!(
+                                        "Invalid operand types for add: {:?} + {:?}",
+                                        args[0], args[1]
+                                    ))
+                                }
                             }
                         }
-                        "stdlib.integer.lt" | "stdlib.integer.gt" | "stdlib.integer.lte" | "stdlib.integer.gte" => {
+                        "stdlib.integer.lt" | "stdlib.integer.gt" | "stdlib.integer.lte"
+                        | "stdlib.integer.gte" => {
                             if args.len() != 2 {
-                                return Err(format!("{} expects exactly 2 arguments, got {}", fn_name, args.len()));
+                                return Err(format!(
+                                    "{} expects exactly 2 arguments, got {}",
+                                    fn_name,
+                                    args.len()
+                                ));
                             }
                             let a = args[0].as_integer()?;
                             let b = args[1].as_integer()?;
                             let r = match fn_name {
-                                "stdlib.integer.lt"  => a < b,
-                                "stdlib.integer.gt"  => a > b,
+                                "stdlib.integer.lt" => a < b,
+                                "stdlib.integer.gt" => a > b,
                                 "stdlib.integer.lte" => a <= b,
-                                _                    => a >= b,
+                                _ => a >= b,
                             };
                             Value::Bool(r)
                         }
                         "stdlib.collection.append" | "append" => {
                             if args.len() != 2 {
-                                return Err(format!("append expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "append expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let mut list = match &args[0] {
                                 Value::Array(a) => (**a).clone(),
                                 Value::Nil => Vec::new(),
-                                _ => return Err("append first argument must be an array".to_string()),
+                                _ => {
+                                    return Err("append first argument must be an array".to_string())
+                                }
                             };
                             list.push(args[1].clone());
                             Value::Array(Arc::new(list))
                         }
                         "filter" => {
                             if args.len() != 2 {
-                                return Err(format!("filter expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "filter expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
-                                _ => return Err("filter first argument must be an array".to_string()),
+                                _ => {
+                                    return Err("filter first argument must be an array".to_string())
+                                }
                             };
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in filter: {}", e))?;
-                            
-                            let params = lambda_ast.get("params")
+
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in lambda")?;
-                            let param_name = params.first()
+                            let param_name = params
+                                .first()
                                 .and_then(|p| p.as_str())
                                 .ok_or("Lambda must have at least one parameter")?;
-                            let body = lambda_ast.get("body")
-                                .ok_or("Missing body in lambda")?;
-                            
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                             let mut filtered = Vec::new();
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let cond_val = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 if cond_val.as_bool()? {
                                     filtered.push(item.clone());
                                 }
@@ -1511,7 +2076,10 @@ impl VM {
                         }
                         "find" => {
                             if args.len() != 2 {
-                                return Err(format!("find expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "find expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1521,19 +2089,28 @@ impl VM {
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in find: {}", e))?;
-                            let params = lambda_ast.get("params")
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in lambda")?;
-                            let param_name = params.first()
+                            let param_name = params
+                                .first()
                                 .and_then(|p| p.as_str())
                                 .ok_or("Lambda must have at least one parameter")?;
-                            let body = lambda_ast.get("body")
-                                .ok_or("Missing body in lambda")?;
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                             let mut found = Value::Nil;
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let cond_val = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 if cond_val.as_bool()? {
                                     found = item.clone();
                                     break;
@@ -1543,7 +2120,10 @@ impl VM {
                         }
                         "any" => {
                             if args.len() != 2 {
-                                return Err(format!("any expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "any expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1553,19 +2133,28 @@ impl VM {
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in any: {}", e))?;
-                            let params = lambda_ast.get("params")
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in lambda")?;
-                            let param_name = params.first()
+                            let param_name = params
+                                .first()
                                 .and_then(|p| p.as_str())
                                 .ok_or("Lambda must have at least one parameter")?;
-                            let body = lambda_ast.get("body")
-                                .ok_or("Missing body in lambda")?;
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                             let mut result = false;
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let cond_val = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 if cond_val.as_bool()? {
                                     result = true;
                                     break;
@@ -1575,7 +2164,10 @@ impl VM {
                         }
                         "all" => {
                             if args.len() != 2 {
-                                return Err(format!("all expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "all expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1585,19 +2177,28 @@ impl VM {
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in all: {}", e))?;
-                            let params = lambda_ast.get("params")
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in lambda")?;
-                            let param_name = params.first()
+                            let param_name = params
+                                .first()
                                 .and_then(|p| p.as_str())
                                 .ok_or("Lambda must have at least one parameter")?;
-                            let body = lambda_ast.get("body")
-                                .ok_or("Missing body in lambda")?;
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                             let mut result = true;
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let cond_val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let cond_val = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 if !cond_val.as_bool()? {
                                     result = false;
                                     break;
@@ -1607,7 +2208,10 @@ impl VM {
                         }
                         "try_catch" => {
                             if args.len() != 2 {
-                                return Err(format!("try_catch expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "try_catch expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let res = &args[0];
                             match res {
@@ -1617,19 +2221,30 @@ impl VM {
                                 Value::Record(map) if map.contains_key("err") => {
                                     let err_val = map.get("err").cloned().unwrap_or(Value::Nil);
                                     let lambda_str = args[1].as_str()?;
-                                    let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                        .map_err(|e| format!("Invalid lambda JSON in try_catch: {}", e))?;
-                                    let params = lambda_ast.get("params")
+                                    let lambda_ast: serde_json::Value =
+                                        serde_json::from_str(lambda_str).map_err(|e| {
+                                            format!("Invalid lambda JSON in try_catch: {}", e)
+                                        })?;
+                                    let params = lambda_ast
+                                        .get("params")
                                         .and_then(|p| p.as_array())
                                         .ok_or("Missing params in try_catch lambda")?;
-                                    let param_name = params.first()
-                                        .and_then(|p| p.as_str())
-                                        .unwrap_or("e");
-                                    let body = lambda_ast.get("body")
+                                    let param_name =
+                                        params.first().and_then(|p| p.as_str()).unwrap_or("e");
+                                    let body = lambda_ast
+                                        .get("body")
                                         .ok_or("Missing body in try_catch lambda")?;
                                     let mut local_env = HashMap::new();
                                     local_env.insert(param_name.to_string(), err_val);
-                                    eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?
+                                    eval_ast(
+                                        body,
+                                        inputs,
+                                        temporal_context,
+                                        &local_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?
                                 }
                                 _ => res.clone(),
                             }
@@ -1651,24 +2266,35 @@ impl VM {
                         }
                         "validate" => {
                             if args.len() != 3 {
-                                return Err(format!("validate expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "validate expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let val = args[0].clone();
                             let err_val = args[2].clone();
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in validate: {}", e))?;
-                            let params = lambda_ast.get("params")
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in validate lambda")?;
-                            let param_name = params.first()
-                                .and_then(|p| p.as_str())
-                                .unwrap_or("v");
-                            let body = lambda_ast.get("body")
+                            let param_name = params.first().and_then(|p| p.as_str()).unwrap_or("v");
+                            let body = lambda_ast
+                                .get("body")
                                 .ok_or("Missing body in validate lambda")?;
                             let mut local_env = HashMap::new();
                             local_env.insert(param_name.to_string(), val.clone());
-                            let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                            let cond = eval_ast(
+                                body,
+                                inputs,
+                                temporal_context,
+                                &local_env,
+                                &self.backend,
+                                self,
+                            )
+                            .await?;
                             if cond.as_bool().unwrap_or(false) {
                                 let mut ok_map = std::collections::BTreeMap::new();
                                 ok_map.insert("ok".to_string(), val);
@@ -1682,25 +2308,43 @@ impl VM {
                         "filter_map" => {
                             // map + drop None: keep non-Nil results (Some), drop Nil (None).
                             if args.len() != 2 {
-                                return Err(format!("filter_map expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "filter_map expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
                                 Value::Nil => return Ok(Value::Nil),
-                                _ => return Err("filter_map first argument must be an array".to_string()),
+                                _ => {
+                                    return Err(
+                                        "filter_map first argument must be an array".to_string()
+                                    )
+                                }
                             };
                             let lambda_str = args[1].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in filter_map: {}", e))?;
-                            let param_name = lambda_ast.get("params").and_then(|p| p.as_array())
-                                .and_then(|p| p.first()).and_then(|p| p.as_str())
+                            let param_name = lambda_ast
+                                .get("params")
+                                .and_then(|p| p.as_array())
+                                .and_then(|p| p.first())
+                                .and_then(|p| p.as_str())
                                 .ok_or("Lambda must have at least one parameter")?;
                             let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                             let mut out = Vec::new();
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_name.to_string(), item.clone());
-                                let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let val = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 if !matches!(val, Value::Nil) {
                                     out.push(val);
                                 }
@@ -1709,28 +2353,43 @@ impl VM {
                         }
                         "map" => {
                             if args.len() != 2 {
-                                return Err(format!("map expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "map expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let coll = &args[0];
                             let lambda_str = args[1].as_str()?;
                             match coll {
                                 Value::Array(array) => {
-                                    let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                        .map_err(|e| format!("Invalid lambda JSON in map: {}", e))?;
-                                    let params = lambda_ast.get("params")
+                                    let lambda_ast: serde_json::Value =
+                                        serde_json::from_str(lambda_str).map_err(|e| {
+                                            format!("Invalid lambda JSON in map: {}", e)
+                                        })?;
+                                    let params = lambda_ast
+                                        .get("params")
                                         .and_then(|p| p.as_array())
                                         .ok_or("Missing params in lambda")?;
-                                    let param_name = params.first()
+                                    let param_name = params
+                                        .first()
                                         .and_then(|p| p.as_str())
                                         .ok_or("Lambda must have at least one parameter")?;
-                                    let body = lambda_ast.get("body")
-                                        .ok_or("Missing body in lambda")?;
-                                    
+                                    let body =
+                                        lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                                     let mut mapped = Vec::new();
                                     for item in array.iter() {
                                         let mut local_env = HashMap::new();
                                         local_env.insert(param_name.to_string(), item.clone());
-                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                        let val = eval_ast(
+                                            body,
+                                            inputs,
+                                            temporal_context,
+                                            &local_env,
+                                            &self.backend,
+                                            self,
+                                        )
+                                        .await?;
                                         mapped.push(val);
                                     }
                                     Value::Array(Arc::new(mapped))
@@ -1739,48 +2398,82 @@ impl VM {
                                 Value::Record(map) if map.contains_key("ok") => {
                                     let ok_val = map.get("ok").unwrap().clone();
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend, self).await?;
+                                    let res = eval_lambda(
+                                        lambda_str,
+                                        ok_val,
+                                        inputs,
+                                        temporal_context,
+                                        &empty_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                     let mut new_map = std::collections::BTreeMap::new();
                                     new_map.insert("ok".to_string(), res);
                                     Value::Record(Arc::new(new_map))
                                 }
-                                Value::Record(map) if map.contains_key("err") => {
-                                    coll.clone()
-                                }
+                                Value::Record(map) if map.contains_key("err") => coll.clone(),
                                 _ => {
                                     // Option Some represented as raw value
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend, self).await?;
+                                    let res = eval_lambda(
+                                        lambda_str,
+                                        coll.clone(),
+                                        inputs,
+                                        temporal_context,
+                                        &empty_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                     res
                                 }
                             }
                         }
                         "flat_map" | "and_then" => {
                             if args.len() != 2 {
-                                return Err(format!("{} expects exactly 2 arguments, got {}", fn_name, args.len()));
+                                return Err(format!(
+                                    "{} expects exactly 2 arguments, got {}",
+                                    fn_name,
+                                    args.len()
+                                ));
                             }
                             let coll = &args[0];
                             let lambda_str = args[1].as_str()?;
                             match coll {
                                 Value::Array(array) => {
-                                    let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                        .map_err(|e| format!("Invalid lambda JSON in flat_map: {}", e))?;
-                                    let params = lambda_ast.get("params")
+                                    let lambda_ast: serde_json::Value =
+                                        serde_json::from_str(lambda_str).map_err(|e| {
+                                            format!("Invalid lambda JSON in flat_map: {}", e)
+                                        })?;
+                                    let params = lambda_ast
+                                        .get("params")
                                         .and_then(|p| p.as_array())
                                         .ok_or("Missing params in lambda")?;
-                                    let param_name = params.first()
+                                    let param_name = params
+                                        .first()
                                         .and_then(|p| p.as_str())
                                         .ok_or("Lambda must have at least one parameter")?;
-                                    let body = lambda_ast.get("body")
-                                        .ok_or("Missing body in lambda")?;
-                                    
+                                    let body =
+                                        lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                                     let mut flat_mapped = Vec::new();
                                     for item in array.iter() {
                                         let mut local_env = HashMap::new();
                                         local_env.insert(param_name.to_string(), item.clone());
-                                        let val = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                        let val = eval_ast(
+                                            body,
+                                            inputs,
+                                            temporal_context,
+                                            &local_env,
+                                            &self.backend,
+                                            self,
+                                        )
+                                        .await?;
                                         match val {
-                                            Value::Array(a) => flat_mapped.extend(a.iter().cloned()),
+                                            Value::Array(a) => {
+                                                flat_mapped.extend(a.iter().cloned())
+                                            }
                                             v => flat_mapped.push(v),
                                         }
                                     }
@@ -1790,23 +2483,42 @@ impl VM {
                                 Value::Record(map) if map.contains_key("ok") => {
                                     let ok_val = map.get("ok").unwrap().clone();
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, &empty_env, &self.backend, self).await?;
+                                    let res = eval_lambda(
+                                        lambda_str,
+                                        ok_val,
+                                        inputs,
+                                        temporal_context,
+                                        &empty_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                     res
                                 }
-                                Value::Record(map) if map.contains_key("err") => {
-                                    coll.clone()
-                                }
+                                Value::Record(map) if map.contains_key("err") => coll.clone(),
                                 _ => {
                                     // Option Some represented as raw value
                                     let empty_env = HashMap::new();
-                                    let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, &empty_env, &self.backend, self).await?;
+                                    let res = eval_lambda(
+                                        lambda_str,
+                                        coll.clone(),
+                                        inputs,
+                                        temporal_context,
+                                        &empty_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                     res
                                 }
                             }
                         }
                         "fold" | "reduce" => {
                             if args.len() != 3 {
-                                return Err(format!("fold expects exactly 3 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "fold expects exactly 3 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let array = match &args[0] {
                                 Value::Array(a) => a,
@@ -1816,24 +2528,35 @@ impl VM {
                             let lambda_str = args[2].as_str()?;
                             let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                                 .map_err(|e| format!("Invalid lambda JSON in fold: {}", e))?;
-                            
-                            let params = lambda_ast.get("params")
+
+                            let params = lambda_ast
+                                .get("params")
                                 .and_then(|p| p.as_array())
                                 .ok_or("Missing params in lambda")?;
                             if params.len() < 2 {
                                 return Err("Lambda in fold/reduce must have at least 2 parameters (acc, item)".to_string());
                             }
-                            let param_acc = params[0].as_str().ok_or("First parameter must be string")?;
-                            let param_val = params[1].as_str().ok_or("Second parameter must be string")?;
-                            let body = lambda_ast.get("body")
-                                .ok_or("Missing body in lambda")?;
-                            
+                            let param_acc =
+                                params[0].as_str().ok_or("First parameter must be string")?;
+                            let param_val = params[1]
+                                .as_str()
+                                .ok_or("Second parameter must be string")?;
+                            let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                             let mut acc = init_val;
                             for item in array.iter() {
                                 let mut local_env = HashMap::new();
                                 local_env.insert(param_acc.to_string(), acc.clone());
                                 local_env.insert(param_val.to_string(), item.clone());
-                                acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                acc = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                             }
                             acc
                         }
@@ -1866,7 +2589,8 @@ impl VM {
                                     other
                                 )),
                             };
-                            self.call_contract_value(&callee_name, &args[1..], temporal_context).await?
+                            self.call_contract_value(&callee_name, &args[1..], temporal_context)
+                                .await?
                         }
                         // ── LAB-VM-MAP-P1: Map runtime operations ────────────────────────────
                         // Option representation: None = Value::Nil, Some(v) = raw v (no wrapper).
@@ -1876,33 +2600,48 @@ impl VM {
                         // or_else(option, fallback) is handled above (pre-existing).
                         "map_get" | "stdlib.map.get" => {
                             if args.len() != 2 {
-                                return Err(format!("map_get expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "map_get expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let key = args[1].as_str()?;
                             match &args[0] {
                                 Value::Record(map) => map.get(key).cloned().unwrap_or(Value::Nil),
                                 Value::Nil => Value::Nil,
-                                _ => return Err(format!(
-                                    "map_get: first argument must be a Map (Record), got {:?}", args[0]
-                                )),
+                                _ => {
+                                    return Err(format!(
+                                        "map_get: first argument must be a Map (Record), got {:?}",
+                                        args[0]
+                                    ))
+                                }
                             }
                         }
                         "map_has_key" | "stdlib.map.has_key" => {
                             if args.len() != 2 {
-                                return Err(format!("map_has_key expects exactly 2 arguments, got {}", args.len()));
+                                return Err(format!(
+                                    "map_has_key expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
                             }
                             let key = args[1].as_str()?;
                             match &args[0] {
                                 Value::Record(map) => Value::Bool(map.contains_key(key)),
                                 Value::Nil => Value::Bool(false),
-                                _ => return Err(format!(
-                                    "map_has_key: first argument must be a Map (Record), got {:?}", args[0]
-                                )),
+                                _ => {
+                                    return Err(format!(
+                                    "map_has_key: first argument must be a Map (Record), got {:?}",
+                                    args[0]
+                                ))
+                                }
                             }
                         }
                         // ── end LAB-VM-MAP-P1 ────────────────────────────────────────────────
                         _ => {
-                            return Err(format!("OP_CALL: Unknown/unimplemented function '{}' with {} arguments", fn_name, arg_count));
+                            return Err(format!(
+                                "OP_CALL: Unknown/unimplemented function '{}' with {} arguments",
+                                fn_name, arg_count
+                            ));
                         }
                     };
                     stack.push(res);
@@ -1914,7 +2653,10 @@ impl VM {
                     let res = match val {
                         Value::Integer(i) => Value::Integer(-i),
                         Value::Float(f) => Value::Float(-f),
-                        Value::Decimal { value, scale } => Value::Decimal { value: -value, scale },
+                        Value::Decimal { value, scale } => Value::Decimal {
+                            value: -value,
+                            scale,
+                        },
                         _ => return Err(format!("Invalid operand type for NEG: {:?}", val)),
                     };
                     stack.push(res);
@@ -1926,7 +2668,9 @@ impl VM {
                     // Args: [field_name: String]
                     // Stack in:  ... record
                     // Stack out: ... field_value
-                    let field_name = inst.args.get(0)
+                    let field_name = inst
+                        .args
+                        .get(0)
                         .ok_or("OP_GET_FIELD: missing field name argument")?
                         .as_str()?;
                     let record_val = stack.pop().ok_or("Stack underflow during OP_GET_FIELD")?;
@@ -1941,33 +2685,43 @@ impl VM {
                             stack.push(val.clone());
                         }
                         other => {
-                            return Err(format!(
-                                "OP_GET_FIELD: expected Record, got {:?}",
-                                other
-                            ));
+                            return Err(format!("OP_GET_FIELD: expected Record, got {:?}", other));
                         }
                     }
                     ip += 1;
                 }
 
                 OP_JMP => {
-                    let target = inst.args.get(0)
+                    let target = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing jump target")?
                         .as_integer()? as usize;
                     if target >= total_instructions {
-                        return Err(format!("Cannot jump to out-of-bounds offset {} (total {})", target, total_instructions));
+                        return Err(format!(
+                            "Cannot jump to out-of-bounds offset {} (total {})",
+                            target, total_instructions
+                        ));
                     }
                     ip = target;
                 }
 
                 OP_JMP_IF => {
-                    let cond = stack.pop().ok_or("Stack underflow during JMP_IF condition")?.as_bool()?;
+                    let cond = stack
+                        .pop()
+                        .ok_or("Stack underflow during JMP_IF condition")?
+                        .as_bool()?;
                     if cond {
-                        let target = inst.args.get(0)
+                        let target = inst
+                            .args
+                            .get(0)
                             .ok_or("Missing jump target")?
                             .as_integer()? as usize;
                         if target >= total_instructions {
-                            return Err(format!("Cannot jump to out-of-bounds offset {} (total {})", target, total_instructions));
+                            return Err(format!(
+                                "Cannot jump to out-of-bounds offset {} (total {})",
+                                target, total_instructions
+                            ));
                         }
                         ip = target;
                     } else {
@@ -1976,13 +2730,21 @@ impl VM {
                 }
 
                 OP_JMP_UNLESS => {
-                    let cond = stack.pop().ok_or("Stack underflow during JMP_UNLESS condition")?.as_bool()?;
+                    let cond = stack
+                        .pop()
+                        .ok_or("Stack underflow during JMP_UNLESS condition")?
+                        .as_bool()?;
                     if !cond {
-                        let target = inst.args.get(0)
+                        let target = inst
+                            .args
+                            .get(0)
                             .ok_or("Missing jump target")?
                             .as_integer()? as usize;
                         if target >= total_instructions {
-                            return Err(format!("Cannot jump to out-of-bounds offset {} (total {})", target, total_instructions));
+                            return Err(format!(
+                                "Cannot jump to out-of-bounds offset {} (total {})",
+                                target, total_instructions
+                            ));
                         }
                         ip = target;
                     } else {
@@ -1992,8 +2754,12 @@ impl VM {
 
                 OP_LOAD_AS_OF => {
                     let store_name = inst.args.get(0).ok_or("Missing store name")?.as_str()?;
-                    let as_of_ref = inst.args.get(1).ok_or("Missing as_of reference")?.as_str()?;
-                    
+                    let as_of_ref = inst
+                        .args
+                        .get(1)
+                        .ok_or("Missing as_of reference")?
+                        .as_str()?;
+
                     let as_of_val = if let Some(v) = inputs.get(as_of_ref) {
                         v.as_str()?
                     } else if let Some(v) = temporal_context.get(as_of_ref) {
@@ -2002,7 +2768,10 @@ impl VM {
                         return Err(format!("as_of coordinate ref '{}' not resolved", as_of_ref));
                     };
 
-                    let backend = self.backend.as_ref().ok_or("No temporal backend bound to VM")?;
+                    let backend = self
+                        .backend
+                        .as_ref()
+                        .ok_or("No temporal backend bound to VM")?;
                     let result = backend.read_as_of(store_name, as_of_val).await?;
                     let val = result.unwrap_or(Value::Nil);
                     stack.push(val.clone());
@@ -2019,7 +2788,7 @@ impl VM {
                     obs_obj.insert("as_of".to_string(), as_of_val.into());
                     obs_obj.insert("result_present".to_string(), (val != Value::Nil).into());
                     obs_obj.insert("result_value".to_string(), val.to_json());
-                    
+
                     let mut sink = self.observation_sink.lock().await;
                     sink.push(serde_json::Value::Object(obs_obj));
 
@@ -2027,16 +2796,24 @@ impl VM {
                 }
 
                 OP_EMIT_OBS => {
-                    let modifier = temporal_context.get("contract_modifier")
+                    let modifier = temporal_context
+                        .get("contract_modifier")
                         .or_else(|| inputs.get("contract_modifier"))
                         .and_then(|v| v.as_str().ok())
                         .unwrap_or("irreversible");
                     if modifier == "pure" || modifier == "observed" {
-                        return Err("OOF-M1: emit_observation is not allowed in pure or observed contracts".to_string());
+                        return Err(
+                            "OOF-M1: emit_observation is not allowed in pure or observed contracts"
+                                .to_string(),
+                        );
                     }
-                    let obs_kind = inst.args.get(0).ok_or("Missing observation kind")?.as_str()?;
+                    let obs_kind = inst
+                        .args
+                        .get(0)
+                        .ok_or("Missing observation kind")?
+                        .as_str()?;
                     let val = stack.pop().ok_or("Stack underflow during EMIT_OBS")?;
-                    
+
                     let raw_digest = format!("{}-{:?}", obs_kind, val);
                     let obs_id = format!("obs/eval/{}", sha256_hex(&raw_digest));
 
@@ -2058,10 +2835,12 @@ impl VM {
                 }
 
                 OP_MAP_REDUCE => {
-                    let serialized = inst.args.get(0)
+                    let serialized = inst
+                        .args
+                        .get(0)
                         .ok_or("Missing map_reduce argument")?
                         .as_str()?;
-                    
+
                     let node: serde_json::Value = serde_json::from_str(serialized)
                         .map_err(|e| format!("Invalid map_reduce JSON: {}", e))?;
 
@@ -2070,13 +2849,24 @@ impl VM {
                     let mut agg_env: HashMap<String, Value> = HashMap::new();
                     collect_captures(&node, &registers, &mut agg_env);
 
-                    let source = node.get("source").ok_or("Missing source in map_reduce_aggregate")?;
-                    let pipeline = node.get("pipeline")
+                    let source = node
+                        .get("source")
+                        .ok_or("Missing source in map_reduce_aggregate")?;
+                    let pipeline = node
+                        .get("pipeline")
                         .ok_or("Missing pipeline in map_reduce_aggregate")?
                         .as_array()
                         .ok_or("pipeline must be an array")?;
 
-                    let source_val = eval_ast(source, inputs, temporal_context, &agg_env, &self.backend, self).await?;
+                    let source_val = eval_ast(
+                        source,
+                        inputs,
+                        temporal_context,
+                        &agg_env,
+                        &self.backend,
+                        self,
+                    )
+                    .await?;
 
                     let mut items = Vec::new();
                     match &source_val {
@@ -2099,42 +2889,85 @@ impl VM {
                     let mut has_decimal = false;
 
                     let terminal_step = pipeline.last().ok_or("pipeline must not be empty")?;
-                    let terminal_kind = terminal_step.get("kind").and_then(|k| k.as_str()).ok_or("Missing terminal step kind")?;
+                    let terminal_kind = terminal_step
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .ok_or("Missing terminal step kind")?;
 
                     if terminal_kind == "fold" {
                         let init_ast = terminal_step.get("init").ok_or("Missing init in fold")?;
-                        let init_val = eval_ast(init_ast, inputs, temporal_context, &agg_env, &self.backend, self).await?;
+                        let init_val = eval_ast(
+                            init_ast,
+                            inputs,
+                            temporal_context,
+                            &agg_env,
+                            &self.backend,
+                            self,
+                        )
+                        .await?;
                         fold_acc = Some(init_val);
                     }
 
                     'item_loop: for item in items.iter() {
                         let mut current_value = item.clone();
 
-                        for step in &pipeline[0..pipeline.len()-1] {
-                            let step_kind = step.get("kind").and_then(|k| k.as_str()).ok_or("Missing step kind")?;
+                        for step in &pipeline[0..pipeline.len() - 1] {
+                            let step_kind = step
+                                .get("kind")
+                                .and_then(|k| k.as_str())
+                                .ok_or("Missing step kind")?;
                             match step_kind {
                                 "filter" => {
-                                    let param = step.get("param").ok_or("Missing param in filter")?.as_str().ok_or("param must be string")?;
+                                    let param = step
+                                        .get("param")
+                                        .ok_or("Missing param in filter")?
+                                        .as_str()
+                                        .ok_or("param must be string")?;
                                     let body = step.get("body").ok_or("Missing body in filter")?;
-                                    
+
                                     let mut local_env = agg_env.clone();
                                     local_env.insert(param.to_string(), current_value.clone());
-                                    
-                                    let cond = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+
+                                    let cond = eval_ast(
+                                        body,
+                                        inputs,
+                                        temporal_context,
+                                        &local_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                     if !cond.as_bool()? {
                                         continue 'item_loop;
                                     }
                                 }
                                 "map" => {
-                                    let param = step.get("param").ok_or("Missing param in map")?.as_str().ok_or("param must be string")?;
+                                    let param = step
+                                        .get("param")
+                                        .ok_or("Missing param in map")?
+                                        .as_str()
+                                        .ok_or("param must be string")?;
                                     let body = step.get("body").ok_or("Missing body in map")?;
-                                    
+
                                     let mut local_env = agg_env.clone();
                                     local_env.insert(param.to_string(), current_value.clone());
-                                    
-                                    current_value = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+
+                                    current_value = eval_ast(
+                                        body,
+                                        inputs,
+                                        temporal_context,
+                                        &local_env,
+                                        &self.backend,
+                                        self,
+                                    )
+                                    .await?;
                                 }
-                                _ => return Err(format!("Unsupported intermediate pipeline step: {}", step_kind)),
+                                _ => {
+                                    return Err(format!(
+                                        "Unsupported intermediate pipeline step: {}",
+                                        step_kind
+                                    ))
+                                }
                             }
                         }
 
@@ -2154,10 +2987,20 @@ impl VM {
                                 first_found = true;
                             }
                             "sum" | "avg" => {
-                                let field = terminal_step.get("field").ok_or("Missing field in sum/avg")?.as_str().ok_or("field must be string")?;
+                                let field = terminal_step
+                                    .get("field")
+                                    .ok_or("Missing field in sum/avg")?
+                                    .as_str()
+                                    .ok_or("field must be string")?;
                                 let val = match &current_value {
-                                    Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
-                                    _ => return Err("sum/avg expects record items in array".to_string()),
+                                    Value::Record(map) => {
+                                        map.get(field).cloned().unwrap_or(Value::Nil)
+                                    }
+                                    _ => {
+                                        return Err(
+                                            "sum/avg expects record items in array".to_string()
+                                        )
+                                    }
                                 };
                                 match val {
                                     Value::Integer(i) => {
@@ -2173,13 +3016,24 @@ impl VM {
                                         sum_decimal = sum_decimal.add(&d)?;
                                     }
                                     Value::Nil => {}
-                                    _ => return Err(format!("Unsupported type for sum/avg: {:?}", val)),
+                                    _ => {
+                                        return Err(format!(
+                                            "Unsupported type for sum/avg: {:?}",
+                                            val
+                                        ))
+                                    }
                                 }
                             }
                             "min" | "max" => {
-                                let field = terminal_step.get("field").ok_or("Missing field in min/max")?.as_str().ok_or("field must be string")?;
+                                let field = terminal_step
+                                    .get("field")
+                                    .ok_or("Missing field in min/max")?
+                                    .as_str()
+                                    .ok_or("field must be string")?;
                                 let val = match &current_value {
-                                    Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
+                                    Value::Record(map) => {
+                                        map.get(field).cloned().unwrap_or(Value::Nil)
+                                    }
                                     _ => return Err("min/max expects record items".to_string()),
                                 };
                                 if val != Value::Nil {
@@ -2190,15 +3044,37 @@ impl VM {
                                         let is_better = match (terminal_kind, &val, &result_val) {
                                             ("min", Value::Integer(x), Value::Integer(y)) => x < y,
                                             ("max", Value::Integer(x), Value::Integer(y)) => x > y,
-                                            ("min", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                ((*av as f64) / 10f64.powi(*as_ as i32)) < ((*bv as f64) / 10f64.powi(*bs as i32))
+                                            (
+                                                "min",
+                                                Value::Decimal {
+                                                    value: av,
+                                                    scale: as_,
+                                                },
+                                                Value::Decimal {
+                                                    value: bv,
+                                                    scale: bs,
+                                                },
+                                            ) => {
+                                                ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                    < ((*bv as f64) / 10f64.powi(*bs as i32))
                                             }
-                                            ("max", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                ((*av as f64) / 10f64.powi(*as_ as i32)) > ((*bv as f64) / 10f64.powi(*bs as i32))
+                                            (
+                                                "max",
+                                                Value::Decimal {
+                                                    value: av,
+                                                    scale: as_,
+                                                },
+                                                Value::Decimal {
+                                                    value: bv,
+                                                    scale: bs,
+                                                },
+                                            ) => {
+                                                ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                    > ((*bv as f64) / 10f64.powi(*bs as i32))
                                             }
                                             ("min", Value::Float(x), Value::Float(y)) => x < y,
                                             ("max", Value::Float(x), Value::Float(y)) => x > y,
-                                            _ => false
+                                            _ => false,
                                         };
                                         if is_better {
                                             result_val = val;
@@ -2207,18 +3083,43 @@ impl VM {
                                 }
                             }
                             "fold" => {
-                                let param_acc = terminal_step.get("param_acc").ok_or("Missing param_acc")?.as_str().ok_or("param_acc must be string")?;
-                                let param_val = terminal_step.get("param_val").ok_or("Missing param_val")?.as_str().ok_or("param_val must be string")?;
-                                let body = terminal_step.get("body").ok_or("Missing body in fold")?;
+                                let param_acc = terminal_step
+                                    .get("param_acc")
+                                    .ok_or("Missing param_acc")?
+                                    .as_str()
+                                    .ok_or("param_acc must be string")?;
+                                let param_val = terminal_step
+                                    .get("param_val")
+                                    .ok_or("Missing param_val")?
+                                    .as_str()
+                                    .ok_or("param_val must be string")?;
+                                let body =
+                                    terminal_step.get("body").ok_or("Missing body in fold")?;
 
                                 let mut local_env = agg_env.clone();
-                                local_env.insert(param_acc.to_string(), fold_acc.as_ref().unwrap().clone());
+                                local_env.insert(
+                                    param_acc.to_string(),
+                                    fold_acc.as_ref().unwrap().clone(),
+                                );
                                 local_env.insert(param_val.to_string(), current_value);
 
-                                let next_acc = eval_ast(body, inputs, temporal_context, &local_env, &self.backend, self).await?;
+                                let next_acc = eval_ast(
+                                    body,
+                                    inputs,
+                                    temporal_context,
+                                    &local_env,
+                                    &self.backend,
+                                    self,
+                                )
+                                .await?;
                                 fold_acc = Some(next_acc);
                             }
-                            _ => return Err(format!("Unsupported terminal pipeline step: {}", terminal_kind)),
+                            _ => {
+                                return Err(format!(
+                                    "Unsupported terminal pipeline step: {}",
+                                    terminal_kind
+                                ))
+                            }
                         }
                     }
 
@@ -2241,7 +3142,10 @@ impl VM {
                         "fold" => fold_acc.unwrap_or(Value::Nil),
                         "sum" => {
                             if has_decimal {
-                                Value::Decimal { value: sum_decimal.value, scale: sum_decimal.scale }
+                                Value::Decimal {
+                                    value: sum_decimal.value,
+                                    scale: sum_decimal.scale,
+                                }
                             } else {
                                 Value::Integer(sum_integer)
                             }
@@ -2250,7 +3154,10 @@ impl VM {
                             if passed_count == 0 {
                                 Value::Nil
                             } else if has_decimal {
-                                Value::Decimal { value: sum_decimal.value / passed_count, scale: sum_decimal.scale }
+                                Value::Decimal {
+                                    value: sum_decimal.value / passed_count,
+                                    scale: sum_decimal.scale,
+                                }
                             } else {
                                 Value::Integer(sum_integer / passed_count)
                             }
@@ -2285,27 +3192,53 @@ impl VM {
                     return Ok(val);
                 }
 
-
                 OP_LOOP_START => {
-                    let name = inst.args.get(0).ok_or("Missing loop name arg")?.as_str()?.to_string();
-                    let raw_steps = inst.args.get(1).ok_or("Missing max_steps arg")?.as_integer()? as u64;
+                    let name = inst
+                        .args
+                        .get(0)
+                        .ok_or("Missing loop name arg")?
+                        .as_str()?
+                        .to_string();
+                    let raw_steps = inst
+                        .args
+                        .get(1)
+                        .ok_or("Missing max_steps arg")?
+                        .as_integer()? as u64;
                     // G3b: max_steps=0 means FiniteLoop (no budget — terminates via collection exhaustion).
                     // Use u64::MAX as sentinel so the fuel-exhaustion check never fires.
                     let fuel = if raw_steps == 0 { u64::MAX } else { raw_steps };
-                    let collection_val = stack.pop().ok_or("LOOP_START expects collection on stack")?;
+                    let collection_val = stack
+                        .pop()
+                        .ok_or("LOOP_START expects collection on stack")?;
                     let collection = match collection_val {
                         Value::Array(arr) => (*arr).clone(),
-                        _ => return Err(format!("LOOP_START expects Array, got {:?}", collection_val)),
+                        _ => {
+                            return Err(format!(
+                                "LOOP_START expects Array, got {:?}",
+                                collection_val
+                            ))
+                        }
                     };
 
-                    loop_stack.push(LoopFrame { name, collection, index: 0, fuel });
+                    loop_stack.push(LoopFrame {
+                        name,
+                        collection,
+                        index: 0,
+                        fuel,
+                    });
                     ip += 1;
                 }
 
                 OP_LOOP_STEP => {
-                    let exit_ip = inst.args.get(0).ok_or("Missing exit_ip arg")?.as_integer()? as usize;
-                    let frame = loop_stack.last_mut().ok_or("OP_LOOP_STEP called without loop frame")?;
-                    
+                    let exit_ip = inst
+                        .args
+                        .get(0)
+                        .ok_or("Missing exit_ip arg")?
+                        .as_integer()? as usize;
+                    let frame = loop_stack
+                        .last_mut()
+                        .ok_or("OP_LOOP_STEP called without loop frame")?;
+
                     if frame.index >= frame.collection.len() {
                         loop_stack.pop();
                         ip = exit_ip;
@@ -2314,7 +3247,7 @@ impl VM {
                             return Err("OOF-L-FUEL: loop fuel exhausted".to_string());
                         }
                         frame.fuel -= 1;
-                        
+
                         let next_item = frame.collection[frame.index].clone();
                         frame.index += 1;
                         stack.push(next_item);
@@ -2323,24 +3256,35 @@ impl VM {
                 }
 
                 OP_LOOP_BREAK => {
-                    loop_stack.pop().ok_or("OP_LOOP_BREAK called without loop frame")?;
+                    loop_stack
+                        .pop()
+                        .ok_or("OP_LOOP_BREAK called without loop frame")?;
                     ip += 1;
                 }
 
                 OP_LOAD_TICK => {
-                    let _interval_ms = inst.args.get(0).ok_or("Missing interval_ms arg")?.as_integer()?;
-                    let tick_time = temporal_context.get("tick.time")
+                    let _interval_ms = inst
+                        .args
+                        .get(0)
+                        .ok_or("Missing interval_ms arg")?
+                        .as_integer()?;
+                    let tick_time = temporal_context
+                        .get("tick.time")
                         .cloned()
                         .or_else(|| temporal_context.get("time").cloned())
                         .or_else(|| inputs.get("tick.time").cloned())
                         .or_else(|| inputs.get("time").cloned())
-                        .ok_or_else(|| "OOF-SL1: service loop clock tick time unresolved".to_string())?;
+                        .ok_or_else(|| {
+                            "OOF-SL1: service loop clock tick time unresolved".to_string()
+                        })?;
                     stack.push(tick_time);
                     ip += 1;
                 }
 
                 OP_UNSUPPORTED => {
-                    return Err("Decoded unsupported selected-path bytecode instruction".to_string());
+                    return Err(
+                        "Decoded unsupported selected-path bytecode instruction".to_string()
+                    );
                 }
 
                 _ => return Err(format!("Unknown instruction opcode: 0x{:02X}", inst.opcode)),
@@ -2372,18 +3316,22 @@ fn eval_ast<'a>(
     vm: &'a VM,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
-        let kind = node.get("kind")
+        let kind = node
+            .get("kind")
             .ok_or_else(|| "AST node missing kind".to_string())?
             .as_str()
             .ok_or_else(|| "kind must be string".to_string())?;
 
         match kind {
             "literal" => {
-                let val = node.get("value").ok_or_else(|| "Missing literal value".to_string())?;
+                let val = node
+                    .get("value")
+                    .ok_or_else(|| "Missing literal value".to_string())?;
                 Ok(Value::from_json(val))
             }
             "ref" => {
-                let name = node.get("name")
+                let name = node
+                    .get("name")
                     .ok_or_else(|| "Missing ref name".to_string())?
                     .as_str()
                     .ok_or_else(|| "name must be string".to_string())?;
@@ -2398,10 +3346,20 @@ fn eval_ast<'a>(
                 }
             }
             "field_access" => {
-                let object = node.get("object").ok_or_else(|| "Missing object in field_access".to_string())?;
-                let field = node.get("field").ok_or_else(|| "Missing field in field_access".to_string())?.as_str().ok_or_else(|| "field must be string".to_string())?;
+                let object = node
+                    .get("object")
+                    .ok_or_else(|| "Missing object in field_access".to_string())?;
+                let field = node
+                    .get("field")
+                    .ok_or_else(|| "Missing field in field_access".to_string())?
+                    .as_str()
+                    .ok_or_else(|| "field must be string".to_string())?;
                 if let Some("ref") = object.get("kind").and_then(|k| k.as_str()) {
-                    let obj_name = object.get("name").ok_or_else(|| "Missing name in ref".to_string())?.as_str().ok_or_else(|| "name must be string".to_string())?;
+                    let obj_name = object
+                        .get("name")
+                        .ok_or_else(|| "Missing name in ref".to_string())?
+                        .as_str()
+                        .ok_or_else(|| "name must be string".to_string())?;
                     let full_name = format!("{}.{}", obj_name, field);
                     if let Some(v) = local_env.get(&full_name) {
                         return Ok(v.clone());
@@ -2435,214 +3393,345 @@ fn eval_ast<'a>(
                 }
                 // General case: object is an arbitrary expression (nested field
                 // access, call result, indexed element, …) that yields a Record.
-                let obj_val = eval_ast(object, inputs, temporal_context, local_env, backend, vm).await?;
+                let obj_val =
+                    eval_ast(object, inputs, temporal_context, local_env, backend, vm).await?;
                 match obj_val {
-                    Value::Record(map) => map.get(field).cloned().ok_or_else(||
-                        format!("Field access: record has no field '{}'", field)),
+                    Value::Record(map) => map
+                        .get(field)
+                        .cloned()
+                        .ok_or_else(|| format!("Field access: record has no field '{}'", field)),
                     other => Err(format!(
-                        "Field access not resolvable for field '{}' on value {:?}", field, other)),
+                        "Field access not resolvable for field '{}' on value {:?}",
+                        field, other
+                    )),
                 }
             }
             "binary_op" => {
-                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
-                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
-                let op = node.get("operator").or_else(|| node.get("op"))
+                let left_val = eval_ast(
+                    node.get("left").ok_or_else(|| "Missing left".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
+                let right_val = eval_ast(
+                    node.get("right")
+                        .ok_or_else(|| "Missing right".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
+                let op = node
+                    .get("operator")
+                    .or_else(|| node.get("op"))
                     .ok_or_else(|| "Missing operator".to_string())?
                     .as_str()
                     .ok_or_else(|| "operator must be string".to_string())?;
                 match op {
-                    "+" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                match da.add(&db) {
-                                    Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                    Err(e) => Err(e),
-                                }
+                    "+" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            match da.add(&db) {
+                                Ok(res_dec) => Ok(Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                }),
+                                Err(e) => Err(e),
                             }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av + bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
-                            _ => Err(format!("Invalid operand types for ADD: {:?} + {:?}", left_val, right_val)),
                         }
-                    }
-                    "-" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                match da.sub(&db) {
-                                    Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                    Err(e) => Err(e),
-                                }
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av + bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for ADD: {:?} + {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "-" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            match da.sub(&db) {
+                                Ok(res_dec) => Ok(Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                }),
+                                Err(e) => Err(e),
                             }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av - bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
-                            _ => Err(format!("Invalid operand types for SUB: {:?} - {:?}", left_val, right_val)),
                         }
-                    }
-                    "*" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                let res_dec = da.mul(&db);
-                                Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale })
-                            }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av * bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
-                            _ => Err(format!("Invalid operand types for MUL: {:?} * {:?}", left_val, right_val)),
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av - bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for SUB: {:?} - {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "*" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            let res_dec = da.mul(&db);
+                            Ok(Value::Decimal {
+                                value: res_dec.value,
+                                scale: res_dec.scale,
+                            })
                         }
-                    }
-                    "/" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                match da.div(&db) {
-                                    Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                    Err(e) => Err(e),
-                                }
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av * bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for MUL: {:?} * {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "/" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            match da.div(&db) {
+                                Ok(res_dec) => Ok(Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                }),
+                                Err(e) => Err(e),
                             }
-                            (Value::Integer(av), Value::Integer(bv)) => {
-                                if *bv == 0 {
-                                    Err("Division by zero".to_string())
-                                } else {
-                                    Ok(Value::Integer(av / bv))
-                                }
-                            }
-                            (Value::Float(av), Value::Float(bv)) => {
-                                if *bv == 0.0 {
-                                    Err("Division by zero".to_string())
-                                } else {
-                                    Ok(Value::Float(av / bv))
-                                }
-                            }
-                            _ => Err(format!("Invalid operand types for DIV: {:?} / {:?}", left_val, right_val)),
                         }
-                    }
-                    "==" => {
-                        Ok(Value::Bool(left_val == right_val))
-                    }
-                    "!=" => {
-                        Ok(Value::Bool(left_val != right_val))
-                    }
-                    ">" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                Ok(Value::Bool(da.to_f64() > db.to_f64()))
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            if *bv == 0 {
+                                Err("Division by zero".to_string())
+                            } else {
+                                Ok(Value::Integer(av / bv))
                             }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av > bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
-                            _ => Err(format!("Invalid operand types for GT: {:?} > {:?}", left_val, right_val)),
                         }
-                    }
-                    "<" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                Ok(Value::Bool(da.to_f64() < db.to_f64()))
+                        (Value::Float(av), Value::Float(bv)) => {
+                            if *bv == 0.0 {
+                                Err("Division by zero".to_string())
+                            } else {
+                                Ok(Value::Float(av / bv))
                             }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av < bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
-                            (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
-                            _ => Err(format!("Invalid operand types for LT: {:?} < {:?}", left_val, right_val)),
                         }
-                    }
-                    "<=" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                Ok(Value::Bool(da.to_f64() <= db.to_f64()))
-                            }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av <= bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
-                            (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
-                            _ => Err(format!("Invalid operand types for LE: {:?} <= {:?}", left_val, right_val)),
+                        _ => Err(format!(
+                            "Invalid operand types for DIV: {:?} / {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "==" => Ok(Value::Bool(left_val == right_val)),
+                    "!=" => Ok(Value::Bool(left_val != right_val)),
+                    ">" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            Ok(Value::Bool(da.to_f64() > db.to_f64()))
                         }
-                    }
-                    ">=" => {
-                        match (&left_val, &right_val) {
-                            (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                let da = Decimal::new(*av, *as_);
-                                let db = Decimal::new(*bv, *bs);
-                                Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                            }
-                            (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av >= bv)),
-                            (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
-                            (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
-                            _ => Err(format!("Invalid operand types for GE: {:?} >= {:?}", left_val, right_val)),
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av > bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for GT: {:?} > {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "<" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            Ok(Value::Bool(da.to_f64() < db.to_f64()))
                         }
-                    }
-                    "&&" => {
-                        match (&left_val, &right_val) {
-                            (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av && *bv)),
-                            _ => Err(format!("Invalid operand types for AND: {:?} && {:?}", left_val, right_val)),
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av < bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
+                        (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for LT: {:?} < {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "<=" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            Ok(Value::Bool(da.to_f64() <= db.to_f64()))
                         }
-                    }
-                    "||" => {
-                        match (&left_val, &right_val) {
-                            (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av || *bv)),
-                            _ => Err(format!("Invalid operand types for OR: {:?} || {:?}", left_val, right_val)),
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av <= bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
+                        (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for LE: {:?} <= {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    ">=" => match (&left_val, &right_val) {
+                        (
+                            Value::Decimal {
+                                value: av,
+                                scale: as_,
+                            },
+                            Value::Decimal {
+                                value: bv,
+                                scale: bs,
+                            },
+                        ) => {
+                            let da = Decimal::new(*av, *as_);
+                            let db = Decimal::new(*bv, *bs);
+                            Ok(Value::Bool(da.to_f64() >= db.to_f64()))
                         }
-                    }
-                    "++" => {
-                        match (&left_val, &right_val) {
-                            (Value::String(av), Value::String(bv)) => {
-                                let mut s = av.to_string();
-                                s.push_str(bv);
-                                Ok(Value::String(Arc::from(s.as_str())))
-                            }
-                            (Value::Array(av), Value::Array(bv)) => {
-                                let mut list = (**av).clone();
-                                list.extend_from_slice(bv);
-                                Ok(Value::Array(Arc::new(list)))
-                            }
-                            _ => Err(format!("Invalid operand types for CONCAT: {:?} ++ {:?}", left_val, right_val)),
+                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av >= bv)),
+                        (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
+                        (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for GE: {:?} >= {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "&&" => match (&left_val, &right_val) {
+                        (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av && *bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for AND: {:?} && {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "||" => match (&left_val, &right_val) {
+                        (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av || *bv)),
+                        _ => Err(format!(
+                            "Invalid operand types for OR: {:?} || {:?}",
+                            left_val, right_val
+                        )),
+                    },
+                    "++" => match (&left_val, &right_val) {
+                        (Value::String(av), Value::String(bv)) => {
+                            let mut s = av.to_string();
+                            s.push_str(bv);
+                            Ok(Value::String(Arc::from(s.as_str())))
                         }
-                    }
+                        (Value::Array(av), Value::Array(bv)) => {
+                            let mut list = (**av).clone();
+                            list.extend_from_slice(bv);
+                            Ok(Value::Array(Arc::new(list)))
+                        }
+                        _ => Err(format!(
+                            "Invalid operand types for CONCAT: {:?} ++ {:?}",
+                            left_val, right_val
+                        )),
+                    },
                     _ => Err(format!("Unsupported operator: {}", op)),
                 }
             }
             "unary" | "unary_op" => {
-                let op = node.get("op")
+                let op = node
+                    .get("op")
                     .or_else(|| node.get("operator"))
                     .ok_or_else(|| "Missing unary operator".to_string())?
                     .as_str()
                     .ok_or_else(|| "unary operator must be string".to_string())?;
-                let operand = node.get("operand")
+                let operand = node
+                    .get("operand")
                     .or_else(|| node.get("expr"))
                     .or_else(|| node.get("expression"))
                     .ok_or_else(|| "Missing unary operand".to_string())?;
-                let val = eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
+                let val =
+                    eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
                 match op {
                     "!" => match val {
                         Value::Bool(b) => Ok(Value::Bool(!b)),
                         _ => Err(format!("Invalid operand type for NOT operator: {:?}", val)),
-                    }
+                    },
                     "-" => match val {
                         Value::Integer(i) => Ok(Value::Integer(-i)),
                         Value::Float(f) => Ok(Value::Float(-f)),
-                        Value::Decimal { value, scale } => Ok(Value::Decimal { value: -value, scale }),
+                        Value::Decimal { value, scale } => Ok(Value::Decimal {
+                            value: -value,
+                            scale,
+                        }),
                         _ => Err(format!("Invalid operand type for NEG operator: {:?}", val)),
-                    }
+                    },
                     _ => Err(format!("Unsupported unary operator: {}", op)),
                 }
             }
             "array" | "array_literal" => {
-                let items = node.get("items").ok_or_else(|| "Missing items in array".to_string())?.as_array().ok_or_else(|| "items must be array".to_string())?;
+                let items = node
+                    .get("items")
+                    .ok_or_else(|| "Missing items in array".to_string())?
+                    .as_array()
+                    .ok_or_else(|| "items must be array".to_string())?;
                 let mut vals = Vec::with_capacity(items.len());
                 for item in items {
-                    vals.push(eval_ast(item, inputs, temporal_context, local_env, backend, vm).await?);
+                    vals.push(
+                        eval_ast(item, inputs, temporal_context, local_env, backend, vm).await?,
+                    );
                 }
                 Ok(Value::Array(Arc::new(vals)))
             }
             "record" | "record_literal" => {
-                let fields = node.get("fields").ok_or_else(|| "Missing fields in record".to_string())?.as_object().ok_or_else(|| "fields must be object".to_string())?;
+                let fields = node
+                    .get("fields")
+                    .ok_or_else(|| "Missing fields in record".to_string())?
+                    .as_object()
+                    .ok_or_else(|| "fields must be object".to_string())?;
                 let mut map = std::collections::BTreeMap::new();
                 for (k, v) in fields {
                     let val = eval_ast(v, inputs, temporal_context, local_env, backend, vm).await?;
@@ -2651,8 +3740,26 @@ fn eval_ast<'a>(
                 Ok(Value::Record(Arc::new(map)))
             }
             "concat" => {
-                let left_val = eval_ast(node.get("left").ok_or_else(|| "Missing left in concat".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
-                let right_val = eval_ast(node.get("right").ok_or_else(|| "Missing right in concat".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let left_val = eval_ast(
+                    node.get("left")
+                        .ok_or_else(|| "Missing left in concat".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
+                let right_val = eval_ast(
+                    node.get("right")
+                        .ok_or_else(|| "Missing right in concat".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
                 match (&left_val, &right_val) {
                     (Value::String(av), Value::String(bv)) => {
                         let mut s = av.to_string();
@@ -2664,21 +3771,26 @@ fn eval_ast<'a>(
                         list.extend_from_slice(bv);
                         Ok(Value::Array(Arc::new(list)))
                     }
-                    _ => Err(format!("Invalid operand types for CONCAT: {:?} ++ {:?}", left_val, right_val)),
+                    _ => Err(format!(
+                        "Invalid operand types for CONCAT: {:?} ++ {:?}",
+                        left_val, right_val
+                    )),
                 }
             }
             "let" => {
-                let name = node.get("name")
+                let name = node
+                    .get("name")
                     .ok_or_else(|| "Missing let variable name".to_string())?
                     .as_str()
                     .ok_or_else(|| "let variable name must be string".to_string())?;
-                let expr = node.get("expr")
+                let expr = node
+                    .get("expr")
                     .or_else(|| node.get("value"))
                     .or_else(|| node.get("expression"))
                     .ok_or_else(|| "Missing let value expression".to_string())?;
-                
+
                 let val = eval_ast(expr, inputs, temporal_context, local_env, backend, vm).await?;
-                
+
                 if let Some(body) = node.get("body") {
                     let mut new_env = local_env.clone();
                     new_env.insert(name.to_string(), val);
@@ -2693,21 +3805,28 @@ fn eval_ast<'a>(
                 Ok(Value::String(Arc::from(serialized)))
             }
             "emit_observation" => {
-                let modifier = temporal_context.get("contract_modifier")
+                let modifier = temporal_context
+                    .get("contract_modifier")
                     .or_else(|| inputs.get("contract_modifier"))
                     .and_then(|v| v.as_str().ok())
                     .unwrap_or("irreversible");
                 if modifier == "pure" || modifier == "observed" {
-                    return Err("OOF-M1: emit_observation is not allowed in pure or observed contracts".to_string());
+                    return Err(
+                        "OOF-M1: emit_observation is not allowed in pure or observed contracts"
+                            .to_string(),
+                    );
                 }
-                let obs_kind = node.get("observation_kind")
+                let obs_kind = node
+                    .get("observation_kind")
                     .ok_or_else(|| "Missing observation_kind".to_string())?
                     .as_str()
                     .ok_or_else(|| "observation_kind must be string".to_string())?;
-                let expr = node.get("expression").ok_or_else(|| "Missing expression in emit_observation".to_string())?;
-                
+                let expr = node
+                    .get("expression")
+                    .ok_or_else(|| "Missing expression in emit_observation".to_string())?;
+
                 let val = eval_ast(expr, inputs, temporal_context, local_env, backend, vm).await?;
-                
+
                 let raw_digest = format!("{}-{:?}", obs_kind, val);
                 let obs_id = format!("obs/eval/{}", sha256_hex(&raw_digest));
 
@@ -2720,29 +3839,52 @@ fn eval_ast<'a>(
                     let obs_val = Value::from_json(&serde_json::Value::Object(obs_obj));
                     backend_ref.append_observation(obs_val).await?;
                 }
-                
+
                 Ok(val)
             }
             "if_expr" => {
                 // Accept both if_expr shapes: condition/then_branch/else_branch and cond/then/else.
-                let cond_val = eval_ast(node.get("condition").or_else(|| node.get("cond")).ok_or_else(|| "Missing condition".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let cond_val = eval_ast(
+                    node.get("condition")
+                        .or_else(|| node.get("cond"))
+                        .ok_or_else(|| "Missing condition".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
                 let cond = cond_val.as_bool()?;
                 let branch = if cond {
-                    node.get("then_branch").or_else(|| node.get("then")).ok_or_else(|| "Missing then_branch".to_string())?
+                    node.get("then_branch")
+                        .or_else(|| node.get("then"))
+                        .ok_or_else(|| "Missing then_branch".to_string())?
                 } else {
-                    node.get("else_branch").or_else(|| node.get("else")).ok_or_else(|| "Missing else_branch".to_string())?
+                    node.get("else_branch")
+                        .or_else(|| node.get("else"))
+                        .ok_or_else(|| "Missing else_branch".to_string())?
                 };
                 // A branch may be a block { return_expr, stmts }; v0 uses return_expr.
-                let branch = if branch.get("kind").is_none() { branch.get("return_expr").unwrap_or(branch) } else { branch };
+                let branch = if branch.get("kind").is_none() {
+                    branch.get("return_expr").unwrap_or(branch)
+                } else {
+                    branch
+                };
                 eval_ast(branch, inputs, temporal_context, local_env, backend, vm).await
             }
             "match_node" | "match_expr" => {
                 // Mirror the bytecode match (LAB-VM-EVALAST-MATCH-P1): the subject is a
                 // Record carrying an `__arm` discriminant (sealed Option/Result + user
                 // variants share this SIR shape). Bind payload fields, eval the arm body.
-                let subject = node.get("subject").ok_or_else(|| "match: missing subject".to_string())?;
-                let subj_val = eval_ast(subject, inputs, temporal_context, local_env, backend, vm).await?;
-                let arms = node.get("arms").and_then(|a| a.as_array())
+                let subject = node
+                    .get("subject")
+                    .ok_or_else(|| "match: missing subject".to_string())?;
+                let subj_val =
+                    eval_ast(subject, inputs, temporal_context, local_env, backend, vm).await?;
+                let arms = node
+                    .get("arms")
+                    .and_then(|a| a.as_array())
                     .ok_or_else(|| "match: missing arms array".to_string())?;
                 let disc = match &subj_val {
                     Value::Record(m) => m.get("__arm").and_then(|v| match v {
@@ -2753,29 +3895,57 @@ fn eval_ast<'a>(
                 };
                 for arm in arms {
                     let pattern = arm.get("pattern");
-                    let is_wildcard = pattern.and_then(|p| p.get("wildcard")).and_then(|w| w.as_bool()).unwrap_or(false);
+                    let is_wildcard = pattern
+                        .and_then(|p| p.get("wildcard"))
+                        .and_then(|w| w.as_bool())
+                        .unwrap_or(false);
                     let arm_name = pattern.and_then(|p| p.get("arm")).and_then(|a| a.as_str());
                     let hit = is_wildcard || (arm_name.is_some() && disc.as_deref() == arm_name);
                     if hit {
-                        let body = arm.get("body").ok_or_else(|| "match: missing arm body".to_string())?;
+                        let body = arm
+                            .get("body")
+                            .ok_or_else(|| "match: missing arm body".to_string())?;
                         let mut arm_env = local_env.clone();
                         if let (Some(p), Value::Record(m)) = (pattern, &subj_val) {
                             if let Some(bindings) = p.get("bindings").and_then(|b| b.as_array()) {
                                 for b in bindings {
                                     if let Some(name) = b.as_str() {
-                                        if let Some(v) = m.get(name) { arm_env.insert(name.to_string(), v.clone()); }
+                                        if let Some(v) = m.get(name) {
+                                            arm_env.insert(name.to_string(), v.clone());
+                                        }
                                     }
                                 }
                             }
                         }
-                        return eval_ast(body, inputs, temporal_context, &arm_env, backend, vm).await;
+                        return eval_ast(body, inputs, temporal_context, &arm_env, backend, vm)
+                            .await;
                     }
                 }
-                Err(format!("match: no arm matched discriminant {:?} (fail-closed)", disc))
+                Err(format!(
+                    "match: no arm matched discriminant {:?} (fail-closed)",
+                    disc
+                ))
             }
             "range" => {
-                let start_val = eval_ast(node.get("start").ok_or_else(|| "Missing start".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
-                let end_val = eval_ast(node.get("end").ok_or_else(|| "Missing end".to_string())?, inputs, temporal_context, local_env, backend, vm).await?;
+                let start_val = eval_ast(
+                    node.get("start")
+                        .ok_or_else(|| "Missing start".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
+                let end_val = eval_ast(
+                    node.get("end").ok_or_else(|| "Missing end".to_string())?,
+                    inputs,
+                    temporal_context,
+                    local_env,
+                    backend,
+                    vm,
+                )
+                .await?;
                 let start = start_val.as_integer()?;
                 let end = end_val.as_integer()?;
                 let mut list = Vec::new();
@@ -2785,15 +3955,17 @@ fn eval_ast<'a>(
                 Ok(Value::Array(Arc::new(list)))
             }
             "temporal_read" => {
-                let store_name = node.get("store_ref")
+                let store_name = node
+                    .get("store_ref")
                     .ok_or_else(|| "Missing store_ref".to_string())?
                     .as_str()
                     .ok_or_else(|| "store_ref must be string".to_string())?;
-                let as_of_ref = node.get("as_of_ref")
+                let as_of_ref = node
+                    .get("as_of_ref")
                     .ok_or_else(|| "Missing as_of_ref".to_string())?
                     .as_str()
                     .ok_or_else(|| "as_of_ref must be string".to_string())?;
-                
+
                 let as_of_val = if let Some(v) = inputs.get(as_of_ref) {
                     v.as_str()?
                 } else if let Some(v) = temporal_context.get(as_of_ref) {
@@ -2802,7 +3974,9 @@ fn eval_ast<'a>(
                     return Err(format!("as_of coordinate ref '{}' not resolved", as_of_ref));
                 };
 
-                let backend_ref = backend.as_ref().ok_or_else(|| "No temporal backend bound to VM".to_string())?;
+                let backend_ref = backend
+                    .as_ref()
+                    .ok_or_else(|| "No temporal backend bound to VM".to_string())?;
                 let result = backend_ref.read_as_of(store_name, as_of_val).await?;
                 Ok(result.unwrap_or(Value::Nil))
             }
@@ -2814,7 +3988,10 @@ fn eval_ast<'a>(
                     node.get("fn")
                 } else {
                     node.get("fn").or(Some(&op_fallback))
-                }.ok_or_else(|| "Missing operator/fn".to_string())?.as_str().ok_or_else(|| "operator/fn must be string".to_string())?;
+                }
+                .ok_or_else(|| "Missing operator/fn".to_string())?
+                .as_str()
+                .ok_or_else(|| "operator/fn must be string".to_string())?;
 
                 let operands = if kind == "apply" {
                     node.get("operands")
@@ -2822,11 +3999,15 @@ fn eval_ast<'a>(
                     node.get("args")
                 } else {
                     node.get("args").or_else(|| node.get("operands"))
-                }.ok_or_else(|| "Missing operands/args".to_string())?.as_array().ok_or_else(|| "operands/args must be array".to_string())?;
+                }
+                .ok_or_else(|| "Missing operands/args".to_string())?
+                .as_array()
+                .ok_or_else(|| "operands/args must be array".to_string())?;
 
                 let mut evaluated_operands = Vec::new();
                 for operand in operands {
-                    let val = eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
+                    let val =
+                        eval_ast(operand, inputs, temporal_context, local_env, backend, vm).await?;
                     evaluated_operands.push(val);
                 }
 
@@ -2836,8 +4017,15 @@ fn eval_ast<'a>(
                 // dispatch). Bounded by MAX_CALL_DEPTH (shared with call_contract), which is
                 // the fail-closed backstop for `decreases fuel` recursion (eval_expr/eval_ref).
                 if let Some(func) = vm.functions.get(op) {
-                    let depth = temporal_context.get("__call_depth__")
-                        .and_then(|v| if let Value::Integer(d) = v { Some(*d) } else { None })
+                    let depth = temporal_context
+                        .get("__call_depth__")
+                        .and_then(|v| {
+                            if let Value::Integer(d) = v {
+                                Some(*d)
+                            } else {
+                                None
+                            }
+                        })
                         .unwrap_or(0);
                     if depth >= MAX_CALL_DEPTH {
                         return Err(format!(
@@ -2848,23 +4036,32 @@ fn eval_ast<'a>(
                     if evaluated_operands.len() != func.params.len() {
                         return Err(format!(
                             "function '{}' expects {} argument(s) [{}], got {}",
-                            op, func.params.len(), func.params.join(", "), evaluated_operands.len()
+                            op,
+                            func.params.len(),
+                            func.params.join(", "),
+                            evaluated_operands.len()
                         ));
                     }
-                    let fn_inputs: HashMap<String, Value> = func.params.iter()
+                    let fn_inputs: HashMap<String, Value> = func
+                        .params
+                        .iter()
                         .cloned()
                         .zip(evaluated_operands.iter().cloned())
                         .collect();
                     let mut fn_temporal = temporal_context.clone();
                     fn_temporal.insert("__call_depth__".to_string(), Value::Integer(depth + 1));
                     let fn_env: HashMap<String, Value> = HashMap::new();
-                    return eval_ast(&func.body, &fn_inputs, &fn_temporal, &fn_env, backend, vm).await;
+                    return eval_ast(&func.body, &fn_inputs, &fn_temporal, &fn_env, backend, vm)
+                        .await;
                 }
 
                 match op {
                     "count" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("count expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "count expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         match &evaluated_operands[0] {
                             Value::Array(a) => Ok(Value::Integer(a.len() as i64)),
@@ -2874,14 +4071,20 @@ fn eval_ast<'a>(
                     }
                     "length" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("length expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "length expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         Ok(Value::Integer(s.len() as i64))
                     }
                     "concat" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("concat expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "concat expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         match (&evaluated_operands[0], &evaluated_operands[1]) {
                             (Value::Array(a), Value::Array(b)) => {
@@ -2898,23 +4101,33 @@ fn eval_ast<'a>(
                     }
                     "trim" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("trim expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "trim expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         Ok(Value::String(Arc::from(s.trim())))
                     }
                     "split" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("split expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "split expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         let sep = evaluated_operands[1].as_str()?;
-                        let parts: Vec<Value> = s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
+                        let parts: Vec<Value> =
+                            s.split(sep).map(|p| Value::String(Arc::from(p))).collect();
                         Ok(Value::Array(Arc::new(parts)))
                     }
                     "contains" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("contains expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "contains expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         let sub = evaluated_operands[1].as_str()?;
@@ -2922,7 +4135,10 @@ fn eval_ast<'a>(
                     }
                     "starts_with" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("starts_with expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "starts_with expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         let prefix = evaluated_operands[1].as_str()?;
@@ -2931,7 +4147,10 @@ fn eval_ast<'a>(
                     // LAB-STDLIB-REGEXP-P3: eval_ast parity with the bytecode regexp handlers.
                     "matches" | "stdlib.regexp.matches" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("matches expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "matches expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let text = evaluated_operands[0].as_str()?;
                         let pattern = evaluated_operands[1].as_str()?;
@@ -2942,7 +4161,10 @@ fn eval_ast<'a>(
                     }
                     "capture" | "stdlib.regexp.capture" => {
                         if evaluated_operands.len() != 3 {
-                            return Err(format!("capture expects exactly 3 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "capture expects exactly 3 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let text = evaluated_operands[0].as_str()?;
                         let pattern = evaluated_operands[1].as_str()?;
@@ -2963,7 +4185,10 @@ fn eval_ast<'a>(
                     }
                     "diff_seconds" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("diff_seconds expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "diff_seconds expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let dt1_str = evaluated_operands[0].as_str()?;
                         let dt2_str = evaluated_operands[1].as_str()?;
@@ -2973,30 +4198,44 @@ fn eval_ast<'a>(
                     }
                     "add_seconds" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("add_seconds expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "add_seconds expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let dt_str = evaluated_operands[0].as_str()?;
                         let seconds = evaluated_operands[1].as_integer()?;
                         let t = parse_utc(dt_str)?;
                         let added = t + chrono::Duration::seconds(seconds);
-                        Ok(Value::String(Arc::from(added.format("%Y-%m-%dT%H:%M:%SZ").to_string())))
+                        Ok(Value::String(Arc::from(
+                            added.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        )))
                     }
                     "parse_datetime" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("parse_datetime expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "parse_datetime expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let s = evaluated_operands[0].as_str()?;
                         let fmt = evaluated_operands[1].as_str()?;
                         if let Ok(dt) = chrono::DateTime::parse_from_str(s, fmt) {
                             let utc_dt = dt.with_timezone(&chrono::Utc);
-                            Ok(Value::String(Arc::from(utc_dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())))
+                            Ok(Value::String(Arc::from(
+                                utc_dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            )))
                         } else if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
                             let dt = ndt.and_utc();
-                            Ok(Value::String(Arc::from(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())))
+                            Ok(Value::String(Arc::from(
+                                dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            )))
                         } else if let Ok(nd) = chrono::NaiveDate::parse_from_str(s, fmt) {
                             if let Some(ndt) = nd.and_hms_opt(0, 0, 0) {
                                 let dt = ndt.and_utc();
-                                Ok(Value::String(Arc::from(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())))
+                                Ok(Value::String(Arc::from(
+                                    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                                )))
                             } else {
                                 Ok(Value::Nil)
                             }
@@ -3006,7 +4245,10 @@ fn eval_ast<'a>(
                     }
                     "format_datetime" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("format_datetime expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "format_datetime expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let dt_str = evaluated_operands[0].as_str()?;
                         let fmt = evaluated_operands[1].as_str()?;
@@ -3015,7 +4257,10 @@ fn eval_ast<'a>(
                     }
                     "is_before" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("is_before expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_before expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let dt1_str = evaluated_operands[0].as_str()?;
                         let dt2_str = evaluated_operands[1].as_str()?;
@@ -3025,7 +4270,10 @@ fn eval_ast<'a>(
                     }
                     "is_after" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("is_after expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_after expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let dt1_str = evaluated_operands[0].as_str()?;
                         let dt2_str = evaluated_operands[1].as_str()?;
@@ -3035,7 +4283,10 @@ fn eval_ast<'a>(
                     }
                     "first" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("first expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "first expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         match &evaluated_operands[0] {
                             Value::Array(a) => Ok(a.first().cloned().unwrap_or(Value::Nil)),
@@ -3045,7 +4296,10 @@ fn eval_ast<'a>(
                     }
                     "last" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("last expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "last expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         match &evaluated_operands[0] {
                             Value::Array(a) => Ok(a.last().cloned().unwrap_or(Value::Nil)),
@@ -3055,7 +4309,10 @@ fn eval_ast<'a>(
                     }
                     "sum" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("sum expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "sum expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3091,14 +4348,20 @@ fn eval_ast<'a>(
                             }
                         }
                         if has_decimal {
-                            Ok(Value::Decimal { value: sum_decimal.value, scale: sum_decimal.scale })
+                            Ok(Value::Decimal {
+                                value: sum_decimal.value,
+                                scale: sum_decimal.scale,
+                            })
                         } else {
                             Ok(Value::Integer(sum_integer))
                         }
                     }
                     "zip" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("zip expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "zip expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array_a = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3120,19 +4383,28 @@ fn eval_ast<'a>(
                     }
                     "stdlib.option.wrap" | "some" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("some expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "some expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         Ok(evaluated_operands[0].clone())
                     }
                     "none" => {
                         if evaluated_operands.len() != 0 {
-                            return Err(format!("none expects exactly 0 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "none expects exactly 0 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         Ok(Value::Nil)
                     }
                     "ok" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("ok expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "ok expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let mut map = std::collections::BTreeMap::new();
                         map.insert("ok".to_string(), evaluated_operands[0].clone());
@@ -3140,7 +4412,10 @@ fn eval_ast<'a>(
                     }
                     "err" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("err expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "err expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let mut map = std::collections::BTreeMap::new();
                         map.insert("err".to_string(), evaluated_operands[0].clone());
@@ -3148,19 +4423,28 @@ fn eval_ast<'a>(
                     }
                     "is_some" | "some?" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("is_some expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_some expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         Ok(Value::Bool(evaluated_operands[0] != Value::Nil))
                     }
                     "is_none" | "none?" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("is_none expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_none expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         Ok(Value::Bool(evaluated_operands[0] == Value::Nil))
                     }
                     "is_ok" | "ok?" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("is_ok expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_ok expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let is_ok = match &evaluated_operands[0] {
                             Value::Record(map) => map.contains_key("ok"),
@@ -3170,7 +4454,10 @@ fn eval_ast<'a>(
                     }
                     "is_err" | "err?" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("is_err expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "is_err expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let is_err = match &evaluated_operands[0] {
                             Value::Record(map) => map.contains_key("err"),
@@ -3180,7 +4467,10 @@ fn eval_ast<'a>(
                     }
                     "unwrap" => {
                         if evaluated_operands.len() != 1 {
-                            return Err(format!("unwrap expects exactly 1 argument, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "unwrap expects exactly 1 argument, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         match &evaluated_operands[0] {
                             Value::Record(map) => {
@@ -3190,12 +4480,19 @@ fn eval_ast<'a>(
                                     Err(format!("Unwrapped Err: {:?}", evaluated_operands[0]))
                                 }
                             }
-                            _ => Err(format!("unwrap expects a Result, got {:?}", evaluated_operands[0])),
+                            _ => Err(format!(
+                                "unwrap expects a Result, got {:?}",
+                                evaluated_operands[0]
+                            )),
                         }
                     }
                     "or_else" | "unwrap_or" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("{} expects exactly 2 arguments, got {}", op, evaluated_operands.len()));
+                            return Err(format!(
+                                "{} expects exactly 2 arguments, got {}",
+                                op,
+                                evaluated_operands.len()
+                            ));
                         }
                         let val = &evaluated_operands[0];
                         let fallback = &evaluated_operands[1];
@@ -3215,7 +4512,10 @@ fn eval_ast<'a>(
                     }
                     "take" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("take expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "take expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3231,7 +4531,10 @@ fn eval_ast<'a>(
                     }
                     "avg" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("avg expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "avg expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3249,8 +4552,12 @@ fn eval_ast<'a>(
 
                             for item in array.iter() {
                                 let val = match item {
-                                    Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
-                                    _ => return Err("avg expects record items in array".to_string()),
+                                    Value::Record(map) => {
+                                        map.get(field).cloned().unwrap_or(Value::Nil)
+                                    }
+                                    _ => {
+                                        return Err("avg expects record items in array".to_string())
+                                    }
                                 };
                                 match val {
                                     Value::Integer(i) => {
@@ -3268,14 +4575,19 @@ fn eval_ast<'a>(
                                         count += 1;
                                     }
                                     Value::Nil => {}
-                                    _ => return Err(format!("Unsupported type for avg: {:?}", val)),
+                                    _ => {
+                                        return Err(format!("Unsupported type for avg: {:?}", val))
+                                    }
                                 }
                             }
 
                             if count == 0 {
                                 Ok(Value::Nil)
                             } else if has_decimal {
-                                Ok(Value::Decimal { value: sum_decimal.value / count, scale: sum_decimal.scale })
+                                Ok(Value::Decimal {
+                                    value: sum_decimal.value / count,
+                                    scale: sum_decimal.scale,
+                                })
                             } else {
                                 Ok(Value::Integer(sum_integer / count))
                             }
@@ -3283,7 +4595,10 @@ fn eval_ast<'a>(
                     }
                     "min" | "max" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("min/max expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "min/max expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3297,25 +4612,53 @@ fn eval_ast<'a>(
 
                             for item in array.iter() {
                                 let val = match item {
-                                    Value::Record(map) => map.get(field).cloned().unwrap_or(Value::Nil),
+                                    Value::Record(map) => {
+                                        map.get(field).cloned().unwrap_or(Value::Nil)
+                                    }
                                     _ => return Err("min/max expects record items".to_string()),
                                 };
-                                if val == Value::Nil { continue; }
+                                if val == Value::Nil {
+                                    continue;
+                                }
                                 match &extremum {
-                                    None => { extremum = Some(val); }
+                                    None => {
+                                        extremum = Some(val);
+                                    }
                                     Some(current) => {
                                         let is_better = match (op, &val, current) {
                                             ("min", Value::Integer(x), Value::Integer(y)) => x < y,
                                             ("max", Value::Integer(x), Value::Integer(y)) => x > y,
-                                            ("min", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                ((*av as f64) / 10f64.powi(*as_ as i32)) < ((*bv as f64) / 10f64.powi(*bs as i32))
+                                            (
+                                                "min",
+                                                Value::Decimal {
+                                                    value: av,
+                                                    scale: as_,
+                                                },
+                                                Value::Decimal {
+                                                    value: bv,
+                                                    scale: bs,
+                                                },
+                                            ) => {
+                                                ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                    < ((*bv as f64) / 10f64.powi(*bs as i32))
                                             }
-                                            ("max", Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                                ((*av as f64) / 10f64.powi(*as_ as i32)) > ((*bv as f64) / 10f64.powi(*bs as i32))
+                                            (
+                                                "max",
+                                                Value::Decimal {
+                                                    value: av,
+                                                    scale: as_,
+                                                },
+                                                Value::Decimal {
+                                                    value: bv,
+                                                    scale: bs,
+                                                },
+                                            ) => {
+                                                ((*av as f64) / 10f64.powi(*as_ as i32))
+                                                    > ((*bv as f64) / 10f64.powi(*bs as i32))
                                             }
                                             ("min", Value::Float(x), Value::Float(y)) => x < y,
                                             ("max", Value::Float(x), Value::Float(y)) => x > y,
-                                            _ => false
+                                            _ => false,
                                         };
                                         if is_better {
                                             extremum = Some(val);
@@ -3328,7 +4671,10 @@ fn eval_ast<'a>(
                     }
                     "filter" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("filter expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "filter expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3337,21 +4683,24 @@ fn eval_ast<'a>(
                         let lambda_str = evaluated_operands[1].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in filter: {}", e))?;
-                        
-                        let params = lambda_ast.get("params")
+
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in lambda")?;
-                        let param_name = params.first()
+                        let param_name = params
+                            .first()
                             .and_then(|p| p.as_str())
                             .ok_or("Lambda must have at least one parameter")?;
-                        let body = lambda_ast.get("body")
-                            .ok_or("Missing body in lambda")?;
-                        
+                        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                         let mut filtered = Vec::new();
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                            let cond_val =
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                    .await?;
                             if cond_val.as_bool()? {
                                 filtered.push(item.clone());
                             }
@@ -3360,7 +4709,10 @@ fn eval_ast<'a>(
                     }
                     "find" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("find expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "find expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3370,19 +4722,22 @@ fn eval_ast<'a>(
                         let lambda_str = evaluated_operands[1].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in find: {}", e))?;
-                        let params = lambda_ast.get("params")
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in lambda")?;
-                        let param_name = params.first()
+                        let param_name = params
+                            .first()
                             .and_then(|p| p.as_str())
                             .ok_or("Lambda must have at least one parameter")?;
-                        let body = lambda_ast.get("body")
-                            .ok_or("Missing body in lambda")?;
+                        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                         let mut found = Value::Nil;
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                            let cond_val =
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                    .await?;
                             if cond_val.as_bool()? {
                                 found = item.clone();
                                 break;
@@ -3392,7 +4747,10 @@ fn eval_ast<'a>(
                     }
                     "any" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("any expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "any expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3402,19 +4760,22 @@ fn eval_ast<'a>(
                         let lambda_str = evaluated_operands[1].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in any: {}", e))?;
-                        let params = lambda_ast.get("params")
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in lambda")?;
-                        let param_name = params.first()
+                        let param_name = params
+                            .first()
                             .and_then(|p| p.as_str())
                             .ok_or("Lambda must have at least one parameter")?;
-                        let body = lambda_ast.get("body")
-                            .ok_or("Missing body in lambda")?;
+                        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                         let mut result = false;
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                            let cond_val =
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                    .await?;
                             if cond_val.as_bool()? {
                                 result = true;
                                 break;
@@ -3424,7 +4785,10 @@ fn eval_ast<'a>(
                     }
                     "all" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("all expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "all expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3434,19 +4798,22 @@ fn eval_ast<'a>(
                         let lambda_str = evaluated_operands[1].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in all: {}", e))?;
-                        let params = lambda_ast.get("params")
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in lambda")?;
-                        let param_name = params.first()
+                        let param_name = params
+                            .first()
                             .and_then(|p| p.as_str())
                             .ok_or("Lambda must have at least one parameter")?;
-                        let body = lambda_ast.get("body")
-                            .ok_or("Missing body in lambda")?;
+                        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
                         let mut result = true;
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_name.to_string(), item.clone());
-                            let cond_val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                            let cond_val =
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                    .await?;
                             if !cond_val.as_bool()? {
                                 result = false;
                                 break;
@@ -3456,7 +4823,10 @@ fn eval_ast<'a>(
                     }
                     "try_catch" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("try_catch expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "try_catch expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let res = &evaluated_operands[0];
                         match res {
@@ -3466,19 +4836,23 @@ fn eval_ast<'a>(
                             Value::Record(map) if map.contains_key("err") => {
                                 let err_val = map.get("err").cloned().unwrap_or(Value::Nil);
                                 let lambda_str = evaluated_operands[1].as_str()?;
-                                let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                    .map_err(|e| format!("Invalid lambda JSON in try_catch: {}", e))?;
-                                let params = lambda_ast.get("params")
+                                let lambda_ast: serde_json::Value =
+                                    serde_json::from_str(lambda_str).map_err(|e| {
+                                        format!("Invalid lambda JSON in try_catch: {}", e)
+                                    })?;
+                                let params = lambda_ast
+                                    .get("params")
                                     .and_then(|p| p.as_array())
                                     .ok_or("Missing params in try_catch lambda")?;
-                                let param_name = params.first()
-                                    .and_then(|p| p.as_str())
-                                    .unwrap_or("e");
-                                let body = lambda_ast.get("body")
+                                let param_name =
+                                    params.first().and_then(|p| p.as_str()).unwrap_or("e");
+                                let body = lambda_ast
+                                    .get("body")
                                     .ok_or("Missing body in try_catch lambda")?;
                                 let mut inner_env = local_env.clone();
                                 inner_env.insert(param_name.to_string(), err_val);
-                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await
+                                eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                    .await
                             }
                             _ => Ok(res.clone()),
                         }
@@ -3500,24 +4874,29 @@ fn eval_ast<'a>(
                     }
                     "validate" => {
                         if evaluated_operands.len() != 3 {
-                            return Err(format!("validate expects exactly 3 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "validate expects exactly 3 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let val = evaluated_operands[0].clone();
                         let err_val = evaluated_operands[2].clone();
                         let lambda_str = evaluated_operands[1].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in validate: {}", e))?;
-                        let params = lambda_ast.get("params")
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in validate lambda")?;
-                        let param_name = params.first()
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("v");
-                        let body = lambda_ast.get("body")
+                        let param_name = params.first().and_then(|p| p.as_str()).unwrap_or("v");
+                        let body = lambda_ast
+                            .get("body")
                             .ok_or("Missing body in validate lambda")?;
                         let mut inner_env = local_env.clone();
                         inner_env.insert(param_name.to_string(), val.clone());
-                        let cond = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                        let cond =
+                            eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                .await?;
                         if cond.as_bool().unwrap_or(false) {
                             let mut ok_map = std::collections::BTreeMap::new();
                             ok_map.insert("ok".to_string(), val);
@@ -3546,9 +4925,12 @@ fn eval_ast<'a>(
                         }
                         let value = match &evaluated_operands[0] {
                             Value::Integer(v) => *v,
-                            other => return Err(format!(
-                                "stdlib.decimal.decimal: value must be Integer, got {:?}", other
-                            )),
+                            other => {
+                                return Err(format!(
+                                    "stdlib.decimal.decimal: value must be Integer, got {:?}",
+                                    other
+                                ))
+                            }
                         };
                         let scale = match &evaluated_operands[1] {
                             Value::Integer(s) if *s >= 0 => *s as u32,
@@ -3560,28 +4942,43 @@ fn eval_ast<'a>(
                     }
                     "map" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("map expects exactly 2 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "map expects exactly 2 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let coll = &evaluated_operands[0];
                         let lambda_str = evaluated_operands[1].as_str()?;
                         match coll {
                             Value::Array(array) => {
-                                let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                    .map_err(|e| format!("Invalid lambda JSON in map: {}", e))?;
-                                let params = lambda_ast.get("params")
+                                let lambda_ast: serde_json::Value =
+                                    serde_json::from_str(lambda_str).map_err(|e| {
+                                        format!("Invalid lambda JSON in map: {}", e)
+                                    })?;
+                                let params = lambda_ast
+                                    .get("params")
                                     .and_then(|p| p.as_array())
                                     .ok_or("Missing params in lambda")?;
-                                let param_name = params.first()
+                                let param_name = params
+                                    .first()
                                     .and_then(|p| p.as_str())
                                     .ok_or("Lambda must have at least one parameter")?;
-                                let body = lambda_ast.get("body")
-                                    .ok_or("Missing body in lambda")?;
-                                
+                                let body =
+                                    lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                                 let mut mapped = Vec::new();
                                 for item in array.iter() {
                                     let mut inner_env = local_env.clone();
                                     inner_env.insert(param_name.to_string(), item.clone());
-                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                                    let val = eval_ast(
+                                        body,
+                                        inputs,
+                                        temporal_context,
+                                        &inner_env,
+                                        backend,
+                                        vm,
+                                    )
+                                    .await?;
                                     mapped.push(val);
                                 }
                                 Ok(Value::Array(Arc::new(mapped)))
@@ -3589,45 +4986,77 @@ fn eval_ast<'a>(
                             Value::Nil => Ok(Value::Nil),
                             Value::Record(map) if map.contains_key("ok") => {
                                 let ok_val = map.get("ok").unwrap().clone();
-                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend, vm).await?;
+                                let res = eval_lambda(
+                                    lambda_str,
+                                    ok_val,
+                                    inputs,
+                                    temporal_context,
+                                    local_env,
+                                    backend,
+                                    vm,
+                                )
+                                .await?;
                                 let mut new_map = std::collections::BTreeMap::new();
                                 new_map.insert("ok".to_string(), res);
                                 Ok(Value::Record(Arc::new(new_map)))
                             }
-                            Value::Record(map) if map.contains_key("err") => {
-                                Ok(coll.clone())
-                            }
+                            Value::Record(map) if map.contains_key("err") => Ok(coll.clone()),
                             _ => {
                                 // Option Some represented as raw value
-                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend, vm).await?;
+                                let res = eval_lambda(
+                                    lambda_str,
+                                    coll.clone(),
+                                    inputs,
+                                    temporal_context,
+                                    local_env,
+                                    backend,
+                                    vm,
+                                )
+                                .await?;
                                 Ok(res)
                             }
                         }
                     }
                     "flat_map" | "and_then" => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("{} expects exactly 2 arguments, got {}", op, evaluated_operands.len()));
+                            return Err(format!(
+                                "{} expects exactly 2 arguments, got {}",
+                                op,
+                                evaluated_operands.len()
+                            ));
                         }
                         let coll = &evaluated_operands[0];
                         let lambda_str = evaluated_operands[1].as_str()?;
                         match coll {
                             Value::Array(array) => {
-                                let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-                                    .map_err(|e| format!("Invalid lambda JSON in flat_map: {}", e))?;
-                                let params = lambda_ast.get("params")
+                                let lambda_ast: serde_json::Value =
+                                    serde_json::from_str(lambda_str).map_err(|e| {
+                                        format!("Invalid lambda JSON in flat_map: {}", e)
+                                    })?;
+                                let params = lambda_ast
+                                    .get("params")
                                     .and_then(|p| p.as_array())
                                     .ok_or("Missing params in lambda")?;
-                                let param_name = params.first()
+                                let param_name = params
+                                    .first()
                                     .and_then(|p| p.as_str())
                                     .ok_or("Lambda must have at least one parameter")?;
-                                let body = lambda_ast.get("body")
-                                    .ok_or("Missing body in lambda")?;
-                                
+                                let body =
+                                    lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                                 let mut flat_mapped = Vec::new();
                                 for item in array.iter() {
                                     let mut inner_env = local_env.clone();
                                     inner_env.insert(param_name.to_string(), item.clone());
-                                    let val = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                                    let val = eval_ast(
+                                        body,
+                                        inputs,
+                                        temporal_context,
+                                        &inner_env,
+                                        backend,
+                                        vm,
+                                    )
+                                    .await?;
                                     match val {
                                         Value::Array(a) => flat_mapped.extend(a.iter().cloned()),
                                         v => flat_mapped.push(v),
@@ -3638,22 +5067,41 @@ fn eval_ast<'a>(
                             Value::Nil => Ok(Value::Nil),
                             Value::Record(map) if map.contains_key("ok") => {
                                 let ok_val = map.get("ok").unwrap().clone();
-                                let res = eval_lambda(lambda_str, ok_val, inputs, temporal_context, local_env, backend, vm).await?;
+                                let res = eval_lambda(
+                                    lambda_str,
+                                    ok_val,
+                                    inputs,
+                                    temporal_context,
+                                    local_env,
+                                    backend,
+                                    vm,
+                                )
+                                .await?;
                                 Ok(res)
                             }
-                            Value::Record(map) if map.contains_key("err") => {
-                                Ok(coll.clone())
-                            }
+                            Value::Record(map) if map.contains_key("err") => Ok(coll.clone()),
                             _ => {
                                 // Option Some represented as raw value
-                                let res = eval_lambda(lambda_str, coll.clone(), inputs, temporal_context, local_env, backend, vm).await?;
+                                let res = eval_lambda(
+                                    lambda_str,
+                                    coll.clone(),
+                                    inputs,
+                                    temporal_context,
+                                    local_env,
+                                    backend,
+                                    vm,
+                                )
+                                .await?;
                                 Ok(res)
                             }
                         }
                     }
                     "fold" | "reduce" => {
                         if evaluated_operands.len() != 3 {
-                            return Err(format!("fold expects exactly 3 arguments, got {}", evaluated_operands.len()));
+                            return Err(format!(
+                                "fold expects exactly 3 arguments, got {}",
+                                evaluated_operands.len()
+                            ));
                         }
                         let array = match &evaluated_operands[0] {
                             Value::Array(a) => a,
@@ -3663,24 +5111,31 @@ fn eval_ast<'a>(
                         let lambda_str = evaluated_operands[2].as_str()?;
                         let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
                             .map_err(|e| format!("Invalid lambda JSON in fold: {}", e))?;
-                        
-                        let params = lambda_ast.get("params")
+
+                        let params = lambda_ast
+                            .get("params")
                             .and_then(|p| p.as_array())
                             .ok_or("Missing params in lambda")?;
                         if params.len() < 2 {
-                            return Err("Lambda in fold/reduce must have at least 2 parameters (acc, item)".to_string());
+                            return Err(
+                                "Lambda in fold/reduce must have at least 2 parameters (acc, item)"
+                                    .to_string(),
+                            );
                         }
-                        let param_acc = params[0].as_str().ok_or("First parameter must be string")?;
-                        let param_val = params[1].as_str().ok_or("Second parameter must be string")?;
-                        let body = lambda_ast.get("body")
-                            .ok_or("Missing body in lambda")?;
-                        
+                        let param_acc =
+                            params[0].as_str().ok_or("First parameter must be string")?;
+                        let param_val = params[1]
+                            .as_str()
+                            .ok_or("Second parameter must be string")?;
+                        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
+
                         let mut acc = init_val;
                         for item in array.iter() {
                             let mut inner_env = local_env.clone();
                             inner_env.insert(param_acc.to_string(), acc.clone());
                             inner_env.insert(param_val.to_string(), item.clone());
-                            acc = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await?;
+                            acc = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                .await?;
                         }
                         Ok(acc)
                     }
@@ -3688,7 +5143,9 @@ fn eval_ast<'a>(
                         // Unified with the bytecode OP_CALL path via VM::call_contract_value.
                         // Enables cross-contract calls inside lambda / HOF bodies (tree-walked).
                         if evaluated_operands.is_empty() {
-                            return Err("call_contract: missing contract name (first operand)".to_string());
+                            return Err(
+                                "call_contract: missing contract name (first operand)".to_string()
+                            );
                         }
                         let callee_name = match &evaluated_operands[0] {
                             Value::String(s) => s.to_string(),
@@ -3696,169 +5153,283 @@ fn eval_ast<'a>(
                                 "call_contract: first operand must be String (contract name), got {:?}", other
                             )),
                         };
-                        vm.call_contract_value(&callee_name, &evaluated_operands[1..], temporal_context).await
+                        vm.call_contract_value(
+                            &callee_name,
+                            &evaluated_operands[1..],
+                            temporal_context,
+                        )
+                        .await
                     }
                     _ => {
                         if evaluated_operands.len() != 2 {
-                            return Err(format!("Operator {} expects exactly 2 operands; got {}", op, evaluated_operands.len()));
+                            return Err(format!(
+                                "Operator {} expects exactly 2 operands; got {}",
+                                op,
+                                evaluated_operands.len()
+                            ));
                         }
                         let left_val = &evaluated_operands[0];
                         let right_val = &evaluated_operands[1];
                         match op {
-                            "+" | "add" | "stdlib.numeric.add" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        match da.add(&db) {
-                                            Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                            Err(e) => Err(e),
-                                        }
+                            "+" | "add" | "stdlib.numeric.add" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    match da.add(&db) {
+                                        Ok(res_dec) => Ok(Value::Decimal {
+                                            value: res_dec.value,
+                                            scale: res_dec.scale,
+                                        }),
+                                        Err(e) => Err(e),
                                     }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av + bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
-                                    _ => Err(format!("Invalid operand types for ADD: {:?} + {:?}", left_val, right_val)),
                                 }
-                            }
-                            "-" | "sub" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        match da.sub(&db) {
-                                            Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                            Err(e) => Err(e),
-                                        }
-                                    }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av - bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
-                                    _ => Err(format!("Invalid operand types for SUB: {:?} - {:?}", left_val, right_val)),
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Integer(av + bv))
                                 }
-                            }
-                            "*" | "mul" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        let res_dec = da.mul(&db);
-                                        Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale })
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for ADD: {:?} + {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "-" | "sub" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    match da.sub(&db) {
+                                        Ok(res_dec) => Ok(Value::Decimal {
+                                            value: res_dec.value,
+                                            scale: res_dec.scale,
+                                        }),
+                                        Err(e) => Err(e),
                                     }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av * bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
-                                    _ => Err(format!("Invalid operand types for MUL: {:?} * {:?}", left_val, right_val)),
                                 }
-                            }
-                            "/" | "div" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        match da.div(&db) {
-                                            Ok(res_dec) => Ok(Value::Decimal { value: res_dec.value, scale: res_dec.scale }),
-                                            Err(e) => Err(e),
-                                        }
-                                    }
-                                    (Value::Integer(av), Value::Integer(bv)) => {
-                                        if *bv == 0 {
-                                            Err("Division by zero".to_string())
-                                        } else {
-                                            Ok(Value::Integer(av / bv))
-                                        }
-                                    }
-                                    (Value::Float(av), Value::Float(bv)) => {
-                                        if *bv == 0.0 {
-                                            Err("Division by zero".to_string())
-                                        } else {
-                                            Ok(Value::Float(av / bv))
-                                        }
-                                    }
-                                    _ => Err(format!("Invalid operand types for DIV: {:?} / {:?}", left_val, right_val)),
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Integer(av - bv))
                                 }
-                            }
-                            "==" | "eq" => {
-                                Ok(Value::Bool(left_val == right_val))
-                            }
-                            "!=" | "ne" => {
-                                Ok(Value::Bool(left_val != right_val))
-                            }
-                            ">" | "gt" | "stdlib.integer.gt" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        Ok(Value::Bool(da.to_f64() > db.to_f64()))
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for SUB: {:?} - {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "*" | "mul" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    let res_dec = da.mul(&db);
+                                    Ok(Value::Decimal {
+                                        value: res_dec.value,
+                                        scale: res_dec.scale,
+                                    })
+                                }
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Integer(av * bv))
+                                }
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for MUL: {:?} * {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "/" | "div" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    match da.div(&db) {
+                                        Ok(res_dec) => Ok(Value::Decimal {
+                                            value: res_dec.value,
+                                            scale: res_dec.scale,
+                                        }),
+                                        Err(e) => Err(e),
                                     }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av > bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
-                                    _ => Err(format!("Invalid operand types for GT: {:?} > {:?}", left_val, right_val)),
                                 }
-                            }
-                            "<" | "lt" | "stdlib.integer.lt" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        Ok(Value::Bool(da.to_f64() < db.to_f64()))
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    if *bv == 0 {
+                                        Err("Division by zero".to_string())
+                                    } else {
+                                        Ok(Value::Integer(av / bv))
                                     }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av < bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
-                                    (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
-                                    _ => Err(format!("Invalid operand types for LT: {:?} < {:?}", left_val, right_val)),
                                 }
-                            }
-                            "<=" | "le" | "stdlib.integer.lte" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        Ok(Value::Bool(da.to_f64() <= db.to_f64()))
+                                (Value::Float(av), Value::Float(bv)) => {
+                                    if *bv == 0.0 {
+                                        Err("Division by zero".to_string())
+                                    } else {
+                                        Ok(Value::Float(av / bv))
                                     }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av <= bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
-                                    (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
-                                    _ => Err(format!("Invalid operand types for LE: {:?} <= {:?}", left_val, right_val)),
                                 }
-                            }
-                            ">=" | "ge" | "stdlib.integer.gte" => {
-                                match (left_val, right_val) {
-                                    (Value::Decimal { value: av, scale: as_ }, Value::Decimal { value: bv, scale: bs }) => {
-                                        let da = Decimal::new(*av, *as_);
-                                        let db = Decimal::new(*bv, *bs);
-                                        Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                                    }
-                                    (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av >= bv)),
-                                    (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
-                                    (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
-                                    _ => Err(format!("Invalid operand types for GE: {:?} >= {:?}", left_val, right_val)),
+                                _ => Err(format!(
+                                    "Invalid operand types for DIV: {:?} / {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "==" | "eq" => Ok(Value::Bool(left_val == right_val)),
+                            "!=" | "ne" => Ok(Value::Bool(left_val != right_val)),
+                            ">" | "gt" | "stdlib.integer.gt" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    Ok(Value::Bool(da.to_f64() > db.to_f64()))
                                 }
-                            }
-                            "&&" | "and" => {
-                                match (left_val, right_val) {
-                                    (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av && *bv)),
-                                    _ => Err(format!("Invalid operand types for AND: {:?} && {:?}", left_val, right_val)),
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Bool(av > bv))
                                 }
-                            }
-                            "||" | "or" => {
-                                match (left_val, right_val) {
-                                    (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av || *bv)),
-                                    _ => Err(format!("Invalid operand types for OR: {:?} || {:?}", left_val, right_val)),
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for GT: {:?} > {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "<" | "lt" | "stdlib.integer.lt" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    Ok(Value::Bool(da.to_f64() < db.to_f64()))
                                 }
-                            }
-                            "++" | "concat" => {
-                                match (left_val, right_val) {
-                                    (Value::String(av), Value::String(bv)) => {
-                                        let mut s = av.to_string();
-                                        s.push_str(bv);
-                                        Ok(Value::String(Arc::from(s.as_str())))
-                                    }
-                                    (Value::Array(av), Value::Array(bv)) => {
-                                        let mut list = (**av).clone();
-                                        list.extend_from_slice(bv);
-                                        Ok(Value::Array(Arc::new(list)))
-                                    }
-                                    _ => Err(format!("Invalid operand types for CONCAT: {:?} ++ {:?}", left_val, right_val)),
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Bool(av < bv))
                                 }
-                            }
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
+                                (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for LT: {:?} < {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "<=" | "le" | "stdlib.integer.lte" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    Ok(Value::Bool(da.to_f64() <= db.to_f64()))
+                                }
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Bool(av <= bv))
+                                }
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
+                                (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for LE: {:?} <= {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            ">=" | "ge" | "stdlib.integer.gte" => match (left_val, right_val) {
+                                (
+                                    Value::Decimal {
+                                        value: av,
+                                        scale: as_,
+                                    },
+                                    Value::Decimal {
+                                        value: bv,
+                                        scale: bs,
+                                    },
+                                ) => {
+                                    let da = Decimal::new(*av, *as_);
+                                    let db = Decimal::new(*bv, *bs);
+                                    Ok(Value::Bool(da.to_f64() >= db.to_f64()))
+                                }
+                                (Value::Integer(av), Value::Integer(bv)) => {
+                                    Ok(Value::Bool(av >= bv))
+                                }
+                                (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
+                                (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for GE: {:?} >= {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "&&" | "and" => match (left_val, right_val) {
+                                (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av && *bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for AND: {:?} && {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "||" | "or" => match (left_val, right_val) {
+                                (Value::Bool(av), Value::Bool(bv)) => Ok(Value::Bool(*av || *bv)),
+                                _ => Err(format!(
+                                    "Invalid operand types for OR: {:?} || {:?}",
+                                    left_val, right_val
+                                )),
+                            },
+                            "++" | "concat" => match (left_val, right_val) {
+                                (Value::String(av), Value::String(bv)) => {
+                                    let mut s = av.to_string();
+                                    s.push_str(bv);
+                                    Ok(Value::String(Arc::from(s.as_str())))
+                                }
+                                (Value::Array(av), Value::Array(bv)) => {
+                                    let mut list = (**av).clone();
+                                    list.extend_from_slice(bv);
+                                    Ok(Value::Array(Arc::new(list)))
+                                }
+                                _ => Err(format!(
+                                    "Invalid operand types for CONCAT: {:?} ++ {:?}",
+                                    left_val, right_val
+                                )),
+                            },
                             _ => Err(format!("Unsupported operator: {}", op)),
                         }
                     }
@@ -3879,16 +5450,17 @@ fn eval_lambda<'a>(
     vm: &'a VM,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
-        let lambda_ast: serde_json::Value = serde_json::from_str(lambda_str)
-            .map_err(|e| format!("Invalid lambda JSON: {}", e))?;
-        let params = lambda_ast.get("params")
+        let lambda_ast: serde_json::Value =
+            serde_json::from_str(lambda_str).map_err(|e| format!("Invalid lambda JSON: {}", e))?;
+        let params = lambda_ast
+            .get("params")
             .and_then(|p| p.as_array())
             .ok_or("Missing params in lambda")?;
-        let param_name = params.first()
+        let param_name = params
+            .first()
             .and_then(|p| p.as_str())
             .ok_or("Lambda must have at least one parameter")?;
-        let body = lambda_ast.get("body")
-            .ok_or("Missing body in lambda")?;
+        let body = lambda_ast.get("body").ok_or("Missing body in lambda")?;
         let mut inner_env = local_env.clone();
         inner_env.insert(param_name.to_string(), arg);
         eval_ast(body, inputs, temporal_context, &inner_env, backend, vm).await
@@ -3897,8 +5469,7 @@ fn eval_lambda<'a>(
 
 // SHA256 hex digest generator slicing first 16 characters
 fn sha256_hex(input: &str) -> String {
-
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
@@ -3928,9 +5499,15 @@ fn collect_captures(
                     }
                 }
             }
-            for (_, c) in map.iter() { collect_captures(c, registers, out); }
+            for (_, c) in map.iter() {
+                collect_captures(c, registers, out);
+            }
         }
-        serde_json::Value::Array(arr) => { for c in arr.iter() { collect_captures(c, registers, out); } }
+        serde_json::Value::Array(arr) => {
+            for c in arr.iter() {
+                collect_captures(c, registers, out);
+            }
+        }
         _ => {}
     }
 }

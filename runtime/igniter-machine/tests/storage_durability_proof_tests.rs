@@ -54,9 +54,17 @@ async fn durable_across_graceful_reopen() {
     let reopened = RocksDBBackend::new(dir.clone()).unwrap();
     // all three versions are preloaded from the .mpk file
     let all = reopened.facts_for("s", "k1", None, None).await.unwrap();
-    assert_eq!(all.len(), 3, "all written versions survive a graceful reopen");
+    assert_eq!(
+        all.len(),
+        3,
+        "all written versions survive a graceful reopen"
+    );
     // latest-as-of reads the most recent
-    let latest = reopened.read_as_of("s", "k1", f64::MAX).await.unwrap().unwrap();
+    let latest = reopened
+        .read_as_of("s", "k1", f64::MAX)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(latest.value, serde_json::json!({ "n": 3 }));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -84,7 +92,11 @@ async fn corrupt_mpk_is_observable_not_silently_dropped() {
     let reopened = RocksDBBackend::new(dir.clone()).unwrap();
     // OBSERVABLE: corruption is surfaced, not silent.
     let corrupt = reopened.corrupt_files();
-    assert_eq!(corrupt.len(), 1, "corrupt .mpk is recorded, not silently skipped");
+    assert_eq!(
+        corrupt.len(),
+        1,
+        "corrupt .mpk is recorded, not silently skipped"
+    );
     assert!(corrupt[0].ends_with("k1.mpk"));
     // The corrupt file is left on disk for forensics (not deleted, not overwritten-as-empty).
     assert!(mpk.exists(), "corrupt file preserved on disk");
@@ -113,11 +125,18 @@ async fn write_to_corrupt_key_refuses_instead_of_dropping_history() {
     let reopened = RocksDBBackend::new(dir.clone()).unwrap();
     let err = reopened.write_fact(fact("s", "k1", 3, 300.0)).await;
     assert!(
-        matches!(err, Err(igniter_machine::errors::EngineError::Corruption(_))),
+        matches!(
+            err,
+            Err(igniter_machine::errors::EngineError::Corruption(_))
+        ),
         "write to a corrupt key must refuse loudly, got {err:?}"
     );
     // The corrupt file is untouched (not overwritten to drop history) and observable.
-    assert_eq!(std::fs::read(&mpk).unwrap(), corrupt_bytes, "corrupt bytes preserved, not replaced");
+    assert_eq!(
+        std::fs::read(&mpk).unwrap(),
+        corrupt_bytes,
+        "corrupt bytes preserved, not replaced"
+    );
     assert!(!reopened.corrupt_files().is_empty(), "corruption recorded");
 
     let _ = std::fs::remove_dir_all(&dir);

@@ -19,13 +19,24 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
 }
 
-const SCOPES: &[&str] = &["create_pool", "import_capsule", "activate_capsule", "grant_access", "admin_pool", "accept_recipe", "invoke"];
+const SCOPES: &[&str] = &[
+    "create_pool",
+    "import_capsule",
+    "activate_capsule",
+    "grant_access",
+    "admin_pool",
+    "accept_recipe",
+    "invoke",
+];
 
 fn passport(subject: &str) -> CapabilityPassport {
     CapabilityPassport {
@@ -40,7 +51,15 @@ fn passport(subject: &str) -> CapabilityPassport {
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 
 async fn add_capsule_bytes() -> Vec<u8> {
@@ -52,10 +71,19 @@ async fn add_capsule_bytes() -> Vec<u8> {
 
 fn recipe(digest: &str) -> ServiceRecipe {
     ServiceRecipe {
-        recipe_id: "r1".into(), capsule_digest: digest.into(), entry_contract: "Add".into(),
-        input_schema_digest: None, capability_bindings: vec![], required_scopes: vec!["invoke".into()],
-        receipt_policy: "audit".into(), retry_policy_ref: None, pool_sizing: 1,
-        created_by: "alice".into(), accepted_by: None, accepted_at: None, duplicate_policy: None,
+        recipe_id: "r1".into(),
+        capsule_digest: digest.into(),
+        entry_contract: "Add".into(),
+        input_schema_digest: None,
+        capability_bindings: vec![],
+        required_scopes: vec!["invoke".into()],
+        receipt_policy: "audit".into(),
+        retry_policy_ref: None,
+        pool_sizing: 1,
+        created_by: "alice".into(),
+        accepted_by: None,
+        accepted_at: None,
+        duplicate_policy: None,
     }
 }
 
@@ -66,11 +94,30 @@ async fn prod_hub() -> (CoordinationHub, Arc<dyn TBackend>) {
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&passport("alice"), "svc", bytes, vec![]).await.unwrap();
-    h.accept_recipe(&passport("dev"), "svc", recipe(&cref.capsule_id)).await.unwrap();
-    h.grant(&passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    let cref = h
+        .add_capsule(&passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
+    h.accept_recipe(&passport("dev"), "svc", recipe(&cref.capsule_id))
+        .await
+        .unwrap();
+    h.grant(
+        &passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     (h, audit)
 }
 
@@ -81,7 +128,13 @@ fn router() -> IngressRouter {
     r
 }
 
-fn req(method: &str, path: &str, token: Option<&str>, body: Value, extra: &[(&str, &str)]) -> IngressRequest {
+fn req(
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Value,
+    extra: &[(&str, &str)],
+) -> IngressRequest {
     let mut headers = HashMap::new();
     if let Some(t) = token {
         headers.insert("authorization".to_string(), format!("Bearer {}", t));
@@ -89,11 +142,23 @@ fn req(method: &str, path: &str, token: Option<&str>, body: Value, extra: &[(&st
     for (k, v) in extra {
         headers.insert(k.to_string(), v.to_string());
     }
-    IngressRequest { method: method.to_string(), path: path.to_string(), headers, body }
+    IngressRequest {
+        method: method.to_string(),
+        path: path.to_string(),
+        headers,
+        body,
+    }
 }
 
 async fn audit_events(audit: &Arc<dyn TBackend>) -> Vec<Value> {
-    audit.all_facts().await.unwrap().into_iter().filter(|f| f.store == COORD_AUDIT_STORE).map(|f| f.value).collect()
+    audit
+        .all_facts()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|f| f.store == COORD_AUDIT_STORE)
+        .map(|f| f.value)
+        .collect()
 }
 
 // 1,4,5: a webhook invokes the capsule and returns 200 + the result body
@@ -102,7 +167,18 @@ fn webhook_invokes_capsule_returns_200() {
     rt().block_on(async {
         let (h, _a) = prod_hub().await;
         let r = router();
-        let resp = r.handle(&h, &req("POST", "/webhook/acme", Some("vendortoken"), json!({"a": 2, "b": 3}), &[])).await;
+        let resp = r
+            .handle(
+                &h,
+                &req(
+                    "POST",
+                    "/webhook/acme",
+                    Some("vendortoken"),
+                    json!({"a": 2, "b": 3}),
+                    &[],
+                ),
+            )
+            .await;
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, json!(5));
     });
@@ -114,11 +190,27 @@ fn invalid_passport_refused_before_activation() {
     rt().block_on(async {
         let (h, audit) = prod_hub().await;
         let r = router();
-        let resp = r.handle(&h, &req("POST", "/webhook/acme", Some("BADTOKEN"), json!({"a": 1, "b": 1}), &[])).await;
+        let resp = r
+            .handle(
+                &h,
+                &req(
+                    "POST",
+                    "/webhook/acme",
+                    Some("BADTOKEN"),
+                    json!({"a": 1, "b": 1}),
+                    &[],
+                ),
+            )
+            .await;
         assert_eq!(resp.status, 401);
         let evs = audit_events(&audit).await;
-        assert!(!evs.iter().any(|e| e["operation"] == "invoke"), "activation must not be reached");
-        assert!(evs.iter().any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
+        assert!(
+            !evs.iter().any(|e| e["operation"] == "invoke"),
+            "activation must not be reached"
+        );
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
     });
 }
 
@@ -128,7 +220,12 @@ fn unknown_route_404() {
     rt().block_on(async {
         let (h, _a) = prod_hub().await;
         let r = router();
-        let resp = r.handle(&h, &req("POST", "/nope", Some("vendortoken"), json!({}), &[])).await;
+        let resp = r
+            .handle(
+                &h,
+                &req("POST", "/nope", Some("vendortoken"), json!({}), &[]),
+            )
+            .await;
         assert_eq!(resp.status, 404);
     });
 }
@@ -141,10 +238,28 @@ fn non_production_pool_refused() {
         // a second pool that was never signed into production
         let mut h = h;
         register(&mut h, "carol", AgentKind::Agent).await;
-        h.create_pool(&passport("carol"), "draft", "draft", PoolVisibility::Private).await.unwrap();
+        h.create_pool(
+            &passport("carol"),
+            "draft",
+            "draft",
+            PoolVisibility::Private,
+        )
+        .await
+        .unwrap();
         let mut r = router();
         r.route("/webhook/draft", "draft");
-        let resp = r.handle(&h, &req("POST", "/webhook/draft", Some("vendortoken"), json!({"a": 1, "b": 1}), &[])).await;
+        let resp = r
+            .handle(
+                &h,
+                &req(
+                    "POST",
+                    "/webhook/draft",
+                    Some("vendortoken"),
+                    json!({"a": 1, "b": 1}),
+                    &[],
+                ),
+            )
+            .await;
         assert_eq!(resp.status, 404); // no accepted recipe / not production
     });
 }
@@ -155,11 +270,29 @@ fn audit_for_accepted_and_denied() {
     rt().block_on(async {
         let (h, audit) = prod_hub().await;
         let r = router();
-        r.handle(&h, &req("POST", "/webhook/acme", Some("vendortoken"), json!({"a": 1, "b": 1}), &[])).await;
-        r.handle(&h, &req("POST", "/webhook/acme", Some("BADTOKEN"), json!({}), &[])).await;
+        r.handle(
+            &h,
+            &req(
+                "POST",
+                "/webhook/acme",
+                Some("vendortoken"),
+                json!({"a": 1, "b": 1}),
+                &[],
+            ),
+        )
+        .await;
+        r.handle(
+            &h,
+            &req("POST", "/webhook/acme", Some("BADTOKEN"), json!({}), &[]),
+        )
+        .await;
         let evs = audit_events(&audit).await;
-        assert!(evs.iter().any(|e| e["operation"] == "ingress" && e["outcome"] == "allowed"));
-        assert!(evs.iter().any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "ingress" && e["outcome"] == "allowed"));
+        assert!(evs
+            .iter()
+            .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
     });
 }
 
@@ -169,7 +302,17 @@ fn no_messenger_in_hot_path() {
     rt().block_on(async {
         let (h, audit) = prod_hub().await;
         let r = router();
-        r.handle(&h, &req("POST", "/webhook/acme", Some("vendortoken"), json!({"a": 4, "b": 4}), &[])).await;
+        r.handle(
+            &h,
+            &req(
+                "POST",
+                "/webhook/acme",
+                Some("vendortoken"),
+                json!({"a": 4, "b": 4}),
+                &[],
+            ),
+        )
+        .await;
         let all = audit.all_facts().await.unwrap();
         assert!(all.iter().all(|f| f.store != "__messenger__"));
     });
@@ -190,8 +333,20 @@ fn correlation_and_idempotency_recorded() {
     rt().block_on(async {
         let (h, audit) = prod_hub().await;
         let r = router();
-        r.handle(&h, &req("POST", "/webhook/acme", Some("vendortoken"), json!({"a": 1, "b": 1}),
-            &[("x-correlation-id", "corr-123"), ("idempotency-key", "idem-9")])).await;
+        r.handle(
+            &h,
+            &req(
+                "POST",
+                "/webhook/acme",
+                Some("vendortoken"),
+                json!({"a": 1, "b": 1}),
+                &[
+                    ("x-correlation-id", "corr-123"),
+                    ("idempotency-key", "idem-9"),
+                ],
+            ),
+        )
+        .await;
         let evs = audit_events(&audit).await;
         let ing = evs.iter().find(|e| e["operation"] == "ingress").unwrap();
         assert_eq!(ing["correlation_id"], json!("corr-123"));

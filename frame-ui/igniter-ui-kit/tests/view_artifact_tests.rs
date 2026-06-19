@@ -43,15 +43,33 @@ fn workbench_json_compiles_to_byte_identical_runtime() {
     let mut from_json = WorkbenchRuntime::from_artifact(WORKBENCH_JSON).expect("artifact compiles");
     let mut hand = WorkbenchRuntime::lead_review();
 
-    assert_eq!(from_json.render_digest(), hand.render_digest(), "initial frame identical");
-    assert_eq!(drive_workbench(&mut from_json), drive_workbench(&mut hand), "JSON-built workbench is byte-identical to the hand-written one over a full event log");
+    assert_eq!(
+        from_json.render_digest(),
+        hand.render_digest(),
+        "initial frame identical"
+    );
+    assert_eq!(
+        drive_workbench(&mut from_json),
+        drive_workbench(&mut hand),
+        "JSON-built workbench is byte-identical to the hand-written one over a full event log"
+    );
 }
 
 #[test]
 fn workbench_json_renders_the_authored_screen() {
     let rt = WorkbenchRuntime::from_artifact(WORKBENCH_JSON).unwrap();
     let svg = rt.render_svg();
-    for needle in ["Leads", "Ada", "Grace", "Linus", "Priority", "Stage", "Hot lead", "Submit", "lead: Ada"] {
+    for needle in [
+        "Leads",
+        "Ada",
+        "Grace",
+        "Linus",
+        "Priority",
+        "Stage",
+        "Hot lead",
+        "Submit",
+        "lead: Ada",
+    ] {
         assert!(svg.contains(needle), "compiled screen missing: {needle}");
     }
 }
@@ -73,8 +91,16 @@ fn drive_form(rt: &mut FormRuntime) -> Vec<String> {
 fn form_json_compiles_to_byte_identical_runtime() {
     let mut from_json = FormRuntime::from_artifact(FORM_JSON).expect("form artifact compiles");
     let mut hand = FormRuntime::lead_intake();
-    assert_eq!(from_json.render_digest(), hand.render_digest(), "initial form identical");
-    assert_eq!(drive_form(&mut from_json), drive_form(&mut hand), "JSON-built form is byte-identical to lead_intake()");
+    assert_eq!(
+        from_json.render_digest(),
+        hand.render_digest(),
+        "initial form identical"
+    );
+    assert_eq!(
+        drive_form(&mut from_json),
+        drive_form(&mut hand),
+        "JSON-built form is byte-identical to lead_intake()"
+    );
 }
 
 // ── the compile is a real lowering with diagnostics ─────────────────────────────────────────────

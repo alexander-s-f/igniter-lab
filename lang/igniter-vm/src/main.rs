@@ -1,27 +1,27 @@
 // src/main.rs
 // High-performance, premium-class CLI for igniter-vm
 
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use serde_json::Value as JsonValue;
 
-use igniter_vm::value::Value;
-use igniter_vm::instructions::*;
 use igniter_vm::compiler::Compiler;
-use igniter_vm::tbackend::{TBackend, MemoryHistoryBackend, LedgerTcpBackend};
-use igniter_vm::vm::VM;
+use igniter_vm::instructions::*;
 use igniter_vm::pipeline::ProjectionPipeline;
+use igniter_vm::tbackend::{LedgerTcpBackend, MemoryHistoryBackend, TBackend};
+use igniter_vm::value::Value;
+use igniter_vm::vm::VM;
 
 // ANSI styling
-const GREEN: &str  = "\x1b[32m";
-const RED: &str    = "\x1b[31m";
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
-const CYAN: &str   = "\x1b[36m";
-const BOLD: &str   = "\x1b[1m";
-const RESET: &str  = "\x1b[0m";
+const CYAN: &str = "\x1b[36m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
 
 #[tokio::main]
 async fn main() {
@@ -60,28 +60,53 @@ async fn main() {
         while i < args.len() {
             match args[i].as_str() {
                 "--entry" | "-e" => {
-                    if i + 1 < args.len() { entry_arg = Some(args[i+1].clone()); i += 2; }
-                    else { eprintln!("Missing value for --entry"); std::process::exit(1); }
+                    if i + 1 < args.len() {
+                        entry_arg = Some(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        eprintln!("Missing value for --entry");
+                        std::process::exit(1);
+                    }
                 }
                 "--inputs" | "-i" => {
-                    if i + 1 < args.len() { inputs_path_arg = Some(args[i+1].clone()); i += 2; }
-                    else { eprintln!("Missing value for --inputs"); std::process::exit(1); }
+                    if i + 1 < args.len() {
+                        inputs_path_arg = Some(args[i + 1].clone());
+                        i += 2;
+                    } else {
+                        eprintln!("Missing value for --inputs");
+                        std::process::exit(1);
+                    }
                 }
-                other => { eprintln!("Unknown trace argument '{}'", other); std::process::exit(1); }
+                other => {
+                    eprintln!("Unknown trace argument '{}'", other);
+                    std::process::exit(1);
+                }
             }
         }
         let inputs_path = match inputs_path_arg {
             Some(p) => p,
-            None => { eprintln!("--inputs is required for trace subcommand"); std::process::exit(1); }
+            None => {
+                eprintln!("--inputs is required for trace subcommand");
+                std::process::exit(1);
+            }
         };
         handle_vm_trace(&igapp_path, entry_arg.as_deref(), &inputs_path).await;
         return;
     }
 
     if !json_mode {
-        println!("\n{}{}{}┌──────────────────────────────────────────────────────────────┐", BOLD, CYAN, RESET);
-        println!("{}{}{}│             IGNITER VIRTUAL MACHINE (IVM) CLIENT             │", BOLD, CYAN, RESET);
-        println!("{}{}{}└──────────────────────────────────────────────────────────────┘{}", BOLD, CYAN, RESET, RESET);
+        println!(
+            "\n{}{}{}┌──────────────────────────────────────────────────────────────┐",
+            BOLD, CYAN, RESET
+        );
+        println!(
+            "{}{}{}│             IGNITER VIRTUAL MACHINE (IVM) CLIENT             │",
+            BOLD, CYAN, RESET
+        );
+        println!(
+            "{}{}{}└──────────────────────────────────────────────────────────────┘{}",
+            BOLD, CYAN, RESET, RESET
+        );
     }
 
     if args.len() >= 2 && args[1] == "reactive" {
@@ -99,7 +124,10 @@ async fn main() {
                         contract_path = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        eprintln!("  {}Error: Missing value for --contract option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --contract option{}",
+                            RED, RESET
+                        );
                         return;
                     }
                 }
@@ -108,7 +136,10 @@ async fn main() {
                         trigger_store = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        eprintln!("  {}Error: Missing value for --trigger-store option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --trigger-store option{}",
+                            RED, RESET
+                        );
                         return;
                     }
                 }
@@ -117,7 +148,10 @@ async fn main() {
                         target_store = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        eprintln!("  {}Error: Missing value for --target-store option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --target-store option{}",
+                            RED, RESET
+                        );
                         return;
                     }
                 }
@@ -126,7 +160,10 @@ async fn main() {
                         tbackend_addr = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        eprintln!("  {}Error: Missing value for --tbackend option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --tbackend option{}",
+                            RED, RESET
+                        );
                         return;
                     }
                 }
@@ -135,17 +172,28 @@ async fn main() {
                         if let Ok(port) = args[i + 1].parse::<u16>() {
                             listener_port = port;
                         } else {
-                            eprintln!("  {}Error: Invalid port number: {}{}", RED, args[i + 1], RESET);
+                            eprintln!(
+                                "  {}Error: Invalid port number: {}{}",
+                                RED,
+                                args[i + 1],
+                                RESET
+                            );
                             return;
                         }
                         i += 2;
                     } else {
-                        eprintln!("  {}Error: Missing value for --listener-port option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --listener-port option{}",
+                            RED, RESET
+                        );
                         return;
                     }
                 }
                 other => {
-                    eprintln!("  {}Error: Unknown argument '{}' for reactive mode{}", RED, other, RESET);
+                    eprintln!(
+                        "  {}Error: Unknown argument '{}' for reactive mode{}",
+                        RED, other, RESET
+                    );
                     print_help();
                     return;
                 }
@@ -156,28 +204,40 @@ async fn main() {
         let contract_path = match contract_path {
             Some(p) => p,
             None => {
-                eprintln!("  {}Error: --contract parameter is required for reactive mode{}", RED, RESET);
+                eprintln!(
+                    "  {}Error: --contract parameter is required for reactive mode{}",
+                    RED, RESET
+                );
                 return;
             }
         };
         let trigger_store = match trigger_store {
             Some(ts) => ts,
             None => {
-                eprintln!("  {}Error: --trigger-store parameter is required for reactive mode{}", RED, RESET);
+                eprintln!(
+                    "  {}Error: --trigger-store parameter is required for reactive mode{}",
+                    RED, RESET
+                );
                 return;
             }
         };
         let target_store = match target_store {
             Some(ts) => ts,
             None => {
-                eprintln!("  {}Error: --target-store parameter is required for reactive mode{}", RED, RESET);
+                eprintln!(
+                    "  {}Error: --target-store parameter is required for reactive mode{}",
+                    RED, RESET
+                );
                 return;
             }
         };
         let tbackend_addr = match tbackend_addr {
             Some(addr) => addr,
             None => {
-                eprintln!("  {}Error: --tbackend parameter is required for reactive mode{}", RED, RESET);
+                eprintln!(
+                    "  {}Error: --tbackend parameter is required for reactive mode{}",
+                    RED, RESET
+                );
                 return;
             }
         };
@@ -191,18 +251,29 @@ async fn main() {
             } else if path_manifest.exists() {
                 path_manifest
             } else {
-                eprintln!("  {}Error: Could not locate semantic_ir_program.json inside directory: {}{}", RED, contract_path, RESET);
+                eprintln!(
+                    "  {}Error: Could not locate semantic_ir_program.json inside directory: {}{}",
+                    RED, contract_path, RESET
+                );
                 return;
             }
         } else {
             Path::new(&contract_path).to_path_buf()
         };
 
-        println!("  {} [*] Loading Compiled Contract: {}{}", YELLOW, contract_filepath.display(), RESET);
+        println!(
+            "  {} [*] Loading Compiled Contract: {}{}",
+            YELLOW,
+            contract_filepath.display(),
+            RESET
+        );
         let contract_content = match fs::read_to_string(&contract_filepath) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("  {}Error: Failed to read contract file: {}{}", RED, e, RESET);
+                eprintln!(
+                    "  {}Error: Failed to read contract file: {}{}",
+                    RED, e, RESET
+                );
                 return;
             }
         };
@@ -210,7 +281,10 @@ async fn main() {
         let contract_json: JsonValue = match serde_json::from_str(&contract_content) {
             Ok(j) => j,
             Err(e) => {
-                eprintln!("  {}Error: Failed to parse contract JSON: {}{}", RED, e, RESET);
+                eprintln!(
+                    "  {}Error: Failed to parse contract JSON: {}{}",
+                    RED, e, RESET
+                );
                 return;
             }
         };
@@ -221,7 +295,10 @@ async fn main() {
         }
 
         // Boot Projection Pipeline
-        println!("  {} [*] Booting Reactive Projection Pipeline Orchestrator...{}", YELLOW, RESET);
+        println!(
+            "  {} [*] Booting Reactive Projection Pipeline Orchestrator...{}",
+            YELLOW, RESET
+        );
         let pipeline = Arc::new(ProjectionPipeline::new(
             contract_json,
             &tbackend_addr,
@@ -238,7 +315,10 @@ async fn main() {
         }
 
         // Register shutdown hook (Ctrl-C trapping)
-        println!("  {} [*] Webhook listener is running. Press Ctrl-C to shutdown gracefully...{}", YELLOW, RESET);
+        println!(
+            "  {} [*] Webhook listener is running. Press Ctrl-C to shutdown gracefully...{}",
+            YELLOW, RESET
+        );
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("\n  {} [*] Shutting down reactive pipeline...{}", YELLOW, RESET);
@@ -262,16 +342,24 @@ async fn main() {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "run" => { i += 1; }
+            "run" => {
+                i += 1;
+            }
             "--contract" | "-c" => {
                 if i + 1 < args.len() {
                     contract_path = Some(&args[i + 1]);
                     i += 2;
                 } else {
                     if json_mode {
-                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --contract option" }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "error", "error": "Missing value for --contract option" })
+                        );
                     } else {
-                        eprintln!("  {}Error: Missing value for --contract option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --contract option{}",
+                            RED, RESET
+                        );
                     }
                     std::process::exit(1);
                 }
@@ -282,7 +370,10 @@ async fn main() {
                     i += 2;
                 } else {
                     if json_mode {
-                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --inputs option" }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "error", "error": "Missing value for --inputs option" })
+                        );
                     } else {
                         eprintln!("  {}Error: Missing value for --inputs option{}", RED, RESET);
                     }
@@ -295,7 +386,10 @@ async fn main() {
                     i += 2;
                 } else {
                     if json_mode {
-                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --as-of option" }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "error", "error": "Missing value for --as-of option" })
+                        );
                     } else {
                         eprintln!("  {}Error: Missing value for --as-of option{}", RED, RESET);
                     }
@@ -308,9 +402,15 @@ async fn main() {
                     i += 2;
                 } else {
                     if json_mode {
-                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --tbackend option" }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "error", "error": "Missing value for --tbackend option" })
+                        );
                     } else {
-                        eprintln!("  {}Error: Missing value for --tbackend option{}", RED, RESET);
+                        eprintln!(
+                            "  {}Error: Missing value for --tbackend option{}",
+                            RED, RESET
+                        );
                     }
                     std::process::exit(1);
                 }
@@ -326,7 +426,10 @@ async fn main() {
                     i += 2;
                 } else {
                     if json_mode {
-                        println!("{}", serde_json::json!({ "status": "error", "error": "Missing value for --entry option" }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "error", "error": "Missing value for --entry option" })
+                        );
                     } else {
                         eprintln!("  {}Error: Missing value for --entry option{}", RED, RESET);
                     }
@@ -335,7 +438,10 @@ async fn main() {
             }
             other => {
                 if json_mode {
-                    println!("{}", serde_json::json!({ "status": "error", "error": format!("Unknown argument '{}'", other) }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "status": "error", "error": format!("Unknown argument '{}'", other) })
+                    );
                 } else {
                     eprintln!("  {}Error: Unknown argument '{}'{}", RED, other, RESET);
                     print_help();
@@ -349,7 +455,10 @@ async fn main() {
         Some(p) => p,
         None => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": "--contract parameter is required" }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": "--contract parameter is required" })
+                );
             } else {
                 eprintln!("  {}Error: --contract parameter is required{}", RED, RESET);
             }
@@ -361,7 +470,10 @@ async fn main() {
         Some(p) => p,
         None => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": "--inputs parameter is required" }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": "--inputs parameter is required" })
+                );
             } else {
                 eprintln!("  {}Error: --inputs parameter is required{}", RED, RESET);
             }
@@ -379,9 +491,15 @@ async fn main() {
             path_manifest
         } else {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Could not locate semantic_ir_program.json inside directory: {}", contract_path) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Could not locate semantic_ir_program.json inside directory: {}", contract_path) })
+                );
             } else {
-                eprintln!("  {}Error: Could not locate semantic_ir_program.json inside directory: {}{}", RED, contract_path, RESET);
+                eprintln!(
+                    "  {}Error: Could not locate semantic_ir_program.json inside directory: {}{}",
+                    RED, contract_path, RESET
+                );
             }
             std::process::exit(1);
         }
@@ -390,15 +508,26 @@ async fn main() {
     };
 
     if !json_mode {
-        println!("  {} [*] Loading Compiled Contract: {}{}", YELLOW, contract_filepath.display(), RESET);
+        println!(
+            "  {} [*] Loading Compiled Contract: {}{}",
+            YELLOW,
+            contract_filepath.display(),
+            RESET
+        );
     }
     let contract_content = match fs::read_to_string(&contract_filepath) {
         Ok(c) => c,
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Failed to read contract file: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Failed to read contract file: {}", e) })
+                );
             } else {
-                eprintln!("  {}Error: Failed to read contract file: {}{}", RED, e, RESET);
+                eprintln!(
+                    "  {}Error: Failed to read contract file: {}{}",
+                    RED, e, RESET
+                );
             }
             std::process::exit(1);
         }
@@ -408,9 +537,15 @@ async fn main() {
         Ok(j) => j,
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Failed to parse contract JSON: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Failed to parse contract JSON: {}", e) })
+                );
             } else {
-                eprintln!("  {}Error: Failed to parse contract JSON: {}{}", RED, e, RESET);
+                eprintln!(
+                    "  {}Error: Failed to parse contract JSON: {}{}",
+                    RED, e, RESET
+                );
             }
             std::process::exit(1);
         }
@@ -427,7 +562,10 @@ async fn main() {
 
     // 2. Compile AST graphs to Bytecode instructions
     if !json_mode {
-        println!("  {} [*] Compiling Contract AST to Bytecode...{}", YELLOW, RESET);
+        println!(
+            "  {} [*] Compiling Contract AST to Bytecode...{}",
+            YELLOW, RESET
+        );
     }
     let mut compiler = Compiler::new();
     // LAB-RACK-P7: use compile_entry; passes entry_name=None for default (contracts[0]).
@@ -435,7 +573,10 @@ async fn main() {
         Ok(bc) => bc,
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Compilation Error: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Compilation Error: {}", e) })
+                );
             } else {
                 eprintln!("  {}Compilation Error: {}{}", RED, e, RESET);
             }
@@ -443,10 +584,18 @@ async fn main() {
         }
     };
     if !json_mode {
-        println!("      {}✔ Parity compile successful! Generated {} VM instructions.{}", GREEN, bytecode.len(), RESET);
+        println!(
+            "      {}✔ Parity compile successful! Generated {} VM instructions.{}",
+            GREEN,
+            bytecode.len(),
+            RESET
+        );
 
         // 3. Disassemble Bytecode
-        println!("\n  {}=== DISASSEMBLED IVM BYTECODE MNEMONICS ==={}", BOLD, RESET);
+        println!(
+            "\n  {}=== DISASSEMBLED IVM BYTECODE MNEMONICS ==={}",
+            BOLD, RESET
+        );
         println!("  ----------------------------------------------------------------------");
         println!("   OFFSET | OPCODE (HEX) | MNEMONIC         | ARGUMENTS");
         println!("  ----------------------------------------------------------------------");
@@ -475,9 +624,16 @@ async fn main() {
             let args_str = if inst.args.is_empty() {
                 "-".to_string()
             } else {
-                inst.args.iter().map(|v| format!("{:?}", v)).collect::<Vec<_>>().join(", ")
+                inst.args
+                    .iter()
+                    .map(|v| format!("{:?}", v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             };
-            println!("    {:04}  |     {:<8} | {:<16} | {}", idx, hex_op, mnemonic, args_str);
+            println!(
+                "    {:04}  |     {:<8} | {:<16} | {}",
+                idx, hex_op, mnemonic, args_str
+            );
         }
         println!("  ----------------------------------------------------------------------\n");
     }
@@ -494,7 +650,9 @@ async fn main() {
             let c_name = contract_display_name(contract_item);
             if !c_name.is_empty() {
                 match compiler.build_dispatch_entry(contract_item, &c_name) {
-                    Ok(entry) => { p9_dispatch_table.insert(c_name, entry); }
+                    Ok(entry) => {
+                        p9_dispatch_table.insert(c_name, entry);
+                    }
                     Err(e) => {
                         dispatch_skipped.push((c_name, e));
                     }
@@ -504,21 +662,27 @@ async fn main() {
     }
     if !dispatch_skipped.is_empty() {
         if json_mode {
-            let skipped_json: Vec<JsonValue> = dispatch_skipped.iter()
-                .map(|(contract_name, error)| serde_json::json!({
-                    "contract_name": contract_name,
-                    "error": error
-                }))
+            let skipped_json: Vec<JsonValue> = dispatch_skipped
+                .iter()
+                .map(|(contract_name, error)| {
+                    serde_json::json!({
+                        "contract_name": contract_name,
+                        "error": error
+                    })
+                })
                 .collect();
-            println!("{}", serde_json::json!({
-                "status": "error",
-                "error": format!(
-                    "Dispatch table construction failed for {} contract(s)",
-                    dispatch_skipped.len()
-                ),
-                "dispatch_built": p9_dispatch_table.len(),
-                "dispatch_skipped": skipped_json
-            }));
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "error",
+                    "error": format!(
+                        "Dispatch table construction failed for {} contract(s)",
+                        dispatch_skipped.len()
+                    ),
+                    "dispatch_built": p9_dispatch_table.len(),
+                    "dispatch_skipped": skipped_json
+                })
+            );
         } else {
             eprintln!(
                 "  {}Dispatch table construction failed for {} contract(s); refusing partial VM load.{}",
@@ -526,9 +690,15 @@ async fn main() {
                 dispatch_skipped.len(),
                 RESET
             );
-            eprintln!("  Successfully built dispatch entries: {}", p9_dispatch_table.len());
+            eprintln!(
+                "  Successfully built dispatch entries: {}",
+                p9_dispatch_table.len()
+            );
             for (contract_name, error) in &dispatch_skipped {
-                eprintln!("  - skipped dispatch entry for '{}': {}", contract_name, error);
+                eprintln!(
+                    "  - skipped dispatch entry for '{}': {}",
+                    contract_name, error
+                );
             }
         }
         std::process::exit(1);
@@ -536,13 +706,19 @@ async fn main() {
 
     // 4. Load Inputs and Temporal coordinates
     if !json_mode {
-        println!("  {} [*] Loading Inputs from: {}{}", YELLOW, inputs_path, RESET);
+        println!(
+            "  {} [*] Loading Inputs from: {}{}",
+            YELLOW, inputs_path, RESET
+        );
     }
     let inputs_content = match fs::read_to_string(inputs_path) {
         Ok(c) => c,
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Failed to read inputs file: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Failed to read inputs file: {}", e) })
+                );
             } else {
                 eprintln!("  {}Error: Failed to read inputs file: {}{}", RED, e, RESET);
             }
@@ -554,9 +730,15 @@ async fn main() {
         Ok(j) => j,
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("Failed to parse inputs JSON: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("Failed to parse inputs JSON: {}", e) })
+                );
             } else {
-                eprintln!("  {}Error: Failed to parse inputs JSON: {}{}", RED, e, RESET);
+                eprintln!(
+                    "  {}Error: Failed to parse inputs JSON: {}{}",
+                    RED, e, RESET
+                );
             }
             std::process::exit(1);
         }
@@ -574,19 +756,28 @@ async fn main() {
     if contract_dir.is_dir() {
         let mut active_grants = HashMap::new();
         if let Some(grants_val) = inputs_json.get("active_grants") {
-            if let Ok(grants_map) = serde_json::from_value::<HashMap<String, igniter_vm::passport::CapabilityGrant>>(grants_val.clone()) {
+            if let Ok(grants_map) = serde_json::from_value::<
+                HashMap<String, igniter_vm::passport::CapabilityGrant>,
+            >(grants_val.clone())
+            {
                 active_grants = grants_map;
             }
         }
 
         let mut caller_bindings = HashMap::new();
         if let Some(bindings_val) = inputs_json.get("caller_bindings") {
-            if let Ok(bindings_map) = serde_json::from_value::<HashMap<String, String>>(bindings_val.clone()) {
+            if let Ok(bindings_map) =
+                serde_json::from_value::<HashMap<String, String>>(bindings_val.clone())
+            {
                 caller_bindings = bindings_map;
             }
         }
 
-        match igniter_vm::passport::load_and_verify_passport(contract_dir, &active_grants, &caller_bindings) {
+        match igniter_vm::passport::load_and_verify_passport(
+            contract_dir,
+            &active_grants,
+            &caller_bindings,
+        ) {
             Ok(resolved) => {
                 resolved_grants = resolved;
                 if !json_mode {
@@ -595,7 +786,10 @@ async fn main() {
             }
             Err(e) => {
                 if json_mode {
-                    println!("{}", serde_json::json!({ "status": "error", "error": format!("Passport load failed: {}", e) }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "status": "error", "error": format!("Passport load failed: {}", e) })
+                    );
                 } else {
                     eprintln!("  {}Error: Passport load failed: {}{}", RED, e, RESET);
                 }
@@ -606,7 +800,10 @@ async fn main() {
 
     let mut temporal_context = HashMap::new();
     if let Some(ref as_of_ts) = as_of {
-        temporal_context.insert("as_of".to_string(), Value::String(Arc::from(as_of_ts.as_str())));
+        temporal_context.insert(
+            "as_of".to_string(),
+            Value::String(Arc::from(as_of_ts.as_str())),
+        );
     } else if let Some(as_of_val) = inputs.get("as_of") {
         if let Ok(as_of_str) = as_of_val.as_str() {
             temporal_context.insert("as_of".to_string(), Value::String(Arc::from(as_of_str)));
@@ -614,7 +811,8 @@ async fn main() {
     }
 
     // LAB-RACK-P7: read modifier from the selected entry (by name if --entry provided, else contracts[0]).
-    let modifier = contract_json.get("modifier")
+    let modifier = contract_json
+        .get("modifier")
         .or_else(|| {
             if let Some(contracts_arr) = contract_json.get("contracts").and_then(|c| c.as_array()) {
                 let selected = if let Some(ref name) = entry_name {
@@ -632,47 +830,69 @@ async fn main() {
         })
         .and_then(|m| m.as_str())
         .unwrap_or("pure");
-    temporal_context.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier)));
+    temporal_context.insert(
+        "contract_modifier".to_string(),
+        Value::String(Arc::from(modifier)),
+    );
 
     // LAB-RACK-P9: initialize __call_chain__ with the current executing contract name.
     // Prevents the executing contract from calling itself via call_contract (self-recursion).
     let p9_root_name: String = if let Some(ref name) = entry_name {
         name.clone()
     } else {
-        contract_json.get("contracts")
+        contract_json
+            .get("contracts")
             .and_then(|c| c.as_array())
             .and_then(|a| a.get(0))
             .and_then(|c| c.get("contract_name").and_then(|n| n.as_str()))
             .unwrap_or("")
             .to_string()
     };
-    temporal_context.insert("__call_chain__".to_string(), Value::String(Arc::from(p9_root_name.as_str())));
+    temporal_context.insert(
+        "__call_chain__".to_string(),
+        Value::String(Arc::from(p9_root_name.as_str())),
+    );
 
     // 5. Bootstrap temporal database backend
     let backend: Option<Arc<dyn TBackend>> = if let Some(addr) = tbackend_addr {
         if !json_mode {
-            println!("  {} [*] Connecting to Remote TBackend Ledger at: {}{}", YELLOW, addr, RESET);
+            println!(
+                "  {} [*] Connecting to Remote TBackend Ledger at: {}{}",
+                YELLOW, addr, RESET
+            );
         }
         let client = LedgerTcpBackend::new(addr);
         match client.ping().await {
             Ok(true) => {
                 if !json_mode {
-                    println!("      {}✔ TCP handshake successful! Remote ledger is ONLINE.{}", GREEN, RESET);
+                    println!(
+                        "      {}✔ TCP handshake successful! Remote ledger is ONLINE.{}",
+                        GREEN, RESET
+                    );
                 }
                 Some(Arc::new(client))
             }
             _ => {
                 if json_mode {
-                    println!("{}", serde_json::json!({ "status": "error", "error": format!("Remote TBackend at {} is OFFLINE or unreachable", addr) }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "status": "error", "error": format!("Remote TBackend at {} is OFFLINE or unreachable", addr) })
+                    );
                 } else {
-                    eprintln!("  {}Error: Remote TBackend at {} is OFFLINE or unreachable.{}", RED, addr, RESET);
+                    eprintln!(
+                        "  {}Error: Remote TBackend at {} is OFFLINE or unreachable.{}",
+                        RED, addr, RESET
+                    );
                 }
                 std::process::exit(1);
             }
         }
     } else {
         if !json_mode {
-            println!("  {} [*] Bootstrapping Ephemeral Memory Temporal Backend...{}", YELLOW, RESET);
+            println!(
+                "  {} [*] Bootstrapping Ephemeral Memory Temporal Backend...{}",
+                YELLOW, RESET
+            );
         }
         let mem = MemoryHistoryBackend::new();
         // Check if inputs have pre-loaded history records
@@ -681,11 +901,14 @@ async fn main() {
                 if let (Some(store), Some(time), Some(val)) = (
                     record.get("store").and_then(|v| v.as_str()),
                     record.get("valid_time").and_then(|v| v.as_str()),
-                    record.get("value")
+                    record.get("value"),
                 ) {
                     mem.write_history(store, time, Value::from_json(val)).await;
                     if !json_mode {
-                        println!("      [History Preload] {} valid_time: {} => {:?}", store, time, val);
+                        println!(
+                            "      [History Preload] {} valid_time: {} => {:?}",
+                            store, time, val
+                        );
                     }
                 }
             }
@@ -695,7 +918,10 @@ async fn main() {
 
     // 6. Execute VM bytecode
     if !json_mode {
-        println!("  {} [*] Launching Stack VM Evaluator loop...{}", YELLOW, RESET);
+        println!(
+            "  {} [*] Launching Stack VM Evaluator loop...{}",
+            YELLOW, RESET
+        );
     }
     // LAB-RACK-P9: attach pre-built dispatch table for call_contract support.
     let mut vm = VM::new(backend);
@@ -709,13 +935,27 @@ async fn main() {
             std::collections::HashMap::new();
         if let Some(funcs) = contract_json.get("functions").and_then(|f| f.as_array()) {
             for f in funcs {
-                let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-                if name.is_empty() { continue; }
-                let params: Vec<String> = f.get("params").and_then(|p| p.as_array())
-                    .map(|arr| arr.iter().filter_map(|p| {
-                        p.get("name").and_then(|n| n.as_str()).map(String::from)
-                            .or_else(|| p.as_str().map(String::from))
-                    }).collect())
+                let name = f
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                let params: Vec<String> = f
+                    .get("params")
+                    .and_then(|p| p.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|p| {
+                                p.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(String::from)
+                                    .or_else(|| p.as_str().map(String::from))
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let body = f.get("body").cloned().unwrap_or(JsonValue::Null);
                 fn_registry.insert(name, igniter_vm::vm::FunctionEntry { params, body });
@@ -725,7 +965,9 @@ async fn main() {
     }
 
     let start_time = tokio::time::Instant::now();
-    let result = vm.execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants).await;
+    let result = vm
+        .execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants)
+        .await;
     let elapsed = start_time.elapsed();
 
     match result {
@@ -740,22 +982,44 @@ async fn main() {
                 });
                 println!("{}", serde_json::to_string(&response).unwrap());
             } else {
-                println!("\n  {}================ EVALUATION SUCCESS ================{}", GREEN, RESET);
+                println!(
+                    "\n  {}================ EVALUATION SUCCESS ================{}",
+                    GREEN, RESET
+                );
                 println!("   Resulting Output: {:?}", output);
-                println!("   Execution Latency: {:.2} microseconds ({:.4} ms)", elapsed.as_micros() as f64, elapsed.as_millis() as f64);
+                println!(
+                    "   Execution Latency: {:.2} microseconds ({:.4} ms)",
+                    elapsed.as_micros() as f64,
+                    elapsed.as_millis() as f64
+                );
                 println!("  ======================================================\n");
 
                 // Display audit observations
                 let sink = vm.observation_sink.lock().await;
                 if !sink.is_empty() {
-                    println!("  {}🔐 Captured Evidence Audit Observations (Total: {}):{}", BOLD, sink.len(), RESET);
+                    println!(
+                        "  {}🔐 Captured Evidence Audit Observations (Total: {}):{}",
+                        BOLD,
+                        sink.len(),
+                        RESET
+                    );
                     for (idx, obs) in sink.iter().enumerate() {
-                        println!("\n  [Observation #{}] ID: {}", idx + 1, obs["observation_id"].as_str().unwrap_or(""));
+                        println!(
+                            "\n  [Observation #{}] ID: {}",
+                            idx + 1,
+                            obs["observation_id"].as_str().unwrap_or("")
+                        );
                         println!("  ----------------------------------------------------------------------");
                         println!("    Kind:           {}", obs["kind"].as_str().unwrap_or(""));
                         if obs["kind"].as_str() == Some("temporal_live_read_observation") {
-                            println!("    Store Query:    {}", obs["store"].as_str().unwrap_or(""));
-                            println!("    As Of Time:     {}", obs["as_of"].as_str().unwrap_or(""));
+                            println!(
+                                "    Store Query:    {}",
+                                obs["store"].as_str().unwrap_or("")
+                            );
+                            println!(
+                                "    As Of Time:     {}",
+                                obs["as_of"].as_str().unwrap_or("")
+                            );
                             println!("    Result Value:   {:?}", obs["result_value"]);
                         } else {
                             println!("    Observed Value: {:?}", obs["value"]);
@@ -768,7 +1032,10 @@ async fn main() {
         }
         Err(e) => {
             if json_mode {
-                println!("{}", serde_json::json!({ "status": "error", "error": format!("VM evaluation failed: {}", e) }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "status": "error", "error": format!("VM evaluation failed: {}", e) })
+                );
             } else {
                 eprintln!("\n  {}✘ EVALUATION FAILED: {}{}\n", RED, e, RESET);
             }
@@ -794,7 +1061,8 @@ fn print_help() {
 }
 
 fn contract_display_name(contract_item: &JsonValue) -> String {
-    contract_item.get("contract_name")
+    contract_item
+        .get("contract_name")
         .or_else(|| contract_item.get("name"))
         .or_else(|| contract_item.get("contract_id"))
         .and_then(|n| n.as_str())
@@ -810,14 +1078,20 @@ fn handle_bytecode_map(igapp_path: &str) {
     let sir_content = match fs::read_to_string(&sir_path) {
         Ok(c) => c,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)})
+            );
             std::process::exit(1);
         }
     };
     let sir_json: JsonValue = match serde_json::from_str(&sir_content) {
         Ok(j) => j,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)})
+            );
             std::process::exit(1);
         }
     };
@@ -838,7 +1112,8 @@ fn handle_bytecode_map(igapp_path: &str) {
         if let Some(nodes) = sm.get("nodes").and_then(|n| n.as_array()) {
             for node in nodes {
                 if let Some(nid) = node.get("node_id").and_then(|n| n.as_str()) {
-                    let sp = node.get("sir_path")
+                    let sp = node
+                        .get("sir_path")
                         .and_then(|s| s.as_str())
                         .unwrap_or("")
                         .to_string();
@@ -849,7 +1124,8 @@ fn handle_bytecode_map(igapp_path: &str) {
         }
     }
 
-    let source_file = sourcemap_json.as_ref()
+    let source_file = sourcemap_json
+        .as_ref()
         .and_then(|s| s.get("source_file").and_then(|f| f.as_str()))
         .unwrap_or("")
         .to_string();
@@ -871,35 +1147,49 @@ fn handle_bytecode_map(igapp_path: &str) {
             let bytecode = match compiler.compile_entry(contract_item, None) {
                 Ok(bc) => bc,
                 Err(e) => {
-                    println!("{}", serde_json::json!({"status":"error","error":format!("compile error for '{}': {}", c_name, e)}));
+                    println!(
+                        "{}",
+                        serde_json::json!({"status":"error","error":format!("compile error for '{}': {}", c_name, e)})
+                    );
                     std::process::exit(1);
                 }
             };
             let node_id_map = compiler.take_node_id_map();
 
-            let instructions_out: Vec<JsonValue> = bytecode.iter().enumerate().map(|(offset, inst)| {
-                let node_id_opt: Option<&str> = node_id_map.get(offset).and_then(|n| n.as_deref());
-                let (sir_path_val, source_span_val) = if let Some(nid) = node_id_opt {
-                    span_lookup.get(nid).map_or(
-                        (JsonValue::Null, JsonValue::Null),
-                        |(sp, ss)| (
-                            if sp.is_empty() { JsonValue::Null } else { JsonValue::String(sp.clone()) },
-                            ss.clone(),
-                        ),
-                    )
-                } else {
-                    (JsonValue::Null, JsonValue::Null)
-                };
+            let instructions_out: Vec<JsonValue> = bytecode
+                .iter()
+                .enumerate()
+                .map(|(offset, inst)| {
+                    let node_id_opt: Option<&str> =
+                        node_id_map.get(offset).and_then(|n| n.as_deref());
+                    let (sir_path_val, source_span_val) = if let Some(nid) = node_id_opt {
+                        span_lookup.get(nid).map_or(
+                            (JsonValue::Null, JsonValue::Null),
+                            |(sp, ss)| {
+                                (
+                                    if sp.is_empty() {
+                                        JsonValue::Null
+                                    } else {
+                                        JsonValue::String(sp.clone())
+                                    },
+                                    ss.clone(),
+                                )
+                            },
+                        )
+                    } else {
+                        (JsonValue::Null, JsonValue::Null)
+                    };
 
-                serde_json::json!({
-                    "offset": offset,
-                    "opcode": format!("0x{:02X}", inst.opcode),
-                    "mnemonic": opcode_mnemonic(inst.opcode),
-                    "node_id": node_id_opt,
-                    "sir_path": sir_path_val,
-                    "source_span": source_span_val
+                    serde_json::json!({
+                        "offset": offset,
+                        "opcode": format!("0x{:02X}", inst.opcode),
+                        "mnemonic": opcode_mnemonic(inst.opcode),
+                        "node_id": node_id_opt,
+                        "sir_path": sir_path_val,
+                        "source_span": source_span_val
+                    })
                 })
-            }).collect();
+                .collect();
 
             let inst_count = instructions_out.len();
             total_instructions += inst_count;
@@ -922,10 +1212,16 @@ fn handle_bytecode_map(igapp_path: &str) {
     });
 
     let output_path = base.join("bytecode_map.json");
-    match fs::write(&output_path, serde_json::to_string_pretty(&bytecode_map).unwrap()) {
+    match fs::write(
+        &output_path,
+        serde_json::to_string_pretty(&bytecode_map).unwrap(),
+    ) {
         Ok(_) => {}
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot write bytecode_map.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot write bytecode_map.json: {}", e)})
+            );
             std::process::exit(1);
         }
     }
@@ -936,7 +1232,10 @@ fn handle_bytecode_map(igapp_path: &str) {
         if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
             if let Ok(mut manifest) = serde_json::from_str::<JsonValue>(&manifest_content) {
                 if let Some(obj) = manifest.as_object_mut() {
-                    obj.insert("bytecode_map_ref".to_string(), JsonValue::String("bytecode_map.json".to_string()));
+                    obj.insert(
+                        "bytecode_map_ref".to_string(),
+                        JsonValue::String("bytecode_map.json".to_string()),
+                    );
                     if let Ok(updated) = serde_json::to_string_pretty(&manifest) {
                         let _ = fs::write(&manifest_path, updated);
                     }
@@ -945,13 +1244,16 @@ fn handle_bytecode_map(igapp_path: &str) {
         }
     }
 
-    println!("{}", serde_json::json!({
-        "status": "ok",
-        "igapp": igapp_path,
-        "bytecode_map_file": output_path.to_string_lossy(),
-        "instructions_total": total_instructions,
-        "contracts": summary_contracts
-    }));
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "ok",
+            "igapp": igapp_path,
+            "bytecode_map_file": output_path.to_string_lossy(),
+            "instructions_total": total_instructions,
+            "contracts": summary_contracts
+        })
+    );
 }
 
 // LAB-VMTRACE-P1: execute a contract with trace recording and write vm_trace.json.
@@ -968,19 +1270,34 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
         .ok()
         .and_then(|c| serde_json::from_str(&c).ok());
 
-    let mut offset_lookup: HashMap<usize, (Option<String>, Option<String>, JsonValue)> = HashMap::new();
+    let mut offset_lookup: HashMap<usize, (Option<String>, Option<String>, JsonValue)> =
+        HashMap::new();
     if let Some(ref bm) = bm_json {
         let target_name = entry_name.unwrap_or("");
-        let contract_bm = bm.get("contracts").and_then(|c| c.as_array()).and_then(|arr| {
-            if target_name.is_empty() { arr.first() }
-            else { arr.iter().find(|c| c.get("contract_name").and_then(|n| n.as_str()) == Some(target_name)) }
-        });
+        let contract_bm = bm
+            .get("contracts")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| {
+                if target_name.is_empty() {
+                    arr.first()
+                } else {
+                    arr.iter().find(|c| {
+                        c.get("contract_name").and_then(|n| n.as_str()) == Some(target_name)
+                    })
+                }
+            });
         if let Some(bm_contract) = contract_bm {
             if let Some(instrs) = bm_contract.get("instructions").and_then(|i| i.as_array()) {
                 for inst in instrs {
                     let offset = inst.get("offset").and_then(|o| o.as_u64()).unwrap_or(0) as usize;
-                    let node_id = inst.get("node_id").and_then(|n| n.as_str()).map(String::from);
-                    let sir_path = inst.get("sir_path").and_then(|s| s.as_str()).map(String::from);
+                    let node_id = inst
+                        .get("node_id")
+                        .and_then(|n| n.as_str())
+                        .map(String::from);
+                    let sir_path = inst
+                        .get("sir_path")
+                        .and_then(|s| s.as_str())
+                        .map(String::from);
                     let source_span = inst.get("source_span").cloned().unwrap_or(JsonValue::Null);
                     offset_lookup.insert(offset, (node_id, sir_path, source_span));
                 }
@@ -993,41 +1310,56 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     let sir_content = match fs::read_to_string(&sir_path_buf) {
         Ok(c) => c,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot read semantic_ir_program.json: {}", e)})
+            );
             std::process::exit(1);
         }
     };
     let sir_json: JsonValue = match serde_json::from_str(&sir_content) {
         Ok(j) => j,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot parse semantic_ir_program.json: {}", e)})
+            );
             std::process::exit(1);
         }
     };
 
-    let contract_item = if let Some(contracts) = sir_json.get("contracts").and_then(|c| c.as_array()) {
+    let contract_item = if let Some(contracts) =
+        sir_json.get("contracts").and_then(|c| c.as_array())
+    {
         let target = entry_name.unwrap_or("");
         let found = if target.is_empty() {
             contracts.first()
         } else {
             contracts.iter().find(|c| {
                 c.get("contract_name").and_then(|n| n.as_str()) == Some(target)
-                || c.get("name").and_then(|n| n.as_str()) == Some(target)
+                    || c.get("name").and_then(|n| n.as_str()) == Some(target)
             })
         };
         match found {
             Some(c) => c.clone(),
             None => {
-                println!("{}", serde_json::json!({"status":"error","error":format!("entry contract '{}' not found", target)}));
+                println!(
+                    "{}",
+                    serde_json::json!({"status":"error","error":format!("entry contract '{}' not found", target)})
+                );
                 std::process::exit(1);
             }
         }
     } else {
-        println!("{}", serde_json::json!({"status":"error","error":"semantic_ir_program.json has no contracts"}));
+        println!(
+            "{}",
+            serde_json::json!({"status":"error","error":"semantic_ir_program.json has no contracts"})
+        );
         std::process::exit(1);
     };
 
-    let contract_name = contract_item.get("contract_name")
+    let contract_name = contract_item
+        .get("contract_name")
         .or_else(|| contract_item.get("name"))
         .and_then(|n| n.as_str())
         .unwrap_or("unknown")
@@ -1037,7 +1369,10 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     let bytecode = match compiler.compile_entry(&contract_item, None) {
         Ok(bc) => bc,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("compile error: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("compile error: {}", e)})
+            );
             std::process::exit(1);
         }
     };
@@ -1046,25 +1381,33 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     let inputs_content = match fs::read_to_string(inputs_path) {
         Ok(c) => c,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot read inputs '{}': {}", inputs_path, e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot read inputs '{}': {}", inputs_path, e)})
+            );
             std::process::exit(1);
         }
     };
     let inputs_json: JsonValue = match serde_json::from_str(&inputs_content) {
         Ok(j) => j,
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot parse inputs: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot parse inputs: {}", e)})
+            );
             std::process::exit(1);
         }
     };
 
     let mut inputs: HashMap<String, Value> = HashMap::new();
     if let Some(obj) = inputs_json.as_object() {
-        for (k, v) in obj { inputs.insert(k.clone(), Value::from_json(v)); }
+        for (k, v) in obj {
+            inputs.insert(k.clone(), Value::from_json(v));
+        }
     }
 
     let inputs_digest = {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let canonical = serde_json::to_string(&inputs_json).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
@@ -1072,34 +1415,59 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     };
 
     let mut temporal_context: HashMap<String, Value> = HashMap::new();
-    let modifier = contract_item.get("modifier").and_then(|m| m.as_str()).unwrap_or("pure");
-    temporal_context.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier)));
-    temporal_context.insert("__call_chain__".to_string(), Value::String(Arc::from(contract_name.as_str())));
+    let modifier = contract_item
+        .get("modifier")
+        .and_then(|m| m.as_str())
+        .unwrap_or("pure");
+    temporal_context.insert(
+        "contract_modifier".to_string(),
+        Value::String(Arc::from(modifier)),
+    );
+    temporal_context.insert(
+        "__call_chain__".to_string(),
+        Value::String(Arc::from(contract_name.as_str())),
+    );
 
     // Execute with trace enabled.
     let trace_arc = std::sync::Arc::new(std::sync::Mutex::new(Vec::<JsonValue>::new()));
-    let backend: Option<Arc<dyn TBackend>> = Some(Arc::new(igniter_vm::tbackend::MemoryHistoryBackend::new()));
+    let backend: Option<Arc<dyn TBackend>> =
+        Some(Arc::new(igniter_vm::tbackend::MemoryHistoryBackend::new()));
     let mut vm = VM::new(backend);
     vm.trace_collector = Some(trace_arc);
 
     let resolved_grants: HashMap<String, igniter_vm::passport::CapabilityGrant> = HashMap::new();
-    let exec_result = vm.execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants).await;
+    let exec_result = vm
+        .execute_with_grants(&bytecode, &inputs, &temporal_context, &resolved_grants)
+        .await;
 
     // Drain trace events and cross-reference with bytecode_map.
     let raw_events = vm.take_trace_events();
-    let enriched_events: Vec<JsonValue> = raw_events.iter().map(|event| {
-        let ip = event.get("ip_before").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let (node_id, sir_path_val, source_span) = offset_lookup.get(&ip)
-            .cloned()
-            .unwrap_or((None, None, JsonValue::Null));
-        let mut e = event.clone();
-        if let Some(obj) = e.as_object_mut() {
-            obj.insert("node_id".to_string(), node_id.map(JsonValue::String).unwrap_or(JsonValue::Null));
-            obj.insert("sir_path".to_string(), sir_path_val.map(JsonValue::String).unwrap_or(JsonValue::Null));
-            obj.insert("source_span".to_string(), source_span);
-        }
-        e
-    }).collect();
+    let enriched_events: Vec<JsonValue> = raw_events
+        .iter()
+        .map(|event| {
+            let ip = event.get("ip_before").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let (node_id, sir_path_val, source_span) =
+                offset_lookup
+                    .get(&ip)
+                    .cloned()
+                    .unwrap_or((None, None, JsonValue::Null));
+            let mut e = event.clone();
+            if let Some(obj) = e.as_object_mut() {
+                obj.insert(
+                    "node_id".to_string(),
+                    node_id.map(JsonValue::String).unwrap_or(JsonValue::Null),
+                );
+                obj.insert(
+                    "sir_path".to_string(),
+                    sir_path_val
+                        .map(JsonValue::String)
+                        .unwrap_or(JsonValue::Null),
+                );
+                obj.insert("source_span".to_string(), source_span);
+            }
+            e
+        })
+        .collect();
 
     let (status, result_value) = match exec_result {
         Ok(ref v) => ("ok", v.to_json()),
@@ -1107,7 +1475,7 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     };
 
     let result_digest = {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let canonical = serde_json::to_string(&result_value).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
@@ -1124,10 +1492,16 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
     });
 
     let trace_file = base.join("vm_trace.json");
-    match fs::write(&trace_file, serde_json::to_string_pretty(&trace_output).unwrap()) {
+    match fs::write(
+        &trace_file,
+        serde_json::to_string_pretty(&trace_output).unwrap(),
+    ) {
         Ok(_) => {}
         Err(e) => {
-            println!("{}", serde_json::json!({"status":"error","error":format!("cannot write vm_trace.json: {}", e)}));
+            println!(
+                "{}",
+                serde_json::json!({"status":"error","error":format!("cannot write vm_trace.json: {}", e)})
+            );
             std::process::exit(1);
         }
     }
@@ -1138,7 +1512,10 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
         if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
             if let Ok(mut manifest) = serde_json::from_str::<JsonValue>(&manifest_content) {
                 if let Some(obj) = manifest.as_object_mut() {
-                    obj.insert("vm_trace_ref".to_string(), JsonValue::String("vm_trace.json".to_string()));
+                    obj.insert(
+                        "vm_trace_ref".to_string(),
+                        JsonValue::String("vm_trace.json".to_string()),
+                    );
                     if let Ok(updated) = serde_json::to_string_pretty(&manifest) {
                         let _ = fs::write(&manifest_path, updated);
                     }
@@ -1147,33 +1524,39 @@ async fn handle_vm_trace(igapp_path: &str, entry_name: Option<&str>, inputs_path
         }
     }
 
-    println!("{}", serde_json::json!({
-        "status": "ok",
-        "igapp": igapp_path,
-        "vm_trace_file": trace_file.to_string_lossy(),
-        "contract_name": contract_name,
-        "events_total": enriched_events.len(),
-        "result_status": status
-    }));
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "ok",
+            "igapp": igapp_path,
+            "vm_trace_file": trace_file.to_string_lossy(),
+            "contract_name": contract_name,
+            "events_total": enriched_events.len(),
+            "result_status": status
+        })
+    );
 }
 
 fn verify_load_capabilities(contract_path: &str, contract_json: &JsonValue) -> Result<(), String> {
-    let contracts_to_check = if let Some(arr) = contract_json.get("contracts").and_then(|a| a.as_array()) {
-        arr.clone()
-    } else {
-        vec![contract_json.clone()]
-    };
+    let contracts_to_check =
+        if let Some(arr) = contract_json.get("contracts").and_then(|a| a.as_array()) {
+            arr.clone()
+        } else {
+            vec![contract_json.clone()]
+        };
 
     for c in &contracts_to_check {
         let modifier = c.get("modifier").and_then(|m| m.as_str()).unwrap_or("pure");
         if modifier == "privileged" {
-            let c_name = c.get("name")
+            let c_name = c
+                .get("name")
                 .or_else(|| c.get("contract_id"))
                 .and_then(|n| n.as_str())
                 .unwrap_or("");
-            
+
             let mut has_token = false;
-            if let Some(tokens) = contract_json.get("capability_tokens")
+            if let Some(tokens) = contract_json
+                .get("capability_tokens")
                 .or_else(|| c.get("capability_tokens"))
                 .and_then(|t| t.as_array())
             {
@@ -1186,8 +1569,13 @@ fn verify_load_capabilities(contract_path: &str, contract_json: &JsonValue) -> R
                 let manifest_path = Path::new(contract_path).join("manifest.json");
                 if manifest_path.exists() {
                     if let Ok(manifest_content) = fs::read_to_string(&manifest_path) {
-                        if let Ok(manifest_json) = serde_json::from_str::<serde_json::Value>(&manifest_content) {
-                            if let Some(tokens) = manifest_json.get("capability_tokens").and_then(|t| t.as_array()) {
+                        if let Ok(manifest_json) =
+                            serde_json::from_str::<serde_json::Value>(&manifest_content)
+                        {
+                            if let Some(tokens) = manifest_json
+                                .get("capability_tokens")
+                                .and_then(|t| t.as_array())
+                            {
                                 if tokens.iter().any(|t| t.as_str() == Some(c_name)) {
                                     has_token = true;
                                 }

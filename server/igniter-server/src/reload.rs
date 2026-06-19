@@ -21,7 +21,9 @@ pub struct ReloadableApp {
 
 impl ReloadableApp {
     pub fn new(app: Arc<dyn ServerApp + Send + Sync>) -> Self {
-        Self { active: Arc::new(RwLock::new(app)) }
+        Self {
+            active: Arc::new(RwLock::new(app)),
+        }
     }
 
     /// Snapshot the currently active app. The read lock is dropped at the end of this expression —
@@ -52,7 +54,9 @@ mod tests {
     struct VApp(AppIdentity);
     impl ServerApp for VApp {
         fn call(&self, _req: ServerRequest) -> ServerDecision {
-            ServerDecision::Respond { response: ServerResponse::json(200, json!({ "v": self.0.version })) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(200, json!({ "v": self.0.version })),
+            }
         }
         fn identity(&self) -> AppIdentity {
             self.0.clone()
@@ -75,7 +79,7 @@ mod tests {
         let h = ReloadableApp::new(app("v1"));
         let snapshot = h.current(); // request started here
         h.swap(app("v2")); // operator reloads mid-request
-        // the in-flight snapshot still answers v1; the next snapshot would be v2.
+                           // the in-flight snapshot still answers v1; the next snapshot would be v2.
         assert_eq!(snapshot.identity().version, "v1");
         assert_eq!(h.current().identity().version, "v2");
     }

@@ -123,7 +123,12 @@ pub struct Camera {
 
 impl Default for Camera {
     fn default() -> Self {
-        Self { width: 400, height: 400, scale: 200.0, depth: 4.0 }
+        Self {
+            width: 400,
+            height: 400,
+            scale: 200.0,
+            depth: 4.0,
+        }
     }
 }
 
@@ -137,7 +142,10 @@ impl Camera {
 }
 
 fn digest<T: serde::Serialize>(v: &T) -> String {
-    format!("sha256:{}", blake3::hash(serde_json::to_string(v).unwrap_or_default().as_bytes()).to_hex())
+    format!(
+        "sha256:{}",
+        blake3::hash(serde_json::to_string(v).unwrap_or_default().as_bytes()).to_hex()
+    )
 }
 
 /// Project a world SNAPSHOT into a deterministic `Frame` — the pure, SYNCHRONOUS core (no IO).
@@ -183,7 +191,12 @@ pub fn project_snapshot(
 /// runtime is projection-agnostic: the SAME `FrameRuntime` drives a 3D camera scene and a GUI
 /// layout by swapping the projector.
 pub trait Projector {
-    fn project(&self, world: &[(String, Value)], frame_index: u64, source_receipt_id: Option<String>) -> Frame;
+    fn project(
+        &self,
+        world: &[(String, Value)],
+        frame_index: u64,
+        source_receipt_id: Option<String>,
+    ) -> Frame;
 }
 
 /// The default projector: perspective points via a `Camera` (wraps `project_snapshot`).
@@ -198,7 +211,12 @@ impl CameraProjector {
 }
 
 impl Projector for CameraProjector {
-    fn project(&self, world: &[(String, Value)], frame_index: u64, source_receipt_id: Option<String>) -> Frame {
+    fn project(
+        &self,
+        world: &[(String, Value)],
+        frame_index: u64,
+        source_receipt_id: Option<String>,
+    ) -> Frame {
         project_snapshot(world.to_vec(), &self.camera, frame_index, source_receipt_id)
     }
 }
@@ -211,7 +229,12 @@ pub async fn project_frame(
     source_receipt_id: Option<String>,
 ) -> Result<Frame, FrameError> {
     let snap = source.world().await?;
-    Ok(project_snapshot(snap, camera, frame_index, source_receipt_id))
+    Ok(project_snapshot(
+        snap,
+        camera,
+        frame_index,
+        source_receipt_id,
+    ))
 }
 
 /// PORT: a swappable render host — turns a render-agnostic `Frame` into an artifact. SVG/JSON
@@ -228,7 +251,10 @@ pub struct SvgRenderHost {
 
 impl Default for SvgRenderHost {
     fn default() -> Self {
-        Self { width: 400, height: 400 }
+        Self {
+            width: 400,
+            height: 400,
+        }
     }
 }
 
@@ -236,7 +262,10 @@ impl RenderHost for SvgRenderHost {
     fn render(&self, frame: &Frame) -> String {
         let mut body = String::new();
         for n in &frame.nodes {
-            body.push_str(&format!("  <circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"#39d353\"/>\n", n.sx, n.sy));
+            body.push_str(&format!(
+                "  <circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"#39d353\"/>\n",
+                n.sx, n.sy
+            ));
         }
         format!(
             "<svg viewBox=\"0 0 {} {}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{}\" height=\"{}\" fill=\"#0d1117\"/>\n{}</svg>\n",
@@ -250,7 +279,11 @@ pub struct JsonRenderHost;
 
 impl RenderHost for JsonRenderHost {
     fn render(&self, frame: &Frame) -> String {
-        let pts: Vec<Value> = frame.nodes.iter().map(|n| json!({ "id": n.id, "sx": n.sx, "sy": n.sy })).collect();
+        let pts: Vec<Value> = frame
+            .nodes
+            .iter()
+            .map(|n| json!({ "id": n.id, "sx": n.sx, "sy": n.sy }))
+            .collect();
         serde_json::to_string(&pts).unwrap_or_default()
     }
 }
@@ -331,7 +364,11 @@ pub fn derive_intent(frame: &Frame, input: &InputEvent) -> Option<Intent> {
     let node = hit_test(frame, input.x, input.y)?;
     let decl = node.intent.as_ref()?;
     Some(Intent {
-        action: decl.get("action").and_then(|a| a.as_str()).unwrap_or("").to_string(),
+        action: decl
+            .get("action")
+            .and_then(|a| a.as_str())
+            .unwrap_or("")
+            .to_string(),
         target: Some(node.id.clone()),
         params: decl.clone(),
     })
@@ -339,16 +376,28 @@ pub fn derive_intent(frame: &Frame, input: &InputEvent) -> Option<Intent> {
 
 /// A reducer: `(intent, current world) -> changed entity facts`. This is the DOMAIN logic (a game
 /// tick / a GUI reducer); it is pure and lives outside the kernel.
-pub type IntentReducer = Box<dyn Fn(&Intent, &[(String, Value)]) -> Vec<(String, Value)> + Send + Sync>;
+pub type IntentReducer =
+    Box<dyn Fn(&Intent, &[(String, Value)]) -> Vec<(String, Value)> + Send + Sync>;
 
 /// PORT: apply an intent as a STATE effect (never a frame mutation). The machine adapter reduces
 /// the intent → a new world fact through the substrate, and records receipts for lineage.
 #[async_trait]
 pub trait IntentSink {
     /// Record the raw input event (the lineage root).
-    async fn record_input(&self, input: &InputEvent, input_receipt_id: &str, now: f64) -> Result<(), FrameError>;
+    async fn record_input(
+        &self,
+        input: &InputEvent,
+        input_receipt_id: &str,
+        now: f64,
+    ) -> Result<(), FrameError>;
     /// Apply the intent as a state change; links `effect_receipt_id` ← `input_receipt_id`.
-    async fn apply(&self, intent: &Intent, input_receipt_id: &str, effect_receipt_id: &str, now: f64) -> Result<(), FrameError>;
+    async fn apply(
+        &self,
+        intent: &Intent,
+        input_receipt_id: &str,
+        effect_receipt_id: &str,
+        now: f64,
+    ) -> Result<(), FrameError>;
 }
 
 /// The result of one input-loop step — the before/after frames + the lineage chain.
@@ -375,7 +424,9 @@ pub async fn input_step(
 ) -> Result<InputStepResult, FrameError> {
     let frame_before = project_frame(source, camera, frame_index, None).await?;
     let input_receipt_id = format!("input:{frame_index}");
-    intent_sink.record_input(input, &input_receipt_id, now).await?;
+    intent_sink
+        .record_input(input, &input_receipt_id, now)
+        .await?;
 
     let intent = derive_intent(&frame_before, input);
     let effect_receipt_id = if let Some(i) = &intent {
@@ -387,8 +438,15 @@ pub async fn input_step(
     };
 
     // the next frame is a re-projection of the NEW state (lineage = the effect receipt).
-    let frame_after = project_frame(source, camera, frame_index + 1, effect_receipt_id.clone()).await?;
+    let frame_after =
+        project_frame(source, camera, frame_index + 1, effect_receipt_id.clone()).await?;
     frame_sink.record(&frame_after).await?;
 
-    Ok(InputStepResult { frame_before, intent, input_receipt_id, effect_receipt_id, frame_after })
+    Ok(InputStepResult {
+        frame_before,
+        intent,
+        input_receipt_id,
+        effect_receipt_id,
+        frame_after,
+    })
 }

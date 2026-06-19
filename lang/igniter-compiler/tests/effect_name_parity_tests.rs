@@ -30,7 +30,13 @@ fn contract_with_effect(name: &str) -> String {
 
 #[test]
 fn arbitrary_effect_labels_are_accepted() {
-    for name in ["read_file", "connect", "charge_vendor", "sync_customer", "notify_slack"] {
+    for name in [
+        "read_file",
+        "connect",
+        "charge_vendor",
+        "sync_customer",
+        "notify_slack",
+    ] {
         let codes = oof_codes(&contract_with_effect(name));
         assert!(
             !codes.contains(&"E-IO-EFFECT-UNKNOWN".to_string()),

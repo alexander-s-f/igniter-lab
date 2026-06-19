@@ -29,7 +29,10 @@ pub struct ServingPolicy {
 
 impl ServingPolicy {
     pub fn new(max_requests: usize) -> Self {
-        Self { max_requests, loopback_only: false }
+        Self {
+            max_requests,
+            loopback_only: false,
+        }
     }
     /// Opt in to refusing a non-loopback listener BEFORE accepting (lab convenience, not deployment
     /// policy — the caller chose to bind, the loop merely declines to serve a public one).
@@ -65,7 +68,11 @@ pub(crate) fn enforce_loopback(addr: SocketAddr, loopback_only: bool) -> std::io
 /// Serve exactly `policy.max_requests` requests over a caller-bound `listener`, then return. The loop
 /// binds nothing. Each request snapshots the active app (request-start pinning); a `swap` between
 /// requests is picked up by the next iteration.
-pub fn serve_loop(listener: &TcpListener, app: &ReloadableApp, policy: &ServingPolicy) -> std::io::Result<ServingReport> {
+pub fn serve_loop(
+    listener: &TcpListener,
+    app: &ReloadableApp,
+    policy: &ServingPolicy,
+) -> std::io::Result<ServingReport> {
     let addr = listener.local_addr()?;
     enforce_loopback(addr, policy.loopback_only)?;
 

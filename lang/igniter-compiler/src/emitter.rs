@@ -1,8 +1,8 @@
-use crate::typechecker::{TypedProgram, TypedContract, TypedDecl};
 use crate::classifier::ClassifierDiagnostic;
 use crate::parser::{Expr, SpanEntry};
-use serde_json::{Value, Map, json};
-use sha2::{Sha256, Digest};
+use crate::typechecker::{TypedContract, TypedDecl, TypedProgram};
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 pub struct EmitResult {
@@ -49,9 +49,10 @@ impl Emitter {
     }
 
     pub fn apply_form_lowering(&self, emit_result: &mut EmitResult) {
-        if let (Some(semantic_ir), Some(resolved_program)) =
-            (emit_result.semantic_ir.as_mut(), emit_result.resolved_program.as_ref())
-        {
+        if let (Some(semantic_ir), Some(resolved_program)) = (
+            emit_result.semantic_ir.as_mut(),
+            emit_result.resolved_program.as_ref(),
+        ) {
             self.lower_resolved_forms(semantic_ir, resolved_program);
         }
     }
@@ -64,16 +65,42 @@ impl Emitter {
         }
 
         let mut result = Map::new();
-        result.insert("kind".to_string(), Value::String("semantic_ir_program".to_string()));
-        result.insert("format_version".to_string(), Value::String(self.version.clone()));
-        result.insert("program_id".to_string(), Value::String(self.typed_program_id(typed)));
-        result.insert("grammar_version".to_string(), Value::String(typed.grammar_version.clone()));
-        result.insert("source_hash".to_string(), Value::String(typed.source_hash.clone().unwrap_or_default()));
-        result.insert("source_path".to_string(), Value::String(self.source_path(typed)));
-        result.insert("module".to_string(), Value::String(typed.module.clone().unwrap_or_default()));
-        result.insert("compilation_report_ref".to_string(), Value::String(report_id));
+        result.insert(
+            "kind".to_string(),
+            Value::String("semantic_ir_program".to_string()),
+        );
+        result.insert(
+            "format_version".to_string(),
+            Value::String(self.version.clone()),
+        );
+        result.insert(
+            "program_id".to_string(),
+            Value::String(self.typed_program_id(typed)),
+        );
+        result.insert(
+            "grammar_version".to_string(),
+            Value::String(typed.grammar_version.clone()),
+        );
+        result.insert(
+            "source_hash".to_string(),
+            Value::String(typed.source_hash.clone().unwrap_or_default()),
+        );
+        result.insert(
+            "source_path".to_string(),
+            Value::String(self.source_path(typed)),
+        );
+        result.insert(
+            "module".to_string(),
+            Value::String(typed.module.clone().unwrap_or_default()),
+        );
+        result.insert(
+            "compilation_report_ref".to_string(),
+            Value::String(report_id),
+        );
         result.insert("contracts".to_string(), Value::Array(contracts_ir));
-        if let Some(entrypoint) = self.semantic_entrypoint(typed, result.get("contracts").and_then(|c| c.as_array())) {
+        if let Some(entrypoint) =
+            self.semantic_entrypoint(typed, result.get("contracts").and_then(|c| c.as_array()))
+        {
             result.insert("entrypoint".to_string(), entrypoint);
         }
 
@@ -88,13 +115,19 @@ impl Emitter {
             }
         }
         if !shape_descriptors.is_empty() {
-            result.insert("shape_descriptors".to_string(), Value::Object(shape_descriptors));
-            result.insert("lowering_invariants".to_string(), json!([
-                "SIR-1:no_type_variables",
-                "SIR-2:no_unresolved_trait_method_calls",
-                "SIR-3:no_generic_contractir",
-                "SIR-4:concrete_resolved_impl"
-            ]));
+            result.insert(
+                "shape_descriptors".to_string(),
+                Value::Object(shape_descriptors),
+            );
+            result.insert(
+                "lowering_invariants".to_string(),
+                json!([
+                    "SIR-1:no_type_variables",
+                    "SIR-2:no_unresolved_trait_method_calls",
+                    "SIR-3:no_generic_contractir",
+                    "SIR-4:concrete_resolved_impl"
+                ]),
+            );
         }
 
         if let Some(assumptions) = self.typed_assumption_registry(typed) {
@@ -104,7 +137,8 @@ impl Emitter {
             result.insert("olap_points".to_string(), Value::Array(olaps.clone()));
         }
 
-        let invariants = self.typed_program_invariants(&result.get("contracts").cloned().unwrap_or(Value::Null));
+        let invariants =
+            self.typed_program_invariants(&result.get("contracts").cloned().unwrap_or(Value::Null));
         if !invariants.is_empty() {
             result.insert("invariants".to_string(), Value::Array(invariants));
         }
@@ -112,15 +146,26 @@ impl Emitter {
         // PROP-044 P6: emit variant_declarations when present
         // LAB-SRCMAP-P1: enrich each variant_declaration with a node_id for sourcemap linkage
         if !typed.variant_declarations.is_empty() {
-            let enriched: Vec<Value> = typed.variant_declarations.iter().map(|v| {
-                let mut v2 = v.clone();
-                if let Some(obj) = v2.as_object_mut() {
-                    if let Some(name) = obj.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()) {
-                        obj.insert("node_id".to_string(), Value::String(format!("variant:{}", name)));
+            let enriched: Vec<Value> = typed
+                .variant_declarations
+                .iter()
+                .map(|v| {
+                    let mut v2 = v.clone();
+                    if let Some(obj) = v2.as_object_mut() {
+                        if let Some(name) = obj
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                        {
+                            obj.insert(
+                                "node_id".to_string(),
+                                Value::String(format!("variant:{}", name)),
+                            );
+                        }
                     }
-                }
-                v2
-            }).collect();
+                    v2
+                })
+                .collect();
             result.insert("variant_declarations".to_string(), Value::Array(enriched));
         }
 
@@ -128,7 +173,11 @@ impl Emitter {
         // SIR so the VM can build a static function registry (no dynamic dispatch). Each
         // entry carries name, params, return type, decreases metadata, and a runnable body.
         if !typed.functions.is_empty() {
-            let fns: Vec<Value> = typed.functions.iter().map(|f| self.emit_function_ir(f)).collect();
+            let fns: Vec<Value> = typed
+                .functions
+                .iter()
+                .map(|f| self.emit_function_ir(f))
+                .collect();
             result.insert("functions".to_string(), Value::Array(fns));
         }
 
@@ -141,12 +190,21 @@ impl Emitter {
     // threads a continuation `body`, so no new node kind is needed. Expr nodes are carried
     // through `semantic_expr` for the same lowering contracts receive.
     fn emit_function_ir(&self, f: &Value) -> Value {
-        let name = f.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+        let name = f
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
         let mut params_out = Vec::new();
         if let Some(params) = f.get("params").and_then(|p| p.as_array()) {
             for p in params {
-                let pname = p.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-                let ptype = p.get("type_annotation")
+                let pname = p
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let ptype = p
+                    .get("type_annotation")
                     .map(|t| self.semantic_type_display(t))
                     .unwrap_or_else(|| "Unknown".to_string());
                 let mut pm = Map::new();
@@ -155,7 +213,8 @@ impl Emitter {
                 params_out.push(Value::Object(pm));
             }
         }
-        let return_type = f.get("return_type")
+        let return_type = f
+            .get("return_type")
             .map(|t| self.semantic_type_display(t))
             .unwrap_or_else(|| "Unknown".to_string());
 
@@ -176,14 +235,22 @@ impl Emitter {
 
     // Lower a parser BlockBody to a runnable SIR expression (right-nested let chain).
     fn emit_function_body(&self, body: &Value) -> Value {
-        let mut acc = body.get("return_expr")
+        let mut acc = body
+            .get("return_expr")
             .filter(|v| !v.is_null())
             .map(|e| self.semantic_expr(e))
             .unwrap_or(Value::Null);
         if let Some(stmts) = body.get("stmts").and_then(|s| s.as_array()) {
             for stmt in stmts.iter().rev() {
-                let expr = stmt.get("expr").map(|e| self.semantic_expr(e)).unwrap_or(Value::Null);
-                let name = stmt.get("name").and_then(|n| n.as_str()).unwrap_or("__seq__").to_string();
+                let expr = stmt
+                    .get("expr")
+                    .map(|e| self.semantic_expr(e))
+                    .unwrap_or(Value::Null);
+                let name = stmt
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("__seq__")
+                    .to_string();
                 let mut node = Map::new();
                 node.insert("kind".to_string(), Value::String("let".to_string()));
                 node.insert("name".to_string(), Value::String(name));
@@ -200,11 +267,16 @@ impl Emitter {
         match t {
             Value::String(s) => s.clone(),
             Value::Object(m) => {
-                let name = m.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string();
+                let name = m
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
                 let params = m.get("params").and_then(|p| p.as_array());
                 match params {
                     Some(ps) if !ps.is_empty() => {
-                        let inner: Vec<String> = ps.iter().map(|p| self.semantic_type_display(p)).collect();
+                        let inner: Vec<String> =
+                            ps.iter().map(|p| self.semantic_type_display(p)).collect();
                         format!("{}[{}]", name, inner.join(","))
                     }
                     _ => name,
@@ -214,63 +286,130 @@ impl Emitter {
         }
     }
 
-    fn semantic_entrypoint(&self, typed: &TypedProgram, contracts: Option<&Vec<Value>>) -> Option<Value> {
+    fn semantic_entrypoint(
+        &self,
+        typed: &TypedProgram,
+        contracts: Option<&Vec<Value>>,
+    ) -> Option<Value> {
         let entrypoint = typed.entrypoint.as_ref()?;
         let contract_ref = contracts
-            .and_then(|items| items.iter().find(|c| {
-                c.get("contract_name").and_then(|v| v.as_str()) == Some(entrypoint.resolved_contract.as_str())
-            }))
+            .and_then(|items| {
+                items.iter().find(|c| {
+                    c.get("contract_name").and_then(|v| v.as_str())
+                        == Some(entrypoint.resolved_contract.as_str())
+                })
+            })
             .and_then(|c| c.get("contract_ref"))
             .cloned();
 
         let mut result = Map::new();
-        result.insert("kind".to_string(), Value::String("entrypoint_decl".to_string()));
-        result.insert("target".to_string(), Value::String(entrypoint.target.clone()));
-        result.insert("declared_target".to_string(), Value::String(entrypoint.target.clone()));
+        result.insert(
+            "kind".to_string(),
+            Value::String("entrypoint_decl".to_string()),
+        );
+        result.insert(
+            "target".to_string(),
+            Value::String(entrypoint.target.clone()),
+        );
+        result.insert(
+            "declared_target".to_string(),
+            Value::String(entrypoint.target.clone()),
+        );
         result.insert("qualified".to_string(), Value::Bool(entrypoint.qualified));
-        result.insert("resolved_contract".to_string(), Value::String(entrypoint.resolved_contract.clone()));
-        result.insert("resolved_contract_id".to_string(), Value::String(entrypoint.resolved_contract_id.clone()));
-        result.insert("contract_fragment_class".to_string(), Value::String(entrypoint.contract_fragment_class.clone()));
-        result.insert("source_span".to_string(), json!({
-            "line": entrypoint.source_span.line,
-            "col": entrypoint.source_span.col
-        }));
+        result.insert(
+            "resolved_contract".to_string(),
+            Value::String(entrypoint.resolved_contract.clone()),
+        );
+        result.insert(
+            "resolved_contract_id".to_string(),
+            Value::String(entrypoint.resolved_contract_id.clone()),
+        );
+        result.insert(
+            "contract_fragment_class".to_string(),
+            Value::String(entrypoint.contract_fragment_class.clone()),
+        );
+        result.insert(
+            "source_span".to_string(),
+            json!({
+                "line": entrypoint.source_span.line,
+                "col": entrypoint.source_span.col
+            }),
+        );
         if let Some(cref) = contract_ref {
             result.insert("contract_ref".to_string(), cref);
         }
         Some(Value::Object(result))
     }
 
-    fn typed_compilation_report(&self, typed: &TypedProgram, diagnostics: &[ClassifierDiagnostic], semantic_ir: &Option<Value>) -> Value {
+    fn typed_compilation_report(
+        &self,
+        typed: &TypedProgram,
+        diagnostics: &[ClassifierDiagnostic],
+        semantic_ir: &Option<Value>,
+    ) -> Value {
         let ok = diagnostics.is_empty();
         let mut report = Map::new();
-        report.insert("kind".to_string(), Value::String("compilation_report".to_string()));
-        report.insert("format_version".to_string(), Value::String(self.version.clone()));
-        report.insert("program_id".to_string(), Value::String(self.typed_compilation_report_id(typed)));
-        report.insert("grammar_version".to_string(), Value::String(typed.grammar_version.clone()));
-        report.insert("source_hash".to_string(), Value::String(typed.source_hash.clone().unwrap_or_default()));
-        report.insert("source_path".to_string(), Value::String(self.source_path(typed)));
-        report.insert("pass_result".to_string(), Value::String(if ok { "ok" } else { "oof" }.to_string()));
+        report.insert(
+            "kind".to_string(),
+            Value::String("compilation_report".to_string()),
+        );
+        report.insert(
+            "format_version".to_string(),
+            Value::String(self.version.clone()),
+        );
+        report.insert(
+            "program_id".to_string(),
+            Value::String(self.typed_compilation_report_id(typed)),
+        );
+        report.insert(
+            "grammar_version".to_string(),
+            Value::String(typed.grammar_version.clone()),
+        );
+        report.insert(
+            "source_hash".to_string(),
+            Value::String(typed.source_hash.clone().unwrap_or_default()),
+        );
+        report.insert(
+            "source_path".to_string(),
+            Value::String(self.source_path(typed)),
+        );
+        report.insert(
+            "pass_result".to_string(),
+            Value::String(if ok { "ok" } else { "oof" }.to_string()),
+        );
 
         let mut stages = Map::new();
         stages.insert("parse".to_string(), Value::String("ok".to_string()));
         stages.insert("classify".to_string(), Value::String("ok".to_string()));
-        stages.insert("typecheck".to_string(), Value::String(if ok { "ok" } else { "oof" }.to_string()));
-        stages.insert("emit".to_string(), Value::String(if ok { "ok" } else { "skipped" }.to_string()));
+        stages.insert(
+            "typecheck".to_string(),
+            Value::String(if ok { "ok" } else { "oof" }.to_string()),
+        );
+        stages.insert(
+            "emit".to_string(),
+            Value::String(if ok { "ok" } else { "skipped" }.to_string()),
+        );
         report.insert("stages".to_string(), Value::Object(stages));
 
-        let diag_vals: Vec<Value> = diagnostics.iter().map(|d| {
-            let mut m = Map::new();
-            m.insert("rule".to_string(), Value::String(d.rule.clone()));
-            m.insert("severity".to_string(), Value::String("error".to_string()));
-            m.insert("message".to_string(), Value::String(d.message.clone()));
-            m.insert("node".to_string(), Value::String(d.node.clone()));
-            m.insert("line".to_string(), d.line.map_or(Value::Null, |l| Value::Number(l.into())));
-            Value::Object(m)
-        }).collect();
+        let diag_vals: Vec<Value> = diagnostics
+            .iter()
+            .map(|d| {
+                let mut m = Map::new();
+                m.insert("rule".to_string(), Value::String(d.rule.clone()));
+                m.insert("severity".to_string(), Value::String("error".to_string()));
+                m.insert("message".to_string(), Value::String(d.message.clone()));
+                m.insert("node".to_string(), Value::String(d.node.clone()));
+                m.insert(
+                    "line".to_string(),
+                    d.line.map_or(Value::Null, |l| Value::Number(l.into())),
+                );
+                Value::Object(m)
+            })
+            .collect();
         report.insert("diagnostics".to_string(), Value::Array(diag_vals));
 
-        let semantic_ir_ref = semantic_ir.as_ref()
+        let semantic_ir_ref = semantic_ir
+            .as_ref()
             .and_then(|ir| ir.get("program_id"))
             .cloned()
             .unwrap_or(Value::Null);
@@ -285,14 +424,20 @@ impl Emitter {
     }
 
     fn typed_program_id(&self, typed: &TypedProgram) -> String {
-        let hash = typed.source_hash.as_deref().unwrap_or("sha256:hand_authored_no_source")
+        let hash = typed
+            .source_hash
+            .as_deref()
+            .unwrap_or("sha256:hand_authored_no_source")
             .trim_start_matches("sha256:");
         let prefix = if hash.len() >= 16 { &hash[0..16] } else { hash };
         format!("semanticir/{}", prefix)
     }
 
     fn typed_compilation_report_id(&self, typed: &TypedProgram) -> String {
-        let hash = typed.source_hash.as_deref().unwrap_or("sha256:hand_authored_no_source")
+        let hash = typed
+            .source_hash
+            .as_deref()
+            .unwrap_or("sha256:hand_authored_no_source")
             .trim_start_matches("sha256:");
         let prefix = if hash.len() >= 16 { &hash[0..16] } else { hash };
         format!("compilation_report/{}", prefix)
@@ -308,7 +453,11 @@ impl Emitter {
     /// Build the `.sourcemap.json` artifact from the parser's span_table.
     /// v0 stability: declaration spans exact; expression spans best-effort token-start.
     pub fn build_sourcemap(&self, typed: &TypedProgram, span_table: &[SpanEntry]) -> Value {
-        let source_file = typed.source_path.as_deref().unwrap_or("unknown").to_string();
+        let source_file = typed
+            .source_path
+            .as_deref()
+            .unwrap_or("unknown")
+            .to_string();
         let module = typed.module.clone().unwrap_or_default();
 
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -322,8 +471,14 @@ impl Emitter {
 
             let sir_path = self.span_entry_sir_path(entry);
             let mut span = Map::new();
-            span.insert("start_line".to_string(), Value::Number(entry.start_line.into()));
-            span.insert("start_col".to_string(), Value::Number(entry.start_col.into()));
+            span.insert(
+                "start_line".to_string(),
+                Value::Number(entry.start_line.into()),
+            );
+            span.insert(
+                "start_col".to_string(),
+                Value::Number(entry.start_col.into()),
+            );
             if entry.end_line > 0 {
                 span.insert("end_line".to_string(), Value::Number(entry.end_line.into()));
                 span.insert("end_col".to_string(), Value::Number(entry.end_col.into()));
@@ -359,22 +514,31 @@ impl Emitter {
         }
         if let Some(rest) = id.strip_prefix("input:") {
             if let Some(dot) = rest.find('.') {
-                let (c, n) = (&rest[..dot], &rest[dot+1..]);
-                return format!("$.contracts[?(@.contract_name=='{}')].inputs[?(@.name=='{}')]", c, n);
+                let (c, n) = (&rest[..dot], &rest[dot + 1..]);
+                return format!(
+                    "$.contracts[?(@.contract_name=='{}')].inputs[?(@.name=='{}')]",
+                    c, n
+                );
             }
         }
         if let Some(rest) = id.strip_prefix("output:") {
             if let Some(dot) = rest.find('.') {
-                let (c, n) = (&rest[..dot], &rest[dot+1..]);
-                return format!("$.contracts[?(@.contract_name=='{}')].outputs[?(@.name=='{}')]", c, n);
+                let (c, n) = (&rest[..dot], &rest[dot + 1..]);
+                return format!(
+                    "$.contracts[?(@.contract_name=='{}')].outputs[?(@.name=='{}')]",
+                    c, n
+                );
             }
         }
         if let Some(rest) = id.strip_prefix("compute:") {
             // Strip @L suffix if present (expression nodes reuse compute prefix)
             let rest = rest.split('@').next().unwrap_or(rest);
             if let Some(dot) = rest.find('.') {
-                let (c, n) = (&rest[..dot], &rest[dot+1..]);
-                return format!("$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')]", c, n);
+                let (c, n) = (&rest[..dot], &rest[dot + 1..]);
+                return format!(
+                    "$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')]",
+                    c, n
+                );
             }
         }
         // Expression nodes: "record_literal:Contract.Decl@L12", "field_access:...", etc.
@@ -382,10 +546,13 @@ impl Emitter {
             let base = &id[..at];
             if let Some(colon) = base.find(':') {
                 let kind = &base[..colon];
-                let path = &base[colon+1..];
+                let path = &base[colon + 1..];
                 if let Some(dot) = path.find('.') {
-                    let (c, d) = (&path[..dot], &path[dot+1..]);
-                    return format!("$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')].expr.{}", c, d, kind);
+                    let (c, d) = (&path[..dot], &path[dot + 1..]);
+                    return format!(
+                        "$.contracts[?(@.contract_name=='{}')].nodes[?(@.name=='{}')].expr.{}",
+                        c, d, kind
+                    );
                 }
             }
         }
@@ -399,9 +566,15 @@ impl Emitter {
         let mut contract_ir = Map::new();
         contract_ir.insert("kind".to_string(), Value::String("contract_ir".to_string()));
         contract_ir.insert("contract_ref".to_string(), Value::Null);
-        contract_ir.insert("contract_name".to_string(), Value::String(contract.name.clone()));
-        contract_ir.insert("modifier".to_string(), Value::String(contract.modifier.clone()));
-        
+        contract_ir.insert(
+            "contract_name".to_string(),
+            Value::String(contract.name.clone()),
+        );
+        contract_ir.insert(
+            "modifier".to_string(),
+            Value::String(contract.modifier.clone()),
+        );
+
         let spec_val = match &contract.specialization_of {
             Some(spec) => Value::String(spec.clone()),
             None => Value::Null,
@@ -416,11 +589,17 @@ impl Emitter {
         }
         contract_ir.insert("type_args".to_string(), Value::Object(targs_map));
 
-        contract_ir.insert("fragment_class".to_string(), Value::String(contract.fragment_class.clone()));
+        contract_ir.insert(
+            "fragment_class".to_string(),
+            Value::String(contract.fragment_class.clone()),
+        );
         contract_ir.insert("inputs".to_string(), self.typed_ports(contract, "input"));
         contract_ir.insert("outputs".to_string(), self.typed_ports(contract, "output"));
         contract_ir.insert("nodes".to_string(), self.typed_nodes(contract));
-        contract_ir.insert("escape_boundaries".to_string(), self.typed_escape_boundaries(contract));
+        contract_ir.insert(
+            "escape_boundaries".to_string(),
+            self.typed_escape_boundaries(contract),
+        );
 
         let mut capabilities = Vec::new();
         let mut effects = Vec::new();
@@ -446,35 +625,42 @@ impl Emitter {
                     let shape_name = if node.type_args.is_empty() {
                         node.name.clone()
                     } else {
-                        let arg_strs: Vec<String> = node.type_args.iter().map(type_ref_to_string).collect();
+                        let arg_strs: Vec<String> =
+                            node.type_args.iter().map(type_ref_to_string).collect();
                         format!("{}[{}]", node.name, arg_strs.join(","))
                     };
-                    
+
                     let inputs = contract_ir.get("inputs").unwrap().as_array().unwrap();
                     let outputs = contract_ir.get("outputs").unwrap().as_array().unwrap();
-                    
-                    let input_ports: Vec<Value> = inputs.iter().map(|p| {
-                        json!({
-                            "name": p.get("name").unwrap(),
-                            "type_tag": p.get("type").unwrap().get("name").unwrap()
+
+                    let input_ports: Vec<Value> = inputs
+                        .iter()
+                        .map(|p| {
+                            json!({
+                                "name": p.get("name").unwrap(),
+                                "type_tag": p.get("type").unwrap().get("name").unwrap()
+                            })
                         })
-                    }).collect();
-                    
-                    let output_ports: Vec<Value> = outputs.iter().map(|p| {
-                        json!({
-                            "name": p.get("name").unwrap(),
-                            "type_tag": p.get("type").unwrap().get("name").unwrap()
+                        .collect();
+
+                    let output_ports: Vec<Value> = outputs
+                        .iter()
+                        .map(|p| {
+                            json!({
+                                "name": p.get("name").unwrap(),
+                                "type_tag": p.get("type").unwrap().get("name").unwrap()
+                            })
                         })
-                    }).collect();
-                    
+                        .collect();
+
                     let mut shape_desc = Map::new();
                     shape_desc.insert("input_ports".to_string(), Value::Array(input_ports));
                     shape_desc.insert("output_ports".to_string(), Value::Array(output_ports));
-                    
+
                     let mut shapes = Map::new();
                     shapes.insert(shape_name.clone(), Value::Object(shape_desc));
                     contract_ir.insert("shapes".to_string(), Value::Object(shapes));
-                    
+
                     let implements = json!([
                         {
                             "shape": shape_name,
@@ -502,28 +688,52 @@ impl Emitter {
             if let Some(ref dv_t3) = contract.decreases_variant_t3 {
                 // T3: numeric_measure_v0
                 let evidence = contract.numeric_measure_evidence.as_ref();
-                let fn_name  = evidence.and_then(|e| e.get("fn")).and_then(|v| v.as_str()).unwrap_or("unknown");
-                let arg      = evidence.and_then(|e| e.get("arg")).and_then(|v| v.as_str()).unwrap_or("unknown");
-                let trust    = evidence.and_then(|e| e.get("trust")).and_then(|v| v.as_str()).unwrap_or("unknown");
-                let source   = evidence.and_then(|e| e.get("source")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let fn_name = evidence
+                    .and_then(|e| e.get("fn"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let arg = evidence
+                    .and_then(|e| e.get("arg"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let trust = evidence
+                    .and_then(|e| e.get("trust"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let source = evidence
+                    .and_then(|e| e.get("source"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 let mut term = Map::new();
-                term.insert("decreases".to_string(),     Value::String(dv_t3.clone()));
-                term.insert("variant_check".to_string(), Value::String("numeric_measure_v0".to_string()));
+                term.insert("decreases".to_string(), Value::String(dv_t3.clone()));
+                term.insert(
+                    "variant_check".to_string(),
+                    Value::String("numeric_measure_v0".to_string()),
+                );
                 let mut nm_obj = Map::new();
-                nm_obj.insert("fn".to_string(),     Value::String(fn_name.to_string()));
-                nm_obj.insert("arg".to_string(),    Value::String(arg.to_string()));
-                nm_obj.insert("trust".to_string(),  Value::String(trust.to_string()));
+                nm_obj.insert("fn".to_string(), Value::String(fn_name.to_string()));
+                nm_obj.insert("arg".to_string(), Value::String(arg.to_string()));
+                nm_obj.insert("trust".to_string(), Value::String(trust.to_string()));
                 nm_obj.insert("source".to_string(), Value::String(source.to_string()));
                 term.insert("numeric_measure".to_string(), Value::Object(nm_obj));
                 contract_ir.insert("termination".to_string(), Value::Object(term));
             } else if let Some(ref dv_t2) = contract.decreases_variant_t2 {
                 let accessor = dv_t2.splitn(2, '.').nth(1).unwrap_or(dv_t2.as_str());
                 let evidence = contract.size_relation_evidence.as_ref();
-                let trust  = evidence.and_then(|e| e.get("trust")).and_then(|v| v.as_str()).unwrap_or("user_assumed");
-                let source = evidence.and_then(|e| e.get("source")).and_then(|v| v.as_str()).unwrap_or("unknown");
+                let trust = evidence
+                    .and_then(|e| e.get("trust"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("user_assumed");
+                let source = evidence
+                    .and_then(|e| e.get("source"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 let mut term = Map::new();
                 term.insert("decreases".to_string(), Value::String(dv_t2.clone()));
-                term.insert("variant_check".to_string(), Value::String("structural_size_v1".to_string()));
+                term.insert(
+                    "variant_check".to_string(),
+                    Value::String("structural_size_v1".to_string()),
+                );
                 let mut sr_obj = Map::new();
                 sr_obj.insert("accessor".to_string(), Value::String(accessor.to_string()));
                 sr_obj.insert("trust".to_string(), Value::String(trust.to_string()));
@@ -533,7 +743,10 @@ impl Emitter {
             } else if let Some(ref dv) = contract.decreases_variant {
                 let mut term = Map::new();
                 term.insert("decreases".to_string(), Value::String(dv.clone()));
-                term.insert("variant_check".to_string(), Value::String("syntactic_v0".to_string()));
+                term.insert(
+                    "variant_check".to_string(),
+                    Value::String("syntactic_v0".to_string()),
+                );
                 contract_ir.insert("termination".to_string(), Value::Object(term));
             }
         }
@@ -551,14 +764,19 @@ impl Emitter {
             if decl.kind == kind {
                 let mut port = Map::new();
                 // LAB-SRCMAP-P1: stable node_id for sourcemap linkage
-                port.insert("node_id".to_string(), Value::String(
-                    format!("{}:{}.{}", kind, contract.name, decl.name)));
+                port.insert(
+                    "node_id".to_string(),
+                    Value::String(format!("{}:{}.{}", kind, contract.name, decl.name)),
+                );
                 port.insert("name".to_string(), Value::String(decl.name.clone()));
                 port.insert("type".to_string(), decl.type_info.clone());
-                
+
                 let default_lifecycle = if kind == "input" { "local" } else { "session" };
                 let lifecycle = decl.lifecycle.as_deref().unwrap_or(default_lifecycle);
-                port.insert("lifecycle".to_string(), Value::String(lifecycle.to_string()));
+                port.insert(
+                    "lifecycle".to_string(),
+                    Value::String(lifecycle.to_string()),
+                );
 
                 if kind == "output" {
                     if let Some(warnings) = &decl.warnings_from {
@@ -588,7 +806,12 @@ impl Emitter {
         Value::Array(nodes)
     }
 
-    fn typed_node(&self, decl: &TypedDecl, declarations: &[TypedDecl], contract_name: &str) -> Option<Value> {
+    fn typed_node(
+        &self,
+        decl: &TypedDecl,
+        declarations: &[TypedDecl],
+        contract_name: &str,
+    ) -> Option<Value> {
         if let Some(node) = &decl.semantic_node {
             return Some(node.clone());
         }
@@ -615,8 +838,10 @@ impl Emitter {
                     let mut node = Map::new();
                     node.insert("kind".to_string(), Value::String("compute".to_string()));
                     // LAB-SRCMAP-P1: stable node_id for sourcemap linkage
-                    node.insert("node_id".to_string(), Value::String(
-                        format!("compute:{}.{}", contract_name, decl.name)));
+                    node.insert(
+                        "node_id".to_string(),
+                        Value::String(format!("compute:{}.{}", contract_name, decl.name)),
+                    );
                     node.insert("name".to_string(), Value::String(decl.name.clone()));
                     // PROP-044 P6: use annotated_expr (variant_construct/match_node) if present,
                     // otherwise fall back to the standard semantic_expr pipeline.
@@ -624,7 +849,9 @@ impl Emitter {
                         self.lower_annotated_expr(ae)
                     } else {
                         // PROP-039 gate 5: intercept recur() calls to emit recur_call sub-nodes
-                        let return_type_str = decl.type_info.get("name")
+                        let return_type_str = decl
+                            .type_info
+                            .get("name")
                             .and_then(|n| n.as_str())
                             .unwrap_or("Unknown")
                             .to_string();
@@ -632,7 +859,9 @@ impl Emitter {
                         // so the emitter fallback preserves Collection[T] element type params.
                         let decl_expr_json = {
                             let mut j = json!(decl.expr);
-                            if j.get("fn").and_then(|f| f.as_str()) == Some("stdlib.collection.concat") {
+                            if j.get("fn").and_then(|f| f.as_str())
+                                == Some("stdlib.collection.concat")
+                            {
                                 if let Some(m) = j.as_object_mut() {
                                     m.entry("resolved_type".to_string())
                                         .or_insert_with(|| decl.type_info.clone());
@@ -645,7 +874,10 @@ impl Emitter {
                     node.insert("expr".to_string(), lowered_expr);
                     node.insert("type".to_string(), decl.type_info.clone());
                     node.insert("deps".to_string(), json!(decl.deps));
-                    node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+                    node.insert(
+                        "fragment".to_string(),
+                        Value::String(decl.fragment_class.clone()),
+                    );
                     Some(Value::Object(node))
                 }
             }
@@ -662,9 +894,21 @@ impl Emitter {
         let mut list = Vec::new();
         for entry in registry {
             let mut m = Map::new();
-            m.insert("kind".to_string(), Value::String("assumption_ir".to_string()));
-            m.insert("name".to_string(), entry.get("name").cloned().unwrap_or(Value::Null));
-            m.insert("fields".to_string(), entry.get("fields").cloned().unwrap_or_else(|| Value::Object(Map::new())));
+            m.insert(
+                "kind".to_string(),
+                Value::String("assumption_ir".to_string()),
+            );
+            m.insert(
+                "name".to_string(),
+                entry.get("name").cloned().unwrap_or(Value::Null),
+            );
+            m.insert(
+                "fields".to_string(),
+                entry
+                    .get("fields")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Object(Map::new())),
+            );
             if let Some(dec) = entry.get("declared_in_module") {
                 m.insert("declared_in_module".to_string(), dec.clone());
             }
@@ -675,11 +919,20 @@ impl Emitter {
 
     fn assumption_ref_node(&self, decl: &TypedDecl) -> Value {
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("assumption_ref_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("assumption_ref_node".to_string()),
+        );
         m.insert("name".to_string(), Value::String(decl.name.clone()));
-        m.insert("assumption_ref".to_string(), Value::String(decl.name.clone()));
+        m.insert(
+            "assumption_ref".to_string(),
+            Value::String(decl.name.clone()),
+        );
         m.insert("type".to_string(), decl.type_info.clone());
-        m.insert("fragment".to_string(), Value::String("epistemic".to_string()));
+        m.insert(
+            "fragment".to_string(),
+            Value::String("epistemic".to_string()),
+        );
         Value::Object(m)
     }
 
@@ -709,41 +962,50 @@ impl Emitter {
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call")
                     && map.get("fn").and_then(|f| f.as_str()) == Some("recur")
                 {
-                    let args: Vec<Value> = map.get("args")
+                    let args: Vec<Value> = map
+                        .get("args")
                         .and_then(|a| a.as_array())
                         .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
                         .unwrap_or_default();
                     let mut node = Map::new();
                     node.insert("kind".to_string(), Value::String("recur_call".to_string()));
                     node.insert("args".to_string(), Value::Array(args));
-                    node.insert("return_type".to_string(), Value::String("Unknown".to_string()));
+                    node.insert(
+                        "return_type".to_string(),
+                        Value::String("Unknown".to_string()),
+                    );
                     return Value::Object(node);
                 }
-                if map.get("kind").and_then(|k| k.as_str()) == Some("call") && map.get("fn").and_then(|f| f.as_str()) == Some("stdlib.numeric.add") {
+                if map.get("kind").and_then(|k| k.as_str()) == Some("call")
+                    && map.get("fn").and_then(|f| f.as_str()) == Some("stdlib.numeric.add")
+                {
                     let type_args_borrow = self.current_type_args.borrow();
                     let concrete_type = type_args_borrow
                         .as_ref()
                         .and_then(|m| m.get("T"))
                         .cloned()
                         .unwrap_or_else(|| "Integer".to_string());
-                    
+
                     let op_name = match concrete_type.as_str() {
                         "Integer" => "stdlib.integer.add",
                         "Float" => "stdlib.float.add",
                         _ => "stdlib.numeric.add",
                     };
-                    
+
                     let mut operands = Vec::new();
                     if let Some(args) = map.get("args").and_then(|a| a.as_array()) {
                         for arg in args {
                             operands.push(self.semantic_expr(arg));
                         }
                     }
-                    
+
                     let mut new_map = Map::new();
                     new_map.insert("kind".to_string(), Value::String("apply".to_string()));
                     new_map.insert("operator".to_string(), Value::String(op_name.to_string()));
-                    new_map.insert("resolved_impl".to_string(), Value::String(format!("Additive[{}]", concrete_type)));
+                    new_map.insert(
+                        "resolved_impl".to_string(),
+                        Value::String(format!("Additive[{}]", concrete_type)),
+                    );
                     new_map.insert("type_args".to_string(), json!(vec![concrete_type]));
                     new_map.insert("operands".to_string(), Value::Array(operands));
                     return Value::Object(new_map);
@@ -789,7 +1051,10 @@ impl Emitter {
                         let mut node = Map::new();
                         node.insert("kind".to_string(), Value::String("call".to_string()));
                         node.insert("fn".to_string(), Value::String(fn_name.to_string()));
-                        node.insert("args".to_string(), Value::Array(vec![lowered_left, lowered_right]));
+                        node.insert(
+                            "args".to_string(),
+                            Value::Array(vec![lowered_left, lowered_right]),
+                        );
                         node.insert("resolved_type".to_string(), Value::Object(resolved_type));
                         return Value::Object(node);
                     }
@@ -800,15 +1065,24 @@ impl Emitter {
                 //     attach resolved_type so the IR is fully annotated.
                 {
                     const TEXT_STDLIB_OPS: &[&str] = &[
-                        "trim", "contains", "starts_with", "ends_with", "split",
-                        "replace", "replace_all",
-                        "byte_length", "rune_length", "grapheme_length",
-                        "byte_slice", "rune_slice", "grapheme_slice",
+                        "trim",
+                        "contains",
+                        "starts_with",
+                        "ends_with",
+                        "split",
+                        "replace",
+                        "replace_all",
+                        "byte_length",
+                        "rune_length",
+                        "grapheme_length",
+                        "byte_slice",
+                        "rune_slice",
+                        "grapheme_slice",
                     ];
                     fn text_return_type(fn_name: &str) -> serde_json::Value {
                         let name = match fn_name {
-                            "concat" | "trim" | "replace" | "replace_all" |
-                            "byte_slice" | "rune_slice" | "grapheme_slice" => "Text",
+                            "concat" | "trim" | "replace" | "replace_all" | "byte_slice"
+                            | "rune_slice" | "grapheme_slice" => "Text",
                             "contains" | "starts_with" | "ends_with" => "Bool",
                             "byte_length" | "rune_length" | "grapheme_length" => "Integer",
                             "split" => "Collection",
@@ -816,15 +1090,28 @@ impl Emitter {
                         };
                         if name == "Collection" {
                             let mut col = serde_json::Map::new();
-                            col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
+                            col.insert(
+                                "name".to_string(),
+                                serde_json::Value::String("Collection".to_string()),
+                            );
                             let mut inner = serde_json::Map::new();
-                            inner.insert("name".to_string(), serde_json::Value::String("Text".to_string()));
-                            inner.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-                            col.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(inner)]));
+                            inner.insert(
+                                "name".to_string(),
+                                serde_json::Value::String("Text".to_string()),
+                            );
+                            inner
+                                .insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                            col.insert(
+                                "params".to_string(),
+                                serde_json::Value::Array(vec![serde_json::Value::Object(inner)]),
+                            );
                             serde_json::Value::Object(col)
                         } else {
                             let mut m = serde_json::Map::new();
-                            m.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                            m.insert(
+                                "name".to_string(),
+                                serde_json::Value::String(name.to_string()),
+                            );
                             m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
                             serde_json::Value::Object(m)
                         }
@@ -835,13 +1122,18 @@ impl Emitter {
                                 // (A) bare name → qualify + attach resolved_type
                                 let qualified = format!("stdlib.text.{}", fn_val);
                                 let resolved_type = text_return_type(fn_val);
-                                let args: Vec<serde_json::Value> = map.get("args")
+                                let args: Vec<serde_json::Value> = map
+                                    .get("args")
                                     .and_then(|a| a.as_array())
                                     .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
                                     .unwrap_or_default();
                                 let mut new_map = serde_json::Map::new();
-                                new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
-                                new_map.insert("fn".to_string(), serde_json::Value::String(qualified));
+                                new_map.insert(
+                                    "kind".to_string(),
+                                    serde_json::Value::String("call".to_string()),
+                                );
+                                new_map
+                                    .insert("fn".to_string(), serde_json::Value::String(qualified));
                                 new_map.insert("args".to_string(), serde_json::Value::Array(args));
                                 new_map.insert("resolved_type".to_string(), resolved_type);
                                 return serde_json::Value::Object(new_map);
@@ -853,25 +1145,50 @@ impl Emitter {
                                 let qualified = format!("stdlib.regexp.{}", fn_val);
                                 let resolved_type = if fn_val == "matches" {
                                     let mut m = serde_json::Map::new();
-                                    m.insert("name".to_string(), serde_json::Value::String("Bool".to_string()));
-                                    m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                    m.insert(
+                                        "name".to_string(),
+                                        serde_json::Value::String("Bool".to_string()),
+                                    );
+                                    m.insert(
+                                        "params".to_string(),
+                                        serde_json::Value::Array(Vec::new()),
+                                    );
                                     serde_json::Value::Object(m)
                                 } else {
                                     let mut s = serde_json::Map::new();
-                                    s.insert("name".to_string(), serde_json::Value::String("String".to_string()));
-                                    s.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                    s.insert(
+                                        "name".to_string(),
+                                        serde_json::Value::String("String".to_string()),
+                                    );
+                                    s.insert(
+                                        "params".to_string(),
+                                        serde_json::Value::Array(Vec::new()),
+                                    );
                                     let mut opt = serde_json::Map::new();
-                                    opt.insert("name".to_string(), serde_json::Value::String("Option".to_string()));
-                                    opt.insert("params".to_string(), serde_json::Value::Array(vec![serde_json::Value::Object(s)]));
+                                    opt.insert(
+                                        "name".to_string(),
+                                        serde_json::Value::String("Option".to_string()),
+                                    );
+                                    opt.insert(
+                                        "params".to_string(),
+                                        serde_json::Value::Array(vec![serde_json::Value::Object(
+                                            s,
+                                        )]),
+                                    );
                                     serde_json::Value::Object(opt)
                                 };
-                                let args: Vec<serde_json::Value> = map.get("args")
+                                let args: Vec<serde_json::Value> = map
+                                    .get("args")
                                     .and_then(|a| a.as_array())
                                     .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
                                     .unwrap_or_default();
                                 let mut new_map = serde_json::Map::new();
-                                new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
-                                new_map.insert("fn".to_string(), serde_json::Value::String(qualified));
+                                new_map.insert(
+                                    "kind".to_string(),
+                                    serde_json::Value::String("call".to_string()),
+                                );
+                                new_map
+                                    .insert("fn".to_string(), serde_json::Value::String(qualified));
                                 new_map.insert("args".to_string(), serde_json::Value::Array(args));
                                 new_map.insert("resolved_type".to_string(), resolved_type);
                                 return serde_json::Value::Object(new_map);
@@ -879,32 +1196,58 @@ impl Emitter {
                             // (B) already-qualified stdlib.text.* / stdlib.collection.concat /
                             //     stdlib.string.concat (from typechecker rewrite)
                             //     — attach resolved_type if not already present.
-                            if fn_val.starts_with("stdlib.text.") || fn_val == "stdlib.collection.concat" || fn_val == "stdlib.string.concat" {
+                            if fn_val.starts_with("stdlib.text.")
+                                || fn_val == "stdlib.collection.concat"
+                                || fn_val == "stdlib.string.concat"
+                            {
                                 if !map.contains_key("resolved_type") {
-                                    let base = fn_val.strip_prefix("stdlib.text.").unwrap_or("concat");
+                                    let base =
+                                        fn_val.strip_prefix("stdlib.text.").unwrap_or("concat");
                                     let resolved_type = if fn_val == "stdlib.collection.concat" {
                                         // Collection[T] — use first arg's param if knowable, else Unknown
                                         let mut col = serde_json::Map::new();
-                                        col.insert("name".to_string(), serde_json::Value::String("Collection".to_string()));
-                                        col.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                        col.insert(
+                                            "name".to_string(),
+                                            serde_json::Value::String("Collection".to_string()),
+                                        );
+                                        col.insert(
+                                            "params".to_string(),
+                                            serde_json::Value::Array(Vec::new()),
+                                        );
                                         serde_json::Value::Object(col)
                                     } else if fn_val == "stdlib.string.concat" {
                                         // LANG-STRING-TEXT-ALIAS-P2: String+String → String
                                         let mut m = serde_json::Map::new();
-                                        m.insert("name".to_string(), serde_json::Value::String("String".to_string()));
-                                        m.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
+                                        m.insert(
+                                            "name".to_string(),
+                                            serde_json::Value::String("String".to_string()),
+                                        );
+                                        m.insert(
+                                            "params".to_string(),
+                                            serde_json::Value::Array(Vec::new()),
+                                        );
                                         serde_json::Value::Object(m)
                                     } else {
                                         text_return_type(base)
                                     };
-                                    let args: Vec<serde_json::Value> = map.get("args")
+                                    let args: Vec<serde_json::Value> = map
+                                        .get("args")
                                         .and_then(|a| a.as_array())
-                                        .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
+                                        .map(|arr| {
+                                            arr.iter().map(|a| self.semantic_expr(a)).collect()
+                                        })
                                         .unwrap_or_default();
                                     let mut new_map = serde_json::Map::new();
-                                    new_map.insert("kind".to_string(), serde_json::Value::String("call".to_string()));
-                                    new_map.insert("fn".to_string(), serde_json::Value::String(fn_val.to_string()));
-                                    new_map.insert("args".to_string(), serde_json::Value::Array(args));
+                                    new_map.insert(
+                                        "kind".to_string(),
+                                        serde_json::Value::String("call".to_string()),
+                                    );
+                                    new_map.insert(
+                                        "fn".to_string(),
+                                        serde_json::Value::String(fn_val.to_string()),
+                                    );
+                                    new_map
+                                        .insert("args".to_string(), serde_json::Value::Array(args));
                                     new_map.insert("resolved_type".to_string(), resolved_type);
                                     return serde_json::Value::Object(new_map);
                                 }
@@ -915,20 +1258,25 @@ impl Emitter {
                             // LANG-STDLIB-IS-EMPTY-PROP-P4: is_empty + non_empty added.
                             // LANG-STDLIB-COLLECTION-RANGE-P3: range added.
                             const COLLECTION_HOF_OPS: &[(&str, &str)] = &[
-                                ("map",        "stdlib.collection.map"),
+                                ("map", "stdlib.collection.map"),
                                 ("filter_map", "stdlib.collection.filter_map"),
-                                ("filter",     "stdlib.collection.filter"),
-                                ("count",     "stdlib.collection.count"),
-                                ("append",    "stdlib.collection.append"),
-                                ("is_empty",  "stdlib.collection.is_empty"),
+                                ("filter", "stdlib.collection.filter"),
+                                ("count", "stdlib.collection.count"),
+                                ("append", "stdlib.collection.append"),
+                                ("is_empty", "stdlib.collection.is_empty"),
                                 ("non_empty", "stdlib.collection.non_empty"),
-                                ("range",     "stdlib.collection.range"),
+                                ("range", "stdlib.collection.range"),
                             ];
-                            if let Some((_, qualified)) = COLLECTION_HOF_OPS.iter().find(|(bare, _)| *bare == fn_val) {
+                            if let Some((_, qualified)) =
+                                COLLECTION_HOF_OPS.iter().find(|(bare, _)| *bare == fn_val)
+                            {
                                 let mut new_map = serde_json::Map::new();
                                 for (k, v) in map {
                                     if k == "fn" {
-                                        new_map.insert(k.clone(), serde_json::Value::String(qualified.to_string()));
+                                        new_map.insert(
+                                            k.clone(),
+                                            serde_json::Value::String(qualified.to_string()),
+                                        );
                                     } else if k != "deps" {
                                         new_map.insert(k.clone(), self.semantic_expr(v));
                                     }
@@ -941,11 +1289,16 @@ impl Emitter {
                                 ("char_at", "stdlib.string.char_at"),
                                 ("substring", "stdlib.string.substring"),
                             ];
-                            if let Some((_, qualified)) = STRING_STDLIB_OPS.iter().find(|(bare, _)| *bare == fn_val) {
+                            if let Some((_, qualified)) =
+                                STRING_STDLIB_OPS.iter().find(|(bare, _)| *bare == fn_val)
+                            {
                                 let mut new_map = serde_json::Map::new();
                                 for (k, v) in map {
                                     if k == "fn" {
-                                        new_map.insert(k.clone(), serde_json::Value::String(qualified.to_string()));
+                                        new_map.insert(
+                                            k.clone(),
+                                            serde_json::Value::String(qualified.to_string()),
+                                        );
                                     } else if k != "deps" {
                                         new_map.insert(k.clone(), self.semantic_expr(v));
                                     }
@@ -958,18 +1311,23 @@ impl Emitter {
                 if map.get("kind").and_then(|k| k.as_str()) == Some("if_expr") {
                     let mut new_map = Map::new();
                     new_map.insert("kind".to_string(), Value::String("if_expr".to_string()));
-                    new_map.insert("condition".to_string(), self.semantic_expr(map.get("cond").unwrap_or(&Value::Null)));
-                    
-                    let then_expr = map.get("then")
+                    new_map.insert(
+                        "condition".to_string(),
+                        self.semantic_expr(map.get("cond").unwrap_or(&Value::Null)),
+                    );
+
+                    let then_expr = map
+                        .get("then")
                         .and_then(|t| t.get("return_expr").or_else(|| t.get("expr")))
                         .unwrap_or(&Value::Null);
                     new_map.insert("then_branch".to_string(), self.semantic_expr(then_expr));
-                    
-                    let else_expr = map.get("else")
+
+                    let else_expr = map
+                        .get("else")
                         .and_then(|e| e.get("return_expr").or_else(|| e.get("expr")))
                         .unwrap_or(&Value::Null);
                     new_map.insert("else_branch".to_string(), self.semantic_expr(else_expr));
-                    
+
                     if let Some(rt) = map.get("resolved_type") {
                         new_map.insert("resolved_type".to_string(), rt.clone());
                     }
@@ -1020,14 +1378,18 @@ impl Emitter {
             if map.get("kind").and_then(|k| k.as_str()) == Some("call")
                 && map.get("fn").and_then(|f| f.as_str()) == Some("recur")
             {
-                let args: Vec<Value> = map.get("args")
+                let args: Vec<Value> = map
+                    .get("args")
                     .and_then(|a| a.as_array())
                     .map(|arr| arr.iter().map(|a| self.semantic_expr(a)).collect())
                     .unwrap_or_default();
                 let mut node = Map::new();
                 node.insert("kind".to_string(), Value::String("recur_call".to_string()));
                 node.insert("args".to_string(), Value::Array(args));
-                node.insert("return_type".to_string(), Value::String(return_type.to_string()));
+                node.insert(
+                    "return_type".to_string(),
+                    Value::String(return_type.to_string()),
+                );
                 return Value::Object(node);
             }
             // For non-recur expressions, recurse but still intercept nested recur() calls
@@ -1052,10 +1414,19 @@ impl Emitter {
             // (stdlib.text.concat, stdlib.collection.concat) from the typechecker rewrite.
             {
                 const TEXT_STDLIB_OPS_C: &[&str] = &[
-                    "trim", "contains", "starts_with", "ends_with", "split",
-                    "replace", "replace_all",
-                    "byte_length", "rune_length", "grapheme_length",
-                    "byte_slice", "rune_slice", "grapheme_slice",
+                    "trim",
+                    "contains",
+                    "starts_with",
+                    "ends_with",
+                    "split",
+                    "replace",
+                    "replace_all",
+                    "byte_length",
+                    "rune_length",
+                    "grapheme_length",
+                    "byte_slice",
+                    "rune_slice",
+                    "grapheme_slice",
                 ];
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
                     if let Some(fn_val) = map.get("fn").and_then(|f| f.as_str()) {
@@ -1087,7 +1458,11 @@ impl Emitter {
             return Value::Object(new_map);
         }
         if let Value::Array(arr) = val {
-            return Value::Array(arr.iter().map(|item| self.semantic_expr_for_compute(item, return_type)).collect());
+            return Value::Array(
+                arr.iter()
+                    .map(|item| self.semantic_expr_for_compute(item, return_type))
+                    .collect(),
+            );
         }
         self.semantic_expr(val)
     }
@@ -1098,7 +1473,10 @@ impl Emitter {
             return;
         }
 
-        let Some(contracts) = semantic_ir.get_mut("contracts").and_then(|value| value.as_array_mut()) else {
+        let Some(contracts) = semantic_ir
+            .get_mut("contracts")
+            .and_then(|value| value.as_array_mut())
+        else {
             return;
         };
 
@@ -1108,7 +1486,10 @@ impl Emitter {
                 .and_then(|value| value.as_str())
                 .unwrap_or("")
                 .to_string();
-            let Some(nodes) = contract.get_mut("nodes").and_then(|value| value.as_array_mut()) else {
+            let Some(nodes) = contract
+                .get_mut("nodes")
+                .and_then(|value| value.as_array_mut())
+            else {
                 continue;
             };
 
@@ -1132,15 +1513,22 @@ impl Emitter {
 
     fn resolved_form_targets(&self, resolved_program: &Value) -> HashMap<String, Vec<Value>> {
         let mut targets: HashMap<String, Vec<Value>> = HashMap::new();
-        let Some(resolved_forms) = resolved_program.get("resolved_forms").and_then(|value| value.as_array()) else {
+        let Some(resolved_forms) = resolved_program
+            .get("resolved_forms")
+            .and_then(|value| value.as_array())
+        else {
             return targets;
         };
 
         for form in resolved_forms {
-            let Some(contract_decl) = form.get("contract_decl").and_then(|value| value.as_str()) else {
+            let Some(contract_decl) = form.get("contract_decl").and_then(|value| value.as_str())
+            else {
                 continue;
             };
-            targets.entry(contract_decl.to_string()).or_default().push(form.clone());
+            targets
+                .entry(contract_decl.to_string())
+                .or_default()
+                .push(form.clone());
         }
         targets
     }
@@ -1151,41 +1539,58 @@ impl Emitter {
         let Some(map) = expr.as_object() else {
             return expr.clone();
         };
-        let kind = map.get("kind").and_then(|value| value.as_str()).unwrap_or("");
+        let kind = map
+            .get("kind")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
 
         if kind == "binary_op" {
             let op = map.get("op").and_then(|value| value.as_str()).unwrap_or("");
             if let Some(target) = targets.iter().find(|target| {
-                target.get("original_kind").and_then(|value| value.as_str()) == Some("binary_op") &&
-                    target.get("trigger").and_then(|value| value.as_str()) == Some(op)
+                target.get("original_kind").and_then(|value| value.as_str()) == Some("binary_op")
+                    && target.get("trigger").and_then(|value| value.as_str()) == Some(op)
             }) {
                 let left = map.get("left").cloned().unwrap_or(Value::Null);
                 let right = map.get("right").cloned().unwrap_or(Value::Null);
-                return self.lowered_form_call(target, vec![
-                    self.lower_expr_for_targets(&left, targets),
-                    self.lower_expr_for_targets(&right, targets),
-                ]);
+                return self.lowered_form_call(
+                    target,
+                    vec![
+                        self.lower_expr_for_targets(&left, targets),
+                        self.lower_expr_for_targets(&right, targets),
+                    ],
+                );
             }
         }
 
         if kind == "unary_op" {
             let op = map.get("op").and_then(|value| value.as_str()).unwrap_or("");
             if let Some(target) = targets.iter().find(|target| {
-                target.get("original_kind").and_then(|value| value.as_str()) == Some("unary_op") &&
-                    target.get("trigger").and_then(|value| value.as_str()) == Some(op)
+                target.get("original_kind").and_then(|value| value.as_str()) == Some("unary_op")
+                    && target.get("trigger").and_then(|value| value.as_str()) == Some(op)
             }) {
                 let operand = map.get("operand").cloned().unwrap_or(Value::Null);
-                return self.lowered_form_call(target, vec![self.lower_expr_for_targets(&operand, targets)]);
+                return self.lowered_form_call(
+                    target,
+                    vec![self.lower_expr_for_targets(&operand, targets)],
+                );
             }
         }
 
         let mut lowered = Map::new();
         for (key, value) in map {
-            lowered.insert(key.clone(), match value {
-                Value::Array(items) => Value::Array(items.iter().map(|item| self.lower_expr_for_targets(item, targets)).collect()),
-                Value::Object(_) => self.lower_expr_for_targets(value, targets),
-                _ => value.clone(),
-            });
+            lowered.insert(
+                key.clone(),
+                match value {
+                    Value::Array(items) => Value::Array(
+                        items
+                            .iter()
+                            .map(|item| self.lower_expr_for_targets(item, targets))
+                            .collect(),
+                    ),
+                    Value::Object(_) => self.lower_expr_for_targets(value, targets),
+                    _ => value.clone(),
+                },
+            );
         }
         Value::Object(lowered)
     }
@@ -1193,13 +1598,37 @@ impl Emitter {
     fn lowered_form_call(&self, target: &Value, args: Vec<Value>) -> Value {
         let resolved_to = target.get("resolved_to").cloned().unwrap_or(Value::Null);
         let mut metadata = Map::new();
-        metadata.insert("authority".to_string(), Value::String("proof_local_lab_only".to_string()));
-        metadata.insert("source_kind".to_string(), target.get("original_kind").cloned().unwrap_or(Value::Null));
-        metadata.insert("trigger".to_string(), target.get("trigger").cloned().unwrap_or(Value::Null));
-        metadata.insert("form_id".to_string(), target.get("form_id").cloned().unwrap_or(Value::Null));
-        metadata.insert("contract_decl".to_string(), target.get("contract_decl").cloned().unwrap_or(Value::Null));
-        metadata.insert("typed_operands".to_string(), target.get("typed_operands").cloned().unwrap_or_else(|| Value::Array(Vec::new())));
-        metadata.insert("typed_result".to_string(), target.get("typed_result").cloned().unwrap_or(Value::Null));
+        metadata.insert(
+            "authority".to_string(),
+            Value::String("proof_local_lab_only".to_string()),
+        );
+        metadata.insert(
+            "source_kind".to_string(),
+            target.get("original_kind").cloned().unwrap_or(Value::Null),
+        );
+        metadata.insert(
+            "trigger".to_string(),
+            target.get("trigger").cloned().unwrap_or(Value::Null),
+        );
+        metadata.insert(
+            "form_id".to_string(),
+            target.get("form_id").cloned().unwrap_or(Value::Null),
+        );
+        metadata.insert(
+            "contract_decl".to_string(),
+            target.get("contract_decl").cloned().unwrap_or(Value::Null),
+        );
+        metadata.insert(
+            "typed_operands".to_string(),
+            target
+                .get("typed_operands")
+                .cloned()
+                .unwrap_or_else(|| Value::Array(Vec::new())),
+        );
+        metadata.insert(
+            "typed_result".to_string(),
+            target.get("typed_result").cloned().unwrap_or(Value::Null),
+        );
         metadata.insert("runtime_dispatch_required".to_string(), Value::Bool(false));
         metadata.insert("vm_linker_required".to_string(), Value::Bool(false));
         metadata.insert("stable_semanticir_node".to_string(), Value::Bool(false));
@@ -1209,8 +1638,7 @@ impl Emitter {
         call.insert("fn".to_string(), resolved_to);
         call.insert("args".to_string(), Value::Array(args));
         call.insert("lowered_from_form".to_string(), Value::Object(metadata));
-        call
-            .get("fn")
+        call.get("fn")
             .and_then(|value| value.as_str())
             .map(|fn_name| format!("call:{}", fn_name))
             .map(|target| call.insert("lowering_target".to_string(), Value::String(target)));
@@ -1221,18 +1649,37 @@ impl Emitter {
     fn typed_invariant_coverage(&self, semantic_ir: &Option<Value>) -> Vec<Value> {
         let mut coverages = Vec::new();
         if let Some(ir) = semantic_ir {
-            let invariants = self.typed_program_invariants(ir.get("contracts").unwrap_or(&Value::Null));
+            let invariants =
+                self.typed_program_invariants(ir.get("contracts").unwrap_or(&Value::Null));
             for node in invariants {
                 let mut cov = Map::new();
-                cov.insert("name".to_string(), node.get("name").cloned().unwrap_or(Value::Null));
-                cov.insert("severity".to_string(), node.get("severity").cloned().unwrap_or(Value::Null));
-                cov.insert("label".to_string(), node.get("label").cloned().unwrap_or(Value::Null));
-                cov.insert("message".to_string(), node.get("message").cloned().unwrap_or(Value::Null));
-                
+                cov.insert(
+                    "name".to_string(),
+                    node.get("name").cloned().unwrap_or(Value::Null),
+                );
+                cov.insert(
+                    "severity".to_string(),
+                    node.get("severity").cloned().unwrap_or(Value::Null),
+                );
+                cov.insert(
+                    "label".to_string(),
+                    node.get("label").cloned().unwrap_or(Value::Null),
+                );
+                cov.insert(
+                    "message".to_string(),
+                    node.get("message").cloned().unwrap_or(Value::Null),
+                );
+
                 let is_error = node.get("severity").and_then(|s| s.as_str()) == Some("error");
-                cov.insert("output_policy".to_string(), Value::String(if is_error { "blocking" } else { "non_blocking" }.to_string()));
-                cov.insert("output_effect".to_string(), node.get("output_effect").cloned().unwrap_or(Value::Null));
-                
+                cov.insert(
+                    "output_policy".to_string(),
+                    Value::String(if is_error { "blocking" } else { "non_blocking" }.to_string()),
+                );
+                cov.insert(
+                    "output_effect".to_string(),
+                    node.get("output_effect").cloned().unwrap_or(Value::Null),
+                );
+
                 if let Some(meta) = node.get("source_metadata") {
                     cov.insert("source_metadata".to_string(), meta.clone());
                 }
@@ -1265,7 +1712,7 @@ impl Emitter {
             let mut b = Map::new();
             b.insert("name".to_string(), Value::String(cap.clone()));
             b.insert("required_caps".to_string(), json!(vec![cap.clone()]));
-            
+
             let observation = if cap == "bihistory_read" {
                 "bihistory_access_observation"
             } else {
@@ -1277,9 +1724,15 @@ impl Emitter {
 
         if has_stream {
             let mut b = Map::new();
-            b.insert("name".to_string(), Value::String("stream_input".to_string()));
+            b.insert(
+                "name".to_string(),
+                Value::String("stream_input".to_string()),
+            );
             b.insert("required_caps".to_string(), json!(vec!["stream_input"]));
-            b.insert("produces".to_string(), json!(vec!["stream_window_observation"]));
+            b.insert(
+                "produces".to_string(),
+                json!(vec!["stream_window_observation"]),
+            );
             boundaries.push(Value::Object(b));
         }
 
@@ -1288,17 +1741,57 @@ impl Emitter {
 
     fn temporal_input_node(&self, decl: &TypedDecl) -> Value {
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("temporal_input_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("temporal_input_node".to_string()),
+        );
         m.insert("name".to_string(), Value::String(decl.name.clone()));
         m.insert("type".to_string(), self.temporal_type(&decl.type_info));
-        m.insert("store_ref".to_string(), decl.from.as_ref().map_or(Value::Null, |f| Value::String(f.clone())));
-        m.insert("lifecycle".to_string(), Value::String(decl.lifecycle.as_deref().unwrap_or("durable").to_string()));
-        m.insert("axis".to_string(), decl.temporal_axis.as_ref().map_or(Value::Null, |a| Value::String(a.clone())));
-        m.insert("node_fragment_class".to_string(), decl.node_fragment_class.as_ref().map_or(Value::Null, |n| Value::String(n.clone())));
-        m.insert("value_fragment_class".to_string(), decl.value_fragment_class.as_ref().map_or(Value::Null, |v| Value::String(v.clone())));
-        m.insert("required_capability".to_string(), decl.required_capability.as_ref().map_or(Value::Null, |r| Value::String(r.clone())));
-        m.insert("required_caps".to_string(), json!(decl.required_capability.as_ref().map_or(Vec::new(), |r| vec![r.clone()])));
-        m.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        m.insert(
+            "store_ref".to_string(),
+            decl.from
+                .as_ref()
+                .map_or(Value::Null, |f| Value::String(f.clone())),
+        );
+        m.insert(
+            "lifecycle".to_string(),
+            Value::String(decl.lifecycle.as_deref().unwrap_or("durable").to_string()),
+        );
+        m.insert(
+            "axis".to_string(),
+            decl.temporal_axis
+                .as_ref()
+                .map_or(Value::Null, |a| Value::String(a.clone())),
+        );
+        m.insert(
+            "node_fragment_class".to_string(),
+            decl.node_fragment_class
+                .as_ref()
+                .map_or(Value::Null, |n| Value::String(n.clone())),
+        );
+        m.insert(
+            "value_fragment_class".to_string(),
+            decl.value_fragment_class
+                .as_ref()
+                .map_or(Value::Null, |v| Value::String(v.clone())),
+        );
+        m.insert(
+            "required_capability".to_string(),
+            decl.required_capability
+                .as_ref()
+                .map_or(Value::Null, |r| Value::String(r.clone())),
+        );
+        m.insert(
+            "required_caps".to_string(),
+            json!(decl
+                .required_capability
+                .as_ref()
+                .map_or(Vec::new(), |r| vec![r.clone()])),
+        );
+        m.insert(
+            "fragment".to_string(),
+            Value::String(decl.fragment_class.clone()),
+        );
         Value::Object(m)
     }
 
@@ -1309,50 +1802,98 @@ impl Emitter {
                 "history_at" => {
                     let source_ref = self.ref_name(&args[0])?;
                     let as_of_ref = self.ref_name(&args[1])?;
-                    
+
                     let mut m = Map::new();
-                    m.insert("kind".to_string(), Value::String("temporal_access_node".to_string()));
+                    m.insert(
+                        "kind".to_string(),
+                        Value::String("temporal_access_node".to_string()),
+                    );
                     m.insert("name".to_string(), Value::String(decl.name.clone()));
                     m.insert("source_ref".to_string(), Value::String(source_ref));
                     m.insert("access".to_string(), Value::String("point".to_string()));
-                    m.insert("temporal_axis".to_string(), Value::String("valid_time".to_string()));
+                    m.insert(
+                        "temporal_axis".to_string(),
+                        Value::String("valid_time".to_string()),
+                    );
                     m.insert("axis".to_string(), Value::String("valid_time".to_string()));
                     m.insert("as_of_ref".to_string(), Value::String(as_of_ref.clone()));
                     m.insert("coordinate_refs".to_string(), json!({ "as_of": as_of_ref }));
                     m.insert("result_type".to_string(), decl.type_info.clone());
-                    m.insert("node_fragment_class".to_string(), Value::String("temporal".to_string()));
-                    m.insert("value_fragment_class".to_string(), Value::String("core".to_string()));
-                    m.insert("required_capability".to_string(), Value::String("history_read".to_string()));
+                    m.insert(
+                        "node_fragment_class".to_string(),
+                        Value::String("temporal".to_string()),
+                    );
+                    m.insert(
+                        "value_fragment_class".to_string(),
+                        Value::String("core".to_string()),
+                    );
+                    m.insert(
+                        "required_capability".to_string(),
+                        Value::String("history_read".to_string()),
+                    );
                     m.insert("required_caps".to_string(), json!(vec!["history_read"]));
-                    m.insert("evidence_policy".to_string(), Value::String("link_selected_append_observation".to_string()));
-                    m.insert("fragment".to_string(), Value::String("temporal".to_string()));
+                    m.insert(
+                        "evidence_policy".to_string(),
+                        Value::String("link_selected_append_observation".to_string()),
+                    );
+                    m.insert(
+                        "fragment".to_string(),
+                        Value::String("temporal".to_string()),
+                    );
                     Some(Value::Object(m))
                 }
                 "bihistory_at" => {
                     let source_ref = self.ref_name(&args[0])?;
                     let vt_ref = self.ref_name(&args[1])?;
                     let tt_ref = self.ref_name(&args[2])?;
-                    
+
                     let mut m = Map::new();
-                    m.insert("kind".to_string(), Value::String("temporal_access_node".to_string()));
+                    m.insert(
+                        "kind".to_string(),
+                        Value::String("temporal_access_node".to_string()),
+                    );
                     m.insert("name".to_string(), Value::String(decl.name.clone()));
                     m.insert("source_ref".to_string(), Value::String(source_ref));
                     m.insert("access".to_string(), Value::String("point".to_string()));
-                    m.insert("temporal_axis".to_string(), Value::String("bitemporal".to_string()));
+                    m.insert(
+                        "temporal_axis".to_string(),
+                        Value::String("bitemporal".to_string()),
+                    );
                     m.insert("axis".to_string(), Value::String("bitemporal".to_string()));
                     m.insert("valid_time_ref".to_string(), Value::String(vt_ref.clone()));
-                    m.insert("transaction_time_ref".to_string(), Value::String(tt_ref.clone()));
-                    m.insert("coordinate_refs".to_string(), json!({ "valid_time": vt_ref, "transaction_time": tt_ref }));
+                    m.insert(
+                        "transaction_time_ref".to_string(),
+                        Value::String(tt_ref.clone()),
+                    );
+                    m.insert(
+                        "coordinate_refs".to_string(),
+                        json!({ "valid_time": vt_ref, "transaction_time": tt_ref }),
+                    );
                     m.insert("result_type".to_string(), decl.type_info.clone());
-                    m.insert("node_fragment_class".to_string(), Value::String("temporal".to_string()));
-                    m.insert("value_fragment_class".to_string(), Value::String("core".to_string()));
-                    m.insert("required_capability".to_string(), Value::String("bihistory_read".to_string()));
+                    m.insert(
+                        "node_fragment_class".to_string(),
+                        Value::String("temporal".to_string()),
+                    );
+                    m.insert(
+                        "value_fragment_class".to_string(),
+                        Value::String("core".to_string()),
+                    );
+                    m.insert(
+                        "required_capability".to_string(),
+                        Value::String("bihistory_read".to_string()),
+                    );
                     m.insert("required_caps".to_string(), json!(vec!["bihistory_read"]));
-                    m.insert("evidence_policy".to_string(), Value::String("link_selected_event_observation".to_string()));
-                    m.insert("fragment".to_string(), Value::String("temporal".to_string()));
+                    m.insert(
+                        "evidence_policy".to_string(),
+                        Value::String("link_selected_event_observation".to_string()),
+                    );
+                    m.insert(
+                        "fragment".to_string(),
+                        Value::String("temporal".to_string()),
+                    );
                     Some(Value::Object(m))
                 }
-                _ => None
+                _ => None,
             }
         } else {
             None
@@ -1369,7 +1910,11 @@ impl Emitter {
 
     fn temporal_type(&self, type_info: &Value) -> Value {
         if let Some(map) = type_info.as_object() {
-            let constructor = map.get("name").or_else(|| map.get("constructor")).cloned().unwrap_or(Value::Null);
+            let constructor = map
+                .get("name")
+                .or_else(|| map.get("constructor"))
+                .cloned()
+                .unwrap_or(Value::Null);
             let params = map.get("params").and_then(|p| p.as_array());
             let element_type = if let Some(params) = params {
                 if !params.is_empty() {
@@ -1380,7 +1925,7 @@ impl Emitter {
             } else {
                 Value::String("Unknown".to_string())
             };
-            
+
             let mut m = Map::new();
             m.insert("constructor".to_string(), constructor);
             m.insert("element_type".to_string(), element_type);
@@ -1392,21 +1937,58 @@ impl Emitter {
 
     fn invariant_node(&self, decl: &TypedDecl) -> Value {
         let severity = decl.severity.as_deref().unwrap_or("error");
-        let output_effect = decl.output_effect.clone().unwrap_or_else(|| self.invariant_output_effect(severity));
-        
+        let output_effect = decl
+            .output_effect
+            .clone()
+            .unwrap_or_else(|| self.invariant_output_effect(severity));
+
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("invariant_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("invariant_node".to_string()),
+        );
         m.insert("name".to_string(), Value::String(decl.name.clone()));
-        m.insert("predicate".to_string(), decl.predicate_ref.as_ref().map_or(Value::Null, |p| Value::String(p.clone())));
-        m.insert("predicate_ref".to_string(), decl.predicate_ref.as_ref().map_or(Value::Null, |p| Value::String(p.clone())));
-        m.insert("predicate_type".to_string(), Value::String("Bool".to_string()));
+        m.insert(
+            "predicate".to_string(),
+            decl.predicate_ref
+                .as_ref()
+                .map_or(Value::Null, |p| Value::String(p.clone())),
+        );
+        m.insert(
+            "predicate_ref".to_string(),
+            decl.predicate_ref
+                .as_ref()
+                .map_or(Value::Null, |p| Value::String(p.clone())),
+        );
+        m.insert(
+            "predicate_type".to_string(),
+            Value::String("Bool".to_string()),
+        );
         m.insert("severity".to_string(), Value::String(severity.to_string()));
-        m.insert("label".to_string(), decl.label.as_ref().map_or(Value::Null, |l| Value::String(l.clone())));
-        m.insert("message".to_string(), decl.message.as_ref().map_or(Value::Null, |msg| Value::String(msg.clone())));
-        m.insert("overridable_with".to_string(), decl.overridable_with.as_ref().map_or(Value::Null, |o| Value::String(o.clone())));
+        m.insert(
+            "label".to_string(),
+            decl.label
+                .as_ref()
+                .map_or(Value::Null, |l| Value::String(l.clone())),
+        );
+        m.insert(
+            "message".to_string(),
+            decl.message
+                .as_ref()
+                .map_or(Value::Null, |msg| Value::String(msg.clone())),
+        );
+        m.insert(
+            "overridable_with".to_string(),
+            decl.overridable_with
+                .as_ref()
+                .map_or(Value::Null, |o| Value::String(o.clone())),
+        );
         m.insert("output_effect".to_string(), Value::String(output_effect));
         m.insert("deps".to_string(), json!(decl.deps));
-        m.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        m.insert(
+            "fragment".to_string(),
+            Value::String(decl.fragment_class.clone()),
+        );
         Value::Object(m)
     }
 
@@ -1422,12 +2004,27 @@ impl Emitter {
 
     fn stream_input_node(&self, decl: &TypedDecl, declarations: &[TypedDecl]) -> Value {
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("stream_input_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("stream_input_node".to_string()),
+        );
         m.insert("name".to_string(), Value::String(decl.name.clone()));
-        m.insert("type".to_string(), Value::String(self.type_display(&decl.type_info)));
-        m.insert("window_ref".to_string(), Value::String(self.first_window_ref(declarations)));
-        m.insert("escape_capability".to_string(), Value::String("stream_input".to_string()));
-        m.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        m.insert(
+            "type".to_string(),
+            Value::String(self.type_display(&decl.type_info)),
+        );
+        m.insert(
+            "window_ref".to_string(),
+            Value::String(self.first_window_ref(declarations)),
+        );
+        m.insert(
+            "escape_capability".to_string(),
+            Value::String("stream_input".to_string()),
+        );
+        m.insert(
+            "fragment".to_string(),
+            Value::String(decl.fragment_class.clone()),
+        );
         Value::Object(m)
     }
 
@@ -1442,7 +2039,10 @@ impl Emitter {
 
     fn window_decl_node(&self, decl: &TypedDecl) -> Value {
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("window_decl_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("window_decl_node".to_string()),
+        );
         m.insert("ref".to_string(), Value::String(decl.name.clone()));
         m.insert("key".to_string(), Value::String(decl.name.clone()));
 
@@ -1467,10 +2067,13 @@ impl Emitter {
         if let Some(s) = size {
             m.insert("size".to_string(), Value::Number(s.into()));
         }
-        
-        let bounded = size.is_some() || decl.options.as_ref().map_or(false, |o| o.contains_key("period") || o.contains_key("idle"));
+
+        let bounded = size.is_some()
+            || decl.options.as_ref().map_or(false, |o| {
+                o.contains_key("period") || o.contains_key("idle")
+            });
         m.insert("bounded".to_string(), Value::Bool(bounded));
-        
+
         Value::Object(m)
     }
 
@@ -1525,7 +2128,10 @@ impl Emitter {
         });
 
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("fold_stream_node".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("fold_stream_node".to_string()),
+        );
         m.insert("name".to_string(), Value::String(decl.name.clone()));
         m.insert("stream_ref".to_string(), Value::String(stream_ref));
         m.insert("init".to_string(), init);
@@ -1533,8 +2139,14 @@ impl Emitter {
         m.insert("bound".to_string(), bound);
         m.insert("event_binding".to_string(), event_binding);
         m.insert("result_type".to_string(), decl.type_info.clone());
-        m.insert("escape_capability".to_string(), Value::String("stream_input".to_string()));
-        m.insert("result_fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        m.insert(
+            "escape_capability".to_string(),
+            Value::String("stream_input".to_string()),
+        );
+        m.insert(
+            "result_fragment".to_string(),
+            Value::String(decl.fragment_class.clone()),
+        );
         Value::Object(m)
     }
 
@@ -1570,7 +2182,10 @@ impl Emitter {
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
         let hash = format!("{:x}", hasher.finalize());
-        let cname = contract_ir.get("contract_name").and_then(|n| n.as_str()).unwrap_or("Unknown");
+        let cname = contract_ir
+            .get("contract_name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Unknown");
         format!("contract/{}/sha256:{}", cname, &hash[0..24])
     }
 
@@ -1582,7 +2197,10 @@ impl Emitter {
         let fn_name = map.get("fn").and_then(|f| f.as_str())?;
         let args = map.get("args").and_then(|a| a.as_array())?;
 
-        if !matches!(fn_name, "count" | "first" | "last" | "fold" | "sum" | "avg" | "min" | "max") {
+        if !matches!(
+            fn_name,
+            "count" | "first" | "last" | "fold" | "sum" | "avg" | "min" | "max"
+        ) {
             return None;
         }
 
@@ -1632,14 +2250,16 @@ impl Emitter {
                 let init = &args[1];
                 let lambda = &args[2];
 
-                let param_acc = lambda.get("params")
+                let param_acc = lambda
+                    .get("params")
                     .and_then(|p| p.as_array())
                     .and_then(|p| p.get(0))
                     .and_then(|p| p.as_str())
                     .unwrap_or("acc")
                     .to_string();
 
-                let param_val = lambda.get("params")
+                let param_val = lambda
+                    .get("params")
                     .and_then(|p| p.as_array())
                     .and_then(|p| p.get(1))
                     .and_then(|p| p.as_str())
@@ -1660,9 +2280,11 @@ impl Emitter {
             _ => unreachable!(),
         }
 
-        let is_range = source.as_object()
+        let is_range = source
+            .as_object()
             .and_then(|s| s.get("kind"))
-            .and_then(|k| k.as_str()) == Some("range");
+            .and_then(|k| k.as_str())
+            == Some("range");
 
         if pipeline.len() > 1 || is_range || fn_name == "fold" {
             Some(json!({
@@ -1688,14 +2310,15 @@ impl Emitter {
                                 if args.len() >= 2 {
                                     let inner_coll = &args[0];
                                     let lambda = &args[1];
-                                    let param = lambda.get("params")
+                                    let param = lambda
+                                        .get("params")
                                         .and_then(|p| p.as_array())
                                         .and_then(|p| p.get(0))
                                         .and_then(|p| p.as_str())
                                         .unwrap_or("x")
                                         .to_string();
                                     let body = lambda.get("body").unwrap_or(&Value::Null);
-                                    
+
                                     let source = self.build_pipeline(inner_coll, pipeline);
                                     pipeline.push(json!({
                                         "kind": "filter",
@@ -1711,14 +2334,15 @@ impl Emitter {
                                 if args.len() >= 2 {
                                     let inner_coll = &args[0];
                                     let lambda = &args[1];
-                                    let param = lambda.get("params")
+                                    let param = lambda
+                                        .get("params")
                                         .and_then(|p| p.as_array())
                                         .and_then(|p| p.get(0))
                                         .and_then(|p| p.as_str())
                                         .unwrap_or("x")
                                         .to_string();
                                     let body = lambda.get("body").unwrap_or(&Value::Null);
-                                    
+
                                     let source = self.build_pipeline(inner_coll, pipeline);
                                     pipeline.push(json!({
                                         "kind": "map",
@@ -1755,11 +2379,22 @@ impl Emitter {
         node.insert("name".to_string(), Value::String(decl.name.clone()));
 
         // G3b/G3c: loop_class from classifier options ("finite" | "budgeted")
-        let loop_class = decl.options.as_ref()
+        let loop_class = decl
+            .options
+            .as_ref()
             .and_then(|o| o.get("loop_class"))
-            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.as_str()) } else { None })
+            .and_then(|v| {
+                if let crate::parser::WindowValue::Str(s) = v {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
             .unwrap_or("budgeted");
-        node.insert("loop_class".to_string(), Value::String(loop_class.to_string()));
+        node.insert(
+            "loop_class".to_string(),
+            Value::String(loop_class.to_string()),
+        );
 
         // termination evidence — canon SemanticIR field
         let termination = if loop_class == "finite" {
@@ -1767,7 +2402,10 @@ impl Emitter {
         } else {
             "budget_exhaustion"
         };
-        node.insert("termination".to_string(), Value::String(termination.to_string()));
+        node.insert(
+            "termination".to_string(),
+            Value::String(termination.to_string()),
+        );
 
         // source_ref: collection name (canon SemanticIR field)
         if let Some(crate::parser::Expr::Ref { name: ref ref_name }) = decl.expr {
@@ -1775,35 +2413,65 @@ impl Emitter {
         }
 
         // G1: item variable
-        if let Some(item_var) = decl.options.as_ref()
+        if let Some(item_var) = decl
+            .options
+            .as_ref()
             .and_then(|o| o.get("item"))
-            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+            .and_then(|v| {
+                if let crate::parser::WindowValue::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
         {
             node.insert("item".to_string(), Value::String(item_var));
         }
 
         // max_steps at top level for budgeted loops (canon + VM compat)
-        if let Some(max_steps_val) = decl.options.as_ref()
+        if let Some(max_steps_val) = decl
+            .options
+            .as_ref()
             .and_then(|o| o.get("max_steps"))
-            .and_then(|v| if let crate::parser::WindowValue::Int(n) = v { Some(*n) } else { None })
+            .and_then(|v| {
+                if let crate::parser::WindowValue::Int(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                }
+            })
         {
             node.insert("max_steps".to_string(), Value::Number(max_steps_val.into()));
         }
 
-        node.insert("fragment".to_string(), Value::String(decl.fragment_class.clone()));
+        node.insert(
+            "fragment".to_string(),
+            Value::String(decl.fragment_class.clone()),
+        );
 
         // Keep full options for downstream consumers (VM compiler reads max_steps here too)
         if let Some(options) = &decl.options {
-            node.insert("options".to_string(), serde_json::to_value(options).unwrap());
+            node.insert(
+                "options".to_string(),
+                serde_json::to_value(options).unwrap(),
+            );
         }
 
         // expr for VM compiler backward compat
         node.insert("expr".to_string(), self.semantic_expr(&json!(decl.expr)));
 
         // PROP-039 gate 8: item_type from collection element type
-        if let Some(item_type_val) = decl.options.as_ref()
+        if let Some(item_type_val) = decl
+            .options
+            .as_ref()
             .and_then(|o| o.get("item_type"))
-            .and_then(|v| if let crate::parser::WindowValue::Str(s) = v { Some(s.clone()) } else { None })
+            .and_then(|v| {
+                if let crate::parser::WindowValue::Str(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
         {
             node.insert("item_type".to_string(), Value::String(item_type_val));
         }
@@ -1815,7 +2483,9 @@ impl Emitter {
             for inner in nodes {
                 if inner.kind == "lead" {
                     // lead_node for canon body
-                    let type_str = inner.type_info.get("name")
+                    let type_str = inner
+                        .type_info
+                        .get("name")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .or_else(|| inner.type_info.as_str().map(|s| s.to_string()))
@@ -1851,9 +2521,12 @@ impl Emitter {
 
     fn service_loop_node(&self, decl: &TypedDecl, declarations: &[TypedDecl]) -> Value {
         let mut node = Map::new();
-        node.insert("kind".to_string(), Value::String("service_loop_node".to_string()));
+        node.insert(
+            "kind".to_string(),
+            Value::String("service_loop_node".to_string()),
+        );
         node.insert("name".to_string(), Value::String(decl.name.clone()));
-        
+
         let mut interval_map = Map::new();
         if let Some(options) = &decl.options {
             if let Some(crate::parser::WindowValue::Int(v)) = options.get("interval_value") {
@@ -1865,8 +2538,11 @@ impl Emitter {
         }
         node.insert("interval".to_string(), Value::Object(interval_map));
         node.insert("fragment".to_string(), Value::String("escape".to_string()));
-        node.insert("temporal_binding".to_string(), Value::String(format!("{}.time", decl.name)));
-        
+        node.insert(
+            "temporal_binding".to_string(),
+            Value::String(format!("{}.time", decl.name)),
+        );
+
         let mut body_nodes = Vec::new();
         if let Some(nodes) = &decl.body_nodes {
             for inner in nodes {
@@ -1880,12 +2556,14 @@ impl Emitter {
     }
 }
 
-
 fn type_display(type_val: &Value) -> String {
     match type_val {
         Value::String(s) => s.clone(),
         Value::Object(map) => {
-            let name = map.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown");
+            let name = map
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("Unknown");
             let params = map.get("params").and_then(|p| p.as_array());
             if let Some(params) = params {
                 if params.is_empty() {
@@ -1914,7 +2592,10 @@ fn type_ref_to_string(tr: &crate::parser::TypeRef) -> String {
             }
         }
         crate::parser::TypeRef::DimsRecord { dims, .. } => {
-            let mut parts: Vec<String> = dims.iter().map(|(k, v)| format!("{}:{}", k, type_ref_to_string(v))).collect();
+            let mut parts: Vec<String> = dims
+                .iter()
+                .map(|(k, v)| format!("{}:{}", k, type_ref_to_string(v)))
+                .collect();
             parts.sort();
             format!("Dims[{}]", parts.join(","))
         }

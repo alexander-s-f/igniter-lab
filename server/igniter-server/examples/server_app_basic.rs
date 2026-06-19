@@ -17,7 +17,9 @@
 //! - anything else                            -> `Respond(404)`.
 #![allow(dead_code)] // when this file is #[path]-included by the test, `main`/helpers are unused there.
 
-use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{
+    AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
+};
 use serde_json::{json, Value};
 
 /// The example app. Stateless, zero-field — `Send + Sync`, composes under `ReloadableApp` and the P8
@@ -28,7 +30,10 @@ impl ServerApp for ExampleApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         match (req.method.as_str(), req.path.as_str()) {
             ("GET", "/health") => ServerDecision::Respond {
-                response: ServerResponse::json(200, json!({ "ok": true, "app": "ticket-intake-example" })),
+                response: ServerResponse::json(
+                    200,
+                    json!({ "ok": true, "app": "ticket-intake-example" }),
+                ),
             },
             ("POST", "/tickets") => match req.idempotency_key.clone().filter(|k| !k.is_empty()) {
                 // canonical key present -> a logical effect decision (NO effect identity).
@@ -40,7 +45,10 @@ impl ServerApp for ExampleApp {
                 },
                 // keyless -> 400, never a silent fresh effect.
                 None => ServerDecision::Respond {
-                    response: ServerResponse::json(400, json!({ "error": "missing idempotency-key" })),
+                    response: ServerResponse::json(
+                        400,
+                        json!({ "error": "missing idempotency-key" }),
+                    ),
                 },
             },
             _ => ServerDecision::Respond {
@@ -82,20 +90,44 @@ fn main() {
 
     let samples = [
         demo_request("GET", "/health", &[], Value::Null),
-        demo_request("POST", "/tickets", &[("idempotency-key", "tkt-1001"), ("x-correlation-id", "corr-1")], json!({ "title": "printer jam", "priority": "high" })),
+        demo_request(
+            "POST",
+            "/tickets",
+            &[
+                ("idempotency-key", "tkt-1001"),
+                ("x-correlation-id", "corr-1"),
+            ],
+            json!({ "title": "printer jam", "priority": "high" }),
+        ),
         demo_request("POST", "/tickets", &[], json!({ "title": "no key here" })),
         demo_request("DELETE", "/unknown", &[], Value::Null),
     ];
     for req in samples {
         let decision = app.call(req.clone());
-        println!("{} {} -> {}", req.method, req.path, serde_json::to_string(&decision).unwrap());
+        println!(
+            "{} {} -> {}",
+            req.method,
+            req.path,
+            serde_json::to_string(&decision).unwrap()
+        );
     }
 
     // The same app composes under P8 wrapper middleware (host extension mechanism), unchanged.
     use igniter_server::middleware::ServerAppExt;
     let stack = ExampleApp.with_trace().with_auth("demo-secret");
     let no_auth = stack.call(demo_request("GET", "/health", &[], Value::Null));
-    let with_auth = stack.call(demo_request("GET", "/health", &[("authorization", "Bearer demo-secret")], Value::Null));
-    println!("middleware (no auth)   -> {}", serde_json::to_string(&no_auth).unwrap());
-    println!("middleware (with auth) -> {}", serde_json::to_string(&with_auth).unwrap());
+    let with_auth = stack.call(demo_request(
+        "GET",
+        "/health",
+        &[("authorization", "Bearer demo-secret")],
+        Value::Null,
+    ));
+    println!(
+        "middleware (no auth)   -> {}",
+        serde_json::to_string(&no_auth).unwrap()
+    );
+    println!(
+        "middleware (with auth) -> {}",
+        serde_json::to_string(&with_auth).unwrap()
+    );
 }

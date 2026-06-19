@@ -46,7 +46,10 @@ impl std::fmt::Display for IgvError {
 impl std::error::Error for IgvError {}
 
 fn err(line: usize, msg: impl Into<String>) -> IgvError {
-    IgvError { line, msg: msg.into() }
+    IgvError {
+        line,
+        msg: msg.into(),
+    }
 }
 
 /// Split a logical line into tokens: bare words, a `"quoted label"` (one token, unquoted), and a
@@ -152,9 +155,13 @@ pub fn lower_igv(src: &str) -> Result<Value, IgvError> {
                 }
                 "effect" => {
                     if t.len() < 4 {
-                        return Err(err(line_no, "expected: effect <capability_id> <operation> <scope>"));
+                        return Err(err(
+                            line_no,
+                            "expected: effect <capability_id> <operation> <scope>",
+                        ));
                     }
-                    act.effect = Some(json!({ "capability_id": t[1], "operation": t[2], "scope": t[3] }));
+                    act.effect =
+                        Some(json!({ "capability_id": t[1], "operation": t[2], "scope": t[3] }));
                 }
                 "}" => {
                     let act = cur.take().unwrap();
@@ -169,7 +176,12 @@ pub fn lower_igv(src: &str) -> Result<Value, IgvError> {
                     }
                     actions.insert(act.name, Value::Object(a));
                 }
-                other => return Err(err(line_no, format!("unknown statement in action block: '{other}'"))),
+                other => {
+                    return Err(err(
+                        line_no,
+                        format!("unknown statement in action block: '{other}'"),
+                    ))
+                }
             }
             continue;
         }
@@ -190,7 +202,10 @@ pub fn lower_igv(src: &str) -> Result<Value, IgvError> {
             }
             "field" => {
                 if t.len() < 4 {
-                    return Err(err(line_no, "expected: field <id> <kind> \"<label>\" [options] [required]"));
+                    return Err(err(
+                        line_no,
+                        "expected: field <id> <kind> \"<label>\" [options] [required]",
+                    ));
                 }
                 let id = &t[1];
                 let kind = &t[2];
@@ -219,11 +234,20 @@ pub fn lower_igv(src: &str) -> Result<Value, IgvError> {
                 if t.len() < 5 || t[2] != "=" || t[4] != "{" {
                     return Err(err(line_no, "expected: action <name> = <Contract> {"));
                 }
-                cur = Some(ActionBuilder { name: t[1].clone(), contract: t[3].clone(), input: Map::new(), validate: None, effect: None });
+                cur = Some(ActionBuilder {
+                    name: t[1].clone(),
+                    contract: t[3].clone(),
+                    input: Map::new(),
+                    validate: None,
+                    effect: None,
+                });
             }
             "sidebar" => {
                 if t.len() < 5 || t[1] != "list" || t[3] != "on_select" {
-                    return Err(err(line_no, "expected: sidebar list <source> on_select <action>"));
+                    return Err(err(
+                        line_no,
+                        "expected: sidebar list <source> on_select <action>",
+                    ));
                 }
                 sidebar = Some(json!({ "component": "List", "bind": t[2], "on_select": t[4] }));
             }
@@ -245,7 +269,10 @@ pub fn lower_igv(src: &str) -> Result<Value, IgvError> {
     }
 
     if cur.is_some() {
-        return Err(err(src.lines().count(), "unterminated action block (missing '}')"));
+        return Err(err(
+            src.lines().count(),
+            "unterminated action block (missing '}')",
+        ));
     }
     let screen = screen.ok_or_else(|| err(1, "missing `view <screen> <layout> {`"))?;
     let layout = layout.unwrap();

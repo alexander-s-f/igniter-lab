@@ -2,8 +2,8 @@
 // Lightweight, zero-dependency asynchronous HTTP/1.1 webhook receiver
 
 use std::sync::Arc;
-use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 pub struct ReactiveListener {
     pub port: u16,
@@ -21,7 +21,8 @@ impl ReactiveListener {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         let addr = format!("127.0.0.1:{}", self.port);
-        let listener = TcpListener::bind(&addr).await
+        let listener = TcpListener::bind(&addr)
+            .await
             .map_err(|e| format!("Failed to bind ReactiveListener to {}: {}", addr, e))?;
 
         let cb = Arc::new(callback);
@@ -32,7 +33,9 @@ impl ReactiveListener {
                 tokio::spawn(async move {
                     let mut buffer = [0u8; 8192];
                     if let Ok(bytes_read) = stream.read(&mut buffer).await {
-                        if bytes_read == 0 { return; }
+                        if bytes_read == 0 {
+                            return;
+                        }
                         let request_str = String::from_utf8_lossy(&buffer[..bytes_read]);
 
                         // Simple HTTP/1.1 POST parser extracting content body

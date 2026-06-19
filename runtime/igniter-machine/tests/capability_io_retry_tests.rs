@@ -7,7 +7,8 @@
 use async_trait::async_trait;
 use igniter_machine::backend::{InMemoryBackend, RemoteTcpBackend, TBackend};
 use igniter_machine::capability::{
-    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest,
+    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome,
+    EffectRequest,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::fact::Fact;
@@ -20,7 +21,10 @@ use std::sync::Arc;
 const CAP: &str = "IO.WriteCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -41,7 +45,13 @@ fn base_req(rec: &str, value: serde_json::Value) -> WriteRequest {
         capability_id: CAP.to_string(),
         operation: "put_fact".to_string(),
         idempotency_key: "base".to_string(),
-        payload: FactWrite { store: "orders".to_string(), key: rec.to_string(), value, valid_time: None }.to_payload(),
+        payload: FactWrite {
+            store: "orders".to_string(),
+            key: rec.to_string(),
+            value,
+            valid_time: None,
+        }
+        .to_payload(),
     }
 }
 
@@ -67,7 +77,13 @@ struct ScriptedWriteExecutor {
 
 impl ScriptedWriteExecutor {
     fn new(backend: Arc<dyn TBackend>, clock: Arc<dyn ClockProvider>, steps: Vec<Step>) -> Self {
-        Self { backend, clock, steps, cursor: AtomicUsize::new(0), attempts: AtomicU64::new(0) }
+        Self {
+            backend,
+            clock,
+            steps,
+            cursor: AtomicUsize::new(0),
+            attempts: AtomicU64::new(0),
+        }
     }
     fn attempts(&self) -> u64 {
         self.attempts.load(Ordering::SeqCst)
@@ -75,7 +91,11 @@ impl ScriptedWriteExecutor {
     async fn apply_write(&self, req: &EffectRequest) {
         let store = req.args.get("store").and_then(|v| v.as_str()).unwrap_or("");
         let key = req.args.get("key").and_then(|v| v.as_str()).unwrap_or("");
-        let value = req.args.get("value").cloned().unwrap_or(serde_json::Value::Null);
+        let value = req
+            .args
+            .get("value")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         let fact = Fact {
             id: format!("w:{}:{}:{}", store, key, uuid::Uuid::new_v4()),
             store: store.to_string(),
@@ -132,12 +152,25 @@ fn retries_transient_then_commits() {
     rt().block_on(async {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::Retryable, Step::Retryable, Step::Commit]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::Retryable, Step::Retryable, Step::Commit],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-1", json!({"total": 1})), RetryPolicy::new(5))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-1", json!({"total": 1})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::Committed { attempts: 3 });
         assert_eq!(exec.attempts(), 3);
     });
@@ -150,12 +183,25 @@ fn exhausts_on_persistent_transient() {
     rt().block_on(async {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::Retryable, Step::Retryable]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::Retryable, Step::Retryable],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-2", json!({"total": 1})), RetryPolicy::new(2))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-2", json!({"total": 1})),
+            RetryPolicy::new(2),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::Exhausted { attempts: 2 });
         assert_eq!(exec.attempts(), 2);
     });
@@ -169,15 +215,31 @@ fn unknown_reconciled_not_landed_then_commits() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         // attempt 1 times out WITHOUT writing; attempt 2 commits
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::Timeout, Step::Commit]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::Timeout, Step::Commit],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-3", json!({"total": 5})), RetryPolicy::new(5))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-3", json!({"total": 5})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::Committed { attempts: 2 });
         // the value really landed exactly once
-        let versions = substrate.facts_for("orders", "ord-3", None, None).await.unwrap();
+        let versions = substrate
+            .facts_for("orders", "ord-3", None, None)
+            .await
+            .unwrap();
         assert_eq!(versions.len(), 1);
     });
 }
@@ -190,16 +252,36 @@ fn unknown_but_landed_resolves_committed_without_retry() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         // the write lands but the ack is lost → unknown; reconcile must find it
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::WriteThenUnknown, Step::Commit]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::WriteThenUnknown, Step::Commit],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-4", json!({"total": 9})), RetryPolicy::new(5))
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-4", json!({"total": 9})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out, RetryOutcome::Committed { attempts: 1 });
+        assert_eq!(
+            exec.attempts(),
+            1,
+            "no retry — reconcile found the write already landed"
+        );
+        // exactly one version (no double write)
+        let versions = substrate
+            .facts_for("orders", "ord-4", None, None)
             .await
             .unwrap();
-        assert_eq!(out, RetryOutcome::Committed { attempts: 1 });
-        assert_eq!(exec.attempts(), 1, "no retry — reconcile found the write already landed");
-        // exactly one version (no double write)
-        let versions = substrate.facts_for("orders", "ord-4", None, None).await.unwrap();
         assert_eq!(versions.len(), 1);
     });
 }
@@ -211,16 +293,33 @@ fn unknown_unreconcilable_bails_unresolved() {
     rt().block_on(async {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let healthy: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let exec = Arc::new(ScriptedWriteExecutor::new(healthy.clone(), clock(), vec![Step::Timeout]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            healthy.clone(),
+            clock(),
+            vec![Step::Timeout],
+        ));
         let reg = registry(exec.clone());
         // reconcile against an UNAVAILABLE substrate → cannot determine → bail
         let dead: Arc<dyn TBackend> = Arc::new(RemoteTcpBackend::new("127.0.0.1:1".to_string()));
 
-        let out = run_write_with_retry(&reg, &receipts, &dead, &clock(), &passport(), "write", &base_req("ord-5", json!({"total": 1})), RetryPolicy::new(5))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &dead,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-5", json!({"total": 1})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::Unresolved { attempts: 1 });
-        assert_eq!(exec.attempts(), 1, "must NOT retry an unreconcilable unknown");
+        assert_eq!(
+            exec.attempts(),
+            1,
+            "must NOT retry an unreconcilable unknown"
+        );
     });
 }
 
@@ -231,12 +330,25 @@ fn denial_is_not_retried() {
     rt().block_on(async {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::Deny]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::Deny],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-6", json!({"total": 1})), RetryPolicy::new(5))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-6", json!({"total": 1})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::Denied);
         assert_eq!(exec.attempts(), 1);
     });
@@ -247,12 +359,25 @@ fn hard_permanent_is_not_retried() {
     rt().block_on(async {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let substrate: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let exec = Arc::new(ScriptedWriteExecutor::new(substrate.clone(), clock(), vec![Step::Permanent]));
+        let exec = Arc::new(ScriptedWriteExecutor::new(
+            substrate.clone(),
+            clock(),
+            vec![Step::Permanent],
+        ));
         let reg = registry(exec.clone());
 
-        let out = run_write_with_retry(&reg, &receipts, &substrate, &clock(), &passport(), "write", &base_req("ord-7", json!({"total": 1})), RetryPolicy::new(5))
-            .await
-            .unwrap();
+        let out = run_write_with_retry(
+            &reg,
+            &receipts,
+            &substrate,
+            &clock(),
+            &passport(),
+            "write",
+            &base_req("ord-7", json!({"total": 1})),
+            RetryPolicy::new(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(out, RetryOutcome::PermanentFailure { attempts: 1 });
         assert_eq!(exec.attempts(), 1);
     });

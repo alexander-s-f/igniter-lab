@@ -1,6 +1,6 @@
 use crate::emitter::EmitResult;
-use serde_json::{Value, Map, json};
-use sha2::{Sha256, Digest};
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
@@ -13,17 +13,32 @@ impl Assembler {
 
     pub fn assemble(&self, emit_result: &EmitResult, target_dir: &str) -> std::io::Result<Value> {
         let report = &emit_result.compilation_report;
-        let semantic_ir = emit_result.semantic_ir.as_ref().expect("Cannot assemble a failed compilation");
+        let semantic_ir = emit_result
+            .semantic_ir
+            .as_ref()
+            .expect("Cannot assemble a failed compilation");
 
-        let contracts_ir = semantic_ir.get("contracts").and_then(|c| c.as_array()).expect("semantic_ir lacks contracts");
+        let contracts_ir = semantic_ir
+            .get("contracts")
+            .and_then(|c| c.as_array())
+            .expect("semantic_ir lacks contracts");
 
         let mut contracts = Vec::new();
         let mut contract_ids = Vec::new();
         for c_ir in contracts_ir {
-            let modifier = c_ir.get("modifier").and_then(|m| m.as_str()).unwrap_or("pure");
+            let modifier = c_ir
+                .get("modifier")
+                .and_then(|m| m.as_str())
+                .unwrap_or("pure");
             if modifier == "privileged" {
-                let name = c_ir.get("contract_name").and_then(|n| n.as_str()).unwrap_or("");
-                let has_token = if let Some(tokens) = semantic_ir.get("capability_tokens").and_then(|t| t.as_array()) {
+                let name = c_ir
+                    .get("contract_name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+                let has_token = if let Some(tokens) = semantic_ir
+                    .get("capability_tokens")
+                    .and_then(|t| t.as_array())
+                {
                     tokens.iter().any(|t| t.as_str() == Some(name))
                 } else {
                     false
@@ -36,18 +51,31 @@ impl Assembler {
                 }
             }
             let contract = self.contract_file(c_ir);
-            contract_ids.push(contract.get("contract_id").and_then(|id| id.as_str()).unwrap().to_string());
+            contract_ids.push(
+                contract
+                    .get("contract_id")
+                    .and_then(|id| id.as_str())
+                    .unwrap()
+                    .to_string(),
+            );
             contracts.push(contract);
         }
         contract_ids.sort();
 
-        let fragment_classes: Vec<String> = contracts.iter()
-            .map(|c| c.get("fragment_class").and_then(|f| f.as_str()).unwrap().to_string())
+        let fragment_classes: Vec<String> = contracts
+            .iter()
+            .map(|c| {
+                c.get("fragment_class")
+                    .and_then(|f| f.as_str())
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
         let fragment_class = if fragment_classes.is_empty() {
             "core".to_string()
         } else {
-            let unique: std::collections::HashSet<String> = fragment_classes.iter().cloned().collect();
+            let unique: std::collections::HashSet<String> =
+                fragment_classes.iter().cloned().collect();
             if unique.len() == 1 {
                 fragment_classes[0].clone()
             } else {
@@ -56,7 +84,8 @@ impl Assembler {
         };
 
         let requirements = self.requirements_for(semantic_ir);
-        let classified_ast = self.classified_ast_for(report, semantic_ir, &contract_ids, &fragment_class);
+        let classified_ast =
+            self.classified_ast_for(report, semantic_ir, &contract_ids, &fragment_class);
         let diagnostics = json!({ "diagnostics": report.get("diagnostics").cloned().unwrap_or(Value::Array(Vec::new())) });
         let compatibility_metadata = self.compatibility_metadata_for(report, semantic_ir);
         let entrypoint = self.manifest_entrypoint_for(semantic_ir, &contracts);
@@ -68,7 +97,10 @@ impl Assembler {
         artifact_material.insert("requirements".to_string(), requirements.clone());
         artifact_material.insert("diagnostics".to_string(), diagnostics.clone());
         artifact_material.insert("classified_ast".to_string(), classified_ast.clone());
-        artifact_material.insert("compatibility_metadata".to_string(), compatibility_metadata.clone());
+        artifact_material.insert(
+            "compatibility_metadata".to_string(),
+            compatibility_metadata.clone(),
+        );
         if let Some(ep) = &entrypoint {
             artifact_material.insert("entrypoint".to_string(), ep.clone());
         }
@@ -80,7 +112,10 @@ impl Assembler {
         let mut updated_contracts = Vec::new();
         for mut c in contracts {
             if let Some(obj) = c.as_object_mut() {
-                obj.insert("artifact_hash".to_string(), Value::String(artifact_hash.clone()));
+                obj.insert(
+                    "artifact_hash".to_string(),
+                    Value::String(artifact_hash.clone()),
+                );
             }
             updated_contracts.push(c);
         }
@@ -102,20 +137,80 @@ impl Assembler {
         let mut manifest = Map::new();
         manifest.insert("capabilities".to_string(), Value::Array(all_capabilities));
         manifest.insert("effects".to_string(), Value::Array(all_effects));
-        manifest.insert("kind".to_string(), Value::String("igapp_manifest".to_string()));
-        manifest.insert("format_version".to_string(), Value::String("0.1.0".to_string()));
+        manifest.insert(
+            "kind".to_string(),
+            Value::String("igapp_manifest".to_string()),
+        );
+        manifest.insert(
+            "format_version".to_string(),
+            Value::String("0.1.0".to_string()),
+        );
         manifest.insert("format".to_string(), Value::String("igapp_dir".to_string()));
-        manifest.insert("program_id".to_string(), semantic_ir.get("program_id").cloned().unwrap_or(Value::Null));
-        manifest.insert("artifact_hash".to_string(), Value::String(artifact_hash.clone()));
-        manifest.insert("language_version".to_string(), semantic_ir.get("format_version").cloned().unwrap_or(Value::Null));
-        manifest.insert("grammar_version".to_string(), semantic_ir.get("grammar_version").cloned().unwrap_or(Value::Null));
-        manifest.insert("schema_version".to_string(), Value::String("0.1.0".to_string()));
-        manifest.insert("compiled_at".to_string(), Value::String("2026-05-06T00:00:00Z".to_string()));
-        manifest.insert("assembler".to_string(), Value::String("igapp-assembler-proof-stage1-v0".to_string()));
-        manifest.insert("semantic_ir_ref".to_string(), report.get("semantic_ir_ref").cloned().unwrap_or(Value::Null));
-        manifest.insert("compilation_report_ref".to_string(), semantic_ir.get("compilation_report_ref").cloned().unwrap_or(Value::Null));
-        manifest.insert("source_hash".to_string(), semantic_ir.get("source_hash").cloned().unwrap_or(Value::Null));
-        manifest.insert("source_path".to_string(), semantic_ir.get("source_path").cloned().unwrap_or(Value::Null));
+        manifest.insert(
+            "program_id".to_string(),
+            semantic_ir
+                .get("program_id")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "artifact_hash".to_string(),
+            Value::String(artifact_hash.clone()),
+        );
+        manifest.insert(
+            "language_version".to_string(),
+            semantic_ir
+                .get("format_version")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "grammar_version".to_string(),
+            semantic_ir
+                .get("grammar_version")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "schema_version".to_string(),
+            Value::String("0.1.0".to_string()),
+        );
+        manifest.insert(
+            "compiled_at".to_string(),
+            Value::String("2026-05-06T00:00:00Z".to_string()),
+        );
+        manifest.insert(
+            "assembler".to_string(),
+            Value::String("igapp-assembler-proof-stage1-v0".to_string()),
+        );
+        manifest.insert(
+            "semantic_ir_ref".to_string(),
+            report
+                .get("semantic_ir_ref")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "compilation_report_ref".to_string(),
+            semantic_ir
+                .get("compilation_report_ref")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "source_hash".to_string(),
+            semantic_ir
+                .get("source_hash")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        manifest.insert(
+            "source_path".to_string(),
+            semantic_ir
+                .get("source_path")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
         if let Some(source_units) = semantic_ir.get("source_units") {
             manifest.insert("source_units".to_string(), source_units.clone());
         }
@@ -123,7 +218,11 @@ impl Assembler {
 
         let mut contract_refs = Map::new();
         for c_ir in contracts_ir {
-            let name = c_ir.get("contract_name").and_then(|n| n.as_str()).unwrap().to_string();
+            let name = c_ir
+                .get("contract_name")
+                .and_then(|n| n.as_str())
+                .unwrap()
+                .to_string();
             let r = c_ir.get("contract_ref").cloned().unwrap_or(Value::Null);
             contract_refs.insert(name, r);
         }
@@ -134,15 +233,27 @@ impl Assembler {
         if let Some(ep) = entrypoint {
             manifest.insert("entrypoint".to_string(), ep);
         }
-        manifest.insert("schema_descriptor".to_string(), json!({ "trait_bounds": [], "migrations": [] }));
+        manifest.insert(
+            "schema_descriptor".to_string(),
+            json!({ "trait_bounds": [], "migrations": [] }),
+        );
         manifest.insert("warnings".to_string(), Value::Array(Vec::new()));
-        manifest.insert("diagnostics".to_string(), report.get("diagnostics").cloned().unwrap_or(Value::Array(Vec::new())));
+        manifest.insert(
+            "diagnostics".to_string(),
+            report
+                .get("diagnostics")
+                .cloned()
+                .unwrap_or(Value::Array(Vec::new())),
+        );
 
         // Write files to target_dir
         let base_path = Path::new(target_dir);
         fs::create_dir_all(base_path.join("contracts"))?;
 
-        let module_name = semantic_ir.get("module").and_then(|m| m.as_str()).unwrap_or("");
+        let module_name = semantic_ir
+            .get("module")
+            .and_then(|m| m.as_str())
+            .unwrap_or("");
         let mut specs = Vec::new();
         if let Some(contracts_arr) = semantic_ir.get("contracts").and_then(|c| c.as_array()) {
             for c in contracts_arr {
@@ -152,10 +263,16 @@ impl Assembler {
                     } else {
                         format!("{}.{}", module_name, spec_of)
                     };
-                    let type_args = c.get("type_args").cloned().unwrap_or(Value::Object(Map::new()));
+                    let type_args = c
+                        .get("type_args")
+                        .cloned()
+                        .unwrap_or(Value::Object(Map::new()));
                     let contract_id = c.get("contract_name").cloned().unwrap_or(Value::Null);
                     let mut spec_item = Map::new();
-                    spec_item.insert("template_contract_id".to_string(), Value::String(qualified_spec_of));
+                    spec_item.insert(
+                        "template_contract_id".to_string(),
+                        Value::String(qualified_spec_of),
+                    );
                     spec_item.insert("type_args".to_string(), type_args);
                     spec_item.insert("emitted_contract_id".to_string(), contract_id);
                     specs.push(Value::Object(spec_item));
@@ -167,29 +284,57 @@ impl Assembler {
 
         if !specs.is_empty() {
             let mut spec_manifest = Map::new();
-            spec_manifest.insert("kind".to_string(), Value::String("specialization_manifest".to_string()));
+            spec_manifest.insert(
+                "kind".to_string(),
+                Value::String("specialization_manifest".to_string()),
+            );
             spec_manifest.insert("specializations".to_string(), Value::Array(specs.clone()));
-            self.write_json_pretty(&base_path.join("specialization_manifest.json"), &Value::Object(spec_manifest))?;
+            self.write_json_pretty(
+                &base_path.join("specialization_manifest.json"),
+                &Value::Object(spec_manifest),
+            )?;
 
-            let mut template_ids: Vec<String> = specs.iter().map(|s| {
-                s.get("template_contract_id").and_then(|t| t.as_str()).unwrap_or("").to_string()
-            }).filter(|s| !s.is_empty()).collect();
+            let mut template_ids: Vec<String> = specs
+                .iter()
+                .map(|s| {
+                    s.get("template_contract_id")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
             template_ids.sort();
             template_ids.dedup();
 
-            manifest.insert("specialization_manifest_ref".to_string(), Value::String("specialization_manifest.json".to_string()));
-            manifest.insert("metadata_only_templates".to_string(), Value::Array(
-                template_ids.iter().map(|id| Value::String(id.clone())).collect()
-            ));
+            manifest.insert(
+                "specialization_manifest_ref".to_string(),
+                Value::String("specialization_manifest.json".to_string()),
+            );
+            manifest.insert(
+                "metadata_only_templates".to_string(),
+                Value::Array(
+                    template_ids
+                        .iter()
+                        .map(|id| Value::String(id.clone()))
+                        .collect(),
+                ),
+            );
 
             let mut classified_ast_mut = classified_ast.as_object().unwrap().clone();
-            let generic_templates: Vec<Value> = template_ids.iter().map(|id| {
-                json!({
-                    "template_contract_id": id,
-                    "loadable": false
+            let generic_templates: Vec<Value> = template_ids
+                .iter()
+                .map(|id| {
+                    json!({
+                        "template_contract_id": id,
+                        "loadable": false
+                    })
                 })
-            }).collect();
-            classified_ast_mut.insert("generic_templates".to_string(), Value::Array(generic_templates));
+                .collect();
+            classified_ast_mut.insert(
+                "generic_templates".to_string(),
+                Value::Array(generic_templates),
+            );
             classified_ast_to_write = Value::Object(classified_ast_mut);
         }
 
@@ -200,17 +345,32 @@ impl Assembler {
         // LAB-SRCMAP-P1: write sourcemap sidecar if available
         if let Some(sm) = &emit_result.source_map {
             self.write_json_pretty(&base_path.join("sourcemap.json"), sm)?;
-            manifest.insert("sourcemap_ref".to_string(), Value::String("sourcemap.json".to_string()));
+            manifest.insert(
+                "sourcemap_ref".to_string(),
+                Value::String("sourcemap.json".to_string()),
+            );
         }
 
-        self.write_json_pretty(&base_path.join("manifest.json"), &Value::Object(manifest.clone()))?;
+        self.write_json_pretty(
+            &base_path.join("manifest.json"),
+            &Value::Object(manifest.clone()),
+        )?;
         self.write_json_pretty(&base_path.join("semantic_ir_program.json"), semantic_ir)?;
         self.write_json_pretty(&base_path.join("compilation_report.json"), report)?;
         self.write_json_pretty(&base_path.join("requirements.json"), &requirements)?;
         self.write_json_pretty(&base_path.join("diagnostics.json"), &diagnostics)?;
-        self.write_json_pretty(&base_path.join("classified_ast.json"), &classified_ast_to_write)?;
-        self.write_json_pretty(&base_path.join("projections.json"), &json!({ "projections": [] }))?;
-        self.write_json_pretty(&base_path.join("compatibility_metadata.json"), &compatibility_metadata)?;
+        self.write_json_pretty(
+            &base_path.join("classified_ast.json"),
+            &classified_ast_to_write,
+        )?;
+        self.write_json_pretty(
+            &base_path.join("projections.json"),
+            &json!({ "projections": [] }),
+        )?;
+        self.write_json_pretty(
+            &base_path.join("compatibility_metadata.json"),
+            &compatibility_metadata,
+        )?;
 
         // Emit passport.json sidecar if capabilities are declared (P7)
         if let Some(caps) = manifest.get("capabilities").and_then(|c| c.as_array()) {
@@ -218,22 +378,34 @@ impl Assembler {
                 let mut required_caps = Map::new();
                 let mut capability_bindings = Map::new();
                 let effects_arr = manifest.get("effects").and_then(|e| e.as_array());
-                
+
                 for cap in caps {
                     if let Some(cap_name) = cap.get("name").and_then(|n| n.as_str()) {
                         let mut cap_info = Map::new();
                         // Explicit sandbox policy source proof_default metadata
-                        cap_info.insert("sandbox_dir".to_string(), Value::String("out/sandbox/sub".to_string()));
-                        cap_info.insert("allowed_absolute_paths".to_string(), Value::Array(Vec::new()));
-                        cap_info.insert("sandbox_policy_source".to_string(), Value::String("proof_default".to_string()));
-                        
+                        cap_info.insert(
+                            "sandbox_dir".to_string(),
+                            Value::String("out/sandbox/sub".to_string()),
+                        );
+                        cap_info.insert(
+                            "allowed_absolute_paths".to_string(),
+                            Value::Array(Vec::new()),
+                        );
+                        cap_info.insert(
+                            "sandbox_policy_source".to_string(),
+                            Value::String("proof_default".to_string()),
+                        );
+
                         let mut read_allowed = false;
                         let mut write_allowed = false;
-                        
+
                         if let Some(effs) = effects_arr {
                             for eff in effs {
-                                if eff.get("capability_ref").and_then(|r| r.as_str()) == Some(cap_name) {
-                                    if let Some(eff_name) = eff.get("name").and_then(|n| n.as_str()) {
+                                if eff.get("capability_ref").and_then(|r| r.as_str())
+                                    == Some(cap_name)
+                                {
+                                    if let Some(eff_name) = eff.get("name").and_then(|n| n.as_str())
+                                    {
                                         match eff_name {
                                             "read_file" | "read_json" | "read" => {
                                                 read_allowed = true;
@@ -248,26 +420,51 @@ impl Assembler {
                                 }
                             }
                         }
-                        
+
                         cap_info.insert("read_allowed".to_string(), Value::Bool(read_allowed));
                         cap_info.insert("write_allowed".to_string(), Value::Bool(write_allowed));
                         required_caps.insert(cap_name.to_string(), Value::Object(cap_info));
-                        
+
                         // Explicit capability parameter mapping
-                        capability_bindings.insert(cap_name.to_string(), Value::String(cap_name.to_string()));
+                        capability_bindings
+                            .insert(cap_name.to_string(), Value::String(cap_name.to_string()));
                     }
                 }
-                
+
                 let mut passport = Map::new();
-                passport.insert("runtime_implementation_id".to_string(), Value::String("igniter.delegated.experimental.io.delegation.v0".to_string()));
-                passport.insert("backend_implementation_id".to_string(), Value::String("none".to_string()));
-                passport.insert("consumer_surface_id".to_string(), Value::String("igniter-lab".to_string()));
-                passport.insert("surface_dimension".to_string(), Value::String("runtime".to_string()));
-                passport.insert("artifact_kind".to_string(), Value::String("igapp_dir".to_string()));
-                passport.insert("artifact_digest".to_string(), Value::String(artifact_hash.clone()));
-                passport.insert("required_capabilities".to_string(), Value::Object(required_caps));
-                passport.insert("capability_bindings".to_string(), Value::Object(capability_bindings));
-                
+                passport.insert(
+                    "runtime_implementation_id".to_string(),
+                    Value::String("igniter.delegated.experimental.io.delegation.v0".to_string()),
+                );
+                passport.insert(
+                    "backend_implementation_id".to_string(),
+                    Value::String("none".to_string()),
+                );
+                passport.insert(
+                    "consumer_surface_id".to_string(),
+                    Value::String("igniter-lab".to_string()),
+                );
+                passport.insert(
+                    "surface_dimension".to_string(),
+                    Value::String("runtime".to_string()),
+                );
+                passport.insert(
+                    "artifact_kind".to_string(),
+                    Value::String("igapp_dir".to_string()),
+                );
+                passport.insert(
+                    "artifact_digest".to_string(),
+                    Value::String(artifact_hash.clone()),
+                );
+                passport.insert(
+                    "required_capabilities".to_string(),
+                    Value::Object(required_caps),
+                );
+                passport.insert(
+                    "capability_bindings".to_string(),
+                    Value::Object(capability_bindings),
+                );
+
                 self.write_json_pretty(&base_path.join("passport.json"), &Value::Object(passport))?;
             }
         }
@@ -281,7 +478,10 @@ impl Assembler {
         }
 
         for contract in &updated_contracts {
-            let cid = contract.get("contract_id").and_then(|id| id.as_str()).unwrap();
+            let cid = contract
+                .get("contract_id")
+                .and_then(|id| id.as_str())
+                .unwrap();
             let c_filename = format!("{}.json", self.snake_case(cid));
             self.write_json_pretty(&base_path.join("contracts").join(c_filename), contract)?;
         }
@@ -295,9 +495,19 @@ impl Assembler {
     }
 
     fn contract_file(&self, contract_ir: &Value) -> Value {
-        let contract_id = contract_ir.get("contract_name").and_then(|n| n.as_str()).unwrap().to_string();
-        let inputs = contract_ir.get("inputs").and_then(|i| i.as_array()).unwrap();
-        let outputs = contract_ir.get("outputs").and_then(|o| o.as_array()).unwrap();
+        let contract_id = contract_ir
+            .get("contract_name")
+            .and_then(|n| n.as_str())
+            .unwrap()
+            .to_string();
+        let inputs = contract_ir
+            .get("inputs")
+            .and_then(|i| i.as_array())
+            .unwrap();
+        let outputs = contract_ir
+            .get("outputs")
+            .and_then(|o| o.as_array())
+            .unwrap();
         let semantic_nodes = contract_ir.get("nodes").and_then(|n| n.as_array()).unwrap();
 
         let mut input_ports = Vec::new();
@@ -325,7 +535,10 @@ impl Assembler {
         let mut stream_nodes = Vec::new();
 
         for node in semantic_nodes {
-            let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
+            let kind = node
+                .get("kind")
+                .and_then(|k| k.as_str())
+                .unwrap_or_default();
             if self.is_compute_node(node) || kind == "loop" || kind == "service_loop_node" {
                 compute_nodes.push(self.assemble_compute_node(node));
             } else if self.is_temporal_node(node) {
@@ -336,19 +549,64 @@ impl Assembler {
         }
 
         let mut result = Map::new();
-        result.insert("contract_id".to_string(), Value::String(contract_id.clone()));
-        result.insert("source_contract_ref".to_string(), contract_ir.get("contract_ref").cloned().unwrap_or(Value::Null));
+        result.insert(
+            "contract_id".to_string(),
+            Value::String(contract_id.clone()),
+        );
+        result.insert(
+            "source_contract_ref".to_string(),
+            contract_ir
+                .get("contract_ref")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
         result.insert("name".to_string(), Value::String(contract_id.clone()));
-        result.insert("fragment_class".to_string(), contract_ir.get("fragment_class").cloned().unwrap_or(Value::Null));
-        result.insert("modifier".to_string(), contract_ir.get("modifier").cloned().unwrap_or(Value::String("pure".to_string())));
-        result.insert("escape_set".to_string(), contract_ir.get("escape_boundaries").cloned().unwrap_or(Value::Array(Vec::new())));
-        result.insert("capabilities".to_string(), contract_ir.get("capabilities").cloned().unwrap_or(Value::Array(Vec::new())));
-        result.insert("effects".to_string(), contract_ir.get("effects").cloned().unwrap_or(Value::Array(Vec::new())));
-        result.insert("lifecycle".to_string(), Value::String("session".to_string()));
+        result.insert(
+            "fragment_class".to_string(),
+            contract_ir
+                .get("fragment_class")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        result.insert(
+            "modifier".to_string(),
+            contract_ir
+                .get("modifier")
+                .cloned()
+                .unwrap_or(Value::String("pure".to_string())),
+        );
+        result.insert(
+            "escape_set".to_string(),
+            contract_ir
+                .get("escape_boundaries")
+                .cloned()
+                .unwrap_or(Value::Array(Vec::new())),
+        );
+        result.insert(
+            "capabilities".to_string(),
+            contract_ir
+                .get("capabilities")
+                .cloned()
+                .unwrap_or(Value::Array(Vec::new())),
+        );
+        result.insert(
+            "effects".to_string(),
+            contract_ir
+                .get("effects")
+                .cloned()
+                .unwrap_or(Value::Array(Vec::new())),
+        );
+        result.insert(
+            "lifecycle".to_string(),
+            Value::String("session".to_string()),
+        );
         result.insert("input_ports".to_string(), Value::Array(input_ports.clone()));
-        result.insert("output_ports".to_string(), Value::Array(output_ports.clone()));
+        result.insert(
+            "output_ports".to_string(),
+            Value::Array(output_ports.clone()),
+        );
         result.insert("compute_nodes".to_string(), Value::Array(compute_nodes));
-        
+
         let type_signature = json!({
             "inputs": input_ports.iter().map(|p| (p.get("name").unwrap().as_str().unwrap().to_string(), p.get("type_tag").unwrap().clone())).collect::<Map<String, Value>>(),
             "outputs": output_ports.iter().map(|p| (p.get("name").unwrap().as_str().unwrap().to_string(), p.get("type_tag").unwrap().clone())).collect::<Map<String, Value>>()
@@ -367,25 +625,38 @@ impl Assembler {
 
     fn manifest_entrypoint_for(&self, semantic_ir: &Value, contracts: &[Value]) -> Option<Value> {
         let entrypoint = semantic_ir.get("entrypoint")?;
-        let resolved = entrypoint.get("resolved_contract").and_then(|v| v.as_str()).unwrap_or_default();
-        let resolved_id = entrypoint.get("resolved_contract_id").and_then(|v| v.as_str()).unwrap_or_default();
+        let resolved = entrypoint
+            .get("resolved_contract")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let resolved_id = entrypoint
+            .get("resolved_contract_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
         let contract = contracts.iter().find(|c| {
-            c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved) ||
-                c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved_id)
+            c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved)
+                || c.get("contract_id").and_then(|v| v.as_str()) == Some(resolved_id)
         });
 
         let mut result = Map::new();
-        result.insert("kind".to_string(), Value::String("default_entrypoint".to_string()));
+        result.insert(
+            "kind".to_string(),
+            Value::String("default_entrypoint".to_string()),
+        );
         result.insert(
             "declared_target".to_string(),
-            entrypoint.get("declared_target")
+            entrypoint
+                .get("declared_target")
                 .or_else(|| entrypoint.get("target"))
                 .cloned()
                 .unwrap_or(Value::String(String::new())),
         );
         result.insert(
             "resolved_contract".to_string(),
-            entrypoint.get("resolved_contract").cloned().unwrap_or(Value::String(String::new())),
+            entrypoint
+                .get("resolved_contract")
+                .cloned()
+                .unwrap_or(Value::String(String::new())),
         );
         result.insert("source_span".to_string(), json!({
             "source_path": semantic_ir.get("source_path").cloned().unwrap_or(Value::Null),
@@ -398,7 +669,10 @@ impl Assembler {
                 result.insert("contract_ref".to_string(), cref.clone());
             }
             if let Some(cid) = c.get("contract_id").and_then(|v| v.as_str()) {
-                result.insert("contract_path".to_string(), Value::String(format!("contracts/{}.json", self.snake_case(cid))));
+                result.insert(
+                    "contract_path".to_string(),
+                    Value::String(format!("contracts/{}.json", self.snake_case(cid))),
+                );
             }
         }
 
@@ -411,23 +685,33 @@ impl Assembler {
 
     fn assemble_compute_node(&self, node: &Value) -> Value {
         let name = node.get("name").unwrap().as_str().unwrap();
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("compute");
-        
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("compute");
+
         let mut assembled = Map::new();
         assembled.insert("node_id".to_string(), json!(format!("node_{}", name)));
         assembled.insert("name".to_string(), json!(name));
         assembled.insert("kind".to_string(), json!(kind));
-        assembled.insert("fragment_class".to_string(), node.get("fragment").or_else(|| node.get("fragment_class")).cloned().unwrap_or(json!("core")));
-        
+        assembled.insert(
+            "fragment_class".to_string(),
+            node.get("fragment")
+                .or_else(|| node.get("fragment_class"))
+                .cloned()
+                .unwrap_or(json!("core")),
+        );
+
         if let Some(t) = node.get("type").or_else(|| node.get("type_tag")) {
             assembled.insert("type_tag".to_string(), json!(self.type_name(t)));
         }
         assembled.insert("lifecycle".to_string(), json!("session"));
         assembled.insert("obs_kind".to_string(), json!("value_observation"));
-        
+
         if let Some(deps) = node.get("deps").or_else(|| node.get("dependencies")) {
             if let Some(deps_arr) = deps.as_array() {
-                let formatted_deps: Vec<String> = deps_arr.iter()
+                let formatted_deps: Vec<String> = deps_arr
+                    .iter()
                     .map(|dep| {
                         let s = dep.as_str().unwrap();
                         if s.starts_with("input:") {
@@ -453,7 +737,8 @@ impl Assembler {
             }
             if let Some(body) = node.get("body_nodes") {
                 if let Some(body_arr) = body.as_array() {
-                    let assembled_body: Vec<Value> = body_arr.iter()
+                    let assembled_body: Vec<Value> = body_arr
+                        .iter()
                         .map(|inner| self.assemble_compute_node(inner))
                         .collect();
                     assembled.insert("body_nodes".to_string(), json!(assembled_body));
@@ -468,7 +753,8 @@ impl Assembler {
             }
             if let Some(body) = node.get("body_nodes") {
                 if let Some(body_arr) = body.as_array() {
-                    let assembled_body: Vec<Value> = body_arr.iter()
+                    let assembled_body: Vec<Value> = body_arr
+                        .iter()
                         .map(|inner| self.assemble_compute_node(inner))
                         .collect();
                     assembled.insert("body_nodes".to_string(), json!(assembled_body));
@@ -480,51 +766,108 @@ impl Assembler {
     }
 
     fn is_temporal_node(&self, node: &Value) -> bool {
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or_default();
         kind == "temporal_input_node" || kind == "temporal_access_node"
     }
 
     fn is_stream_node(&self, node: &Value) -> bool {
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or_default();
         kind == "stream_input_node" || kind == "window_decl_node" || kind == "fold_stream_node"
     }
 
     fn temporal_node_file(&self, node: &Value) -> Value {
-        let name = node.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
-        let obs_kind = if kind == "temporal_input_node" { "temporal_source_observation" } else { "temporal_access_observation" };
-        
+        let name = node
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or_default();
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or_default();
+        let obs_kind = if kind == "temporal_input_node" {
+            "temporal_source_observation"
+        } else {
+            "temporal_access_observation"
+        };
+
         let mut m = Map::new();
-        m.insert("node_id".to_string(), Value::String(format!("node_{}", name)));
+        m.insert(
+            "node_id".to_string(),
+            Value::String(format!("node_{}", name)),
+        );
         m.insert("name".to_string(), Value::String(name.to_string()));
         m.insert("kind".to_string(), Value::String(kind.to_string()));
-        
-        let fc = node.get("fragment")
+
+        let fc = node
+            .get("fragment")
             .or_else(|| node.get("node_fragment_class"))
             .cloned()
             .unwrap_or_else(|| Value::String("temporal".to_string()));
         m.insert("fragment_class".to_string(), fc);
-        m.insert("node_fragment_class".to_string(), node.get("node_fragment_class").cloned().unwrap_or(Value::Null));
-        m.insert("value_fragment_class".to_string(), node.get("value_fragment_class").cloned().unwrap_or(Value::Null));
-        m.insert("lifecycle".to_string(), node.get("lifecycle").cloned().unwrap_or_else(|| Value::String("session".to_string())));
+        m.insert(
+            "node_fragment_class".to_string(),
+            node.get("node_fragment_class")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        m.insert(
+            "value_fragment_class".to_string(),
+            node.get("value_fragment_class")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        m.insert(
+            "lifecycle".to_string(),
+            node.get("lifecycle")
+                .cloned()
+                .unwrap_or_else(|| Value::String("session".to_string())),
+        );
         m.insert("obs_kind".to_string(), Value::String(obs_kind.to_string()));
 
         let deps = node.get("deps").and_then(|d| d.as_array());
         let dep_vals = if let Some(arr) = deps {
-            arr.iter().map(|dep| Value::String(format!("input:{}", dep.as_str().unwrap()))).collect()
+            arr.iter()
+                .map(|dep| Value::String(format!("input:{}", dep.as_str().unwrap())))
+                .collect()
         } else {
             Vec::new()
         };
         m.insert("dependencies".to_string(), Value::Array(dep_vals));
-        m.insert("required_capability".to_string(), node.get("required_capability").cloned().unwrap_or(Value::Null));
-        m.insert("required_caps".to_string(), node.get("required_caps").cloned().or_else(|| node.get("required_capability").map(|r| json!(vec![r]))).unwrap_or(Value::Null));
-        m.insert("axis".to_string(), node.get("axis").or_else(|| node.get("temporal_axis")).cloned().unwrap_or(Value::Null));
+        m.insert(
+            "required_capability".to_string(),
+            node.get("required_capability")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        m.insert(
+            "required_caps".to_string(),
+            node.get("required_caps")
+                .cloned()
+                .or_else(|| node.get("required_capability").map(|r| json!(vec![r])))
+                .unwrap_or(Value::Null),
+        );
+        m.insert(
+            "axis".to_string(),
+            node.get("axis")
+                .or_else(|| node.get("temporal_axis"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
 
         if let Some(t) = node.get("type") {
             m.insert("type_tag".to_string(), Value::String(self.type_name(t)));
         }
         if let Some(rt) = node.get("result_type") {
-            m.insert("result_type_tag".to_string(), Value::String(self.type_name(rt)));
+            m.insert(
+                "result_type_tag".to_string(),
+                Value::String(self.type_name(rt)),
+            );
         }
         if let Some(s) = node.get("store_ref") {
             m.insert("store_ref".to_string(), s.clone());
@@ -555,16 +898,31 @@ impl Assembler {
     }
 
     fn stream_node_file(&self, node: &Value) -> Value {
-        let name = node.get("name").or_else(|| node.get("ref")).and_then(|n| n.as_str()).unwrap_or_default();
-        let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
-        let obs_kind = if kind == "window_decl_node" { "stream_window_observation" } else { "stream_replay_metadata" };
+        let name = node
+            .get("name")
+            .or_else(|| node.get("ref"))
+            .and_then(|n| n.as_str())
+            .unwrap_or_default();
+        let kind = node
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or_default();
+        let obs_kind = if kind == "window_decl_node" {
+            "stream_window_observation"
+        } else {
+            "stream_replay_metadata"
+        };
 
         let mut m = Map::new();
-        m.insert("node_id".to_string(), Value::String(format!("node_{}", name)));
+        m.insert(
+            "node_id".to_string(),
+            Value::String(format!("node_{}", name)),
+        );
         m.insert("name".to_string(), Value::String(name.to_string()));
         m.insert("kind".to_string(), Value::String(kind.to_string()));
-        
-        let fc = node.get("fragment")
+
+        let fc = node
+            .get("fragment")
             .or_else(|| node.get("result_fragment"))
             .cloned()
             .unwrap_or_else(|| Value::String("stream".to_string()));
@@ -574,7 +932,9 @@ impl Assembler {
 
         let deps = node.get("deps").and_then(|d| d.as_array());
         let dep_vals = if let Some(arr) = deps {
-            arr.iter().map(|dep| Value::String(format!("input:{}", dep.as_str().unwrap()))).collect()
+            arr.iter()
+                .map(|dep| Value::String(format!("input:{}", dep.as_str().unwrap())))
+                .collect()
         } else {
             Vec::new()
         };
@@ -584,12 +944,29 @@ impl Assembler {
             m.insert("type_tag".to_string(), Value::String(self.type_name(t)));
         }
         if let Some(rt) = node.get("result_type") {
-            m.insert("result_type_tag".to_string(), Value::String(self.type_name(rt)));
+            m.insert(
+                "result_type_tag".to_string(),
+                Value::String(self.type_name(rt)),
+            );
         }
 
         let keys = vec![
-            "window_ref", "ref", "key", "window_kind", "bounded", "size", "period", "idle", "on_close",
-            "stream_ref", "init", "fn_ref", "bound", "event_binding", "escape_capability", "result_fragment"
+            "window_ref",
+            "ref",
+            "key",
+            "window_kind",
+            "bounded",
+            "size",
+            "period",
+            "idle",
+            "on_close",
+            "stream_ref",
+            "init",
+            "fn_ref",
+            "bound",
+            "event_binding",
+            "escape_capability",
+            "result_fragment",
         ];
         for k in keys {
             if let Some(v) = node.get(k) {
@@ -601,8 +978,14 @@ impl Assembler {
     }
 
     fn fragment_summary_for(&self, contracts: &[Value]) -> Value {
-        let mut fragment_classes: Vec<String> = contracts.iter()
-            .map(|c| c.get("fragment_class").and_then(|f| f.as_str()).unwrap().to_string())
+        let mut fragment_classes: Vec<String> = contracts
+            .iter()
+            .map(|c| {
+                c.get("fragment_class")
+                    .and_then(|f| f.as_str())
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
         fragment_classes.sort();
         fragment_classes.dedup();
@@ -630,22 +1013,41 @@ impl Assembler {
             "temporal".to_string(),
             "stream".to_string(),
             "escape".to_string(),
-            "core".to_string()
+            "core".to_string(),
         ]
     }
 
     fn contract_index_for(&self, contracts: &[Value]) -> Value {
         let mut sorted = contracts.to_vec();
-        sorted.sort_by_key(|c| c.get("contract_id").and_then(|id| id.as_str()).unwrap().to_string());
+        sorted.sort_by_key(|c| {
+            c.get("contract_id")
+                .and_then(|id| id.as_str())
+                .unwrap()
+                .to_string()
+        });
 
         let mut index = Map::new();
         for c in sorted {
-            let cid = c.get("contract_id").and_then(|id| id.as_str()).unwrap().to_string();
+            let cid = c
+                .get("contract_id")
+                .and_then(|id| id.as_str())
+                .unwrap()
+                .to_string();
             let mut entry = Map::new();
-            entry.insert("contract_ref".to_string(), c.get("source_contract_ref").cloned().unwrap_or(Value::Null));
-            entry.insert("contract_path".to_string(), Value::String(format!("contracts/{}.json", self.snake_case(&cid))));
-            
-            let fc = c.get("fragment_class").and_then(|f| f.as_str()).unwrap().to_string();
+            entry.insert(
+                "contract_ref".to_string(),
+                c.get("source_contract_ref").cloned().unwrap_or(Value::Null),
+            );
+            entry.insert(
+                "contract_path".to_string(),
+                Value::String(format!("contracts/{}.json", self.snake_case(&cid))),
+            );
+
+            let fc = c
+                .get("fragment_class")
+                .and_then(|f| f.as_str())
+                .unwrap()
+                .to_string();
             entry.insert("fragment_class".to_string(), Value::String(fc.clone()));
 
             if fc == "temporal" {
@@ -672,7 +1074,8 @@ impl Assembler {
             coordinates.extend(self.temporal_coordinates_for(contract, node));
         }
 
-        let mut axes: Vec<String> = coordinates.iter()
+        let mut axes: Vec<String> = coordinates
+            .iter()
             .map(|c| c.get("axis").unwrap().as_str().unwrap().to_string())
             .collect();
         axes.sort();
@@ -700,14 +1103,25 @@ impl Assembler {
         required_caps.sort();
         required_caps.dedup();
 
-        let mut hint_axes: Vec<String> = access_nodes.iter()
-            .filter_map(|node| node.get("axis").or_else(|| node.get("temporal_axis")).and_then(|a| a.as_str()).map(|s| s.to_string()))
+        let mut hint_axes: Vec<String> = access_nodes
+            .iter()
+            .filter_map(|node| {
+                node.get("axis")
+                    .or_else(|| node.get("temporal_axis"))
+                    .and_then(|a| a.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         hint_axes.sort();
         hint_axes.dedup();
-        let hint_axis = if hint_axes.len() == 1 { hint_axes[0].clone() } else { "mixed".to_string() };
+        let hint_axis = if hint_axes.len() == 1 {
+            hint_axes[0].clone()
+        } else {
+            "mixed".to_string()
+        };
 
-        let coordinate_names: Vec<String> = coordinates.iter()
+        let coordinate_names: Vec<String> = coordinates
+            .iter()
             .map(|coord| coord.get("name").unwrap().as_str().unwrap().to_string())
             .collect();
 
@@ -726,7 +1140,10 @@ impl Assembler {
 
     fn temporal_coordinates_for(&self, contract: &Value, access_node: &Value) -> Vec<Value> {
         let mut coords = Vec::new();
-        if let Some(refs) = access_node.get("coordinate_refs").and_then(|c| c.as_object()) {
+        if let Some(refs) = access_node
+            .get("coordinate_refs")
+            .and_then(|c| c.as_object())
+        {
             for (axis_name, input_name_val) in refs {
                 let input_name = input_name_val.as_str().unwrap();
                 let axis = self.coordinate_axis(access_node, axis_name);
@@ -743,7 +1160,11 @@ impl Assembler {
     }
 
     fn coordinate_axis(&self, access_node: &Value, axis_name: &str) -> String {
-        let access_axis = access_node.get("axis").or_else(|| access_node.get("temporal_axis")).and_then(|a| a.as_str()).unwrap_or("valid_time");
+        let access_axis = access_node
+            .get("axis")
+            .or_else(|| access_node.get("temporal_axis"))
+            .and_then(|a| a.as_str())
+            .unwrap_or("valid_time");
         if access_axis == "bitemporal" {
             axis_name.to_string()
         } else {
@@ -755,7 +1176,11 @@ impl Assembler {
         if let Some(inputs) = contract.get("input_ports").and_then(|i| i.as_array()) {
             for input in inputs {
                 if input.get("name").and_then(|n| n.as_str()) == Some(input_name) {
-                    return input.get("type_tag").and_then(|t| t.as_str()).unwrap_or("Unknown").to_string();
+                    return input
+                        .get("type_tag")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
                 }
             }
         }
@@ -767,8 +1192,13 @@ impl Assembler {
             let kind = map.get("kind").and_then(|k| k.as_str()).unwrap_or_default();
             match kind {
                 "call" => {
-                    let operands = map.get("args").and_then(|args| args.as_array()).unwrap()
-                        .iter().map(|arg| self.compat_expr(arg)).collect::<Vec<Value>>();
+                    let operands = map
+                        .get("args")
+                        .and_then(|args| args.as_array())
+                        .unwrap()
+                        .iter()
+                        .map(|arg| self.compat_expr(arg))
+                        .collect::<Vec<Value>>();
                     json!({
                         "kind": "apply",
                         "operator": map.get("fn").unwrap(),
@@ -796,7 +1226,7 @@ impl Assembler {
                         "type_tag": self.type_name(map.get("resolved_type").or_else(|| map.get("type_tag")).unwrap_or(&Value::String("Unknown".to_string())))
                     })
                 }
-                _ => expr.clone()
+                _ => expr.clone(),
             }
         } else {
             expr.clone()
@@ -867,7 +1297,9 @@ impl Assembler {
         let mut sorted_frags: Vec<String> = fragments.into_iter().collect();
         sorted_frags.sort();
 
-        let has_history = sorted_caps.iter().any(|c| c == "history_read" || c == "bihistory_read");
+        let has_history = sorted_caps
+            .iter()
+            .any(|c| c == "history_read" || c == "bihistory_read");
         let has_bihistory = sorted_caps.iter().any(|c| c == "bihistory_read");
         let has_stream = sorted_caps.iter().any(|c| c == "stream_input");
 
@@ -878,11 +1310,16 @@ impl Assembler {
                 if let Some(nodes) = contract.get("nodes").and_then(|n| n.as_array()) {
                     for node in nodes {
                         if self.is_temporal_node(node) {
-                            if let Some(axis) = node.get("axis").or_else(|| node.get("temporal_axis")).and_then(|a| a.as_str()) {
+                            if let Some(axis) = node
+                                .get("axis")
+                                .or_else(|| node.get("temporal_axis"))
+                                .and_then(|a| a.as_str())
+                            {
                                 axes.push(axis.to_string());
                             }
                         }
-                        if node.get("kind").and_then(|k| k.as_str()) == Some("temporal_access_node") {
+                        if node.get("kind").and_then(|k| k.as_str()) == Some("temporal_access_node")
+                        {
                             coordinate_refs.push(json!({
                                 "node": node.get("name").unwrap(),
                                 "axis": node.get("axis").or_else(|| node.get("temporal_axis")).unwrap(),
@@ -956,7 +1393,13 @@ impl Assembler {
         })
     }
 
-    fn classified_ast_for(&self, report: &Value, semantic_ir: &Value, contract_ids: &[String], fragment_class: &str) -> Value {
+    fn classified_ast_for(
+        &self,
+        report: &Value,
+        semantic_ir: &Value,
+        contract_ids: &[String],
+        fragment_class: &str,
+    ) -> Value {
         json!({
             "kind": "classified_program",
             "format_version": "0.1.0",
@@ -975,40 +1418,76 @@ impl Assembler {
 
     fn compatibility_metadata_for(&self, report: &Value, semantic_ir: &Value) -> Value {
         let has_temporal = self.temporal_artifact(semantic_ir);
-        
+
         let mut notes = vec![
             "semantic_ir_program.json preserves PROP-019.1 envelope".to_string(),
-            "RuntimeMachine proof loader reads semantic_ir_program.json directly".to_string()
+            "RuntimeMachine proof loader reads semantic_ir_program.json directly".to_string(),
         ];
-        
+
         let mut m = Map::new();
-        m.insert("kind".to_string(), Value::String("igapp_compatibility_metadata".to_string()));
-        m.insert("format_version".to_string(), Value::String("0.1.0".to_string()));
-        m.insert("canonical_semantic_ir_ref".to_string(), semantic_ir.get("program_id").unwrap().clone());
-        m.insert("compilation_report_ref".to_string(), report.get("program_id").unwrap().clone());
-        m.insert("loader_shape".to_string(), Value::String("runtime_machine_memory_proof.prop0191_direct_v0".to_string()));
-        m.insert("canonical_artifact".to_string(), Value::String("semantic_ir_program.json".to_string()));
+        m.insert(
+            "kind".to_string(),
+            Value::String("igapp_compatibility_metadata".to_string()),
+        );
+        m.insert(
+            "format_version".to_string(),
+            Value::String("0.1.0".to_string()),
+        );
+        m.insert(
+            "canonical_semantic_ir_ref".to_string(),
+            semantic_ir.get("program_id").unwrap().clone(),
+        );
+        m.insert(
+            "compilation_report_ref".to_string(),
+            report.get("program_id").unwrap().clone(),
+        );
+        m.insert(
+            "loader_shape".to_string(),
+            Value::String("runtime_machine_memory_proof.prop0191_direct_v0".to_string()),
+        );
+        m.insert(
+            "canonical_artifact".to_string(),
+            Value::String("semantic_ir_program.json".to_string()),
+        );
         m.insert("runtime_compatibility_artifact".to_string(), Value::Null);
 
         if has_temporal {
             let mut re = Map::new();
-            re.insert("status".to_string(), Value::String("unsupported".to_string()));
-            re.insert("guard_policy".to_string(), Value::String("load_accept_evaluate_refuse".to_string()));
-            re.insert("guard_at".to_string(), Value::String("evaluate".to_string()));
-            
+            re.insert(
+                "status".to_string(),
+                Value::String("unsupported".to_string()),
+            );
+            re.insert(
+                "guard_policy".to_string(),
+                Value::String("load_accept_evaluate_refuse".to_string()),
+            );
+            re.insert(
+                "guard_at".to_string(),
+                Value::String("evaluate".to_string()),
+            );
+
             let mut l = Map::new();
-            l.insert("decision".to_string(), Value::String("accept_for_inspection".to_string()));
+            l.insert(
+                "decision".to_string(),
+                Value::String("accept_for_inspection".to_string()),
+            );
             l.insert("requires_contract_index".to_string(), Value::Bool(true));
             re.insert("load".to_string(), Value::Object(l));
-            
+
             let mut ev = Map::new();
-            ev.insert("decision".to_string(), Value::String("refuse_temporal_contract".to_string()));
-            ev.insert("reason_code".to_string(), Value::String("runtime.temporal_execution_unsupported".to_string()));
+            ev.insert(
+                "decision".to_string(),
+                Value::String("refuse_temporal_contract".to_string()),
+            );
+            ev.insert(
+                "reason_code".to_string(),
+                Value::String("runtime.temporal_execution_unsupported".to_string()),
+            );
             re.insert("evaluate".to_string(), Value::Object(ev));
             re.insert("reason".to_string(), Value::String("temporal SemanticIR assembly proof preserves artifact shape only; RuntimeMachine temporal execution is out of scope".to_string()));
-            
+
             m.insert("runtime_execution".to_string(), Value::Object(re));
-            
+
             notes.push("temporal_input_node and temporal_access_node are preserved as non-compute contract nodes".to_string());
             notes.push("temporal runtime execution requires a separate RuntimeMachine temporal adapter/hook slice".to_string());
         }
@@ -1038,7 +1517,7 @@ impl Assembler {
         for i in 0..chars.len() {
             let c = chars[i];
             if c.is_uppercase() {
-                if i > 0 && chars[i-1].is_lowercase() {
+                if i > 0 && chars[i - 1].is_lowercase() {
                     result.push('_');
                 }
                 result.push(c.to_lowercase().next().unwrap());

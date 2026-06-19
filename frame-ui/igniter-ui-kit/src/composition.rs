@@ -51,9 +51,24 @@ impl Workbench {
         Workbench {
             leads: vec!["Ada".into(), "Grace".into(), "Linus".into()],
             fields: vec![
-                FieldSpec { id: "priority".into(), label: "Priority".into(), kind: FieldKind::Text, required: true },
-                FieldSpec { id: "stage".into(), label: "Stage".into(), kind: FieldKind::Select(vec!["new".into(), "qualified".into(), "won".into()]), required: true },
-                FieldSpec { id: "hot".into(), label: "Hot lead".into(), kind: FieldKind::Checkbox, required: false },
+                FieldSpec {
+                    id: "priority".into(),
+                    label: "Priority".into(),
+                    kind: FieldKind::Text,
+                    required: true,
+                },
+                FieldSpec {
+                    id: "stage".into(),
+                    label: "Stage".into(),
+                    kind: FieldKind::Select(vec!["new".into(), "qualified".into(), "won".into()]),
+                    required: true,
+                },
+                FieldSpec {
+                    id: "hot".into(),
+                    label: "Hot lead".into(),
+                    kind: FieldKind::Checkbox,
+                    required: false,
+                },
             ],
         }
     }
@@ -80,7 +95,9 @@ impl Workbench {
 
 /// `fld:<lead>:<field>` → the lead part (for focus-scope checks).
 fn lead_of(field_id: &str) -> Option<&str> {
-    field_id.strip_prefix("fld:").and_then(|r| r.split(':').next())
+    field_id
+        .strip_prefix("fld:")
+        .and_then(|r| r.split(':').next())
 }
 
 // ── Projection: nested tree + state → frame nodes ───────────────────────────────────────────────
@@ -88,7 +105,15 @@ fn lead_of(field_id: &str) -> Option<&str> {
 fn world_digest(world: &[(String, Value)]) -> String {
     let mut sorted = world.to_vec();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    format!("sha256:{}", blake3::hash(serde_json::to_string(&sorted).unwrap_or_default().as_bytes()).to_hex())
+    format!(
+        "sha256:{}",
+        blake3::hash(
+            serde_json::to_string(&sorted)
+                .unwrap_or_default()
+                .as_bytes()
+        )
+        .to_hex()
+    )
 }
 
 pub struct WorkbenchProjector {
@@ -96,32 +121,101 @@ pub struct WorkbenchProjector {
 }
 
 impl WorkbenchProjector {
-    fn node(id: String, x: i64, y: i64, w: i64, h: i64, intent: Option<Value>, data: Value) -> ProjectedNode {
-        ProjectedNode { id, x: x as f64, y: y as f64, z: 0.0, sx: x, sy: y, intent, sw: Some(w), sh: Some(h), data }
+    fn node(
+        id: String,
+        x: i64,
+        y: i64,
+        w: i64,
+        h: i64,
+        intent: Option<Value>,
+        data: Value,
+    ) -> ProjectedNode {
+        ProjectedNode {
+            id,
+            x: x as f64,
+            y: y as f64,
+            z: 0.0,
+            sx: x,
+            sy: y,
+            intent,
+            sw: Some(w),
+            sh: Some(h),
+            data,
+        }
     }
 }
 
 impl Projector for WorkbenchProjector {
-    fn project(&self, world: &[(String, Value)], frame_index: u64, source_receipt_id: Option<String>) -> Frame {
-        let st = |id: &str| world.iter().find(|(k, _)| k == id).map(|(_, v)| v.clone()).unwrap_or(json!({}));
-        let selected = st("__selection__").get("lead").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let focus_id = st("__focus__").get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    fn project(
+        &self,
+        world: &[(String, Value)],
+        frame_index: u64,
+        source_receipt_id: Option<String>,
+    ) -> Frame {
+        let st = |id: &str| {
+            world
+                .iter()
+                .find(|(k, _)| k == id)
+                .map(|(_, v)| v.clone())
+                .unwrap_or(json!({}))
+        };
+        let selected = st("__selection__")
+            .get("lead")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let focus_id = st("__focus__")
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let errors = st(&format!("err:{}", selected));
-        let err_for = |fid: &str| errors.get(fid).and_then(|e| e.as_str()).map(|s| s.to_string());
+        let err_for = |fid: &str| {
+            errors
+                .get(fid)
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        };
 
         let mut nodes: Vec<ProjectedNode> = Vec::new();
 
         // panels first (background; innermost hit-test routes clicks to children)
-        nodes.push(Self::node("panel:sidebar".into(), SIDEBAR.0, PANEL_Y, SIDEBAR.1, PANEL_H, None, json!({ "kind": "panel", "label": "Leads" })));
-        nodes.push(Self::node("panel:main".into(), MAIN.0, PANEL_Y, MAIN.1, PANEL_H, None, json!({ "kind": "panel", "label": format!("Lead · {}", selected) })));
-        nodes.push(Self::node("panel:inspector".into(), INSPECTOR.0, PANEL_Y, INSPECTOR.1, PANEL_H, None, json!({ "kind": "panel", "label": "Details" })));
+        nodes.push(Self::node(
+            "panel:sidebar".into(),
+            SIDEBAR.0,
+            PANEL_Y,
+            SIDEBAR.1,
+            PANEL_H,
+            None,
+            json!({ "kind": "panel", "label": "Leads" }),
+        ));
+        nodes.push(Self::node(
+            "panel:main".into(),
+            MAIN.0,
+            PANEL_Y,
+            MAIN.1,
+            PANEL_H,
+            None,
+            json!({ "kind": "panel", "label": format!("Lead · {}", selected) }),
+        ));
+        nodes.push(Self::node(
+            "panel:inspector".into(),
+            INSPECTOR.0,
+            PANEL_Y,
+            INSPECTOR.1,
+            PANEL_H,
+            None,
+            json!({ "kind": "panel", "label": "Details" }),
+        ));
 
         // sidebar list
         let mut y = BODY_TOP;
         for lead in &self.wb.leads {
             nodes.push(Self::node(
                 format!("lead:{}", lead),
-                SIDEBAR.0 + 8, y, SIDEBAR.1 - 16, 34,
+                SIDEBAR.0 + 8,
+                y,
+                SIDEBAR.1 - 16,
+                34,
                 Some(json!({ "action": "select" })),
                 json!({ "kind": "listitem", "label": lead, "selected": lead == &selected }),
             ));
@@ -136,17 +230,29 @@ impl Projector for WorkbenchProjector {
             let s = st(&fid);
             match &f.kind {
                 FieldKind::Text => {
-                    nodes.push(Self::node(fid.clone(), mx, my, mw, 44, Some(json!({ "action": "focus" })), json!({
-                        "kind": "text", "label": f.label,
-                        "value": s.get("value").cloned().unwrap_or(json!("")),
-                        "focused": focus_id.as_deref() == Some(fid.as_str()),
-                        "error": err_for(&f.id),
-                    })));
+                    nodes.push(Self::node(
+                        fid.clone(),
+                        mx,
+                        my,
+                        mw,
+                        44,
+                        Some(json!({ "action": "focus" })),
+                        json!({
+                            "kind": "text", "label": f.label,
+                            "value": s.get("value").cloned().unwrap_or(json!("")),
+                            "focused": focus_id.as_deref() == Some(fid.as_str()),
+                            "error": err_for(&f.id),
+                        }),
+                    ));
                     my += 56;
                 }
                 FieldKind::Select(opts) => {
                     let sel = s.get("selected").and_then(|v| v.as_i64()).unwrap_or(-1);
-                    let shown = if sel >= 0 { opts.get(sel as usize).cloned().unwrap_or_default() } else { "— select —".to_string() };
+                    let shown = if sel >= 0 {
+                        opts.get(sel as usize).cloned().unwrap_or_default()
+                    } else {
+                        "— select —".to_string()
+                    };
                     nodes.push(Self::node(fid.clone(), mx, my, mw, 44, Some(json!({ "action": "cycle" })), json!({
                         "kind": "select", "label": f.label, "value": shown, "error": err_for(&f.id),
                     })));
@@ -154,46 +260,91 @@ impl Projector for WorkbenchProjector {
                 }
                 FieldKind::Checkbox => {
                     let checked = s.get("checked").and_then(|v| v.as_bool()).unwrap_or(false);
-                    nodes.push(Self::node(fid.clone(), mx, my, mw, 36, Some(json!({ "action": "toggle" })), json!({
-                        "kind": "checkbox", "label": f.label, "checked": checked,
-                    })));
+                    nodes.push(Self::node(
+                        fid.clone(),
+                        mx,
+                        my,
+                        mw,
+                        36,
+                        Some(json!({ "action": "toggle" })),
+                        json!({
+                            "kind": "checkbox", "label": f.label, "checked": checked,
+                        }),
+                    ));
                     my += 44;
                 }
             }
         }
-        nodes.push(Self::node("act:submit".into(), mx, my, mw, 40, Some(json!({ "action": "submit" })), json!({ "kind": "button", "label": "Submit" })));
+        nodes.push(Self::node(
+            "act:submit".into(),
+            mx,
+            my,
+            mw,
+            40,
+            Some(json!({ "action": "submit" })),
+            json!({ "kind": "button", "label": "Submit" }),
+        ));
 
         // inspector: key/value derived from the selected lead's state (read-only)
         let mut iy = BODY_TOP;
         let (ix, iw) = (INSPECTOR.0 + 8, INSPECTOR.1 - 16);
         let kv = |nodes: &mut Vec<ProjectedNode>, iy: &mut i64, key: &str, val: String| {
-            nodes.push(Self::node(format!("kv:{}", key), ix, *iy, iw, 24, None, json!({ "kind": "kv", "label": format!("{}: {}", key, val) })));
+            nodes.push(Self::node(
+                format!("kv:{}", key),
+                ix,
+                *iy,
+                iw,
+                24,
+                None,
+                json!({ "kind": "kv", "label": format!("{}: {}", key, val) }),
+            ));
             *iy += 28;
         };
         kv(&mut nodes, &mut iy, "lead", selected.clone());
         for f in &self.wb.fields {
             let s = st(&format!("fld:{}:{}", selected, f.id));
             let val = match &f.kind {
-                FieldKind::Text => s.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                FieldKind::Text => s
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 FieldKind::Select(opts) => {
                     let sel = s.get("selected").and_then(|v| v.as_i64()).unwrap_or(-1);
-                    if sel >= 0 { opts.get(sel as usize).cloned().unwrap_or_default() } else { "—".to_string() }
+                    if sel >= 0 {
+                        opts.get(sel as usize).cloned().unwrap_or_default()
+                    } else {
+                        "—".to_string()
+                    }
                 }
-                FieldKind::Checkbox => if s.get("checked").and_then(|v| v.as_bool()).unwrap_or(false) { "yes".into() } else { "no".into() },
+                FieldKind::Checkbox => {
+                    if s.get("checked").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        "yes".into()
+                    } else {
+                        "no".into()
+                    }
+                }
             };
             kv(&mut nodes, &mut iy, &f.id, val);
         }
         let err_count = errors.as_object().map(|m| m.len()).unwrap_or(0);
         kv(&mut nodes, &mut iy, "errors", err_count.to_string());
 
-        Frame { frame_index, world_digest: world_digest(world), source_receipt_id, nodes }
+        Frame {
+            frame_index,
+            world_digest: world_digest(world),
+            source_receipt_id,
+            nodes,
+        }
     }
 }
 
 // ── Render host ─────────────────────────────────────────────────────────────────────────────────
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub struct WorkbenchRenderHost;
@@ -255,14 +406,32 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
     let wb = wb.clone();
     Box::new(move |intent, world| {
         let find = |id: &str| world.iter().find(|(k, _)| k == id).map(|(_, v)| v.clone());
-        let selected = || world.iter().find(|(k, _)| k == "__selection__").and_then(|(_, v)| v.get("lead").and_then(|l| l.as_str()).map(|s| s.to_string())).unwrap_or_default();
-        let focused_id = || world.iter().find(|(k, _)| k == "__focus__").and_then(|(_, v)| v.get("id").and_then(|i| i.as_str()).map(|s| s.to_string()));
+        let selected = || {
+            world
+                .iter()
+                .find(|(k, _)| k == "__selection__")
+                .and_then(|(_, v)| {
+                    v.get("lead")
+                        .and_then(|l| l.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default()
+        };
+        let focused_id = || {
+            world
+                .iter()
+                .find(|(k, _)| k == "__focus__")
+                .and_then(|(_, v)| v.get("id").and_then(|i| i.as_str()).map(|s| s.to_string()))
+        };
 
         match intent.action.as_str() {
             "select" => {
-                let Some(target) = &intent.target else { return vec![] };
+                let Some(target) = &intent.target else {
+                    return vec![];
+                };
                 let lead = target.strip_prefix("lead:").unwrap_or(target).to_string();
-                let mut deltas = vec![("__selection__".to_string(), json!({ "lead": lead.clone() }))];
+                let mut deltas =
+                    vec![("__selection__".to_string(), json!({ "lead": lead.clone() }))];
                 // focus survives only if the focused field still belongs to the (new) selected lead;
                 // otherwise the focused component no longer exists on screen → clear focus
                 if let Some(fid) = focused_id() {
@@ -273,12 +442,20 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                 deltas
             }
             "focus" => {
-                let Some(target) = &intent.target else { return vec![] };
+                let Some(target) = &intent.target else {
+                    return vec![];
+                };
                 vec![("__focus__".to_string(), json!({ "id": target }))]
             }
             "type" => {
-                let ch = intent.params.get("char").and_then(|c| c.as_str()).unwrap_or("");
-                let Some(fid) = focused_id() else { return vec![] };
+                let ch = intent
+                    .params
+                    .get("char")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("");
+                let Some(fid) = focused_id() else {
+                    return vec![];
+                };
                 if ch.is_empty() {
                     return vec![];
                 }
@@ -295,10 +472,17 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                 vec![]
             }
             "backspace" => {
-                let Some(fid) = focused_id() else { return vec![] };
+                let Some(fid) = focused_id() else {
+                    return vec![];
+                };
                 if let Some(v) = find(&fid) {
                     if v.get("kind").and_then(|k| k.as_str()) == Some("text") {
-                        let mut chars: Vec<char> = v.get("value").and_then(|s| s.as_str()).unwrap_or("").chars().collect();
+                        let mut chars: Vec<char> = v
+                            .get("value")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("")
+                            .chars()
+                            .collect();
                         chars.pop();
                         let mut nv = v.clone();
                         nv["value"] = json!(chars.into_iter().collect::<String>());
@@ -308,8 +492,12 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                 vec![]
             }
             "toggle" => {
-                let Some(target) = &intent.target else { return vec![] };
-                let Some(mut v) = find(target) else { return vec![] };
+                let Some(target) = &intent.target else {
+                    return vec![];
+                };
+                let Some(mut v) = find(target) else {
+                    return vec![];
+                };
                 if v.get("kind").and_then(|k| k.as_str()) != Some("checkbox") {
                     return vec![];
                 }
@@ -318,7 +506,9 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                 vec![(target.clone(), v)]
             }
             "cycle" => {
-                let Some(target) = &intent.target else { return vec![] };
+                let Some(target) = &intent.target else {
+                    return vec![];
+                };
                 // length from the field spec
                 let field = target.rsplit(':').next().unwrap_or("");
                 let len = wb.fields.iter().find_map(|f| match &f.kind {
@@ -326,7 +516,9 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                     _ => None,
                 });
                 let Some(len) = len else { return vec![] };
-                let Some(mut v) = find(target) else { return vec![] };
+                let Some(mut v) = find(target) else {
+                    return vec![];
+                };
                 let sel = v.get("selected").and_then(|s| s.as_i64()).unwrap_or(-1);
                 v["selected"] = json!((sel + 1).rem_euclid(len as i64));
                 vec![(target.clone(), v)]
@@ -340,12 +532,30 @@ pub fn workbench_reducer(wb: &Workbench) -> IntentReducer {
                     }
                     let fid = format!("fld:{}:{}", lead, f.id);
                     let bad = match &f.kind {
-                        FieldKind::Text => find(&fid).and_then(|v| v.get("value").and_then(|s| s.as_str()).map(|s| s.is_empty())).unwrap_or(true),
-                        FieldKind::Select(_) => find(&fid).and_then(|v| v.get("selected").and_then(|s| s.as_i64())).unwrap_or(-1) < 0,
+                        FieldKind::Text => find(&fid)
+                            .and_then(|v| {
+                                v.get("value")
+                                    .and_then(|s| s.as_str())
+                                    .map(|s| s.is_empty())
+                            })
+                            .unwrap_or(true),
+                        FieldKind::Select(_) => {
+                            find(&fid)
+                                .and_then(|v| v.get("selected").and_then(|s| s.as_i64()))
+                                .unwrap_or(-1)
+                                < 0
+                        }
                         FieldKind::Checkbox => false,
                     };
                     if bad {
-                        errors.insert(f.id.clone(), json!(if matches!(f.kind, FieldKind::Select(_)) { "select one" } else { "required" }));
+                        errors.insert(
+                            f.id.clone(),
+                            json!(if matches!(f.kind, FieldKind::Select(_)) {
+                                "select one"
+                            } else {
+                                "required"
+                            }),
+                        );
                     }
                 }
                 // scoped per lead — NOT a global string
@@ -369,7 +579,12 @@ impl WorkbenchRuntime {
             wb.initial_world(),
             workbench_reducer(&wb),
             Box::new(WorkbenchProjector { wb: wb.clone() }),
-            Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
+            Viewport {
+                css_w: CANVAS_W as f64,
+                css_h: CANVAS_H as f64,
+                frame_w: CANVAS_W,
+                frame_h: CANVAS_H,
+            },
             Box::new(WorkbenchRenderHost),
         );
         Self { inner, wb }

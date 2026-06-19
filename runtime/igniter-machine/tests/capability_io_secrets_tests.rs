@@ -5,9 +5,13 @@
 //! contract inputs, receipts, audit, or error bodies; redaction is preserved.
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
-use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE};
+use igniter_machine::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE,
+};
 use igniter_machine::clock::{ClockProvider, FixedClock};
-use igniter_machine::http::{FakeHttpTransport, HttpCapabilityExecutor, HttpTransport, MapSecretProvider, SecretProvider};
+use igniter_machine::http::{
+    FakeHttpTransport, HttpCapabilityExecutor, HttpTransport, MapSecretProvider, SecretProvider,
+};
 use igniter_machine::secrets::{EnvSecretProvider, FileSecretProvider, LayeredSecretProvider};
 use igniter_machine::write::{run_write_effect, WriteRequest, WriteState};
 use serde_json::json;
@@ -18,7 +22,10 @@ const CAP: &str = "IO.HttpCapability";
 const SECRET: &str = "s3cr3t-p22";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn tmp() -> PathBuf {
     std::env::temp_dir().join(format!("igniter_p22_{}", uuid::Uuid::new_v4()))
@@ -32,7 +39,11 @@ fn env_provider_resolves_only_allowlisted() {
     std::env::set_var(var, SECRET);
     let p = EnvSecretProvider::new().allow("tok", var);
     assert_eq!(p.resolve("tok").as_deref(), Some(SECRET));
-    assert_eq!(p.resolve("other"), None, "a non-allowlisted name resolves to nothing");
+    assert_eq!(
+        p.resolve("other"),
+        None,
+        "a non-allowlisted name resolves to nothing"
+    );
 
     // an allowlisted name whose env var is unset → None
     let p2 = EnvSecretProvider::new().allow("missing", "IGNITER_P22_ENV_UNSET");
@@ -49,10 +60,21 @@ fn file_provider_reads_and_rejects_traversal() {
     std::fs::write(root.join("api_token"), format!("{SECRET}\n")).unwrap();
     let p = FileSecretProvider::new(&root);
 
-    assert_eq!(p.resolve("api_token").as_deref(), Some(SECRET), "trimmed file contents");
+    assert_eq!(
+        p.resolve("api_token").as_deref(),
+        Some(SECRET),
+        "trimmed file contents"
+    );
     assert_eq!(p.resolve("missing"), None);
     // path-traversal / unsafe names are rejected (never touch the filesystem outside root)
-    for bad in ["../api_token", "../../etc/passwd", "a/b", ".hidden", "tok/", ""] {
+    for bad in [
+        "../api_token",
+        "../../etc/passwd",
+        "a/b",
+        ".hidden",
+        "tok/",
+        "",
+    ] {
         assert_eq!(p.resolve(bad), None, "unsafe name '{bad}' must be rejected");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -71,8 +93,16 @@ fn layered_provider_overrides_then_falls_through() {
         .layer(Box::new(MapSecretProvider::new(&[("a", "from_map_a")]))) // override "a"
         .layer(Box::new(FileSecretProvider::new(&root)));
 
-    assert_eq!(layered.resolve("a").as_deref(), Some("from_map_a"), "first layer wins");
-    assert_eq!(layered.resolve("b").as_deref(), Some("from_file_b"), "falls through to file");
+    assert_eq!(
+        layered.resolve("a").as_deref(),
+        Some("from_map_a"),
+        "first layer wins"
+    );
+    assert_eq!(
+        layered.resolve("b").as_deref(),
+        Some("from_file_b"),
+        "falls through to file"
+    );
     assert_eq!(layered.resolve("c"), None);
     let _ = std::fs::remove_dir_all(&root);
 }

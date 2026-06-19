@@ -34,7 +34,10 @@ fn frame_carries_host_action_in_lineage_json() {
     let lin: Value = serde_json::from_str(&c.lineage_json()).unwrap();
     assert_eq!(lin["host_action"]["action_name"], "submit_lead");
     assert_eq!(lin["host_action"]["contract"], "SubmitLeadReview");
-    assert_eq!(lin["host_action"]["effect_receipt_id"], "IO.FrameFixture:idem-1");
+    assert_eq!(
+        lin["host_action"]["effect_receipt_id"],
+        "IO.FrameFixture:idem-1"
+    );
     assert_eq!(lin["host_action"]["effect_state"], "committed");
 }
 
@@ -57,7 +60,10 @@ fn time_travel_shows_selected_frames_own_action() {
 
     c.select_step(0); // scrub to the initial frame (no action)
     let lin0: Value = serde_json::from_str(&c.lineage_json()).unwrap();
-    assert!(lin0.get("host_action").is_none(), "initial frame has no host action");
+    assert!(
+        lin0.get("host_action").is_none(),
+        "initial frame has no host action"
+    );
     assert!(!c.render_svg().contains("action: submit_lead"));
 
     c.select_step(action_step); // back to the action frame
@@ -83,8 +89,14 @@ fn long_ids_are_shortened_in_the_svg_but_full_in_json() {
     c.attach_action(r);
     let svg = c.render_svg();
     assert!(svg.contains("…"), "long id shortened in the SVG");
-    assert!(!svg.contains("1234567890"), "the full long id is not rendered raw");
-    assert!(c.lineage_json().contains("1234567890"), "raw JSON keeps the full id");
+    assert!(
+        !svg.contains("1234567890"),
+        "the full long id is not rendered raw"
+    );
+    assert!(
+        c.lineage_json().contains("1234567890"),
+        "raw JSON keeps the full id"
+    );
 }
 
 #[test]
@@ -101,7 +113,13 @@ fn existing_console_surfaces_intact() {
     viewer(&mut c, 106.0, 105.0);
     c.attach_action(rec());
     let svg = c.render_svg();
-    for needle in ["replay", "frame viewer", "lineage", "frame diff", "Lead \u{b7} Grace"] {
+    for needle in [
+        "replay",
+        "frame viewer",
+        "lineage",
+        "frame diff",
+        "Lead \u{b7} Grace",
+    ] {
         assert!(svg.contains(needle), "missing: {needle}");
     }
     // the visual diff overlay still works (selected > 0)

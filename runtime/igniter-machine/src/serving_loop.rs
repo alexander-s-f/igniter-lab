@@ -49,7 +49,11 @@ pub struct ServingPolicy {
 impl ServingPolicy {
     /// Serve exactly `n` requests, no auto-tick.
     pub fn serve(n: usize) -> Self {
-        Self { max_requests: n, tick_every: None, tick_on_stop: false }
+        Self {
+            max_requests: n,
+            tick_every: None,
+            tick_on_stop: false,
+        }
     }
     /// Tick after every `n` served requests (host-owned cadence).
     pub fn tick_every(mut self, n: usize) -> Self {
@@ -101,7 +105,10 @@ impl ServingLoop<'_> {
     ) -> Result<ServingReport, EngineError> {
         // boot recovery ONCE, before serving (P19 sweep of dangling prepared/unknown receipts).
         orch.boot().await?;
-        let mut report = ServingReport { booted: true, ..Default::default() };
+        let mut report = ServingReport {
+            booted: true,
+            ..Default::default()
+        };
 
         while report.requests_served < policy.max_requests {
             // One inbound connection through the unchanged wire-to-effect contour.
@@ -148,7 +155,11 @@ pub struct ConcurrentServingPolicy {
 impl ConcurrentServingPolicy {
     /// Serve `max_requests` connections with at most `max_in_flight` in flight; no auto-tick.
     pub fn new(max_requests: usize, max_in_flight: usize) -> Self {
-        Self { max_requests, max_in_flight, tick_on_stop: false }
+        Self {
+            max_requests,
+            max_in_flight,
+            tick_on_stop: false,
+        }
     }
     /// Tick once after the last request, before returning.
     pub fn tick_on_stop(mut self) -> Self {
@@ -191,7 +202,10 @@ impl ServingLoop<'_> {
     ) -> Result<ConcurrentServingReport, EngineError> {
         // boot recovery ONCE, before serving (P19 sweep), same as the sequential `run`.
         orch.boot().await?;
-        let mut report = ConcurrentServingReport { booted: true, ..Default::default() };
+        let mut report = ConcurrentServingReport {
+            booted: true,
+            ..Default::default()
+        };
 
         let cap = policy.max_in_flight.max(1);
         let mut started = 0usize;
@@ -200,7 +214,12 @@ impl ServingLoop<'_> {
         loop {
             // Top up the in-flight set to the bound, never beyond it and never past the budget.
             while in_flight.len() < cap && started < policy.max_requests {
-                in_flight.push(serve_once_effect(self.listener, self.router, self.hub, self.cfg));
+                in_flight.push(serve_once_effect(
+                    self.listener,
+                    self.router,
+                    self.hub,
+                    self.cfg,
+                ));
                 started += 1;
             }
             report.max_in_flight_observed = report.max_in_flight_observed.max(in_flight.len());

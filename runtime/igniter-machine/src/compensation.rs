@@ -31,7 +31,11 @@ pub trait CompensatableExecutor: Send + Sync {
     /// Run the compensating action for a previously committed effect, given the original
     /// receipt value. Succeeded = reversed; Unknown = reversal status unknown; Denied/Permanent
     /// = reversal refused/failed.
-    async fn compensate(&self, original_receipt: &Value, compensation_correlation_id: &str) -> EffectOutcome;
+    async fn compensate(
+        &self,
+        original_receipt: &Value,
+        compensation_correlation_id: &str,
+    ) -> EffectOutcome;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +69,10 @@ async fn append_aborted(
     if let Some(o) = value.as_object_mut() {
         o.insert("state".to_string(), json!(WriteState::Aborted.as_str()));
         o.insert("compensated".to_string(), json!(true));
-        o.insert("compensation_correlation_id".to_string(), json!(compensation_correlation_id));
+        o.insert(
+            "compensation_correlation_id".to_string(),
+            json!(compensation_correlation_id),
+        );
     }
     let fact = Fact {
         id: format!("write-receipt:{}:aborted", rkey),
@@ -102,7 +109,10 @@ pub async fn run_compensation(
     let v = &fact.value;
 
     // authority continuity: only the original authority (or a matching digest) may compensate.
-    let stored_auth = v.get("authority_digest").and_then(|s| s.as_str()).unwrap_or("");
+    let stored_auth = v
+        .get("authority_digest")
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
     if stored_auth != passport.authority_digest() {
         return Ok(CompensationResult::AuthorityMismatch);
     }
@@ -155,10 +165,20 @@ pub struct FakeCompensatableExecutor {
 
 impl FakeCompensatableExecutor {
     pub fn new(capability_id: &str, behavior: CompensationBehavior) -> Self {
-        Self { capability_id: capability_id.to_string(), compensatable: true, behavior, calls: AtomicU64::new(0) }
+        Self {
+            capability_id: capability_id.to_string(),
+            compensatable: true,
+            behavior,
+            calls: AtomicU64::new(0),
+        }
     }
     pub fn irreversible(capability_id: &str) -> Self {
-        Self { capability_id: capability_id.to_string(), compensatable: false, behavior: CompensationBehavior::Deny, calls: AtomicU64::new(0) }
+        Self {
+            capability_id: capability_id.to_string(),
+            compensatable: false,
+            behavior: CompensationBehavior::Deny,
+            calls: AtomicU64::new(0),
+        }
     }
     pub fn calls(&self) -> u64 {
         self.calls.load(Ordering::SeqCst)
@@ -178,7 +198,9 @@ impl CompensatableExecutor for FakeCompensatableExecutor {
         match self.behavior {
             CompensationBehavior::Reverse => EffectOutcome::succeeded(json!({ "reversed": true })),
             CompensationBehavior::Deny => EffectOutcome::denied("compensation refused"),
-            CompensationBehavior::Timeout => EffectOutcome::unknown("compensation timed out — reversal unknown"),
+            CompensationBehavior::Timeout => {
+                EffectOutcome::unknown("compensation timed out — reversal unknown")
+            }
         }
     }
 }

@@ -1,20 +1,20 @@
 // src/pipeline.rs
 // Reactive Event-Driven Projection Pipeline Orchestrator
 
+use crate::compiler::Compiler;
+use crate::reactive::ReactiveListener;
+use crate::tbackend::LedgerTcpBackend;
+use crate::value::Value;
+use crate::vm::VM;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::value::Value;
-use crate::compiler::Compiler;
-use crate::tbackend::LedgerTcpBackend;
-use crate::reactive::ReactiveListener;
-use crate::vm::VM;
 
 // ANSI styling
-const GREEN: &str  = "\x1b[32m";
+const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
-const CYAN: &str   = "\x1b[36m";
-const RESET: &str  = "\x1b[0m";
+const CYAN: &str = "\x1b[36m";
+const RESET: &str = "\x1b[0m";
 
 pub struct ProjectionPipeline {
     contract_jv: serde_json::Value,
@@ -53,7 +53,10 @@ impl ProjectionPipeline {
         let bytecode_arc = Arc::new(bytecode);
 
         // 2. Register dynamic trigger webhook remotely on tbackend server
-        println!("  {} [*] Registering dynamic webhook trigger on Remote Ledger...{}", YELLOW, RESET);
+        println!(
+            "  {} [*] Registering dynamic webhook trigger on Remote Ledger...{}",
+            YELLOW, RESET
+        );
         let webhook_url = format!("http://127.0.0.1:{}/evaluate", self.listener_port);
         let reg_req = serde_json::json!({
             "op": "trigger_create",
@@ -63,30 +66,50 @@ impl ProjectionPipeline {
         });
 
         let reg_resp = client.send_req(reg_req).await?;
-        if !reg_resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-            return Err(format!("Failed to register trigger: {:?}", reg_resp.get("error")));
+        if !reg_resp
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Failed to register trigger: {:?}",
+                reg_resp.get("error")
+            ));
         }
 
-        let trig_id = reg_resp.get("trigger_id").and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing trigger_id in response".to_string())?.to_string();
-        
-        println!("      {}✔ Webhook trigger registered successfully! ID: {}{}", GREEN, trig_id, RESET);
+        let trig_id = reg_resp
+            .get("trigger_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing trigger_id in response".to_string())?
+            .to_string();
+
+        println!(
+            "      {}✔ Webhook trigger registered successfully! ID: {}{}",
+            GREEN, trig_id, RESET
+        );
         {
             let mut guard = self.trigger_id.lock().await;
             *guard = Some(trig_id.clone());
         }
 
         // 3. Spawns asynchronous VM execution webhook listener
-        println!("  {} [*] Booting background HTTP Webhook Listener on port {}...{}", YELLOW, self.listener_port, RESET);
+        println!(
+            "  {} [*] Booting background HTTP Webhook Listener on port {}...{}",
+            YELLOW, self.listener_port, RESET
+        );
         let listener = ReactiveListener::new(self.listener_port);
-        
+
         let tbackend_addr_clone = self.tbackend_addr.clone();
         let target_store_clone = self.target_store.clone();
         let default_inputs_arc = Arc::new(default_inputs);
 
-        let modifier = self.contract_jv.get("modifier")
+        let modifier = self
+            .contract_jv
+            .get("modifier")
             .or_else(|| {
-                if let Some(contracts_arr) = self.contract_jv.get("contracts").and_then(|c| c.as_array()) {
+                if let Some(contracts_arr) =
+                    self.contract_jv.get("contracts").and_then(|c| c.as_array())
+                {
                     contracts_arr.get(0).and_then(|c| c.get("modifier"))
                 } else {
                     None
@@ -97,78 +120,107 @@ impl ProjectionPipeline {
             .to_string();
 
         let modifier_clone = modifier.clone();
-        listener.listen(move |fact_jv| {
-            let bytecode_c = bytecode_arc.clone();
-            let addr_c = tbackend_addr_clone.clone();
-            let store_c = target_store_clone.clone();
-            let inputs_c = default_inputs_arc.clone();
-            let modifier_c = modifier_clone.clone();
+        listener
+            .listen(move |fact_jv| {
+                let bytecode_c = bytecode_arc.clone();
+                let addr_c = tbackend_addr_clone.clone();
+                let store_c = target_store_clone.clone();
+                let inputs_c = default_inputs_arc.clone();
+                let modifier_c = modifier_clone.clone();
 
-            async move {
-                let key = fact_jv.get("key").and_then(|v| v.as_str()).unwrap_or("unknown");
-                println!("  {} [*] Received reactive trigger event on store key: {}{}", CYAN, key, RESET);
+                async move {
+                    let key = fact_jv
+                        .get("key")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    println!(
+                        "  {} [*] Received reactive trigger event on store key: {}{}",
+                        CYAN, key, RESET
+                    );
 
-                // Setup temporal coordinates from the incoming fact or fallback to default
-                let mut inputs = (*inputs_c).clone();
-                let mut temp_ctx = HashMap::new();
+                    // Setup temporal coordinates from the incoming fact or fallback to default
+                    let mut inputs = (*inputs_c).clone();
+                    let mut temp_ctx = HashMap::new();
 
-                let vt_str = if let Some(vt) = fact_jv.get("valid_time") {
-                    if let Some(vt_f) = vt.as_f64() {
-                        // Convert float timestamp back to ISO8601 for VM
-                        let dt = chrono::DateTime::from_timestamp(vt_f as i64, 0)
-                            .unwrap_or_else(|| chrono::Utc::now());
-                        dt.to_rfc3339()
+                    let vt_str = if let Some(vt) = fact_jv.get("valid_time") {
+                        if let Some(vt_f) = vt.as_f64() {
+                            // Convert float timestamp back to ISO8601 for VM
+                            let dt = chrono::DateTime::from_timestamp(vt_f as i64, 0)
+                                .unwrap_or_else(|| chrono::Utc::now());
+                            dt.to_rfc3339()
+                        } else {
+                            chrono::Utc::now().to_rfc3339()
+                        }
                     } else {
                         chrono::Utc::now().to_rfc3339()
-                    }
-                } else {
-                    chrono::Utc::now().to_rfc3339()
-                };
+                    };
 
-                inputs.insert("as_of".to_string(), Value::String(Arc::from(vt_str.as_str())));
-                temp_ctx.insert("as_of".to_string(), Value::String(Arc::from(vt_str.as_str())));
+                    inputs.insert(
+                        "as_of".to_string(),
+                        Value::String(Arc::from(vt_str.as_str())),
+                    );
+                    temp_ctx.insert(
+                        "as_of".to_string(),
+                        Value::String(Arc::from(vt_str.as_str())),
+                    );
 
-                inputs.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier_c.as_str())));
-                temp_ctx.insert("contract_modifier".to_string(), Value::String(Arc::from(modifier_c.as_str())));
+                    inputs.insert(
+                        "contract_modifier".to_string(),
+                        Value::String(Arc::from(modifier_c.as_str())),
+                    );
+                    temp_ctx.insert(
+                        "contract_modifier".to_string(),
+                        Value::String(Arc::from(modifier_c.as_str())),
+                    );
 
-                let client = LedgerTcpBackend::new(&addr_c);
-                let vm = VM::new(Some(Arc::new(client)));
+                    let client = LedgerTcpBackend::new(&addr_c);
+                    let vm = VM::new(Some(Arc::new(client)));
 
-                // Evaluate the projection
-                match vm.execute(&bytecode_c, &inputs, &temp_ctx).await {
-                    Ok(result) => {
-                        println!("      {}✔ VM execution success! Output: {:?}", GREEN, result);
-                        // Ingest calculated bitemporal projection back to tbackend remotely
-                        let client_commit = LedgerTcpBackend::new(&addr_c);
-                        let commit_req = serde_json::json!({
-                            "op": "write_fact",
-                            "fact": {
-                                "id": uuid::Uuid::new_v4().to_string(),
-                                "store": &store_c,
-                                "key": "global",
-                                "value": result.to_json(),
-                                "value_hash": "projection-hash-string",
-                                "transaction_time": chrono::Utc::now().timestamp() as f64,
-                                "valid_time": chrono::Utc::now().timestamp() as f64,
-                                "schema_version": 1
-                            }
-                        });
-
-                        match client_commit.send_req(commit_req).await {
-                            Ok(resp) => {
-                                if resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                    println!("      {}✔ Committed dynamic projection back to: {}{}", GREEN, store_c, RESET);
-                                } else {
-                                    eprintln!("      [!] Failed to commit projection: {:?}", resp.get("error"));
+                    // Evaluate the projection
+                    match vm.execute(&bytecode_c, &inputs, &temp_ctx).await {
+                        Ok(result) => {
+                            println!(
+                                "      {}✔ VM execution success! Output: {:?}",
+                                GREEN, result
+                            );
+                            // Ingest calculated bitemporal projection back to tbackend remotely
+                            let client_commit = LedgerTcpBackend::new(&addr_c);
+                            let commit_req = serde_json::json!({
+                                "op": "write_fact",
+                                "fact": {
+                                    "id": uuid::Uuid::new_v4().to_string(),
+                                    "store": &store_c,
+                                    "key": "global",
+                                    "value": result.to_json(),
+                                    "value_hash": "projection-hash-string",
+                                    "transaction_time": chrono::Utc::now().timestamp() as f64,
+                                    "valid_time": chrono::Utc::now().timestamp() as f64,
+                                    "schema_version": 1
                                 }
+                            });
+
+                            match client_commit.send_req(commit_req).await {
+                                Ok(resp) => {
+                                    if resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                        println!(
+                                            "      {}✔ Committed dynamic projection back to: {}{}",
+                                            GREEN, store_c, RESET
+                                        );
+                                    } else {
+                                        eprintln!(
+                                            "      [!] Failed to commit projection: {:?}",
+                                            resp.get("error")
+                                        );
+                                    }
+                                }
+                                Err(e) => eprintln!("      [!] Failed to commit projection: {}", e),
                             }
-                            Err(e) => eprintln!("      [!] Failed to commit projection: {}", e),
                         }
+                        Err(e) => eprintln!("      [!] VM evaluation failed: {}", e),
                     }
-                    Err(e) => eprintln!("      [!] VM evaluation failed: {}", e),
                 }
-            }
-        }).await?;
+            })
+            .await?;
 
         Ok(())
     }
@@ -177,7 +229,10 @@ impl ProjectionPipeline {
     pub async fn shutdown(&self) -> Result<(), String> {
         let mut guard = self.trigger_id.lock().await;
         if let Some(ref trig_id) = *guard {
-            println!("  {} [*] Cleaning up remote webhook trigger: {}{}", YELLOW, trig_id, RESET);
+            println!(
+                "  {} [*] Cleaning up remote webhook trigger: {}{}",
+                YELLOW, trig_id, RESET
+            );
             let client = LedgerTcpBackend::new(&self.tbackend_addr);
             let del_req = serde_json::json!({
                 "op": "trigger_delete",
@@ -185,7 +240,10 @@ impl ProjectionPipeline {
             });
             let resp = client.send_req(del_req).await?;
             if resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                println!("      {}✔ Trigger deleted from remote registry.{}", GREEN, RESET);
+                println!(
+                    "      {}✔ Trigger deleted from remote registry.{}",
+                    GREEN, RESET
+                );
                 *guard = None;
             } else {
                 return Err(format!("Failed to delete trigger: {:?}", resp.get("error")));

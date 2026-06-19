@@ -103,7 +103,10 @@ impl WriteResult {
         Self {
             state: WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or("")),
             result: v.get("result").cloned().unwrap_or(Value::Null),
-            detail: v.get("detail").and_then(|d| d.as_str()).map(|s| s.to_string()),
+            detail: v
+                .get("detail")
+                .and_then(|d| d.as_str())
+                .map(|s| s.to_string()),
         }
     }
 }
@@ -172,7 +175,12 @@ async fn write_receipt(
         .get("correlation_id")
         .cloned()
         .filter(|v| !v.is_null())
-        .or_else(|| req.payload.get("correlation_id").cloned().filter(|v| !v.is_null()))
+        .or_else(|| {
+            req.payload
+                .get("correlation_id")
+                .cloned()
+                .filter(|v| !v.is_null())
+        })
         .unwrap_or(Value::Null);
     let value = json!({
         "capability_id": req.capability_id,
@@ -220,10 +228,16 @@ pub async fn run_write_effect(
     mode: RunMode,
 ) -> Result<WriteResult, EngineError> {
     // 1. Authority at the boundary — refusal writes NO receipt.
-    let authority_digest = match verify_passport(passport, &req.capability_id, required_scope, clock) {
-        Ok(d) => d,
-        Err(reason) => return Ok(WriteResult::refused(&format!("authority refused ({:?})", reason))),
-    };
+    let authority_digest =
+        match verify_passport(passport, &req.capability_id, required_scope, clock) {
+            Ok(d) => d,
+            Err(reason) => {
+                return Ok(WriteResult::refused(&format!(
+                    "authority refused ({:?})",
+                    reason
+                )))
+            }
+        };
     if req.idempotency_key.is_empty() {
         return Ok(WriteResult::refused("missing idempotency_key"));
     }
@@ -238,8 +252,14 @@ pub async fn run_write_effect(
     // 2. Existing receipt? Resolve duplicates / replays / unresolved priors.
     if let Some(fact) = receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
         let v = &fact.value;
-        let stored_auth = v.get("authority_digest").and_then(|s| s.as_str()).unwrap_or("");
-        let stored_payload = v.get("payload_digest").and_then(|s| s.as_str()).unwrap_or("");
+        let stored_auth = v
+            .get("authority_digest")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let stored_payload = v
+            .get("payload_digest")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
         let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
 
         // replay with different authority → refuse (P5 policy).
@@ -398,7 +418,9 @@ impl CapabilityExecutor for FakeWriteExecutor {
             }
             WriteBehavior::Deny => EffectOutcome::denied("write denied by executor"),
             WriteBehavior::Timeout => EffectOutcome::unknown("write timed out — mutation unknown"),
-            WriteBehavior::Retryable => EffectOutcome::retryable("transient write failure, no mutation"),
+            WriteBehavior::Retryable => {
+                EffectOutcome::retryable("transient write failure, no mutation")
+            }
         }
     }
 }

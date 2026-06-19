@@ -19,20 +19,37 @@ fn igweb_app_route_param_roundtrip() {
     let app = build_todo_app("adapter_param");
     let (status, body) = roundtrip(&*app, "GET", "/todos/42", &[], "");
     assert_eq!(status, 200);
-    assert_eq!(body["body"], json!("42"), "captured id=42 flowed through the generated regexp");
+    assert_eq!(
+        body["body"],
+        json!("42"),
+        "captured id=42 flowed through the generated regexp"
+    );
 }
 
 #[test]
 fn igweb_app_mutation_requires_idempotency_key() {
     let app = build_todo_app("adapter_keyless");
-    assert_eq!(roundtrip(&*app, "POST", "/todos/42/done", &[], "").0, 400, "keyless mutating route → 400 before any effect");
+    assert_eq!(
+        roundtrip(&*app, "POST", "/todos/42/done", &[], "").0,
+        400,
+        "keyless mutating route → 400 before any effect"
+    );
 }
 
 #[test]
 fn igweb_app_mutation_emits_invoke_effect() {
     let app = build_todo_app("adapter_effect");
-    let (status, body) = roundtrip(&*app, "POST", "/todos/42/done", &[("idempotency-key", "k-9")], "{}");
-    assert_eq!(status, 202, "InvokeEffect observed as 202 deferred (P2 host::execute)");
+    let (status, body) = roundtrip(
+        &*app,
+        "POST",
+        "/todos/42/done",
+        &[("idempotency-key", "k-9")],
+        "{}",
+    );
+    assert_eq!(
+        status, 202,
+        "InvokeEffect observed as 202 deferred (P2 host::execute)"
+    );
     assert_eq!(body["decision"], json!("invoke_effect"));
     assert_eq!(body["target"], json!("todo-done"));
     assert_eq!(body["idempotency_key"], json!("k-9"));
@@ -43,8 +60,16 @@ fn igweb_app_mutation_emits_invoke_effect() {
 #[test]
 fn igweb_app_unknown_and_method_refusals() {
     let app = build_todo_app("adapter_refusals");
-    assert_eq!(roundtrip(&*app, "GET", "/missing", &[], "").0, 404, "unknown path → 404");
-    assert_eq!(roundtrip(&*app, "POST", "/health", &[], "").0, 405, "wrong method → 405");
+    assert_eq!(
+        roundtrip(&*app, "GET", "/missing", &[], "").0,
+        404,
+        "unknown path → 404"
+    );
+    assert_eq!(
+        roundtrip(&*app, "POST", "/health", &[], "").0,
+        405,
+        "wrong method → 405"
+    );
 }
 
 /// The host has no route table: a totally different app on the same host routes differently.
@@ -54,10 +79,16 @@ fn server_host_has_no_route_table() {
     impl ServerApp for OtherApp {
         fn call(&self, req: ServerRequest) -> ServerDecision {
             let status = if req.path == "/only-here" { 200 } else { 404 };
-            ServerDecision::Respond { response: ServerResponse::json(status, json!({})) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(status, json!({})),
+            }
         }
     }
     let other = OtherApp;
-    assert_eq!(roundtrip(&other, "GET", "/health", &[], "").0, 404, "/health unknown to OtherApp — host holds no routes");
+    assert_eq!(
+        roundtrip(&other, "GET", "/health", &[], "").0,
+        404,
+        "/health unknown to OtherApp — host holds no routes"
+    );
     assert_eq!(roundtrip(&other, "GET", "/only-here", &[], "").0, 200);
 }

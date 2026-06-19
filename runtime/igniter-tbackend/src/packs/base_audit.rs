@@ -49,7 +49,11 @@ impl MetricsTracker {
     pub fn to_json(&self) -> serde_json::Value {
         let reqs = self.total_requests.load(Ordering::Relaxed);
         let lat = self.total_latency_us.load(Ordering::Relaxed);
-        let avg_lat = if reqs > 0 { lat as f64 / reqs as f64 } else { 0.0 };
+        let avg_lat = if reqs > 0 {
+            lat as f64 / reqs as f64
+        } else {
+            0.0
+        };
 
         serde_json::json!({
             "total_requests": reqs,
@@ -79,7 +83,11 @@ pub struct AuditMiddleware {
 }
 
 impl RequestMiddleware for AuditMiddleware {
-    fn before_request(&self, req: &mut serde_json::Value, _kernel: &ServerKernel) -> Result<(), String> {
+    fn before_request(
+        &self,
+        req: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) -> Result<(), String> {
         self.metrics.total_requests.fetch_add(1, Ordering::Relaxed);
 
         if let Some(op) = req.get("op").and_then(|v| v.as_str()) {
@@ -98,14 +106,20 @@ impl RequestMiddleware for AuditMiddleware {
         Ok(())
     }
 
-    fn after_response(&self, _req: &serde_json::Value, resp: &mut serde_json::Value, _kernel: &ServerKernel) {
+    fn after_response(
+        &self,
+        _req: &serde_json::Value,
+        resp: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) {
         if let Some(ok) = resp.get("ok").and_then(|v| v.as_bool()) {
             if !ok {
-                self.metrics.errors_encountered.fetch_add(1, Ordering::Relaxed);
+                self.metrics
+                    .errors_encountered
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
     }
-
 }
 
 // ── Base Audit Pack ─────────────────────────────────────────────────────────
@@ -137,17 +151,18 @@ impl ServerPack for BaseAuditPack {
         let _ = AUDIT_METRICS.set(self.metrics.clone());
 
         // 2. Register Middleware to count operations and trace success/failures
-        kernel.middleware_chain.write().register(Arc::new(AuditMiddleware {
-            metrics: self.metrics.clone(),
-        }));
+        kernel
+            .middleware_chain
+            .write()
+            .register(Arc::new(AuditMiddleware {
+                metrics: self.metrics.clone(),
+            }));
 
         // 3. Register Custom Command "/metrics" returning the serialized trackers
         let metrics_c = self.metrics.clone();
         kernel.command_registry.write().register(
             "metrics",
-            Arc::new(move |_req, _kernel| {
-                metrics_c.to_json()
-            })
+            Arc::new(move |_req, _kernel| metrics_c.to_json()),
         );
 
         Ok(())

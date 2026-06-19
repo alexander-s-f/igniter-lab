@@ -69,7 +69,11 @@ async fn write_resolved(
         obj.insert("reconciled_by".to_string(), json!("correlation_id"));
     }
     let fact = Fact {
-        id: format!("write-receipt:{}:corr-reconciled:{}", rkey, resolved.as_str()),
+        id: format!(
+            "write-receipt:{}:corr-reconciled:{}",
+            rkey,
+            resolved.as_str()
+        ),
         store: RECEIPTS_STORE.to_string(),
         key: rkey.to_string(),
         value,
@@ -101,11 +105,17 @@ pub async fn reconcile_unknown_by_correlation(
     let v = &fact.value;
     let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
     // `unknown` OR a dangling `prepared` (crash before the terminal receipt, P19) is reconcilable.
-    if !matches!(state, WriteState::UnknownExternalState | WriteState::Prepared) {
+    if !matches!(
+        state,
+        WriteState::UnknownExternalState | WriteState::Prepared
+    ) {
         return Ok(CorrelationReconcileResult::NotApplicable(state));
     }
 
-    let correlation_id = v.get("correlation_id").and_then(|c| c.as_str()).unwrap_or("");
+    let correlation_id = v
+        .get("correlation_id")
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
     if correlation_id.is_empty() {
         // explicit: no correlation trail → caller falls back to P7 value-based reconcile.
         return Ok(CorrelationReconcileResult::MissingCorrelation);
@@ -117,7 +127,14 @@ pub async fn reconcile_unknown_by_correlation(
             Ok(CorrelationReconcileResult::ResolvedCommitted)
         }
         CorrelationLookup::NotFound => {
-            write_resolved(receipts, clock.now(), &rkey, v, WriteState::PermanentFailure).await?;
+            write_resolved(
+                receipts,
+                clock.now(),
+                &rkey,
+                v,
+                WriteState::PermanentFailure,
+            )
+            .await?;
             Ok(CorrelationReconcileResult::ResolvedPermanentFailure)
         }
         CorrelationLookup::Unavailable => Ok(CorrelationReconcileResult::StillUnknown),
@@ -137,10 +154,16 @@ pub struct MapCorrelationResolver {
 
 impl MapCorrelationResolver {
     pub fn new(landed: &[&str]) -> Self {
-        Self { known: landed.iter().map(|c| (c.to_string(), true)).collect(), available: true }
+        Self {
+            known: landed.iter().map(|c| (c.to_string(), true)).collect(),
+            available: true,
+        }
     }
     pub fn unavailable() -> Self {
-        Self { known: HashMap::new(), available: false }
+        Self {
+            known: HashMap::new(),
+            available: false,
+        }
     }
 }
 

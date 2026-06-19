@@ -1,19 +1,19 @@
 // src/packs/analytics.rs
 // Bitemporal Analytics, Grouped Aggregations, Time-Series Calculations & Ledger Metrics Pack for TBackend
 
+use super::query::{evaluate_slice_rule, SliceRule};
 use crate::kernel::{PackManifest, ServerKernel, ServerPack};
 use crate::pure_core::FactData;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use super::query::{SliceRule, evaluate_slice_rule};
 
 // ── JSON Filter Helpers ──────────────────────────────────────────────────────
 
 fn matches_filters(value: &serde_json::Value, filters: &serde_json::Value) -> bool {
     match (value, filters) {
-        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => {
-            f.iter().all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv))
-        }
+        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => f
+            .iter()
+            .all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv)),
         _ => false,
     }
 }
@@ -34,16 +34,24 @@ fn resolve_field_as_value(fact: &FactData, path: &str) -> Option<serde_json::Val
         return fact.valid_time.map(|vt| serde_json::json!(vt));
     }
     if path == "producer" {
-        return fact.producer.as_ref().map(|p| serde_json::Value::String(p.clone()));
+        return fact
+            .producer
+            .as_ref()
+            .map(|p| serde_json::Value::String(p.clone()));
     }
     if path == "causation" {
-        return fact.causation.as_ref().map(|c| serde_json::Value::String(c.clone()));
+        return fact
+            .causation
+            .as_ref()
+            .map(|c| serde_json::Value::String(c.clone()));
     }
     if path.starts_with("value.") {
         let sub_path = &path[6..];
         let mut current = &fact.value;
         for part in sub_path.split('.') {
-            if part.is_empty() { continue; }
+            if part.is_empty() {
+                continue;
+            }
             current = current.get(part)?;
         }
         return Some(current.clone());
@@ -355,57 +363,83 @@ impl ServerPack for AnalyticsPack {
         }));
 
         // 4. Register "analytics_metrics" Command Route
-        registry.register("analytics_metrics", Arc::new(|req, kernel| {
-            let filter_store = req.get("store").and_then(|v| v.as_str());
+        registry.register(
+            "analytics_metrics",
+            Arc::new(|req, kernel| {
+                let filter_store = req.get("store").and_then(|v| v.as_str());
 
-            let mut stores_stats = HashMap::new();
-            let map = kernel.engines.read();
+                let mut stores_stats = HashMap::new();
+                let map = kernel.engines.read();
 
-            for (name, engine) in map.iter() {
-                if let Some(filter) = filter_store {
-                    if filter != name { continue; }
+                for (name, engine) in map.iter() {
+                    if let Some(filter) = filter_store {
+                        if filter != name {
+                            continue;
+                        }
+                    }
+
+                    let facts = engine.log.facts_for_store(name, None, None);
+                    let total_facts = facts.len();
+
+                    let mut key_versions: HashMap<String, usize> = HashMap::new();
+                    let mut min_tx = f64::INFINITY;
+                    let mut max_tx = f64::NEG_INFINITY;
+
+                    for f in &facts {
+                        *key_versions.entry(f.key.clone()).or_default() += 1;
+                        if f.transaction_time < min_tx {
+                            min_tx = f.transaction_time;
+                        }
+                        if f.transaction_time > max_tx {
+                            max_tx = f.transaction_time;
+                        }
+                    }
+
+                    let unique_keys = key_versions.len();
+                    let avg_versions = if unique_keys > 0 {
+                        total_facts as f64 / unique_keys as f64
+                    } else {
+                        0.0
+                    };
+                    let max_versions = key_versions.values().cloned().max().unwrap_or(0);
+                    let time_span = if total_facts > 0 && max_tx >= min_tx {
+                        Some(max_tx - min_tx)
+                    } else {
+                        None
+                    };
+
+                    let mut estimated_size = 0;
+                    for f in &facts {
+                        estimated_size += f.id.len() + f.store.len() + f.key.len();
+                        estimated_size += serde_json::to_string(&f.value).unwrap_or_default().len();
+                        if let Some(ref c) = f.causation {
+                            estimated_size += c.len();
+                        }
+                        if let Some(ref p) = f.producer {
+                            estimated_size += p.len();
+                        }
+                        if let Some(ref d) = f.derivation {
+                            estimated_size += d.len();
+                        }
+                        estimated_size += 24;
+                    }
+
+                    stores_stats.insert(
+                        name.clone(),
+                        serde_json::json!({
+                            "total_facts": total_facts,
+                            "unique_keys": unique_keys,
+                            "avg_versions_per_key": avg_versions,
+                            "max_versions_per_key": max_versions,
+                            "transaction_time_span": time_span,
+                            "size_bytes": estimated_size
+                        }),
+                    );
                 }
 
-                let facts = engine.log.facts_for_store(name, None, None);
-                let total_facts = facts.len();
-                
-                let mut key_versions: HashMap<String, usize> = HashMap::new();
-                let mut min_tx = f64::INFINITY;
-                let mut max_tx = f64::NEG_INFINITY;
-
-                for f in &facts {
-                    *key_versions.entry(f.key.clone()).or_default() += 1;
-                    if f.transaction_time < min_tx { min_tx = f.transaction_time; }
-                    if f.transaction_time > max_tx { max_tx = f.transaction_time; }
-                }
-
-                let unique_keys = key_versions.len();
-                let avg_versions = if unique_keys > 0 { total_facts as f64 / unique_keys as f64 } else { 0.0 };
-                let max_versions = key_versions.values().cloned().max().unwrap_or(0);
-                let time_span = if total_facts > 0 && max_tx >= min_tx { Some(max_tx - min_tx) } else { None };
-
-                let mut estimated_size = 0;
-                for f in &facts {
-                    estimated_size += f.id.len() + f.store.len() + f.key.len();
-                    estimated_size += serde_json::to_string(&f.value).unwrap_or_default().len();
-                    if let Some(ref c) = f.causation { estimated_size += c.len(); }
-                    if let Some(ref p) = f.producer { estimated_size += p.len(); }
-                    if let Some(ref d) = f.derivation { estimated_size += d.len(); }
-                    estimated_size += 24;
-                }
-
-                stores_stats.insert(name.clone(), serde_json::json!({
-                    "total_facts": total_facts,
-                    "unique_keys": unique_keys,
-                    "avg_versions_per_key": avg_versions,
-                    "max_versions_per_key": max_versions,
-                    "transaction_time_span": time_span,
-                    "size_bytes": estimated_size
-                }));
-            }
-
-            serde_json::json!({ "ok": true, "stores": stores_stats })
-        }));
+                serde_json::json!({ "ok": true, "stores": stores_stats })
+            }),
+        );
 
         Ok(())
     }

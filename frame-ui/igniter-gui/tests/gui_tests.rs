@@ -15,7 +15,11 @@ const COUNTER: (f64, f64) = (200.0, 198.0);
 fn layout_renders_widgets_as_boxes() {
     let rt = GuiRuntime::new();
     let svg = rt.render_svg();
-    assert_eq!(svg.matches("<rect").count(), 5, "background + 4 widget boxes");
+    assert_eq!(
+        svg.matches("<rect").count(),
+        5,
+        "background + 4 widget boxes"
+    );
     assert!(svg.contains("+ add task"));
     assert!(svg.contains("[ ] task 1"));
     assert!(svg.contains("0 / 2 done"));
@@ -24,12 +28,18 @@ fn layout_renders_widgets_as_boxes() {
 #[test]
 fn click_toggle_marks_done_and_updates_counter() {
     let mut rt = GuiRuntime::new();
-    assert!(rt.click(TASK_1.0, TASK_1.1), "clicking a row fires its toggle intent");
+    assert!(
+        rt.click(TASK_1.0, TASK_1.1),
+        "clicking a row fires its toggle intent"
+    );
     assert_eq!(rt.frame_index(), 1);
     let svg = rt.render_svg();
     assert!(svg.contains("[x] task 1"), "row is now done");
     assert!(svg.contains("[ ] task 2"), "the other row is untouched");
-    assert!(svg.contains("1 / 2 done"), "counter recomputed by the reducer");
+    assert!(
+        svg.contains("1 / 2 done"),
+        "counter recomputed by the reducer"
+    );
 }
 
 #[test]
@@ -37,7 +47,11 @@ fn click_add_appends_row_and_relayouts() {
     let mut rt = GuiRuntime::new();
     assert!(rt.click(ADD.0, ADD.1), "the add button fires");
     let svg = rt.render_svg();
-    assert_eq!(svg.matches("<rect").count(), 6, "a new widget box appeared (re-layout)");
+    assert_eq!(
+        svg.matches("<rect").count(),
+        6,
+        "a new widget box appeared (re-layout)"
+    );
     assert!(svg.contains("[ ] task 3"), "a new row was appended");
     assert!(svg.contains("0 / 3 done"), "counter reflects the new total");
 }
@@ -46,7 +60,10 @@ fn click_add_appends_row_and_relayouts() {
 fn display_widget_has_no_intent() {
     let mut rt = GuiRuntime::new();
     let before = rt.render_digest();
-    assert!(!rt.click(COUNTER.0, COUNTER.1), "the counter display is hit but has no on_click");
+    assert!(
+        !rt.click(COUNTER.0, COUNTER.1),
+        "the counter display is hit but has no on_click"
+    );
     assert_eq!(rt.frame_index(), 0, "no effect, no advance");
     assert_eq!(rt.render_digest(), before);
 }
@@ -56,8 +73,14 @@ fn hit_test_uses_box_not_radius() {
     // A point inside the add-button rect (20..380 × 20..64) but ~160px from its centre: a radius
     // hit-test would MISS; the box hit-test hits. Proves the box-aware path.
     let mut rt = GuiRuntime::new();
-    assert!(rt.click(40.0, 30.0), "a click in the box corner still hits the widget");
-    assert!(rt.render_svg().contains("[ ] task 3"), "the add intent fired");
+    assert!(
+        rt.click(40.0, 30.0),
+        "a click in the box corner still hits the widget"
+    );
+    assert!(
+        rt.render_svg().contains("[ ] task 3"),
+        "the add intent fired"
+    );
 }
 
 #[test]
@@ -74,7 +97,10 @@ fn deterministic_replay_of_ui_event_log() {
     };
     let a = run();
     let b = run();
-    assert_eq!(a, b, "same start + same UI event log → identical rendered frames");
+    assert_eq!(
+        a, b,
+        "same start + same UI event log → identical rendered frames"
+    );
     assert_eq!(a.len(), log.len() + 1);
     // the log genuinely changed the UI
     assert_ne!(a.first().unwrap(), a.last().unwrap());

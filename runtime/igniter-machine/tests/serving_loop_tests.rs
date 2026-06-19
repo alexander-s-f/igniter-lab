@@ -17,11 +17,11 @@ use igniter_machine::coordination::{
 };
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
 use igniter_machine::machine::IgniterMachine;
-use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::observability::observe;
 use igniter_machine::orchestrator::EffectOrchestrator;
 use igniter_machine::retry_queue::enqueue_retry;
 use igniter_machine::serving_loop::{ServingLoop, ServingPolicy};
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior, WriteRequest};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -31,7 +31,10 @@ use tokio::net::{TcpListener, TcpStream};
 const CAP: &str = "IO.SparkCRM";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -39,17 +42,40 @@ fn clock() -> Arc<dyn ClockProvider> {
 
 fn cpass(subject: &str, cap: &str, scopes: &[&str]) -> CapabilityPassport {
     CapabilityPassport {
-        subject: subject.to_string(), capability_id: cap.to_string(),
+        subject: subject.to_string(),
+        capability_id: cap.to_string(),
         scopes: scopes.iter().map(|s| s.to_string()).collect(),
-        issued_at: 0.0, expires_at: Some(1_000_000.0), revoked: false, evidence_digest: "sig".to_string(),
+        issued_at: 0.0,
+        expires_at: Some(1_000_000.0),
+        revoked: false,
+        evidence_digest: "sig".to_string(),
     }
 }
 fn vendor() -> CapabilityPassport {
-    cpass("vendor:acme", "coordination", &["create_pool", "import_capsule", "activate_capsule", "grant_access", "accept_recipe", "invoke"])
+    cpass(
+        "vendor:acme",
+        "coordination",
+        &[
+            "create_pool",
+            "import_capsule",
+            "activate_capsule",
+            "grant_access",
+            "accept_recipe",
+            "invoke",
+        ],
+    )
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 async fn offer_bytes() -> Vec<u8> {
     let m = IgniterMachine::new(None, "in_memory").unwrap();
@@ -57,14 +83,31 @@ async fn offer_bytes() -> Vec<u8> {
     m.checkpoint_bytes().await.unwrap()
 }
 fn policy(mode: &str, max_fresh: u32) -> DuplicatePolicy {
-    DuplicatePolicy { mode: mode.into(), key_header: "x-vendor-event-id".into(), max_fresh, after_limit: "dedup_last".into(), seed_field: "attempt".into(), variant_payload: false, require_key: true }
+    DuplicatePolicy {
+        mode: mode.into(),
+        key_header: "x-vendor-event-id".into(),
+        max_fresh,
+        after_limit: "dedup_last".into(),
+        seed_field: "attempt".into(),
+        variant_payload: false,
+        require_key: true,
+    }
 }
 fn recipe(digest: &str, n: u32, dp: DuplicatePolicy) -> ServiceRecipe {
     ServiceRecipe {
-        recipe_id: "r1".into(), capsule_digest: digest.into(), entry_contract: "Offer".into(),
-        input_schema_digest: None, capability_bindings: vec![], required_scopes: vec!["invoke".into()],
-        receipt_policy: "audit".into(), retry_policy_ref: None, pool_sizing: n,
-        created_by: "alice".into(), accepted_by: None, accepted_at: None, duplicate_policy: Some(dp),
+        recipe_id: "r1".into(),
+        capsule_digest: digest.into(),
+        entry_contract: "Offer".into(),
+        input_schema_digest: None,
+        capability_bindings: vec![],
+        required_scopes: vec!["invoke".into()],
+        receipt_policy: "audit".into(),
+        retry_policy_ref: None,
+        pool_sizing: n,
+        created_by: "alice".into(),
+        accepted_by: None,
+        accepted_at: None,
+        duplicate_policy: Some(dp),
     }
 }
 
@@ -75,14 +118,33 @@ async fn prod(n: usize, dp: DuplicatePolicy) -> (CoordinationHub, IngressRouter)
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&vendor(), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(&vendor(), "svc", "candidate", PoolVisibility::Private)
+        .await
+        .unwrap();
     let bytes = offer_bytes().await;
     let mut digest = String::new();
     for _ in 0..n {
-        digest = h.add_capsule(&vendor(), "svc", bytes.clone(), vec![]).await.unwrap().capsule_id;
+        digest = h
+            .add_capsule(&vendor(), "svc", bytes.clone(), vec![])
+            .await
+            .unwrap()
+            .capsule_id;
     }
-    h.accept_recipe(&cpass("dev", "coordination", &["accept_recipe"]), "svc", recipe(&digest, n as u32, dp)).await.unwrap();
-    h.grant(&cpass("dev", "coordination", &["grant_access"]), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    h.accept_recipe(
+        &cpass("dev", "coordination", &["accept_recipe"]),
+        "svc",
+        recipe(&digest, n as u32, dp),
+    )
+    .await
+    .unwrap();
+    h.grant(
+        &cpass("dev", "coordination", &["grant_access"]),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     let mut r = IngressRouter::new();
     r.route("/w", "svc");
     r.token("vtok", vendor());
@@ -101,16 +163,37 @@ async fn http_post(addr: std::net::SocketAddr, key: &str, base: i64, corr: &str)
     let mut resp = Vec::new();
     s.read_to_end(&mut resp).await.unwrap();
     let text = String::from_utf8_lossy(&resp).to_string();
-    text.lines().next().and_then(|l| l.split_whitespace().nth(1)).and_then(|x| x.parse().ok()).unwrap_or(0)
+    text.lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0)
 }
 
-fn cfg<'a>(registry: &'a CapabilityExecutorRegistry, receipts: &'a Arc<dyn TBackend>, eclock: &'a Arc<dyn ClockProvider>, ep: &'a CapabilityPassport, sf: &'a SingleFlight) -> EffectBridgeConfig<'a> {
-    EffectBridgeConfig { registry, receipts, effect_clock: eclock, effect_passport: ep, single_flight: sf, capability_id: CAP.into(), operation: "create_lead".into(), scope: "write".into() }
+fn cfg<'a>(
+    registry: &'a CapabilityExecutorRegistry,
+    receipts: &'a Arc<dyn TBackend>,
+    eclock: &'a Arc<dyn ClockProvider>,
+    ep: &'a CapabilityPassport,
+    sf: &'a SingleFlight,
+) -> EffectBridgeConfig<'a> {
+    EffectBridgeConfig {
+        registry,
+        receipts,
+        effect_clock: eclock,
+        effect_passport: ep,
+        single_flight: sf,
+        capability_id: CAP.into(),
+        operation: "create_lead".into(),
+        scope: "write".into(),
+    }
 }
 
 fn write_req(idem: &str, value: Value) -> WriteRequest {
     WriteRequest {
-        capability_id: CAP.into(), operation: "put".into(), idempotency_key: idem.into(),
+        capability_id: CAP.into(),
+        operation: "put".into(),
+        idempotency_key: idem.into(),
         payload: json!({ "store": "orders", "key": format!("ord-{idem}"), "value": value }),
     }
 }
@@ -129,11 +212,23 @@ fn loop_serves_two_requests() {
         let ep = cpass("host", CAP, &["write"]);
         let sf = SingleFlight::new();
         let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &registry,
+            clock: &eclock,
+            passport: &ep,
+            base_delay: 0.0,
+        };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let lp = ServingLoop { listener: &listener, router: &r, hub: &h, cfg: &c };
+        let lp = ServingLoop {
+            listener: &listener,
+            router: &r,
+            hub: &h,
+            cfg: &c,
+        };
 
         // One loop instance serves two distinct-key requests; clients run concurrently.
         let pol = ServingPolicy::serve(2);
@@ -144,14 +239,20 @@ fn loop_serves_two_requests() {
         );
         let report = report.unwrap();
         assert!(report.booted, "loop boots recovery once before serving");
-        assert_eq!(report.requests_served, 2, "one loop instance processed two requests");
+        assert_eq!(
+            report.requests_served, 2,
+            "one loop instance processed two requests"
+        );
         assert_eq!(s1, 200);
         assert_eq!(s2, 200);
         assert_eq!(exec.applied_count(), 2, "two distinct keys → two effects");
 
         // Observability remains a pure projection from facts — not a side-log inside the loop.
         let snap = observe(&receipts).await.unwrap();
-        assert_eq!(snap.metrics.committed, 2, "observe() projects two committed effects from receipts");
+        assert_eq!(
+            snap.metrics.committed, 2,
+            "observe() projects two committed effects from receipts"
+        );
         // The orchestrator report is queryable after the loop, too.
         assert_eq!(orch.report().await.unwrap().receipts_committed, 2);
     });
@@ -171,11 +272,23 @@ fn loop_dedup_same_key_one_effect() {
         let ep = cpass("host", CAP, &["write"]);
         let sf = SingleFlight::new();
         let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &registry,
+            clock: &eclock,
+            passport: &ep,
+            base_delay: 0.0,
+        };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let lp = ServingLoop { listener: &listener, router: &r, hub: &h, cfg: &c };
+        let lp = ServingLoop {
+            listener: &listener,
+            router: &r,
+            hub: &h,
+            cfg: &c,
+        };
 
         // Two requests, SAME vendor event id → dedup_strict → at most one effect ever.
         let pol = ServingPolicy::serve(2);
@@ -185,11 +298,22 @@ fn loop_dedup_same_key_one_effect() {
             http_post(addr, "E1", 1000, "c2"),
         );
         let report = report.unwrap();
-        assert_eq!(report.requests_served, 2, "the loop processed both requests");
+        assert_eq!(
+            report.requests_served, 2,
+            "the loop processed both requests"
+        );
         assert_eq!(s1, 200);
         assert_eq!(s2, 200);
-        assert_eq!(exec.attempts(), 1, "duplicate same-key over the loop performs exactly one effect");
-        assert_eq!(observe(&receipts).await.unwrap().metrics.committed, 1, "exactly one committed receipt");
+        assert_eq!(
+            exec.attempts(),
+            1,
+            "duplicate same-key over the loop performs exactly one effect"
+        );
+        assert_eq!(
+            observe(&receipts).await.unwrap().metrics.committed,
+            1,
+            "exactly one committed receipt"
+        );
     });
 }
 
@@ -207,28 +331,57 @@ fn loop_tick_drains_due_retry() {
         let ep = cpass("host", CAP, &["write"]);
         let sf = SingleFlight::new();
         let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &registry,
+            clock: &eclock,
+            passport: &ep,
+            base_delay: 0.0,
+        };
 
         // A retry intent due immediately (base_delay 0), for the SAME capability/executor.
-        enqueue_retry(&receipts, &eclock, &write_req("R1", json!({"qty": 1})), "write", &ep.authority_digest(), 3, 0.0).await.unwrap();
+        enqueue_retry(
+            &receipts,
+            &eclock,
+            &write_req("R1", json!({"qty": 1})),
+            "write",
+            &ep.authority_digest(),
+            3,
+            0.0,
+        )
+        .await
+        .unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let lp = ServingLoop { listener: &listener, router: &r, hub: &h, cfg: &c };
+        let lp = ServingLoop {
+            listener: &listener,
+            router: &r,
+            hub: &h,
+            cfg: &c,
+        };
 
         // Serve one request, then run a host-owned tick on stop → the due retry is drained.
         let pol = ServingPolicy::serve(1).tick_on_stop();
-        let (report, s1) = tokio::join!(
-            lp.run(&orch, &pol),
-            http_post(addr, "E1", 1000, "c1"),
-        );
+        let (report, s1) = tokio::join!(lp.run(&orch, &pol), http_post(addr, "E1", 1000, "c1"),);
         let report = report.unwrap();
         assert_eq!(s1, 200);
         assert_eq!(report.requests_served, 1);
-        assert_eq!(report.ticks_run, 1, "the host ran one tick (its own cadence, no daemon)");
-        assert_eq!(report.retries_drained, 1, "the due retry intent was drained by the tick");
+        assert_eq!(
+            report.ticks_run, 1,
+            "the host ran one tick (its own cadence, no daemon)"
+        );
+        assert_eq!(
+            report.retries_drained, 1,
+            "the due retry intent was drained by the tick"
+        );
         // Served effect (E1) + drained retry (R1) both reached the executor.
-        assert_eq!(exec.applied_count(), 2, "one served effect + one drained retry");
+        assert_eq!(
+            exec.applied_count(),
+            2,
+            "one served effect + one drained retry"
+        );
     });
 }
 
@@ -246,17 +399,32 @@ fn loop_deterministic_shutdown_no_leak() {
         let ep = cpass("host", CAP, &["write"]);
         let sf = SingleFlight::new();
         let c = cfg(&registry, &receipts, &eclock, &ep, &sf);
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &registry, clock: &eclock, passport: &ep, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &registry,
+            clock: &eclock,
+            passport: &ep,
+            base_delay: 0.0,
+        };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let lp = ServingLoop { listener: &listener, router: &r, hub: &h, cfg: &c };
+        let lp = ServingLoop {
+            listener: &listener,
+            router: &r,
+            hub: &h,
+            cfg: &c,
+        };
 
         // First bounded run stops after exactly one request.
         let pol = ServingPolicy::serve(1);
         let (r1, _s) = tokio::join!(lp.run(&orch, &pol), http_post(addr, "E1", 1000, "c1"));
         let r1 = r1.unwrap();
-        assert_eq!(r1.requests_served, 1, "stops after exactly max_requests — never over-serves");
+        assert_eq!(
+            r1.requests_served, 1,
+            "stops after exactly max_requests — never over-serves"
+        );
 
         // The loop left no background acceptor: the same listener is idle and a SECOND bounded run
         // on the same instance proceeds normally (re-entrant, nothing lingering from run #1).

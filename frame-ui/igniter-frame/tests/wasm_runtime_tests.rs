@@ -13,12 +13,18 @@ const MISS: (f64, f64) = (10.0, 10.0);
 fn click_hit_advances_state_and_moves_entity() {
     let mut rt = FrameRuntime::demo();
     assert_eq!(rt.frame_index(), 0);
-    assert!(rt.render_svg().contains("cx=\"150\""), "e1 starts at sx=150");
+    assert!(
+        rt.render_svg().contains("cx=\"150\""),
+        "e1 starts at sx=150"
+    );
 
     let effected = rt.click(ON_E1.0, ON_E1.1);
     assert!(effected, "a hit on e1 produces a state effect");
     assert_eq!(rt.frame_index(), 1, "an effect advances the step");
-    assert!(rt.render_svg().contains("cx=\"200\""), "e1 re-projected at sx=200 (moved +1 world-x)");
+    assert!(
+        rt.render_svg().contains("cx=\"200\""),
+        "e1 re-projected at sx=200 (moved +1 world-x)"
+    );
     // input never mutated the frame: the move came from a RE-PROJECTION of new state.
 }
 
@@ -29,7 +35,11 @@ fn click_miss_no_effect_no_advance() {
     let effected = rt.click(MISS.0, MISS.1);
     assert!(!effected, "a miss produces no effect");
     assert_eq!(rt.frame_index(), 0, "a miss does not advance");
-    assert_eq!(rt.render_digest(), before, "the frame is unchanged on a miss");
+    assert_eq!(
+        rt.render_digest(),
+        before,
+        "the frame is unchanged on a miss"
+    );
 }
 
 #[test]
@@ -59,7 +69,10 @@ fn deterministic_replay_of_click_log() {
 
     let a = run(&log);
     let b = run(&log);
-    assert_eq!(a, b, "same start + same click log → byte-identical frame digests");
+    assert_eq!(
+        a, b,
+        "same start + same click log → byte-identical frame digests"
+    );
     assert_eq!(a.len(), 4);
 
     // and the entity actually walked across the expected screen positions
@@ -67,7 +80,10 @@ fn deterministic_replay_of_click_log() {
     for (x, y) in log {
         rt.click(x, y);
     }
-    assert!(rt.render_svg().contains("cx=\"300\""), "e1 ended at sx=300 after 3 moves");
+    assert!(
+        rt.render_svg().contains("cx=\"300\""),
+        "e1 ended at sx=300 after 3 moves"
+    );
     assert_eq!(rt.frame_index(), 3);
 }
 
@@ -79,6 +95,10 @@ fn reset_returns_to_initial_scene() {
     assert_ne!(rt.render_digest(), initial);
     // reset == reconstruct demo (mirrors WasmRuntime::reset for replay)
     rt = FrameRuntime::demo();
-    assert_eq!(rt.render_digest(), initial, "reset reproduces the initial frame exactly");
+    assert_eq!(
+        rt.render_digest(),
+        initial,
+        "reset reproduces the initial frame exactly"
+    );
     assert_eq!(rt.frame_index(), 0);
 }

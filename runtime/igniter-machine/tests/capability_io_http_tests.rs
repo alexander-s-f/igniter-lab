@@ -11,8 +11,8 @@ use igniter_machine::capability::{
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::http::{
-    FakeHttpTransport, HttpCapabilityExecutor, HttpTransport, HttpTransportError, MapSecretProvider,
-    SecretProvider,
+    FakeHttpTransport, HttpCapabilityExecutor, HttpTransport, HttpTransportError,
+    MapSecretProvider, SecretProvider,
 };
 use igniter_machine::write::{run_write_effect, WriteRequest, WriteState};
 use serde_json::{json, Value};
@@ -21,7 +21,10 @@ use std::sync::Arc;
 const CAP: &str = "IO.HttpCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn exec_with(
@@ -42,7 +45,12 @@ fn ereq(method: &str, url: &str, key: &str, extra: Value) -> EffectRequest {
             o.insert(k.clone(), v.clone());
         }
     }
-    EffectRequest { capability_id: CAP.into(), idempotency_key: key.into(), authority_ref: None, args }
+    EffectRequest {
+        capability_id: CAP.into(),
+        idempotency_key: key.into(),
+        authority_ref: None,
+        args,
+    }
 }
 
 // ── status taxonomy ────────────────────────────────────────────────────────────
@@ -50,8 +58,14 @@ fn ereq(method: &str, url: &str, key: &str, extra: Value) -> EffectRequest {
 #[test]
 fn success_2xx_is_succeeded() {
     rt().block_on(async {
-        let t = Arc::new(FakeHttpTransport::ok(200, "hello", vec![("content-type", "text/plain")]));
-        let out = exec_with(t.clone(), no_secrets()).execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
+        let t = Arc::new(FakeHttpTransport::ok(
+            200,
+            "hello",
+            vec![("content-type", "text/plain")],
+        ));
+        let out = exec_with(t.clone(), no_secrets())
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(out.result["status"], json!(200));
         assert_eq!(out.result["body"], json!("hello"));
@@ -63,7 +77,9 @@ fn success_2xx_is_succeeded() {
 fn client_4xx_is_permanent() {
     rt().block_on(async {
         let t = Arc::new(FakeHttpTransport::ok(404, "no", vec![]));
-        let out = exec_with(t, no_secrets()).execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
+        let out = exec_with(t, no_secrets())
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
     });
 }
@@ -71,8 +87,14 @@ fn client_4xx_is_permanent() {
 #[test]
 fn rate_limit_429_is_retryable_with_retry_after() {
     rt().block_on(async {
-        let t = Arc::new(FakeHttpTransport::ok(429, "slow down", vec![("retry-after", "30")]));
-        let out = exec_with(t, no_secrets()).execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
+        let t = Arc::new(FakeHttpTransport::ok(
+            429,
+            "slow down",
+            vec![("retry-after", "30")],
+        ));
+        let out = exec_with(t, no_secrets())
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
         assert_eq!(out.kind, OutcomeKind::Retryable);
         assert_eq!(out.result["retry_after"], json!("30"));
     });
@@ -82,12 +104,24 @@ fn rate_limit_429_is_retryable_with_retry_after() {
 fn server_5xx_idempotent_retryable_but_post_unknown() {
     rt().block_on(async {
         let t = Arc::new(FakeHttpTransport::ok(503, "down", vec![]));
-        let get = exec_with(t.clone(), no_secrets()).execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
-        assert_eq!(get.kind, OutcomeKind::Retryable, "5xx on idempotent GET → retryable");
+        let get = exec_with(t.clone(), no_secrets())
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
+        assert_eq!(
+            get.kind,
+            OutcomeKind::Retryable,
+            "5xx on idempotent GET → retryable"
+        );
 
         let t2 = Arc::new(FakeHttpTransport::ok(503, "down", vec![]));
-        let post = exec_with(t2, no_secrets()).execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"}))).await;
-        assert_eq!(post.kind, OutcomeKind::UnknownExternalState, "5xx on POST → mutation unknown");
+        let post = exec_with(t2, no_secrets())
+            .execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"})))
+            .await;
+        assert_eq!(
+            post.kind,
+            OutcomeKind::UnknownExternalState,
+            "5xx on POST → mutation unknown"
+        );
     });
 }
 
@@ -95,11 +129,15 @@ fn server_5xx_idempotent_retryable_but_post_unknown() {
 fn timeout_idempotent_retryable_but_post_unknown() {
     rt().block_on(async {
         let tg = Arc::new(FakeHttpTransport::err(HttpTransportError::Timeout));
-        let get = exec_with(tg, no_secrets()).execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
+        let get = exec_with(tg, no_secrets())
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
         assert_eq!(get.kind, OutcomeKind::Retryable);
 
         let tp = Arc::new(FakeHttpTransport::err(HttpTransportError::Timeout));
-        let post = exec_with(tp, no_secrets()).execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"}))).await;
+        let post = exec_with(tp, no_secrets())
+            .execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"})))
+            .await;
         assert_eq!(post.kind, OutcomeKind::UnknownExternalState);
     });
 }
@@ -107,11 +145,21 @@ fn timeout_idempotent_retryable_but_post_unknown() {
 #[test]
 fn connect_dns_tls_errors_are_retryable_no_mutation() {
     rt().block_on(async {
-        for e in [HttpTransportError::Connect, HttpTransportError::Dns, HttpTransportError::Tls] {
+        for e in [
+            HttpTransportError::Connect,
+            HttpTransportError::Dns,
+            HttpTransportError::Tls,
+        ] {
             let t = Arc::new(FakeHttpTransport::err(e));
             // even a POST is retryable here — the request never reached the server
-            let out = exec_with(t, no_secrets()).execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"}))).await;
-            assert_eq!(out.kind, OutcomeKind::Retryable, "{e:?} → no mutation → retryable");
+            let out = exec_with(t, no_secrets())
+                .execute(&ereq("POST", "https://api/x", "k", json!({"body": "{}"})))
+                .await;
+            assert_eq!(
+                out.kind,
+                OutcomeKind::Retryable,
+                "{e:?} → no mutation → retryable"
+            );
         }
     });
 }
@@ -122,9 +170,15 @@ fn connect_dns_tls_errors_are_retryable_no_mutation() {
 fn non_idempotent_without_key_refused() {
     rt().block_on(async {
         let t = Arc::new(FakeHttpTransport::ok(200, "ok", vec![]));
-        let out = exec_with(t.clone(), no_secrets()).execute(&ereq("POST", "https://api/x", "", json!({"body": "{}"}))).await;
+        let out = exec_with(t.clone(), no_secrets())
+            .execute(&ereq("POST", "https://api/x", "", json!({"body": "{}"})))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
-        assert_eq!(t.sends(), 0, "must not send a keyless non-idempotent request");
+        assert_eq!(
+            t.sends(),
+            0,
+            "must not send a keyless non-idempotent request"
+        );
     });
 }
 
@@ -135,10 +189,19 @@ fn missing_secret_is_not_sent() {
     rt().block_on(async {
         let t = Arc::new(FakeHttpTransport::ok(200, "ok", vec![]));
         let out = exec_with(t.clone(), no_secrets())
-            .execute(&ereq("GET", "https://api/x", "k", json!({ "headers": { "Authorization": "{{secret:tok}}" } })))
+            .execute(&ereq(
+                "GET",
+                "https://api/x",
+                "k",
+                json!({ "headers": { "Authorization": "{{secret:tok}}" } }),
+            ))
             .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
-        assert_eq!(t.sends(), 0, "must not send when a credential is unresolved");
+        assert_eq!(
+            t.sends(),
+            0,
+            "must not send when a credential is unresolved"
+        );
     });
 }
 
@@ -146,19 +209,31 @@ fn missing_secret_is_not_sent() {
 fn secret_is_resolved_and_sent_but_redacted_from_result() {
     rt().block_on(async {
         let t = Arc::new(FakeHttpTransport::ok(200, "ok", vec![]));
-        let secrets: Arc<dyn SecretProvider> = Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
+        let secrets: Arc<dyn SecretProvider> =
+            Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
         let out = exec_with(t.clone(), secrets)
-            .execute(&ereq("GET", "https://api/x", "k", json!({ "headers": { "Authorization": "{{secret:tok}}" } })))
+            .execute(&ereq(
+                "GET",
+                "https://api/x",
+                "k",
+                json!({ "headers": { "Authorization": "{{secret:tok}}" } }),
+            ))
             .await;
         assert_eq!(out.kind, OutcomeKind::Succeeded);
 
         // the resolved secret WAS sent to the transport
         let sent = t.last_request().unwrap();
-        assert!(sent.headers.iter().any(|(k, v)| k == "Authorization" && v == "s3cr3t"));
+        assert!(sent
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "s3cr3t"));
 
         // but it is NOT recorded in the result; the header name is listed as redacted
         let s = out.result.to_string();
-        assert!(!s.contains("s3cr3t"), "secret must never appear in the recorded result");
+        assert!(
+            !s.contains("s3cr3t"),
+            "secret must never appear in the recorded result"
+        );
         assert_eq!(out.result["redacted_headers"], json!(["Authorization"]));
     });
 }
@@ -192,7 +267,9 @@ fn oversized_body_is_permanent() {
         let big = "x".repeat(50);
         let t = Arc::new(FakeHttpTransport::ok(200, &big, vec![]));
         let exec = exec_with(t, no_secrets()).with_max_body(10);
-        let out = exec.execute(&ereq("GET", "https://api/x", "k", json!({}))).await;
+        let out = exec
+            .execute(&ereq("GET", "https://api/x", "k", json!({})))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
     });
 }

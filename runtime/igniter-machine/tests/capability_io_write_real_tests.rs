@@ -6,11 +6,15 @@
 //! valid_time). No HTTP/queue/retry/compensation/reconciliation.
 
 use igniter_machine::backend::{InMemoryBackend, RocksDBBackend, TBackend};
-use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE};
+use igniter_machine::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, RunMode, RECEIPTS_STORE,
+};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::executors::TBackendWriteExecutor;
 use igniter_machine::machine::IgniterMachine;
-use igniter_machine::write::{payload_digest, run_write_effect, FactWrite, WriteRequest, WriteState};
+use igniter_machine::write::{
+    payload_digest, run_write_effect, FactWrite, WriteRequest, WriteState,
+};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,7 +22,10 @@ use std::sync::Arc;
 const CAP: &str = "IO.WriteCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn temp_dir() -> PathBuf {
@@ -55,7 +62,12 @@ fn write_req(key: &str, fw: FactWrite) -> WriteRequest {
 }
 
 fn fact_write(store: &str, key: &str, value: serde_json::Value) -> FactWrite {
-    FactWrite { store: store.to_string(), key: key.to_string(), value, valid_time: None }
+    FactWrite {
+        store: store.to_string(),
+        key: key.to_string(),
+        value,
+        valid_time: None,
+    }
 }
 
 fn registry(exec: Arc<TBackendWriteExecutor>) -> CapabilityExecutorRegistry {
@@ -76,17 +88,32 @@ fn successful_write_full_lifecycle() {
         let store = receipts();
         let p = passport("svc", &["write"]);
 
-        let out = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("o1", fact_write("orders", "ord-1", json!({"total": 50}))), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("o1", fact_write("orders", "ord-1", json!({"total": 50}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.state, WriteState::Committed);
         assert_eq!(exec.write_count(), 1);
 
         // two-phase receipt
-        let facts = store.facts_for(RECEIPTS_STORE, "IO.WriteCapability:o1", None, None).await.unwrap();
+        let facts = store
+            .facts_for(RECEIPTS_STORE, "IO.WriteCapability:o1", None, None)
+            .await
+            .unwrap();
         assert_eq!(facts.len(), 2);
         // the fact really landed in the REAL backend — read it back
-        let back = data.read_as_of("orders", "ord-1", f64::MAX).await.unwrap().expect("fact must be written");
+        let back = data
+            .read_as_of("orders", "ord-1", f64::MAX)
+            .await
+            .unwrap()
+            .expect("fact must be written");
         assert_eq!(back.value, json!({"total": 50}));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -105,11 +132,35 @@ fn duplicate_same_payload_no_second_backend_write() {
         let store = receipts();
         let p = passport("svc", &["write"]);
 
-        run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("d", fact_write("orders", "ord-2", json!({"total": 1}))), RunMode::Live).await.unwrap();
-        let second = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("d", fact_write("orders", "ord-2", json!({"total": 1}))), RunMode::Live).await.unwrap();
+        run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("d", fact_write("orders", "ord-2", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let second = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("d", fact_write("orders", "ord-2", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(second.state, WriteState::Committed); // replayed
-        assert_eq!(exec.write_count(), 1, "the real backend is written exactly once");
+        assert_eq!(
+            exec.write_count(),
+            1,
+            "the real backend is written exactly once"
+        );
         // only one fact version on the backend key
         let versions = data.facts_for("orders", "ord-2", None, None).await.unwrap();
         assert_eq!(versions.len(), 1);
@@ -130,11 +181,35 @@ fn duplicate_different_payload_refused_before_write() {
         let store = receipts();
         let p = passport("svc", &["write"]);
 
-        run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("k", fact_write("orders", "ord-3", json!({"total": 1}))), RunMode::Live).await.unwrap();
-        let conflict = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("k", fact_write("orders", "ord-3", json!({"total": 999}))), RunMode::Live).await.unwrap();
+        run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("k", fact_write("orders", "ord-3", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let conflict = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("k", fact_write("orders", "ord-3", json!({"total": 999}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(conflict.state, WriteState::Denied);
-        assert_eq!(exec.write_count(), 1, "the conflicting write never reaches the backend");
+        assert_eq!(
+            exec.write_count(),
+            1,
+            "the conflicting write never reaches the backend"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     });
@@ -152,11 +227,29 @@ fn missing_authority_no_write() {
         let store = receipts();
         let p = passport("svc", &["read"]); // lacks "write"
 
-        let out = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("a", fact_write("orders", "ord-4", json!({"total": 1}))), RunMode::Live).await.unwrap();
+        let out = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("a", fact_write("orders", "ord-4", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.state, WriteState::Denied);
         assert_eq!(exec.write_count(), 0);
-        assert!(store.read_as_of(RECEIPTS_STORE, "IO.WriteCapability:a", f64::MAX).await.unwrap().is_none());
-        assert!(data.read_as_of("orders", "ord-4", f64::MAX).await.unwrap().is_none());
+        assert!(store
+            .read_as_of(RECEIPTS_STORE, "IO.WriteCapability:a", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(data
+            .read_as_of("orders", "ord-4", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     });
@@ -174,14 +267,38 @@ fn injected_write_failure_is_unknown_no_blind_retry() {
         let store = receipts();
         let p = passport("svc", &["write"]);
 
-        let first = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("f", fact_write("orders", "ord-5", json!({"total": 1}))), RunMode::Live).await.unwrap();
+        let first = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("f", fact_write("orders", "ord-5", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(first.state, WriteState::UnknownExternalState);
         assert_eq!(exec.write_count(), 1);
 
         // second identical call must NOT blindly retry the mutation
-        let second = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("f", fact_write("orders", "ord-5", json!({"total": 1}))), RunMode::Live).await.unwrap();
+        let second = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("f", fact_write("orders", "ord-5", json!({"total": 1}))),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(second.state, WriteState::UnknownExternalState);
-        assert_eq!(exec.write_count(), 1, "an unknown write is never blindly retried");
+        assert_eq!(
+            exec.write_count(),
+            1,
+            "an unknown write is never blindly retried"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     });
@@ -199,10 +316,24 @@ fn replay_mode_no_backend_write() {
         let store = receipts();
         let p = passport("svc", &["write"]);
 
-        let out = run_write_effect(&reg, &store, &clock(), &p, "write", &write_req("r", fact_write("orders", "ord-6", json!({"total": 1}))), RunMode::Replay).await.unwrap();
+        let out = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &p,
+            "write",
+            &write_req("r", fact_write("orders", "ord-6", json!({"total": 1}))),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.state, WriteState::UnknownExternalState);
         assert_eq!(exec.write_count(), 0);
-        assert!(data.read_as_of("orders", "ord-6", f64::MAX).await.unwrap().is_none());
+        assert!(data
+            .read_as_of("orders", "ord-6", f64::MAX)
+            .await
+            .unwrap()
+            .is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     });
@@ -248,7 +379,13 @@ fn payload_digest_includes_target_identity() {
     assert_ne!(payload_digest(&a), payload_digest(&b));
 
     // different valid_time → different digest
-    let c = FactWrite { store: "orders".into(), key: "ord-A".into(), value: json!({"total": 1}), valid_time: Some(5.0) }.to_payload();
+    let c = FactWrite {
+        store: "orders".into(),
+        key: "ord-A".into(),
+        value: json!({"total": 1}),
+        valid_time: Some(5.0),
+    }
+    .to_payload();
     assert_ne!(payload_digest(&a), payload_digest(&c));
 
     // identical identity → identical digest (legitimate replay)

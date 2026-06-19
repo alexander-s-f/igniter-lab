@@ -1,4 +1,6 @@
-use crate::parser::{SourceFile, ContractDecl, BodyDecl, TypeRef, Expr, Stmt, BlockBody, ExprOrBlock, TypeRefNode};
+use crate::parser::{
+    BlockBody, BodyDecl, ContractDecl, Expr, ExprOrBlock, SourceFile, Stmt, TypeRef, TypeRefNode,
+};
 use std::collections::HashMap;
 
 pub fn monomorphize_program(parsed: &mut SourceFile) {
@@ -30,9 +32,11 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
             .unwrap_or_else(|| "add".to_string());
 
         // Find all impls matching this bound trait
-        let matching_impls: Vec<_> = parsed.impls.iter().filter(|imp| {
-            imp.trait_ref.name == *bound_trait_name
-        }).collect();
+        let matching_impls: Vec<_> = parsed
+            .impls
+            .iter()
+            .filter(|imp| imp.trait_ref.name == *bound_trait_name)
+            .collect();
 
         for imp in matching_impls {
             if imp.trait_ref.type_args.is_empty() {
@@ -49,7 +53,7 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
             spec_contract.name = format!("{}[{}]", contract.name, concrete_type_str);
             spec_contract.type_params = Vec::new();
             spec_contract.specialization_of = Some(contract.name.clone());
-            
+
             let mut type_args = HashMap::new();
             type_args.insert(type_var.clone(), concrete_type_str.clone());
             spec_contract.type_args = Some(type_args);
@@ -64,9 +68,8 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
 
             // Look up shape
             let shape_name = spec_contract.implements.as_ref().map(|i| &i.name);
-            let shape = shape_name.and_then(|name| {
-                parsed.contract_shapes.iter().find(|s| s.name == *name)
-            });
+            let shape =
+                shape_name.and_then(|name| parsed.contract_shapes.iter().find(|s| s.name == *name));
 
             let mut body = Vec::new();
             let mut inputs = Vec::new();
@@ -75,7 +78,10 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
             if let Some(sh) = shape {
                 for port in &sh.body {
                     match port {
-                        BodyDecl::Input { name, type_annotation } => {
+                        BodyDecl::Input {
+                            name,
+                            type_annotation,
+                        } => {
                             let mut t = type_annotation.clone();
                             substitute_type_ref(&mut t, type_var, concrete_type, assoc_types);
                             inputs.push(BodyDecl::Input {
@@ -83,7 +89,12 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
                                 type_annotation: t,
                             });
                         }
-                        BodyDecl::Output { name, type_annotation, lifecycle, evidence } => {
+                        BodyDecl::Output {
+                            name,
+                            type_annotation,
+                            lifecycle,
+                            evidence,
+                        } => {
                             let mut t = type_annotation.clone();
                             substitute_type_ref(&mut t, type_var, concrete_type, assoc_types);
                             outputs.push(BodyDecl::Output {
@@ -103,7 +114,11 @@ pub fn monomorphize_program(parsed: &mut SourceFile) {
             // Substitutions inside contract body compute nodes
             for decl in &contract.body {
                 match decl {
-                    BodyDecl::Compute { name, type_annotation, expr } => {
+                    BodyDecl::Compute {
+                        name,
+                        type_annotation,
+                        expr,
+                    } => {
                         let mut new_expr = expr.clone();
                         substitute_expr(&mut new_expr, &trait_method_name, using_func);
 
@@ -156,14 +171,22 @@ fn type_ref_to_string(tr: &TypeRef) -> String {
             }
         }
         TypeRef::DimsRecord { dims, .. } => {
-            let mut parts: Vec<String> = dims.iter().map(|(k, v)| format!("{}:{}", k, type_ref_to_string(v))).collect();
+            let mut parts: Vec<String> = dims
+                .iter()
+                .map(|(k, v)| format!("{}:{}", k, type_ref_to_string(v)))
+                .collect();
             parts.sort();
             format!("Dims[{}]", parts.join(","))
         }
     }
 }
 
-fn substitute_type_ref(type_ref: &mut TypeRef, type_var: &str, concrete_type: &TypeRef, assoc_types: &HashMap<String, TypeRef>) {
+fn substitute_type_ref(
+    type_ref: &mut TypeRef,
+    type_var: &str,
+    concrete_type: &TypeRef,
+    assoc_types: &HashMap<String, TypeRef>,
+) {
     match type_ref {
         TypeRef::Simple(s) => {
             if s == type_var {
@@ -217,7 +240,11 @@ fn substitute_expr(expr: &mut Expr, trait_method: &str, using_func: &str) {
                 substitute_expr(val, trait_method, using_func);
             }
         }
-        Expr::IfExpr { cond, then, else_block } => {
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
             substitute_expr(cond, trait_method, using_func);
             for stmt in &mut then.stmts {
                 substitute_statement(stmt, trait_method, using_func);
@@ -234,19 +261,17 @@ fn substitute_expr(expr: &mut Expr, trait_method: &str, using_func: &str) {
                 }
             }
         }
-        Expr::Lambda { body, .. } => {
-            match &mut **body {
-                ExprOrBlock::Expr(e) => substitute_expr(e, trait_method, using_func),
-                ExprOrBlock::Block(block) => {
-                    for stmt in &mut block.stmts {
-                        substitute_statement(stmt, trait_method, using_func);
-                    }
-                    if let Some(ref mut e_expr) = block.return_expr {
-                        substitute_expr(e_expr, trait_method, using_func);
-                    }
+        Expr::Lambda { body, .. } => match &mut **body {
+            ExprOrBlock::Expr(e) => substitute_expr(e, trait_method, using_func),
+            ExprOrBlock::Block(block) => {
+                for stmt in &mut block.stmts {
+                    substitute_statement(stmt, trait_method, using_func);
+                }
+                if let Some(ref mut e_expr) = block.return_expr {
+                    substitute_expr(e_expr, trait_method, using_func);
                 }
             }
-        }
+        },
         Expr::ArrayLiteral { items } => {
             for item in items {
                 substitute_expr(item, trait_method, using_func);

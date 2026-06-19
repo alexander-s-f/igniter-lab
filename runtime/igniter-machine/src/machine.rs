@@ -394,8 +394,18 @@ impl IgniterMachine {
         let observations = self.observations.read().clone();
         let mut facts = self.storage.all_facts().await?;
         facts.sort_by(|a, b| {
-            (a.store.as_str(), a.key.as_str(), a.transaction_time, a.id.as_str())
-                .partial_cmp(&(b.store.as_str(), b.key.as_str(), b.transaction_time, b.id.as_str()))
+            (
+                a.store.as_str(),
+                a.key.as_str(),
+                a.transaction_time,
+                a.id.as_str(),
+            )
+                .partial_cmp(&(
+                    b.store.as_str(),
+                    b.key.as_str(),
+                    b.transaction_time,
+                    b.id.as_str(),
+                ))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 

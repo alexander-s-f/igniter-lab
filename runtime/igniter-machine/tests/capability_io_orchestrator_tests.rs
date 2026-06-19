@@ -8,16 +8,23 @@ use igniter_machine::backend::{InMemoryBackend, RemoteTcpBackend, TBackend};
 use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport, RECEIPTS_STORE};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::fact::Fact;
-use igniter_machine::orchestrator::{EffectOrchestrator, DEAD_LETTER_STORE, ORCHESTRATOR_AUDIT_STORE};
+use igniter_machine::orchestrator::{
+    EffectOrchestrator, DEAD_LETTER_STORE, ORCHESTRATOR_AUDIT_STORE,
+};
 use igniter_machine::retry_queue::enqueue_retry;
-use igniter_machine::write::{payload_digest, value_digest, FakeWriteExecutor, WriteBehavior, WriteRequest};
+use igniter_machine::write::{
+    payload_digest, value_digest, FakeWriteExecutor, WriteBehavior, WriteRequest,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 const CAP: &str = "IO.RecordCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -27,13 +34,20 @@ fn mem() -> Arc<dyn TBackend> {
 }
 fn passport() -> CapabilityPassport {
     CapabilityPassport {
-        subject: "host".into(), capability_id: CAP.into(), scopes: vec!["write".into()],
-        issued_at: 0.0, expires_at: Some(1_000_000.0), revoked: false, evidence_digest: "s".into(),
+        subject: "host".into(),
+        capability_id: CAP.into(),
+        scopes: vec!["write".into()],
+        issued_at: 0.0,
+        expires_at: Some(1_000_000.0),
+        revoked: false,
+        evidence_digest: "s".into(),
     }
 }
 fn write_req(idem: &str, value: Value) -> WriteRequest {
     WriteRequest {
-        capability_id: CAP.into(), operation: "put".into(), idempotency_key: idem.into(),
+        capability_id: CAP.into(),
+        operation: "put".into(),
+        idempotency_key: idem.into(),
         payload: json!({ "store": "orders", "key": format!("ord-{idem}"), "value": value }),
     }
 }
@@ -45,22 +59,44 @@ fn prepared_fact(req: &WriteRequest) -> Fact {
         "value_digest": value_digest(&req.payload["value"]), "state": "prepared",
     });
     Fact {
-        id: format!("write-receipt:{}:{}:prepared", req.capability_id, req.idempotency_key),
-        store: RECEIPTS_STORE.into(), key: format!("{}:{}", req.capability_id, req.idempotency_key),
-        value: v, value_hash: String::new(), causation: None, transaction_time: 1.0,
-        valid_time: None, schema_version: 1, producer: None, derivation: None,
+        id: format!(
+            "write-receipt:{}:{}:prepared",
+            req.capability_id, req.idempotency_key
+        ),
+        store: RECEIPTS_STORE.into(),
+        key: format!("{}:{}", req.capability_id, req.idempotency_key),
+        value: v,
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: 1.0,
+        valid_time: None,
+        schema_version: 1,
+        producer: None,
+        derivation: None,
     }
 }
 fn target_fact(req: &WriteRequest) -> Fact {
     Fact {
-        id: format!("w-{}", req.idempotency_key), store: "orders".into(),
-        key: req.payload["key"].as_str().unwrap().into(), value: req.payload["value"].clone(),
-        value_hash: String::new(), causation: None, transaction_time: 1.0, valid_time: None,
-        schema_version: 1, producer: None, derivation: None,
+        id: format!("w-{}", req.idempotency_key),
+        store: "orders".into(),
+        key: req.payload["key"].as_str().unwrap().into(),
+        value: req.payload["value"].clone(),
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: 1.0,
+        valid_time: None,
+        schema_version: 1,
+        producer: None,
+        derivation: None,
     }
 }
 async fn count_in_store(b: &Arc<dyn TBackend>, store: &str) -> usize {
-    b.all_facts().await.unwrap().into_iter().filter(|f| f.store == store).count()
+    b.all_facts()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|f| f.store == store)
+        .count()
 }
 
 // ── boot recovers dangling + audits ────────────────────────────────────────────
@@ -75,13 +111,27 @@ fn boot_recovers_dangling_and_audits() {
         receipts.write_fact(prepared_fact(&req)).await.unwrap(); // receipt stuck at prepared
         let reg = CapabilityExecutorRegistry::new();
         let p = passport();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         let report = orch.boot().await.unwrap();
         assert_eq!(report.committed, 1);
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.RecordCapability:b1", f64::MAX).await.unwrap().unwrap();
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.RecordCapability:b1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["state"], json!("committed"));
-        assert!(count_in_store(&receipts, ORCHESTRATOR_AUDIT_STORE).await >= 1, "boot is audited");
+        assert!(
+            count_in_store(&receipts, ORCHESTRATOR_AUDIT_STORE).await >= 1,
+            "boot is audited"
+        );
     });
 }
 
@@ -97,12 +147,22 @@ fn boot_is_idempotent() {
         receipts.write_fact(prepared_fact(&req)).await.unwrap();
         let reg = CapabilityExecutorRegistry::new();
         let p = passport();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         let first = orch.boot().await.unwrap();
         let second = orch.boot().await.unwrap();
         assert_eq!(first.scanned, 1);
-        assert_eq!(second.scanned, 0, "after recovery everything is terminal — boot recovers nothing");
+        assert_eq!(
+            second.scanned, 0,
+            "after recovery everything is terminal — boot recovers nothing"
+        );
     });
 }
 
@@ -112,12 +172,20 @@ fn boot_is_idempotent() {
 fn boot_dead_letters_unresolvable() {
     rt().block_on(async {
         let receipts = mem();
-        let dead_substrate: Arc<dyn TBackend> = Arc::new(RemoteTcpBackend::new("127.0.0.1:1".into()));
+        let dead_substrate: Arc<dyn TBackend> =
+            Arc::new(RemoteTcpBackend::new("127.0.0.1:1".into()));
         let req = write_req("b3", json!({"qty": 1}));
         receipts.write_fact(prepared_fact(&req)).await.unwrap();
         let reg = CapabilityExecutorRegistry::new();
         let p = passport();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &dead_substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &dead_substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         orch.boot().await.unwrap();
         // substrate unavailable → still unresolved → dead-lettered, not silently skipped
@@ -138,13 +206,33 @@ fn tick_drains_due_retry_intent() {
         reg.register(exec.clone());
         let p = passport();
         // an intent due immediately (base_delay 0)
-        enqueue_retry(&receipts, &clock(), &write_req("t1", json!({"qty": 1})), "write", &p.authority_digest(), 3, 0.0).await.unwrap();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        enqueue_retry(
+            &receipts,
+            &clock(),
+            &write_req("t1", json!({"qty": 1})),
+            "write",
+            &p.authority_digest(),
+            3,
+            0.0,
+        )
+        .await
+        .unwrap();
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         let reports = orch.tick().await.unwrap();
         assert_eq!(reports.len(), 1, "the due intent was drained");
         assert_eq!(exec.applied_count(), 1, "the retried effect was performed");
-        assert!(count_in_store(&receipts, ORCHESTRATOR_AUDIT_STORE).await >= 1, "tick is audited");
+        assert!(
+            count_in_store(&receipts, ORCHESTRATOR_AUDIT_STORE).await >= 1,
+            "tick is audited"
+        );
     });
 }
 
@@ -159,14 +247,34 @@ fn tick_dead_letters_exhausted_retries() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let p = passport();
-        enqueue_retry(&receipts, &clock(), &write_req("t2", json!({"qty": 1})), "write", &p.authority_digest(), 2, 0.0).await.unwrap();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        enqueue_retry(
+            &receipts,
+            &clock(),
+            &write_req("t2", json!({"qty": 1})),
+            "write",
+            &p.authority_digest(),
+            2,
+            0.0,
+        )
+        .await
+        .unwrap();
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         // max_attempts=2, always retryable → tick until exhausted
         for _ in 0..4 {
             orch.tick().await.unwrap();
         }
-        assert!(count_in_store(&receipts, DEAD_LETTER_STORE).await >= 1, "an exhausted intent is dead-lettered");
+        assert!(
+            count_in_store(&receipts, DEAD_LETTER_STORE).await >= 1,
+            "an exhausted intent is dead-lettered"
+        );
         assert!(orch.report().await.unwrap().dead_letters >= 1);
     });
 }
@@ -183,7 +291,14 @@ fn report_reflects_state() {
         receipts.write_fact(prepared_fact(&req)).await.unwrap();
         let reg = CapabilityExecutorRegistry::new();
         let p = passport();
-        let orch = EffectOrchestrator { receipts: &receipts, substrate: &substrate, registry: &reg, clock: &clock(), passport: &p, base_delay: 0.0 };
+        let orch = EffectOrchestrator {
+            receipts: &receipts,
+            substrate: &substrate,
+            registry: &reg,
+            clock: &clock(),
+            passport: &p,
+            base_delay: 0.0,
+        };
 
         // before boot: a dangling prepared
         assert_eq!(orch.report().await.unwrap().receipts_prepared, 1);

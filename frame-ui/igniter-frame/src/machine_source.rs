@@ -4,7 +4,9 @@
 //! `TBackend`; `TBackendFrameSink` records the frame as a `__frames__` fact. The machine itself
 //! knows nothing about `Frame`/`Camera`/`RenderHost` — that boundary is the whole point of P2.
 
-use crate::{Frame, FrameError, FrameSink, FrameSource, InputEvent, Intent, IntentReducer, IntentSink};
+use crate::{
+    Frame, FrameError, FrameSink, FrameSource, InputEvent, Intent, IntentReducer, IntentSink,
+};
 use async_trait::async_trait;
 use igniter_machine::backend::TBackend;
 use igniter_machine::fact::Fact;
@@ -20,14 +22,22 @@ pub const INPUT_STORE: &str = "__input__";
 pub const EFFECT_STORE: &str = "__effect__";
 
 /// The latest fact value per key in `store`, from a `TBackend`.
-async fn latest_per_key(backend: &Arc<dyn TBackend>, store: &str) -> Result<Vec<(String, Value)>, FrameError> {
-    let facts = backend.all_facts().await.map_err(|e| FrameError::Source(format!("{e:?}")))?;
+async fn latest_per_key(
+    backend: &Arc<dyn TBackend>,
+    store: &str,
+) -> Result<Vec<(String, Value)>, FrameError> {
+    let facts = backend
+        .all_facts()
+        .await
+        .map_err(|e| FrameError::Source(format!("{e:?}")))?;
     let mut latest: HashMap<String, (f64, Value)> = HashMap::new();
     for f in facts {
         if f.store != store {
             continue;
         }
-        let e = latest.entry(f.key.clone()).or_insert((f64::NEG_INFINITY, Value::Null));
+        let e = latest
+            .entry(f.key.clone())
+            .or_insert((f64::NEG_INFINITY, Value::Null));
         if f.transaction_time >= e.0 {
             *e = (f.transaction_time, f.value.clone());
         }
@@ -57,7 +67,10 @@ async fn write_fact(
         producer: Some(json!("frame-input")),
         derivation: None,
     };
-    backend.write_fact(fact).await.map_err(|e| FrameError::Source(format!("{e:?}")))
+    backend
+        .write_fact(fact)
+        .await
+        .map_err(|e| FrameError::Source(format!("{e:?}")))
 }
 
 /// An `IntentSink` over a machine `TBackend`: applies an intent by REDUCING it to new `__world__`
@@ -71,28 +84,72 @@ pub struct TBackendIntentSink {
 
 impl TBackendIntentSink {
     pub fn new(backend: Arc<dyn TBackend>, reducer: IntentReducer) -> Self {
-        Self { backend, world_store: WORLD_STORE.to_string(), reducer }
+        Self {
+            backend,
+            world_store: WORLD_STORE.to_string(),
+            reducer,
+        }
     }
 }
 
 #[async_trait]
 impl IntentSink for TBackendIntentSink {
-    async fn record_input(&self, input: &InputEvent, input_receipt_id: &str, now: f64) -> Result<(), FrameError> {
-        let value = json!({ "kind": input.kind, "x": input.x, "y": input.y, "payload": input.payload });
-        write_fact(&self.backend, input_receipt_id, INPUT_STORE, input_receipt_id, value, now, None).await
+    async fn record_input(
+        &self,
+        input: &InputEvent,
+        input_receipt_id: &str,
+        now: f64,
+    ) -> Result<(), FrameError> {
+        let value =
+            json!({ "kind": input.kind, "x": input.x, "y": input.y, "payload": input.payload });
+        write_fact(
+            &self.backend,
+            input_receipt_id,
+            INPUT_STORE,
+            input_receipt_id,
+            value,
+            now,
+            None,
+        )
+        .await
     }
 
-    async fn apply(&self, intent: &Intent, input_receipt_id: &str, effect_receipt_id: &str, now: f64) -> Result<(), FrameError> {
+    async fn apply(
+        &self,
+        intent: &Intent,
+        input_receipt_id: &str,
+        effect_receipt_id: &str,
+        now: f64,
+    ) -> Result<(), FrameError> {
         // reduce the intent against the current world → state deltas (the EFFECT).
         let world = latest_per_key(&self.backend, &self.world_store).await?;
         let deltas = (self.reducer)(intent, &world);
         for (id, val) in &deltas {
             // a new __world__ fact: state change, caused by the input (later tt → wins re-projection).
-            write_fact(&self.backend, &format!("{}:{}", id, now), &self.world_store, id, val.clone(), now, Some(input_receipt_id.to_string())).await?;
+            write_fact(
+                &self.backend,
+                &format!("{}:{}", id, now),
+                &self.world_store,
+                id,
+                val.clone(),
+                now,
+                Some(input_receipt_id.to_string()),
+            )
+            .await?;
         }
         // an effect receipt linking input → effect (lineage).
-        let value = json!({ "action": intent.action, "target": intent.target, "deltas": deltas.len() });
-        write_fact(&self.backend, effect_receipt_id, EFFECT_STORE, effect_receipt_id, value, now, Some(input_receipt_id.to_string())).await
+        let value =
+            json!({ "action": intent.action, "target": intent.target, "deltas": deltas.len() });
+        write_fact(
+            &self.backend,
+            effect_receipt_id,
+            EFFECT_STORE,
+            effect_receipt_id,
+            value,
+            now,
+            Some(input_receipt_id.to_string()),
+        )
+        .await
     }
 }
 
@@ -104,7 +161,10 @@ pub struct TBackendFrameSource {
 
 impl TBackendFrameSource {
     pub fn world_store(backend: Arc<dyn TBackend>) -> Self {
-        Self { backend, store: WORLD_STORE.to_string() }
+        Self {
+            backend,
+            store: WORLD_STORE.to_string(),
+        }
     }
 }
 
@@ -145,6 +205,9 @@ impl FrameSink for TBackendFrameSink {
             producer: Some(json!("frame-projection")),
             derivation: None,
         };
-        self.backend.write_fact(fact).await.map_err(|e| FrameError::Source(format!("{e:?}")))
+        self.backend
+            .write_fact(fact)
+            .await
+            .map_err(|e| FrameError::Source(format!("{e:?}")))
     }
 }

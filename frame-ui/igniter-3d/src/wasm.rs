@@ -17,7 +17,9 @@ pub struct WasmCube3d {
 impl WasmCube3d {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmCube3d {
-        WasmCube3d { inner: Cube3dRuntime::new() }
+        WasmCube3d {
+            inner: Cube3dRuntime::new(),
+        }
     }
 
     /// Advance the world one tick (rotate the cube). Returns `true`.

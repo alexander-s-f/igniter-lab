@@ -15,16 +15,28 @@ const STAGE: (f64, f64) = (344.0, 126.0);
 const SUBMIT: (f64, f64) = (344.0, 224.0);
 
 fn host() -> BoundViewHost {
-    BoundViewHost::from_artifact(BOUND, FixtureContractRegistry::lead_review()).expect("bound artifact compiles")
+    BoundViewHost::from_artifact(BOUND, FixtureContractRegistry::lead_review())
+        .expect("bound artifact compiles")
 }
 
 #[test]
 fn bound_source_loads_leads_from_fixture() {
     let h = host();
-    assert_eq!(h.leads(), vec!["Ada", "Grace", "Linus"], "leads came from ListLeads, not inline data");
-    assert_eq!(h.calls("ListLeads"), 1, "the source contract was invoked exactly once at load");
+    assert_eq!(
+        h.leads(),
+        vec!["Ada", "Grace", "Linus"],
+        "leads came from ListLeads, not inline data"
+    );
+    assert_eq!(
+        h.calls("ListLeads"),
+        1,
+        "the source contract was invoked exactly once at load"
+    );
     // and the resulting workbench is the SAME as the hand-written one (source produced equal data)
-    assert_eq!(h.workbench_render_digest(), WorkbenchRuntime::lead_review().render_digest());
+    assert_eq!(
+        h.workbench_render_digest(),
+        WorkbenchRuntime::lead_review().render_digest()
+    );
 }
 
 #[test]
@@ -80,11 +92,24 @@ fn validation_failure_writes_scoped_errors_and_no_receipt() {
     let mut h = host(); // Ada selected, all fields empty
     h.click(SUBMIT.0, SUBMIT.1); // submit through the host
     let errs = h.errors_for("Ada").expect("Ada has scoped errors");
-    assert_eq!(errs.get("priority").and_then(|v| v.as_str()), Some("required"));
-    assert_eq!(errs.get("stage").and_then(|v| v.as_str()), Some("select one"));
-    assert!(h.last_receipt().is_none(), "no success receipt on validation failure");
+    assert_eq!(
+        errs.get("priority").and_then(|v| v.as_str()),
+        Some("required")
+    );
+    assert_eq!(
+        errs.get("stage").and_then(|v| v.as_str()),
+        Some("select one")
+    );
+    assert!(
+        h.last_receipt().is_none(),
+        "no success receipt on validation failure"
+    );
     assert_eq!(h.calls("ValidateLeadReview"), 1);
-    assert_eq!(h.calls("SubmitLeadReview"), 0, "submit contract NOT called when validation fails");
+    assert_eq!(
+        h.calls("SubmitLeadReview"),
+        0,
+        "submit contract NOT called when validation fails"
+    );
 }
 
 #[test]
@@ -102,24 +127,36 @@ fn submit_success_produces_a_deterministic_fixture_receipt() {
     let r1 = h1.last_receipt().expect("a receipt on success").clone();
     assert!(r1.id.starts_with("fixture-receipt:"));
     assert_eq!(r1.status, "fixture-ok");
-    assert!(h1.errors_for("Ada").is_none(), "success clears scoped errors");
+    assert!(
+        h1.errors_for("Ada").is_none(),
+        "success clears scoped errors"
+    );
     assert_eq!(h1.calls("SubmitLeadReview"), 1);
 
     // deterministic: same drafts → same receipt id
     let mut h2 = host();
     fill(&mut h2);
-    assert_eq!(h2.last_receipt().unwrap().id, r1.id, "content-addressed fixture receipt is deterministic");
+    assert_eq!(
+        h2.last_receipt().unwrap().id,
+        r1.id,
+        "content-addressed fixture receipt is deterministic"
+    );
 }
 
 #[test]
 fn submit_action_double_gate_refuses_when_contract_unregistered() {
     // declared action, but the submit contract is NOT in this registry
     let mut reg = FixtureContractRegistry::new();
-    reg.register("ListLeads", |_| igniter_ui_kit::binding::BindingResponse::Data(serde_json::json!(["Ada"])));
+    reg.register("ListLeads", |_| {
+        igniter_ui_kit::binding::BindingResponse::Data(serde_json::json!(["Ada"]))
+    });
     // no SubmitLeadReview / ValidateLeadReview registered
     let mut h = BoundViewHost::from_artifact(BOUND, reg).expect("loads (ListLeads present)");
     h.click(SUBMIT.0, SUBMIT.1);
-    assert!(h.last_refusal().is_some(), "refused: a declared action whose contract is unregistered");
+    assert!(
+        h.last_refusal().is_some(),
+        "refused: a declared action whose contract is unregistered"
+    );
     assert!(h.last_receipt().is_none());
     assert_eq!(h.calls("SubmitLeadReview"), 0);
 }

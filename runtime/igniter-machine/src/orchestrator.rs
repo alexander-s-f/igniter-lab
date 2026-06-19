@@ -66,10 +66,20 @@ impl EffectOrchestrator<'_> {
         self.receipts.write_fact(fact).await
     }
     async fn audit(&self, op: &str, detail: Value) -> Result<(), EngineError> {
-        self.put(ORCHESTRATOR_AUDIT_STORE, op, json!({ "op": op, "detail": detail })).await
+        self.put(
+            ORCHESTRATOR_AUDIT_STORE,
+            op,
+            json!({ "op": op, "detail": detail }),
+        )
+        .await
     }
     async fn dead_letter(&self, kind: &str, key: &str, reason: &str) -> Result<(), EngineError> {
-        self.put(DEAD_LETTER_STORE, &format!("{kind}:{key}"), json!({ "kind": kind, "key": key, "reason": reason })).await
+        self.put(
+            DEAD_LETTER_STORE,
+            &format!("{kind}:{key}"),
+            json!({ "kind": kind, "key": key, "reason": reason }),
+        )
+        .await
     }
 
     /// Latest receipt fact per key (last-wins by tx-time), within the receipts store.
@@ -80,7 +90,9 @@ impl EffectOrchestrator<'_> {
             if f.store != RECEIPTS_STORE {
                 continue;
             }
-            let e = latest.entry(f.key.clone()).or_insert((f64::NEG_INFINITY, Value::Null));
+            let e = latest
+                .entry(f.key.clone())
+                .or_insert((f64::NEG_INFINITY, Value::Null));
             if f.transaction_time >= e.0 {
                 *e = (f.transaction_time, f.value);
             }
@@ -95,8 +107,12 @@ impl EffectOrchestrator<'_> {
         let report = recover_dangling_writes(self.receipts, self.substrate, self.clock).await?;
         for (key, v) in self.latest_receipts().await? {
             let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
-            if matches!(state, WriteState::Prepared | WriteState::UnknownExternalState) {
-                self.dead_letter("receipt", &key, "unresolved after recovery").await?;
+            if matches!(
+                state,
+                WriteState::Prepared | WriteState::UnknownExternalState
+            ) {
+                self.dead_letter("receipt", &key, "unresolved after recovery")
+                    .await?;
             }
         }
         self.audit("boot", json!({
@@ -110,13 +126,23 @@ impl EffectOrchestrator<'_> {
     /// One control tick: drain DUE retry intents (P9). Exhausted/blocked intents are dead-lettered.
     /// Does NOT loop — the host calls `tick` on its own cadence.
     pub async fn tick(&self) -> Result<Vec<DrainReport>, EngineError> {
-        let reports = drain_due_retries(self.registry, self.receipts, self.substrate, self.clock, self.passport, self.base_delay).await?;
+        let reports = drain_due_retries(
+            self.registry,
+            self.receipts,
+            self.substrate,
+            self.clock,
+            self.passport,
+            self.base_delay,
+        )
+        .await?;
         for r in &reports {
             if matches!(r.action, DrainAction::Exhausted | DrainAction::Blocked) {
-                self.dead_letter("retry_intent", &r.base_key, &format!("{:?}", r.action)).await?;
+                self.dead_letter("retry_intent", &r.base_key, &format!("{:?}", r.action))
+                    .await?;
             }
         }
-        self.audit("tick", json!({ "drained": reports.len() })).await?;
+        self.audit("tick", json!({ "drained": reports.len() }))
+            .await?;
         Ok(reports)
     }
 

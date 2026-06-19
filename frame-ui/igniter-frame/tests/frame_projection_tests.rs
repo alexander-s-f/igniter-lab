@@ -2,7 +2,9 @@
 //! binding the projection PORTS (`FrameSource`/`FrameSink`/`RenderHost`) to the machine substrate
 //! via the `machine` adapter. The machine knows nothing about Frame/Camera/render.
 
-use igniter_frame::machine_source::{TBackendFrameSink, TBackendFrameSource, FRAMES_STORE, WORLD_STORE};
+use igniter_frame::machine_source::{
+    TBackendFrameSink, TBackendFrameSource, FRAMES_STORE, WORLD_STORE,
+};
 use igniter_frame::{project_frame, Camera, FrameSink, JsonRenderHost, RenderHost, SvgRenderHost};
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::fact::Fact;
@@ -11,7 +13,10 @@ use serde_json::json;
 use std::sync::Arc;
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn entity(id: &str, x: f64, y: f64, z: f64, tt: f64) -> Fact {
@@ -39,15 +44,31 @@ fn source(b: &Arc<dyn TBackend>) -> TBackendFrameSource {
 fn project_from_machine_facts() {
     rt().block_on(async {
         let m = IgniterMachine::new(None, "in_memory").unwrap();
-        m.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0)).await.unwrap();
-        m.write_fact(entity("e2", 1.0, 0.0, 0.0, 1.0)).await.unwrap();
-        m.write_fact(entity("e3", -1.0, 0.5, 0.0, 1.0)).await.unwrap();
+        m.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        m.write_fact(entity("e2", 1.0, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        m.write_fact(entity("e3", -1.0, 0.5, 0.0, 1.0))
+            .await
+            .unwrap();
 
         let src = source(&m.storage);
-        let frame = project_frame(&src, &Camera::default(), 0, Some("machine_receipt_abc".into())).await.unwrap();
+        let frame = project_frame(
+            &src,
+            &Camera::default(),
+            0,
+            Some("machine_receipt_abc".into()),
+        )
+        .await
+        .unwrap();
         assert_eq!(frame.nodes.len(), 3);
         assert!(frame.world_digest.starts_with("sha256:"));
-        assert_eq!(frame.source_receipt_id.as_deref(), Some("machine_receipt_abc"));
+        assert_eq!(
+            frame.source_receipt_id.as_deref(),
+            Some("machine_receipt_abc")
+        );
         let e1 = frame.nodes.iter().find(|n| n.id == "e1").unwrap();
         assert_eq!((e1.sx, e1.sy), (200, 200));
     });
@@ -58,10 +79,18 @@ fn project_from_machine_facts() {
 fn deterministic_replay() {
     rt().block_on(async {
         let w: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        w.write_fact(entity("e1", 0.3, -0.2, 1.0, 1.0)).await.unwrap();
-        w.write_fact(entity("e2", -0.5, 0.7, 0.5, 1.0)).await.unwrap();
-        let a = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
-        let b = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
+        w.write_fact(entity("e1", 0.3, -0.2, 1.0, 1.0))
+            .await
+            .unwrap();
+        w.write_fact(entity("e2", -0.5, 0.7, 0.5, 1.0))
+            .await
+            .unwrap();
+        let a = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
+        let b = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
         assert_eq!(a.render_digest(), b.render_digest());
         assert_eq!(a.world_digest, b.world_digest);
     });
@@ -72,10 +101,18 @@ fn deterministic_replay() {
 fn fact_change_changes_frame_predictably() {
     rt().block_on(async {
         let w: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        w.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0)).await.unwrap();
-        let before = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
-        w.write_fact(entity("e1", 1.0, 0.0, 0.0, 2.0)).await.unwrap();
-        let after = project_frame(&source(&w), &Camera::default(), 1, None).await.unwrap();
+        w.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        let before = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
+        w.write_fact(entity("e1", 1.0, 0.0, 0.0, 2.0))
+            .await
+            .unwrap();
+        let after = project_frame(&source(&w), &Camera::default(), 1, None)
+            .await
+            .unwrap();
         assert_ne!(before.render_digest(), after.render_digest());
         assert_eq!(before.nodes[0].sx, 200);
         assert_eq!(after.nodes[0].sx, 250); // 1 * (200/4) + 200
@@ -87,9 +124,15 @@ fn fact_change_changes_frame_predictably() {
 fn render_host_swappable() {
     rt().block_on(async {
         let w: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        w.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0)).await.unwrap();
-        w.write_fact(entity("e2", 0.5, 0.0, 0.0, 1.0)).await.unwrap();
-        let frame = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
+        w.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        w.write_fact(entity("e2", 0.5, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        let frame = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
         let svg = SvgRenderHost::default().render(&frame);
         let js = JsonRenderHost.render(&frame);
         assert!(svg.contains("<svg") && svg.matches("<circle").count() == 2);
@@ -103,12 +146,29 @@ fn render_host_swappable() {
 fn frame_is_a_fact() {
     rt().block_on(async {
         let store: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        store.write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0)).await.unwrap();
-        let frame = project_frame(&source(&store), &Camera::default(), 7, Some("rcpt_42".into())).await.unwrap();
+        store
+            .write_fact(entity("e1", 0.0, 0.0, 0.0, 1.0))
+            .await
+            .unwrap();
+        let frame = project_frame(
+            &source(&store),
+            &Camera::default(),
+            7,
+            Some("rcpt_42".into()),
+        )
+        .await
+        .unwrap();
 
-        let sink = TBackendFrameSink { backend: store.clone(), now: 100.0 };
+        let sink = TBackendFrameSink {
+            backend: store.clone(),
+            now: 100.0,
+        };
         sink.record(&frame).await.unwrap();
-        let back = store.read_as_of(FRAMES_STORE, "frame:7", f64::MAX).await.unwrap().unwrap();
+        let back = store
+            .read_as_of(FRAMES_STORE, "frame:7", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(back.value["frame_index"], json!(7));
         assert_eq!(back.value["world_digest"], json!(frame.world_digest));
         assert_eq!(back.value["render_digest"], json!(frame.render_digest()));
@@ -122,8 +182,12 @@ fn frame_is_a_fact() {
 fn empty_world_is_stable() {
     rt().block_on(async {
         let w: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let a = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
-        let b = project_frame(&source(&w), &Camera::default(), 0, None).await.unwrap();
+        let a = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
+        let b = project_frame(&source(&w), &Camera::default(), 0, None)
+            .await
+            .unwrap();
         assert_eq!(a.nodes.len(), 0);
         assert_eq!(a.render_digest(), b.render_digest());
         assert!(SvgRenderHost::default().render(&a).contains("<svg"));

@@ -6,10 +6,13 @@
 
 use igniter_console::Console;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
-use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport, EchoCapabilityExecutor};
+use igniter_machine::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, EchoCapabilityExecutor,
+};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility, ServiceRecipe,
+    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility,
+    ServiceRecipe,
 };
 use igniter_machine::frame_binding_effect::FrameBindingEffectBridge;
 use igniter_machine::machine::IgniterMachine;
@@ -24,23 +27,57 @@ const EFFECT_CAP: &str = "IO.FrameFixture";
 const ARTIFACT: &str = r#"{ "artifact":"view","layout":"workbench",
   "actions": { "record": { "contract":"Add", "input":{"a":"$form.a","b":"$form.b"},
     "effect": { "capability_id":"IO.FrameFixture","operation":"record","scope":"write" } } } }"#;
-const LEAD_REVIEW: &str = include_str!("../../../frame-ui/igniter-ui-kit/web/lead_review.view.json");
+const LEAD_REVIEW: &str =
+    include_str!("../../../frame-ui/igniter-ui-kit/web/lead_review.view.json");
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
 }
-const SCOPES: &[&str] = &["create_pool", "import_capsule", "grant_access", "accept_recipe", "invoke"];
+const SCOPES: &[&str] = &[
+    "create_pool",
+    "import_capsule",
+    "grant_access",
+    "accept_recipe",
+    "invoke",
+];
 fn coord_passport(s: &str) -> CapabilityPassport {
-    CapabilityPassport { subject: s.into(), capability_id: "coordination".into(), scopes: SCOPES.iter().map(|s| s.to_string()).collect(), issued_at: 0.0, expires_at: Some(1e6), revoked: false, evidence_digest: "sig".into() }
+    CapabilityPassport {
+        subject: s.into(),
+        capability_id: "coordination".into(),
+        scopes: SCOPES.iter().map(|s| s.to_string()).collect(),
+        issued_at: 0.0,
+        expires_at: Some(1e6),
+        revoked: false,
+        evidence_digest: "sig".into(),
+    }
 }
 fn effect_passport() -> CapabilityPassport {
-    CapabilityPassport { subject: "host".into(), capability_id: EFFECT_CAP.into(), scopes: vec!["write".into()], issued_at: 0.0, expires_at: Some(1e6), revoked: false, evidence_digest: "host-sig".into() }
+    CapabilityPassport {
+        subject: "host".into(),
+        capability_id: EFFECT_CAP.into(),
+        scopes: vec!["write".into()],
+        issued_at: 0.0,
+        expires_at: Some(1e6),
+        revoked: false,
+        evidence_digest: "host-sig".into(),
+    }
 }
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 async fn add_capsule_bytes() -> Vec<u8> {
     let m = IgniterMachine::new(None, "in_memory").unwrap();
@@ -48,7 +85,21 @@ async fn add_capsule_bytes() -> Vec<u8> {
     m.checkpoint_bytes().await.unwrap()
 }
 fn recipe(digest: &str) -> ServiceRecipe {
-    ServiceRecipe { recipe_id: "r1".into(), capsule_digest: digest.into(), entry_contract: "Add".into(), input_schema_digest: None, capability_bindings: vec![], required_scopes: vec!["invoke".into()], receipt_policy: "audit".into(), retry_policy_ref: None, pool_sizing: 1, created_by: "alice".into(), accepted_by: None, accepted_at: None, duplicate_policy: None }
+    ServiceRecipe {
+        recipe_id: "r1".into(),
+        capsule_digest: digest.into(),
+        entry_contract: "Add".into(),
+        input_schema_digest: None,
+        capability_bindings: vec![],
+        required_scopes: vec!["invoke".into()],
+        receipt_policy: "audit".into(),
+        retry_policy_ref: None,
+        pool_sizing: 1,
+        created_by: "alice".into(),
+        accepted_by: None,
+        accepted_at: None,
+        duplicate_policy: None,
+    }
 }
 async fn served_hub() -> CoordinationHub {
     let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
@@ -56,11 +107,30 @@ async fn served_hub() -> CoordinationHub {
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&coord_passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &coord_passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&coord_passport("alice"), "svc", bytes, vec![]).await.unwrap();
-    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id)).await.unwrap();
-    h.grant(&coord_passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    let cref = h
+        .add_capsule(&coord_passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
+    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id))
+        .await
+        .unwrap();
+    h.grant(
+        &coord_passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     h
 }
 fn registry_with_add() -> ContractRegistry {
@@ -90,15 +160,43 @@ fn e2e_committed_action_renders_action_and_receipt_in_console() {
         let contracts = registry_with_add();
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
-        let out = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 20, "b": 22 }), "idem-1", &coord_passport("vendor:acme"), "svc", &hub).await.unwrap();
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
+        let out = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 20, "b": 22 }),
+                "idem-1",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
         assert_eq!(out.receipt_state, WriteState::Committed);
 
         // 2. serialize the bridge result → a plain HostActionRecord JSON (host-side)
-        let rec = out.to_host_action_json("frame-action-1", "record", "Add", "svc", "idem-1", "frame-corr-1");
+        let rec = out.to_host_action_json(
+            "frame-action-1",
+            "record",
+            "Add",
+            "svc",
+            "idem-1",
+            "frame-corr-1",
+        );
         assert_eq!(rec["effect_state"], "committed");
         assert_eq!(rec["effect_receipt_id"], "IO.FrameFixture:idem-1");
-        assert!(rec["invoke_digest"].as_str().unwrap().starts_with("blake3:"));
+        assert!(rec["invoke_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("blake3:"));
 
         // 3. feed the JSON to the machine-free console
         let mut con = console_with_a_frame();
@@ -109,7 +207,10 @@ fn e2e_committed_action_renders_action_and_receipt_in_console() {
         assert_eq!(lin["host_action"]["action_name"], "record");
         assert_eq!(lin["host_action"]["contract"], "Add");
         assert_eq!(lin["host_action"]["effect_state"], "committed");
-        assert_eq!(lin["host_action"]["effect_receipt_id"], "IO.FrameFixture:idem-1");
+        assert_eq!(
+            lin["host_action"]["effect_receipt_id"],
+            "IO.FrameFixture:idem-1"
+        );
         assert_eq!(lin["host_action"]["pool_id"], "svc");
 
         // 5. rendered SVG shows a compact action + receipt line
@@ -130,18 +231,56 @@ fn e2e_idempotent_replay_shows_one_receipt_id() {
         let contracts = registry_with_add();
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
         let p = || coord_passport("vendor:acme");
-        let a = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 1, "b": 2 }), "idem-2", &p(), "svc", &hub).await.unwrap();
-        let b = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 1, "b": 2 }), "idem-2", &p(), "svc", &hub).await.unwrap();
-        assert_eq!(a.receipt_key, b.receipt_key, "same idempotency key → same receipt id");
+        let a = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 1, "b": 2 }),
+                "idem-2",
+                &p(),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        let b = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 1, "b": 2 }),
+                "idem-2",
+                &p(),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            a.receipt_key, b.receipt_key,
+            "same idempotency key → same receipt id"
+        );
         assert_eq!(echo.call_count(), 1);
 
         let mut con = console_with_a_frame();
-        con.attach_action_json(&b.to_host_action_json("a2", "record", "Add", "svc", "idem-2", "corr-2").to_string());
+        con.attach_action_json(
+            &b.to_host_action_json("a2", "record", "Add", "svc", "idem-2", "corr-2")
+                .to_string(),
+        );
         let lin: Value = serde_json::from_str(&con.lineage_json()).unwrap();
-        assert_eq!(lin["host_action"]["effect_receipt_id"], "IO.FrameFixture:idem-2");
+        assert_eq!(
+            lin["host_action"]["effect_receipt_id"],
+            "IO.FrameFixture:idem-2"
+        );
     });
 }
 
@@ -156,8 +295,26 @@ fn e2e_unknown_effect_state_renders_without_panic() {
         let contracts = registry_with_add();
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
-        let out = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 9, "b": 1 }), "idem-3", &coord_passport("vendor:acme"), "svc", &hub).await.unwrap();
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
+        let out = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 9, "b": 1 }),
+                "idem-3",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
         assert_eq!(out.receipt_state, WriteState::UnknownExternalState);
 
         let rec = out.to_host_action_json("a3", "record", "Add", "svc", "idem-3", "corr-3");

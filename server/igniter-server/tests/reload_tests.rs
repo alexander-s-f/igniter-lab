@@ -5,7 +5,9 @@
 //! snapshotted app; the host holds no route table; app identity is observable but not authority.
 
 use igniter_server::host::{serve_bounded_reloadable, serve_once_reloadable};
-use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{
+    AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
+};
 use igniter_server::reload::ReloadableApp;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -22,9 +24,19 @@ struct RouteApp {
 impl ServerApp for RouteApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         if req.method == "GET" && req.path == self.ok_path {
-            ServerDecision::Respond { response: ServerResponse::json(200, json!({ "ok": true, "app_version": self.id.version })) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(
+                    200,
+                    json!({ "ok": true, "app_version": self.id.version }),
+                ),
+            }
         } else {
-            ServerDecision::Respond { response: ServerResponse::json(404, json!({ "error": "no route", "app_version": self.id.version })) }
+            ServerDecision::Respond {
+                response: ServerResponse::json(
+                    404,
+                    json!({ "error": "no route", "app_version": self.id.version }),
+                ),
+            }
         }
     }
     fn identity(&self) -> AppIdentity {
@@ -32,7 +44,10 @@ impl ServerApp for RouteApp {
     }
 }
 fn route_app(version: &str, ok_path: &str) -> Arc<dyn ServerApp + Send + Sync> {
-    Arc::new(RouteApp { id: AppIdentity::new("demo", version, ""), ok_path: ok_path.to_string() })
+    Arc::new(RouteApp {
+        id: AppIdentity::new("demo", version, ""),
+        ok_path: ok_path.to_string(),
+    })
 }
 
 /// Send one raw HTTP/1.1 request, return `(status, body json)`.
@@ -44,7 +59,11 @@ fn roundtrip(addr: &str, method: &str, path: &str) -> (u16, Value) {
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).unwrap();
     let text = String::from_utf8_lossy(&raw);
-    let status: u16 = text.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let status: u16 = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let body_start = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(text.len());
     let body: Value = serde_json::from_str(text[body_start..].trim()).unwrap_or(Value::Null);
     (status, body)
@@ -95,7 +114,9 @@ impl ServerApp for GatedApp {
         while !*g {
             g = c.wait(g).unwrap();
         }
-        ServerDecision::Respond { response: ServerResponse::json(200, json!({ "app_version": self.id.version })) }
+        ServerDecision::Respond {
+            response: ServerResponse::json(200, json!({ "app_version": self.id.version })),
+        }
     }
     fn identity(&self) -> AppIdentity {
         self.id.clone()
@@ -143,7 +164,11 @@ fn in_flight_request_keeps_original_app_after_swap() {
     let (status, body) = client.join().unwrap();
     server.join().unwrap();
     assert_eq!(status, 200);
-    assert_eq!(body["app_version"], json!("v1"), "in-flight request kept its snapshotted app despite the swap");
+    assert_eq!(
+        body["app_version"],
+        json!("v1"),
+        "in-flight request kept its snapshotted app despite the swap"
+    );
 }
 
 #[test]
@@ -158,8 +183,16 @@ fn reload_does_not_create_host_route_table() {
 
     host.swap(route_app("v2", "/b"));
 
-    assert_eq!(roundtrip(&addr, "GET", "/b").0, 200, "v2 routes /b on the same host");
-    assert_eq!(roundtrip(&addr, "GET", "/a").0, 404, "v2 does not route /a — host has no route table");
+    assert_eq!(
+        roundtrip(&addr, "GET", "/b").0,
+        200,
+        "v2 routes /b on the same host"
+    );
+    assert_eq!(
+        roundtrip(&addr, "GET", "/a").0,
+        404,
+        "v2 does not route /a — host has no route table"
+    );
 
     server.join().unwrap();
 }
@@ -171,13 +204,22 @@ fn app_identity_is_observable_but_not_authority() {
 
     // an app claiming a "trusted/admin" identity but routing nothing useful: identity grants NO
     // authority — the request is served purely by call(), so /health is still a 404.
-    let sneaky: Arc<dyn ServerApp + Send + Sync> =
-        Arc::new(RouteApp { id: AppIdentity::new("totally-trusted", "admin", "deadbeef"), ok_path: "/never".into() });
+    let sneaky: Arc<dyn ServerApp + Send + Sync> = Arc::new(RouteApp {
+        id: AppIdentity::new("totally-trusted", "admin", "deadbeef"),
+        ok_path: "/never".into(),
+    });
     host.swap(sneaky);
 
-    assert_eq!(host.identity().name, "totally-trusted", "the claimed identity is observable");
+    assert_eq!(
+        host.identity().name,
+        "totally-trusted",
+        "the claimed identity is observable"
+    );
     let (addr, server) = spawn_server(host.clone(), 1);
     let (status, _) = roundtrip(&addr, "GET", "/health");
-    assert_eq!(status, 404, "identity confers no routing/authority — behavior comes only from call()");
+    assert_eq!(
+        status, 404,
+        "identity confers no routing/authority — behavior comes only from call()"
+    );
     server.join().unwrap();
 }

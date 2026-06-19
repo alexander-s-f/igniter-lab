@@ -33,7 +33,11 @@ use tokio::sync::Barrier;
 const CAP: &str = "IO.WireEffect";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap()
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn passport() -> Arc<CapabilityPassport> {
@@ -55,7 +59,10 @@ struct ProbeExecutor {
 }
 impl ProbeExecutor {
     fn new() -> Self {
-        Self { id: CAP.into(), attempts: AtomicU64::new(0) }
+        Self {
+            id: CAP.into(),
+            attempts: AtomicU64::new(0),
+        }
     }
     fn attempts(&self) -> u64 {
         self.attempts.load(Ordering::SeqCst)
@@ -81,12 +88,20 @@ struct BarrierBackend {
 }
 impl BarrierBackend {
     fn new(n: usize) -> Self {
-        Self { inner: InMemoryBackend::new(), barrier: Arc::new(Barrier::new(n)) }
+        Self {
+            inner: InMemoryBackend::new(),
+            barrier: Arc::new(Barrier::new(n)),
+        }
     }
 }
 #[async_trait]
 impl TBackend for BarrierBackend {
-    async fn read_as_of(&self, store: &str, key: &str, as_of: f64) -> Result<Option<Fact>, EngineError> {
+    async fn read_as_of(
+        &self,
+        store: &str,
+        key: &str,
+        as_of: f64,
+    ) -> Result<Option<Fact>, EngineError> {
         // Read the value FIRST (both writers observe "no receipt"), THEN park on the barrier so
         // neither can write `prepared` until both have already read "none" — the forced race window.
         let v = self.inner.read_as_of(store, key, as_of).await;
@@ -98,7 +113,13 @@ impl TBackend for BarrierBackend {
     async fn write_fact(&self, fact: Fact) -> Result<(), EngineError> {
         self.inner.write_fact(fact).await
     }
-    async fn facts_for(&self, store: &str, key: &str, since: Option<f64>, as_of: Option<f64>) -> Result<Vec<Fact>, EngineError> {
+    async fn facts_for(
+        &self,
+        store: &str,
+        key: &str,
+        since: Option<f64>,
+        as_of: Option<f64>,
+    ) -> Result<Vec<Fact>, EngineError> {
         self.inner.facts_for(store, key, since, as_of).await
     }
     async fn all_facts(&self) -> Result<Vec<Fact>, EngineError> {
@@ -131,16 +152,31 @@ fn plain_run_write_effect_doubles_under_forced_interleave() {
         // two concurrent SAME-key writers, each on its own task.
         let mut handles = Vec::new();
         for _ in 0..2 {
-            let (registry, receipts, clock, p) = (registry.clone(), receipts.clone(), clock.clone(), p.clone());
+            let (registry, receipts, clock, p) =
+                (registry.clone(), receipts.clone(), clock.clone(), p.clone());
             handles.push(tokio::spawn(async move {
-                run_write_effect(&registry, &receipts, &clock, &p, "write", &write_req("SAME"), RunMode::Live).await.unwrap();
+                run_write_effect(
+                    &registry,
+                    &receipts,
+                    &clock,
+                    &p,
+                    "write",
+                    &write_req("SAME"),
+                    RunMode::Live,
+                )
+                .await
+                .unwrap();
             }));
         }
         for h in handles {
             h.await.unwrap();
         }
 
-        assert_eq!(probe.attempts(), 2, "plain run_write_effect double-executes under the forced race");
+        assert_eq!(
+            probe.attempts(),
+            2,
+            "plain run_write_effect double-executes under the forced race"
+        );
     });
 }
 
@@ -161,9 +197,26 @@ fn atomic_gate_collapses_same_key_to_one() {
 
         let mut handles = Vec::new();
         for _ in 0..6 {
-            let (sf, registry, receipts, clock, p) = (sf.clone(), registry.clone(), receipts.clone(), clock.clone(), p.clone());
+            let (sf, registry, receipts, clock, p) = (
+                sf.clone(),
+                registry.clone(),
+                receipts.clone(),
+                clock.clone(),
+                p.clone(),
+            );
             handles.push(tokio::spawn(async move {
-                run_write_effect_atomic(&sf, &registry, &receipts, &clock, &p, "write", &write_req("SAME"), RunMode::Live).await.unwrap()
+                run_write_effect_atomic(
+                    &sf,
+                    &registry,
+                    &receipts,
+                    &clock,
+                    &p,
+                    "write",
+                    &write_req("SAME"),
+                    RunMode::Live,
+                )
+                .await
+                .unwrap()
             }));
         }
         let mut states = Vec::new();
@@ -171,9 +224,15 @@ fn atomic_gate_collapses_same_key_to_one() {
             states.push(h.await.unwrap().state);
         }
 
-        assert_eq!(probe.attempts(), 1, "six concurrent same-key writers perform the effect exactly once");
+        assert_eq!(
+            probe.attempts(),
+            1,
+            "six concurrent same-key writers perform the effect exactly once"
+        );
         // every caller still gets a committed result (the duplicates replay the receipt, not 202-unknown).
-        assert!(states.iter().all(|s| *s == igniter_machine::write::WriteState::Committed));
+        assert!(states
+            .iter()
+            .all(|s| *s == igniter_machine::write::WriteState::Committed));
     });
 }
 
@@ -196,9 +255,26 @@ fn atomic_gate_is_per_key_not_global() {
         let keys = ["KA", "KB"];
         let mut handles = Vec::new();
         for k in keys {
-            let (sf, registry, receipts, clock, p) = (sf.clone(), registry.clone(), receipts.clone(), clock.clone(), p.clone());
+            let (sf, registry, receipts, clock, p) = (
+                sf.clone(),
+                registry.clone(),
+                receipts.clone(),
+                clock.clone(),
+                p.clone(),
+            );
             handles.push(tokio::spawn(async move {
-                run_write_effect_atomic(&sf, &registry, &receipts, &clock, &p, "write", &write_req(k), RunMode::Live).await.unwrap();
+                run_write_effect_atomic(
+                    &sf,
+                    &registry,
+                    &receipts,
+                    &clock,
+                    &p,
+                    "write",
+                    &write_req(k),
+                    RunMode::Live,
+                )
+                .await
+                .unwrap();
             }));
         }
         // a global-lock regression would deadlock on the barrier → fail fast instead of hanging.
@@ -209,6 +285,10 @@ fn atomic_gate_is_per_key_not_global() {
                 .unwrap();
         }
 
-        assert_eq!(probe.attempts(), 2, "two distinct keys each perform their effect, concurrently");
+        assert_eq!(
+            probe.attempts(),
+            2,
+            "two distinct keys each perform their effect, concurrently"
+        );
     });
 }

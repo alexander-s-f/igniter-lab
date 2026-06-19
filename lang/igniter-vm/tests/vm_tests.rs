@@ -3,13 +3,13 @@
 
 #![allow(dead_code)]
 
+use igniter_vm::instructions::*;
+use igniter_vm::tbackend::MemoryHistoryBackend;
+use igniter_vm::value::Value;
+use igniter_vm::vm::VM;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task;
-use igniter_vm::value::Value;
-use igniter_vm::instructions::*;
-use igniter_vm::tbackend::MemoryHistoryBackend;
-use igniter_vm::vm::VM;
 
 // Helper to create instructions easily
 fn push_lit(v: Value) -> Instruction {
@@ -52,27 +52,49 @@ fn op_ret() -> Instruction {
 async fn test_decimal_addition_success() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 1050, scale: 2 }),
-        push_lit(Value::Decimal { value: 2525, scale: 2 }),
+        push_lit(Value::Decimal {
+            value: 1050,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 2525,
+            scale: 2,
+        }),
         op_add(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
-    assert_eq!(res, Ok(Value::Decimal { value: 3575, scale: 2 }));
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
+    assert_eq!(
+        res,
+        Ok(Value::Decimal {
+            value: 3575,
+            scale: 2
+        })
+    );
 }
 
 #[tokio::test]
 async fn test_decimal_addition_scale_mismatch_error() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 1050, scale: 2 }),
-        push_lit(Value::Decimal { value: 250, scale: 1 }),
+        push_lit(Value::Decimal {
+            value: 1050,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 250,
+            scale: 1,
+        }),
         op_add(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("OOF-TC5"));
 }
@@ -81,27 +103,49 @@ async fn test_decimal_addition_scale_mismatch_error() {
 async fn test_decimal_subtraction_success() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 3575, scale: 2 }),
-        push_lit(Value::Decimal { value: 1050, scale: 2 }),
+        push_lit(Value::Decimal {
+            value: 3575,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 1050,
+            scale: 2,
+        }),
         op_sub(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
-    assert_eq!(res, Ok(Value::Decimal { value: 2525, scale: 2 }));
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
+    assert_eq!(
+        res,
+        Ok(Value::Decimal {
+            value: 2525,
+            scale: 2
+        })
+    );
 }
 
 #[tokio::test]
 async fn test_decimal_subtraction_scale_mismatch_error() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 3575, scale: 2 }),
-        push_lit(Value::Decimal { value: 250, scale: 1 }),
+        push_lit(Value::Decimal {
+            value: 3575,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 250,
+            scale: 1,
+        }),
         op_sub(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("OOF-TC5"));
 }
@@ -110,41 +154,74 @@ async fn test_decimal_subtraction_scale_mismatch_error() {
 async fn test_decimal_multiplication_scale_summation() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 105, scale: 1 }),
-        push_lit(Value::Decimal { value: 25, scale: 1 }),
+        push_lit(Value::Decimal {
+            value: 105,
+            scale: 1,
+        }),
+        push_lit(Value::Decimal {
+            value: 25,
+            scale: 1,
+        }),
         op_mul(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
-    assert_eq!(res, Ok(Value::Decimal { value: 2625, scale: 2 }));
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
+    assert_eq!(
+        res,
+        Ok(Value::Decimal {
+            value: 2625,
+            scale: 2
+        })
+    );
 }
 
 #[tokio::test]
 async fn test_decimal_division_scale_subtraction() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 2625, scale: 2 }),
-        push_lit(Value::Decimal { value: 25, scale: 1 }),
+        push_lit(Value::Decimal {
+            value: 2625,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 25,
+            scale: 1,
+        }),
         op_div(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
-    assert_eq!(res, Ok(Value::Decimal { value: 105, scale: 1 }));
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
+    assert_eq!(
+        res,
+        Ok(Value::Decimal {
+            value: 105,
+            scale: 1
+        })
+    );
 }
 
 #[tokio::test]
 async fn test_decimal_division_by_zero_error() {
     let vm = VM::new(None);
     let instructions = vec![
-        push_lit(Value::Decimal { value: 2625, scale: 2 }),
+        push_lit(Value::Decimal {
+            value: 2625,
+            scale: 2,
+        }),
         push_lit(Value::Decimal { value: 0, scale: 1 }),
         op_div(),
         op_ret(),
     ];
 
-    let res = vm.execute(&instructions, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("OOF-DM2"));
 }
@@ -160,7 +237,11 @@ async fn test_numeric_fallbacks() {
         op_add(),
         op_ret(),
     ];
-    assert_eq!(vm.execute(&instructions_int, &HashMap::new(), &HashMap::new()).await, Ok(Value::Integer(30)));
+    assert_eq!(
+        vm.execute(&instructions_int, &HashMap::new(), &HashMap::new())
+            .await,
+        Ok(Value::Integer(30))
+    );
 
     // Floats
     let instructions_flt = vec![
@@ -169,41 +250,61 @@ async fn test_numeric_fallbacks() {
         op_add(),
         op_ret(),
     ];
-    assert_eq!(vm.execute(&instructions_flt, &HashMap::new(), &HashMap::new()).await, Ok(Value::Float(4.0)));
+    assert_eq!(
+        vm.execute(&instructions_flt, &HashMap::new(), &HashMap::new())
+            .await,
+        Ok(Value::Float(4.0))
+    );
 }
 
 #[tokio::test]
 async fn test_bitemporal_nonblocking_load_as_of() {
     let backend = Arc::new(MemoryHistoryBackend::new());
-    backend.write_history("technician_jobs", "2026-05-01T00:00:00Z", Value::Integer(3)).await;
-    backend.write_history("technician_jobs", "2026-05-15T00:00:00Z", Value::Integer(5)).await;
+    backend
+        .write_history("technician_jobs", "2026-05-01T00:00:00Z", Value::Integer(3))
+        .await;
+    backend
+        .write_history("technician_jobs", "2026-05-15T00:00:00Z", Value::Integer(5))
+        .await;
 
     let vm = VM::new(Some(backend.clone()));
 
     let instructions = vec![
-        Instruction::new(OP_LOAD_AS_OF, vec![
-            Value::String(Arc::from("technician_jobs")),
-            Value::String(Arc::from("as_of")),
-        ]),
+        Instruction::new(
+            OP_LOAD_AS_OF,
+            vec![
+                Value::String(Arc::from("technician_jobs")),
+                Value::String(Arc::from("as_of")),
+            ],
+        ),
         op_ret(),
     ];
 
     // Case A: Query as of May 10th
     let mut inputs = HashMap::new();
-    inputs.insert("as_of".to_string(), Value::String(Arc::from("2026-05-10T12:00:00Z")));
+    inputs.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-05-10T12:00:00Z")),
+    );
     let res_a = vm.execute(&instructions, &inputs, &HashMap::new()).await;
     assert_eq!(res_a, Ok(Value::Integer(3)));
 
     // Case B: Query as of May 20th
     let mut inputs_b = HashMap::new();
-    inputs_b.insert("as_of".to_string(), Value::String(Arc::from("2026-05-20T12:00:00Z")));
+    inputs_b.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-05-20T12:00:00Z")),
+    );
     let res_b = vm.execute(&instructions, &inputs_b, &HashMap::new()).await;
     assert_eq!(res_b, Ok(Value::Integer(5)));
 
     // Check observation sink audit log
     let sink = vm.observation_sink.lock().await;
     assert_eq!(sink.len(), 2);
-    assert_eq!(sink[0]["kind"].as_str(), Some("temporal_live_read_observation"));
+    assert_eq!(
+        sink[0]["kind"].as_str(),
+        Some("temporal_live_read_observation")
+    );
     assert_eq!(sink[0]["store"].as_str(), Some("technician_jobs"));
     assert_eq!(sink[0]["result_present"].as_bool(), Some(true));
 }
@@ -212,8 +313,14 @@ async fn test_bitemporal_nonblocking_load_as_of() {
 async fn test_high_concurrency_stress() {
     let vm = Arc::new(VM::new(None));
     let instructions = Arc::new(vec![
-        push_lit(Value::Decimal { value: 1000, scale: 2 }),
-        push_lit(Value::Decimal { value: 2000, scale: 2 }),
+        push_lit(Value::Decimal {
+            value: 1000,
+            scale: 2,
+        }),
+        push_lit(Value::Decimal {
+            value: 2000,
+            scale: 2,
+        }),
         op_add(),
         op_ret(),
     ]);
@@ -225,13 +332,21 @@ async fn test_high_concurrency_stress() {
         let vm_clone = vm.clone();
         let inst_clone = instructions.clone();
         handles.push(task::spawn(async move {
-            vm_clone.execute(&inst_clone, &HashMap::new(), &HashMap::new()).await
+            vm_clone
+                .execute(&inst_clone, &HashMap::new(), &HashMap::new())
+                .await
         }));
     }
 
     for handle in handles {
         let result = handle.await.expect("Task failed");
-        assert_eq!(result, Ok(Value::Decimal { value: 3000, scale: 2 }));
+        assert_eq!(
+            result,
+            Ok(Value::Decimal {
+                value: 3000,
+                scale: 2
+            })
+        );
     }
 }
 
@@ -278,26 +393,38 @@ async fn test_aot_compiler_lowering() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     // Assert that the generated bytecode instructions length and structure are correct
     assert_eq!(bytecode.len(), 10);
 
     let backend = Arc::new(MemoryHistoryBackend::new());
-    backend.write_history("technician_jobs", "2026-05-01T00:00:00Z", Value::Integer(3)).await;
-    backend.write_history("technician_jobs", "2026-05-15T00:00:00Z", Value::Integer(5)).await;
+    backend
+        .write_history("technician_jobs", "2026-05-01T00:00:00Z", Value::Integer(3))
+        .await;
+    backend
+        .write_history("technician_jobs", "2026-05-15T00:00:00Z", Value::Integer(5))
+        .await;
 
     let vm = VM::new(Some(backend));
 
     // Scenario A: as_of May 10 -> Jobs count = 3 -> Else branch (returns 200)
     let mut inputs_a = HashMap::new();
-    inputs_a.insert("as_of".to_string(), Value::String(Arc::from("2026-05-10T12:00:00Z")));
+    inputs_a.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-05-10T12:00:00Z")),
+    );
     let res_a = vm.execute(&bytecode, &inputs_a, &HashMap::new()).await;
     assert_eq!(res_a, Ok(Value::Integer(200)));
 
     // Scenario B: as_of May 20 -> Jobs count = 5 -> Then branch (returns 1000)
     let mut inputs_b = HashMap::new();
-    inputs_b.insert("as_of".to_string(), Value::String(Arc::from("2026-05-20T12:00:00Z")));
+    inputs_b.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-05-20T12:00:00Z")),
+    );
     let res_b = vm.execute(&bytecode, &inputs_b, &HashMap::new()).await;
     assert_eq!(res_b, Ok(Value::Integer(1000)));
 }
@@ -336,11 +463,15 @@ async fn test_map_reduce_aggregate_optimizations() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode_count = compiler.compile(&contract_count_json).expect("Compilation failed");
+    let bytecode_count = compiler
+        .compile(&contract_count_json)
+        .expect("Compilation failed");
     assert_eq!(bytecode_count.len(), 2); // OP_MAP_REDUCE, OP_RET
 
     let vm = VM::new(None);
-    let res_count = vm.execute(&bytecode_count, &HashMap::new(), &HashMap::new()).await;
+    let res_count = vm
+        .execute(&bytecode_count, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res_count, Ok(Value::Integer(4)));
 
     // Test Case 2: fold(range(1, 6), 0, lambda acc, y: acc + y) -> Expected: 15 (1+2+3+4+5)
@@ -371,8 +502,12 @@ async fn test_map_reduce_aggregate_optimizations() {
         }
     });
 
-    let bytecode_fold = compiler.compile(&contract_fold_json).expect("Compilation failed");
-    let res_fold = vm.execute(&bytecode_fold, &HashMap::new(), &HashMap::new()).await;
+    let bytecode_fold = compiler
+        .compile(&contract_fold_json)
+        .expect("Compilation failed");
+    let res_fold = vm
+        .execute(&bytecode_fold, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res_fold, Ok(Value::Integer(15)));
 
     // Test Case 3: first(map(filter(range(1, 10), x > 5), x * 2)) -> Expected: 12 (first matches 6, 6 * 2 = 12)
@@ -414,8 +549,12 @@ async fn test_map_reduce_aggregate_optimizations() {
         }
     });
 
-    let bytecode_first = compiler.compile(&contract_first_json).expect("Compilation failed");
-    let res_first = vm.execute(&bytecode_first, &HashMap::new(), &HashMap::new()).await;
+    let bytecode_first = compiler
+        .compile(&contract_first_json)
+        .expect("Compilation failed");
+    let res_first = vm
+        .execute(&bytecode_first, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res_first, Ok(Value::Integer(12)));
 }
 
@@ -423,20 +562,32 @@ async fn test_map_reduce_aggregate_optimizations() {
 async fn test_path_splitting_load_as_of() {
     let backend = Arc::new(MemoryHistoryBackend::new());
     // Write directly to "technician" store
-    backend.write_history("technician", "2026-05-01T00:00:00Z", Value::String(Arc::from("tech42-data"))).await;
+    backend
+        .write_history(
+            "technician",
+            "2026-05-01T00:00:00Z",
+            Value::String(Arc::from("tech42-data")),
+        )
+        .await;
 
     let vm = VM::new(Some(backend.clone()));
 
     let instructions = vec![
-        Instruction::new(OP_LOAD_AS_OF, vec![
-            Value::String(Arc::from("technician/tech42")),
-            Value::String(Arc::from("as_of")),
-        ]),
+        Instruction::new(
+            OP_LOAD_AS_OF,
+            vec![
+                Value::String(Arc::from("technician/tech42")),
+                Value::String(Arc::from("as_of")),
+            ],
+        ),
         op_ret(),
     ];
 
     let mut inputs = HashMap::new();
-    inputs.insert("as_of".to_string(), Value::String(Arc::from("2026-05-10T12:00:00Z")));
+    inputs.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-05-10T12:00:00Z")),
+    );
     let res = vm.execute(&instructions, &inputs, &HashMap::new()).await;
     // Should fallback to "technician" and retrieve "tech42-data"
     assert_eq!(res, Ok(Value::String(Arc::from("tech42-data"))));
@@ -469,7 +620,9 @@ async fn test_new_opcodes_and_literals() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     let vm = VM::new(None);
 
@@ -523,18 +676,25 @@ async fn test_new_opcodes_array_record_unary_call() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
 
     // The output should be a record with keys "flag" and "items"
     let mut expected_map = std::collections::BTreeMap::new();
     expected_map.insert("flag".to_string(), Value::Bool(true));
-    expected_map.insert("items".to_string(), Value::Array(Arc::new(vec![
-        Value::String(Arc::from("hello")),
-        Value::String(Arc::from("world")),
-    ])));
+    expected_map.insert(
+        "items".to_string(),
+        Value::Array(Arc::new(vec![
+            Value::String(Arc::from("hello")),
+            Value::String(Arc::from("world")),
+        ])),
+    );
     assert_eq!(res, Ok(Value::Record(Arc::new(expected_map))));
 }
 
@@ -561,10 +721,14 @@ async fn test_new_opcodes_concat_and_call() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res, Ok(Value::String(Arc::from("foobar"))));
 }
 
@@ -605,18 +769,23 @@ async fn test_category3_missing_kinds() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await.unwrap();
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await
+        .unwrap();
 
     let mut expected_map = std::collections::BTreeMap::new();
     expected_map.insert("negated".to_string(), Value::Integer(-42));
     expected_map.insert("joined".to_string(), Value::String(Arc::from("val:100")));
-    expected_map.insert("list".to_string(), Value::Array(Arc::new(vec![
-        Value::Integer(1),
-        Value::Integer(2),
-    ])));
+    expected_map.insert(
+        "list".to_string(),
+        Value::Array(Arc::new(vec![Value::Integer(1), Value::Integer(2)])),
+    );
     assert_eq!(res, Value::Record(Arc::new(expected_map)));
 }
 
@@ -680,10 +849,15 @@ async fn test_higher_order_functions() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await.unwrap();
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await
+        .unwrap();
 
     // filter([1, 2, 3, 4], x > 1) -> [2, 3, 4]
     // map([2, 3, 4], y * 2) -> [4, 6, 8]
@@ -706,7 +880,9 @@ async fn test_modifier_pure_rejects_observation() {
     let mut compiler = Compiler::new();
     let res = compiler.compile(&contract_json);
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("OOF-M1: emit_observation is not allowed in pure or observed contracts"));
+    assert!(res
+        .unwrap_err()
+        .contains("OOF-M1: emit_observation is not allowed in pure or observed contracts"));
 }
 
 #[tokio::test]
@@ -724,7 +900,9 @@ async fn test_modifier_observed_rejects_observation() {
     let mut compiler = Compiler::new();
     let res = compiler.compile(&contract_json);
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("OOF-M1: emit_observation is not allowed in pure or observed contracts"));
+    assert!(res
+        .unwrap_err()
+        .contains("OOF-M1: emit_observation is not allowed in pure or observed contracts"));
 }
 
 #[tokio::test]
@@ -764,8 +942,7 @@ async fn test_modifier_irreversible_rejects_compensation() {
     let mut compiler = Compiler::new();
     let res = compiler.compile(&contract_json);
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("OOF-M1: compensation is not allowed in pure, observed, or irreversible contracts"));
+    assert!(res.unwrap_err().contains(
+        "OOF-M1: compensation is not allowed in pure, observed, or irreversible contracts"
+    ));
 }
-
-
-

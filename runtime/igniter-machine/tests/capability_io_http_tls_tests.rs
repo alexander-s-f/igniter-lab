@@ -13,7 +13,8 @@ use igniter_machine::capability::{
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::http::{
-    HttpCapabilityExecutor, HttpTransport, MapSecretProvider, SecretProvider, TlsLoopbackHttpTransport,
+    HttpCapabilityExecutor, HttpTransport, MapSecretProvider, SecretProvider,
+    TlsLoopbackHttpTransport,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -28,7 +29,10 @@ const KEY: &str = include_str!("fixtures/tls/key.pem"); // leaf server key
 const CA: &str = include_str!("fixtures/tls/ca.pem"); // trust anchor (trusted by the client)
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -49,7 +53,8 @@ fn no_secrets() -> Arc<dyn SecretProvider> {
 }
 /// Executor over a transport that TRUSTS the local test CA, external-profile + allow localhost.
 fn trusting_exec(secrets: Arc<dyn SecretProvider>) -> HttpCapabilityExecutor {
-    let t = Arc::new(TlsLoopbackHttpTransport::trusting_pem(CA.as_bytes())) as Arc<dyn HttpTransport>;
+    let t =
+        Arc::new(TlsLoopbackHttpTransport::trusting_pem(CA.as_bytes())) as Arc<dyn HttpTransport>;
     HttpCapabilityExecutor::new(CAP, t, secrets).external_profile(&["localhost"])
 }
 fn ereq(method: &str, url: &str, key: &str, extra: Value) -> EffectRequest {
@@ -59,7 +64,12 @@ fn ereq(method: &str, url: &str, key: &str, extra: Value) -> EffectRequest {
             o.insert(k.clone(), v.clone());
         }
     }
-    EffectRequest { capability_id: CAP.into(), idempotency_key: key.into(), authority_ref: None, args }
+    EffectRequest {
+        capability_id: CAP.into(),
+        idempotency_key: key.into(),
+        authority_ref: None,
+        args,
+    }
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -74,9 +84,23 @@ fn content_length(head: &str) -> usize {
 }
 
 fn tls_config() -> Arc<ServerConfig> {
-    let certs: Vec<Certificate> = rustls_pemfile::certs(&mut CERT.as_bytes()).unwrap().into_iter().map(Certificate).collect();
-    let key = PrivateKey(rustls_pemfile::pkcs8_private_keys(&mut KEY.as_bytes()).unwrap().remove(0));
-    Arc::new(ServerConfig::builder().with_safe_defaults().with_no_client_auth().with_single_cert(certs, key).unwrap())
+    let certs: Vec<Certificate> = rustls_pemfile::certs(&mut CERT.as_bytes())
+        .unwrap()
+        .into_iter()
+        .map(Certificate)
+        .collect();
+    let key = PrivateKey(
+        rustls_pemfile::pkcs8_private_keys(&mut KEY.as_bytes())
+            .unwrap()
+            .remove(0),
+    );
+    Arc::new(
+        ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .unwrap(),
+    )
 }
 
 /// A real local TLS HTTP/1.1 server. Records correlation ids; serves a fixed status/body.
@@ -120,7 +144,11 @@ async fn start_tls_server(status: u16, body: &str) -> (u16, Arc<Mutex<Vec<String
                         }
                     }
                 }
-                let resp = format!("HTTP/1.1 {status} S\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", body.len(), body);
+                let resp = format!(
+                    "HTTP/1.1 {status} S\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
                 let _ = tls.write_all(resp.as_bytes()).await;
                 // clean TLS close (send close_notify) so the client's read_to_end completes
                 // without a truncation error.
@@ -153,12 +181,35 @@ fn tls_handshake_succeeds_with_receipt_and_correlation() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(Arc::new(trusting_exec(no_secrets())));
 
-        let out = run_effect_with_passport(&reg, &receipts, &clock(), &passport(), "read", &ereq("GET", &format!("https://localhost:{port}/ping"), "t1", json!({})), RunMode::Live).await.unwrap();
+        let out = run_effect_with_passport(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "read",
+            &ereq(
+                "GET",
+                &format!("https://localhost:{port}/ping"),
+                "t1",
+                json!({}),
+            ),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Succeeded, "{:?}", out.failure_kind);
         assert_eq!(out.result["body"], json!("pong"));
 
-        assert_eq!(rec.lock().unwrap()[0], "corr-tls", "server received the correlation header");
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.HttpCapability:t1", f64::MAX).await.unwrap().unwrap();
+        assert_eq!(
+            rec.lock().unwrap()[0],
+            "corr-tls",
+            "server received the correlation header"
+        );
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.HttpCapability:t1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["correlation_id"], json!("corr-tls"));
     });
 }
@@ -171,10 +222,21 @@ fn invalid_cert_is_permanent() {
         let (port, _) = start_tls_server(200, "x").await;
         // a transport that trusts NOTHING extra → the self-signed cert is UnknownIssuer
         let t = Arc::new(TlsLoopbackHttpTransport::untrusting()) as Arc<dyn HttpTransport>;
-        let exec = HttpCapabilityExecutor::new(CAP, t, no_secrets()).external_profile(&["localhost"]);
-        let out = exec.execute(&ereq("GET", &format!("https://localhost:{port}/x"), "k", json!({}))).await;
+        let exec =
+            HttpCapabilityExecutor::new(CAP, t, no_secrets()).external_profile(&["localhost"]);
+        let out = exec
+            .execute(&ereq(
+                "GET",
+                &format!("https://localhost:{port}/x"),
+                "k",
+                json!({}),
+            ))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
-        assert!(out.failure_kind.unwrap().contains("certificate"), "bad cert → permanent security failure");
+        assert!(
+            out.failure_kind.unwrap().contains("certificate"),
+            "bad cert → permanent security failure"
+        );
     });
 }
 
@@ -184,7 +246,14 @@ fn invalid_cert_is_permanent() {
 fn transient_tls_error_is_retryable() {
     rt().block_on(async {
         let port = start_bad_tcp_server().await; // accepts then closes — not a TLS endpoint
-        let out = trusting_exec(no_secrets()).execute(&ereq("GET", &format!("https://localhost:{port}/x"), "k", json!({}))).await;
+        let out = trusting_exec(no_secrets())
+            .execute(&ereq(
+                "GET",
+                &format!("https://localhost:{port}/x"),
+                "k",
+                json!({}),
+            ))
+            .await;
         // a non-certificate handshake failure is transient → safe to retry
         assert_eq!(out.kind, OutcomeKind::Retryable);
     });
@@ -196,10 +265,14 @@ fn transient_tls_error_is_retryable() {
 fn non_allowlisted_and_plain_http_refused_before_connect() {
     rt().block_on(async {
         let exec = trusting_exec(no_secrets());
-        let nonallow = exec.execute(&ereq("GET", "https://evil.com/x", "k", json!({}))).await;
+        let nonallow = exec
+            .execute(&ereq("GET", "https://evil.com/x", "k", json!({})))
+            .await;
         assert_eq!(nonallow.kind, OutcomeKind::PermanentFailure);
 
-        let plain = trusting_exec(no_secrets()).execute(&ereq("GET", "http://localhost:9/x", "k", json!({}))).await;
+        let plain = trusting_exec(no_secrets())
+            .execute(&ereq("GET", "http://localhost:9/x", "k", json!({})))
+            .await;
         assert_eq!(plain.kind, OutcomeKind::PermanentFailure);
         assert!(plain.failure_kind.unwrap().contains("https"));
     });
@@ -211,7 +284,14 @@ fn non_allowlisted_and_plain_http_refused_before_connect() {
 fn redirect_not_followed() {
     rt().block_on(async {
         let (port, _) = start_tls_server(301, "").await;
-        let out = trusting_exec(no_secrets()).execute(&ereq("GET", &format!("https://localhost:{port}/x"), "k", json!({}))).await;
+        let out = trusting_exec(no_secrets())
+            .execute(&ereq(
+                "GET",
+                &format!("https://localhost:{port}/x"),
+                "k",
+                json!({}),
+            ))
+            .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
         assert!(out.failure_kind.unwrap().contains("redirect not followed"));
     });
@@ -226,11 +306,40 @@ fn replay_does_not_resend_over_tls() {
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(Arc::new(trusting_exec(no_secrets())));
-        let req = ereq("GET", &format!("https://localhost:{port}/x"), "r1", json!({}));
+        let req = ereq(
+            "GET",
+            &format!("https://localhost:{port}/x"),
+            "r1",
+            json!({}),
+        );
 
-        run_effect_with_passport(&reg, &receipts, &clock(), &passport(), "read", &req, RunMode::Live).await.unwrap();
-        run_effect_with_passport(&reg, &receipts, &clock(), &passport(), "read", &req, RunMode::Live).await.unwrap();
-        assert_eq!(rec.lock().unwrap().len(), 1, "replay must not open a second TLS connection");
+        run_effect_with_passport(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "read",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        run_effect_with_passport(
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "read",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rec.lock().unwrap().len(),
+            1,
+            "replay must not open a second TLS connection"
+        );
     });
 }
 
@@ -240,8 +349,16 @@ fn replay_does_not_resend_over_tls() {
 fn secrets_redacted_over_tls() {
     rt().block_on(async {
         let (port, _) = start_tls_server(200, "ok").await;
-        let secrets: Arc<dyn SecretProvider> = Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
-        let out = trusting_exec(secrets).execute(&ereq("GET", &format!("https://localhost:{port}/x"), "k", json!({ "headers": { "Authorization": "{{secret:tok}}" } }))).await;
+        let secrets: Arc<dyn SecretProvider> =
+            Arc::new(MapSecretProvider::new(&[("tok", "s3cr3t")]));
+        let out = trusting_exec(secrets)
+            .execute(&ereq(
+                "GET",
+                &format!("https://localhost:{port}/x"),
+                "k",
+                json!({ "headers": { "Authorization": "{{secret:tok}}" } }),
+            ))
+            .await;
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert!(!out.result.to_string().contains("s3cr3t"));
         assert_eq!(out.result["redacted_headers"], json!(["Authorization"]));

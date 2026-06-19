@@ -1,13 +1,13 @@
 // tests/vm_candidate_proof_tests.rs
 // Proof-local integration tests validating VMG-4 through VMG-12 matrix checks
 
+use igniter_vm::compiler::Compiler;
+use igniter_vm::instructions::*;
+use igniter_vm::tbackend::MemoryHistoryBackend;
+use igniter_vm::value::Value;
+use igniter_vm::vm::VM;
 use std::collections::HashMap;
 use std::sync::Arc;
-use igniter_vm::value::Value;
-use igniter_vm::instructions::*;
-use igniter_vm::compiler::Compiler;
-use igniter_vm::tbackend::MemoryHistoryBackend;
-use igniter_vm::vm::VM;
 
 // VMG-4: Decimal add/sub/mul/div delegation parity with R238 stdlib
 #[tokio::test]
@@ -16,22 +16,56 @@ async fn test_proof_vmg4_decimal_parity() {
 
     // Test Decimal Addition: 10.50 + 25.25 = 35.75
     let add_instr = vec![
-        Instruction::new(OP_PUSH_LIT, vec![Value::Decimal { value: 1050, scale: 2 }]),
-        Instruction::new(OP_PUSH_LIT, vec![Value::Decimal { value: 2525, scale: 2 }]),
+        Instruction::new(
+            OP_PUSH_LIT,
+            vec![Value::Decimal {
+                value: 1050,
+                scale: 2,
+            }],
+        ),
+        Instruction::new(
+            OP_PUSH_LIT,
+            vec![Value::Decimal {
+                value: 2525,
+                scale: 2,
+            }],
+        ),
         Instruction::new(OP_ADD, vec![]),
         Instruction::new(OP_RET, vec![]),
     ];
-    let res_add = vm.execute(&add_instr, &HashMap::new(), &HashMap::new()).await;
-    assert_eq!(res_add, Ok(Value::Decimal { value: 3575, scale: 2 }));
+    let res_add = vm
+        .execute(&add_instr, &HashMap::new(), &HashMap::new())
+        .await;
+    assert_eq!(
+        res_add,
+        Ok(Value::Decimal {
+            value: 3575,
+            scale: 2
+        })
+    );
 
     // Test Decimal Scale Mismatch (OOF-TC5): 10.50 + 2.5
     let err_instr = vec![
-        Instruction::new(OP_PUSH_LIT, vec![Value::Decimal { value: 1050, scale: 2 }]),
-        Instruction::new(OP_PUSH_LIT, vec![Value::Decimal { value: 25, scale: 1 }]),
+        Instruction::new(
+            OP_PUSH_LIT,
+            vec![Value::Decimal {
+                value: 1050,
+                scale: 2,
+            }],
+        ),
+        Instruction::new(
+            OP_PUSH_LIT,
+            vec![Value::Decimal {
+                value: 25,
+                scale: 1,
+            }],
+        ),
         Instruction::new(OP_ADD, vec![]),
         Instruction::new(OP_RET, vec![]),
     ];
-    let res_err = vm.execute(&err_instr, &HashMap::new(), &HashMap::new()).await;
+    let res_err = vm
+        .execute(&err_instr, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res_err.is_err());
     assert!(res_err.unwrap_err().contains("OOF-TC5"));
 }
@@ -55,7 +89,9 @@ async fn test_proof_vmg5_vmg6_compiler_and_stack_execution() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("AOT compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("AOT compilation failed");
 
     // Lowering must produce: PUSH_LIT(15), PUSH_LIT(35), ADD, RET
     assert_eq!(bytecode.len(), 4);
@@ -65,7 +101,9 @@ async fn test_proof_vmg5_vmg6_compiler_and_stack_execution() {
     assert_eq!(bytecode[3].opcode, OP_RET);
 
     let vm = VM::new(None);
-    let result = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let result = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(result, Ok(Value::Integer(50)));
 }
 
@@ -100,16 +138,18 @@ async fn test_proof_vmg7_vmg8_branch_selection_and_silence() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("AOT compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("AOT compilation failed");
     let vm = VM::new(None);
 
     // Case A: Selected Then Branch (cond_val = true)
     let mut inputs_true = HashMap::new();
     inputs_true.insert("cond_val".to_string(), Value::Bool(true));
-    
+
     let res_true = vm.execute(&bytecode, &inputs_true, &HashMap::new()).await;
     assert_eq!(res_true, Ok(Value::Integer(777)));
-    
+
     // Check observations: only then_branch_executed must be present
     let sink_true = vm.observation_sink.lock().await;
     assert_eq!(sink_true.len(), 1);
@@ -121,7 +161,9 @@ async fn test_proof_vmg7_vmg8_branch_selection_and_silence() {
     let mut inputs_false = HashMap::new();
     inputs_false.insert("cond_val".to_string(), Value::Bool(false));
 
-    let res_false = vm_false.execute(&bytecode, &inputs_false, &HashMap::new()).await;
+    let res_false = vm_false
+        .execute(&bytecode, &inputs_false, &HashMap::new())
+        .await;
     assert_eq!(res_false, Ok(Value::Integer(888)));
 
     // Verify silence: only else_branch_executed must be present, then_branch_executed is silent
@@ -140,11 +182,15 @@ async fn test_proof_vmg9_unsupported_fail_closed() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("AOT compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("AOT compilation failed");
     assert_eq!(bytecode[0].opcode, OP_UNSUPPORTED);
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("unsupported selected-path"));
 }
@@ -157,7 +203,9 @@ async fn test_proof_vmg10_malformed_input_unknown_opcode() {
     ];
 
     let vm = VM::new(None);
-    let res = vm.execute(&malformed_bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&malformed_bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("Unknown instruction opcode"));
 }
@@ -166,19 +214,27 @@ async fn test_proof_vmg10_malformed_input_unknown_opcode() {
 #[tokio::test]
 async fn test_proof_vmg11_hash_based_trace_identifiers() {
     let backend = Arc::new(MemoryHistoryBackend::new());
-    backend.write_history("metrics", "2026-06-01T00:00:00Z", Value::Integer(42)).await;
+    backend
+        .write_history("metrics", "2026-06-01T00:00:00Z", Value::Integer(42))
+        .await;
 
     let vm = VM::new(Some(backend));
     let bytecode = vec![
-        Instruction::new(OP_LOAD_AS_OF, vec![
-            Value::String(Arc::from("metrics")),
-            Value::String(Arc::from("as_of")),
-        ]),
+        Instruction::new(
+            OP_LOAD_AS_OF,
+            vec![
+                Value::String(Arc::from("metrics")),
+                Value::String(Arc::from("as_of")),
+            ],
+        ),
         Instruction::new(OP_RET, vec![]),
     ];
 
     let mut inputs = HashMap::new();
-    inputs.insert("as_of".to_string(), Value::String(Arc::from("2026-06-02T00:00:00Z")));
+    inputs.insert(
+        "as_of".to_string(),
+        Value::String(Arc::from("2026-06-02T00:00:00Z")),
+    );
 
     let res = vm.execute(&bytecode, &inputs, &HashMap::new()).await;
     assert_eq!(res, Ok(Value::Integer(42)));
@@ -187,7 +243,7 @@ async fn test_proof_vmg11_hash_based_trace_identifiers() {
     let sink = vm.observation_sink.lock().await;
     assert_eq!(sink.len(), 1);
     assert_eq!(sink[0]["kind"], "temporal_live_read_observation");
-    
+
     let trace_id = sink[0]["observation_id"].as_str().unwrap();
     assert!(trace_id.starts_with("obs/live-read/"));
     assert_eq!(trace_id.len(), 14 + 16); // "obs/live-read/" (14) + 16 hex chars
@@ -229,7 +285,9 @@ async fn test_proof_vmg12_map_reduce_aggregates() {
         Instruction::new(OP_RET, vec![]),
     ];
 
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res, Ok(Value::Integer(2)));
 }
 
@@ -273,10 +331,14 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation of BudgetedLocalLoop contract failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation of BudgetedLocalLoop contract failed");
 
     let vm = VM::new(None);
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res, Ok(Value::Integer(60)));
 
     // 2. BudgetedLocalLoop fuel exhaustion — max_steps=2, array length=3 → OOF-L-FUEL
@@ -310,8 +372,12 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
         ]
     });
 
-    let bad_bytecode = compiler.compile(&bad_contract_json).expect("Compilation failed");
-    let bad_res = vm.execute(&bad_bytecode, &HashMap::new(), &HashMap::new()).await;
+    let bad_bytecode = compiler
+        .compile(&bad_contract_json)
+        .expect("Compilation failed");
+    let bad_res = vm
+        .execute(&bad_bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(bad_res.is_err());
     assert!(bad_res.unwrap_err().contains("OOF-L-FUEL"));
 
@@ -351,8 +417,12 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
         ]
     });
 
-    let finite_bytecode = compiler.compile(&finite_contract_json).expect("Compilation of FiniteLoop failed");
-    let finite_res = vm.execute(&finite_bytecode, &HashMap::new(), &HashMap::new()).await;
+    let finite_bytecode = compiler
+        .compile(&finite_contract_json)
+        .expect("Compilation of FiniteLoop failed");
+    let finite_res = vm
+        .execute(&finite_bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(finite_res, Ok(Value::Integer(30))); // 5+10+15=30; collection_exhaustion terminates
 
     // 3. Service Loop test (Clock tick loading with field access tick.time)
@@ -383,16 +453,22 @@ async fn test_proof_vmg13_local_loops_and_service_loops() {
             }
         ]
     });
-    
-    let service_bytecode = compiler.compile(&service_contract_json).expect("Compilation failed");
+
+    let service_bytecode = compiler
+        .compile(&service_contract_json)
+        .expect("Compilation failed");
     let mut temporal_ctx = HashMap::new();
     temporal_ctx.insert("tick.time".to_string(), Value::Integer(1710000000));
-    
-    let service_res = vm.execute(&service_bytecode, &HashMap::new(), &temporal_ctx).await;
+
+    let service_res = vm
+        .execute(&service_bytecode, &HashMap::new(), &temporal_ctx)
+        .await;
     assert_eq!(service_res, Ok(Value::Nil));
 
     // 4. Service Loop tick unresolved error (OOF-SL1)
-    let bad_service_res = vm.execute(&service_bytecode, &HashMap::new(), &HashMap::new()).await;
+    let bad_service_res = vm
+        .execute(&service_bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert!(bad_service_res.is_err());
     assert!(bad_service_res.unwrap_err().contains("OOF-SL1"));
 }
@@ -416,10 +492,14 @@ async fn test_proof_vmg_tbackend_append_observation() {
     });
 
     let mut compiler = Compiler::new();
-    let bytecode = compiler.compile(&contract_json).expect("Compilation failed");
+    let bytecode = compiler
+        .compile(&contract_json)
+        .expect("Compilation failed");
 
     // Execute compiled bytecode
-    let res = vm.execute(&bytecode, &HashMap::new(), &HashMap::new()).await;
+    let res = vm
+        .execute(&bytecode, &HashMap::new(), &HashMap::new())
+        .await;
     assert_eq!(res, Ok(Value::String(Arc::from("payload-data"))));
 
     // Verify VM sink
@@ -432,9 +512,8 @@ async fn test_proof_vmg_tbackend_append_observation() {
     // Verify backend sink (connected VM-to-TBackend observation binding)
     let backend_sink = backend.observation_sink.read().await;
     assert_eq!(backend_sink.len(), 1);
-    
+
     let obs_json = backend_sink[0].to_json();
     assert_eq!(obs_json["kind"], "custom_audit_obs");
     assert_eq!(obs_json["value"], "payload-data");
 }
-

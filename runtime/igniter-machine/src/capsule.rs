@@ -26,7 +26,11 @@ impl CapsuleManager {
     }
 
     /// Freeze a live machine's current state into a named immutable capsule.
-    pub async fn snapshot(&mut self, name: &str, machine: &IgniterMachine) -> Result<(), EngineError> {
+    pub async fn snapshot(
+        &mut self,
+        name: &str,
+        machine: &IgniterMachine,
+    ) -> Result<(), EngineError> {
         let bytes = machine.checkpoint_bytes().await?;
         self.capsules.insert(name.to_string(), bytes);
         Ok(())
@@ -116,11 +120,18 @@ impl CapsuleManager {
         use std::collections::HashSet;
         let ida: HashSet<&str> = fa.iter().map(|f| f.id.as_str()).collect();
         let idb: HashSet<&str> = fb.iter().map(|f| f.id.as_str()).collect();
-        let summarize = |f: &Fact| {
-            serde_json::json!({ "store": f.store, "key": f.key, "value": f.value })
-        };
-        let added: Vec<_> = fb.iter().filter(|f| !ida.contains(f.id.as_str())).map(summarize).collect();
-        let removed: Vec<_> = fa.iter().filter(|f| !idb.contains(f.id.as_str())).map(summarize).collect();
+        let summarize =
+            |f: &Fact| serde_json::json!({ "store": f.store, "key": f.key, "value": f.value });
+        let added: Vec<_> = fb
+            .iter()
+            .filter(|f| !ida.contains(f.id.as_str()))
+            .map(summarize)
+            .collect();
+        let removed: Vec<_> = fa
+            .iter()
+            .filter(|f| !idb.contains(f.id.as_str()))
+            .map(summarize)
+            .collect();
         Ok(serde_json::json!({
             "a": a, "b": b,
             "a_facts": fa.len(), "b_facts": fb.len(),

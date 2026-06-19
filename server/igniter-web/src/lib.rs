@@ -36,26 +36,41 @@ pub struct IgWebBuildInput {
 pub enum IgWebBuildError {
     Io(String),
     /// `.igweb` lowering failure — carries the `.igweb` source line.
-    Lower { line: usize, message: String },
+    Lower {
+        line: usize,
+        message: String,
+    },
     /// generated/support `.ig` compile/load failure.
     Load(String),
 }
 
 /// Build an IgWeb app from explicit authored paths. Lowers every `.igweb` to generated `.ig`, then
 /// `IgniterMachine::load_program` over the combined module set; returns an erased `ServerApp`.
-pub fn build_igweb_app(input: IgWebBuildInput) -> Result<Arc<dyn ServerApp + Send + Sync>, IgWebBuildError> {
+pub fn build_igweb_app(
+    input: IgWebBuildInput,
+) -> Result<Arc<dyn ServerApp + Send + Sync>, IgWebBuildError> {
     let build_id = NEXT_BUILD_ID.fetch_add(1, Ordering::Relaxed);
-    let build_dir = std::env::temp_dir().join(format!("igweb_build_{}_{}_{}", std::process::id(), input.entry, build_id));
+    let build_dir = std::env::temp_dir().join(format!(
+        "igweb_build_{}_{}_{}",
+        std::process::id(),
+        input.entry,
+        build_id
+    ));
     std::fs::create_dir_all(&build_dir).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
 
     let mut ig_paths: Vec<String> = Vec::new();
     for (idx, src) in input.sources.iter().enumerate() {
         if src.extension().and_then(|e| e.to_str()) == Some("igweb") {
-            let text = std::fs::read_to_string(src).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
-            let generated = lower_igweb(&text).map_err(|e| IgWebBuildError::Lower { line: e.line, message: e.message })?;
+            let text =
+                std::fs::read_to_string(src).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+            let generated = lower_igweb(&text).map_err(|e| IgWebBuildError::Lower {
+                line: e.line,
+                message: e.message,
+            })?;
             let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("routes");
             let gen_path = build_dir.join(format!("{idx}_{stem}.generated.ig"));
-            std::fs::write(&gen_path, &generated).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+            std::fs::write(&gen_path, &generated)
+                .map_err(|e| IgWebBuildError::Io(e.to_string()))?;
             ig_paths.push(gen_path.to_string_lossy().to_string());
         } else {
             ig_paths.push(src.to_string_lossy().to_string());
@@ -64,15 +79,24 @@ pub fn build_igweb_app(input: IgWebBuildInput) -> Result<Arc<dyn ServerApp + Sen
 
     // P10: inject the shared IgWeb prelude (Request/Decision) so apps no longer author `web_types.ig`.
     let prelude_path = build_dir.join("igweb_prelude.ig");
-    std::fs::write(&prelude_path, igniter_compiler::igweb::PRELUDE_SOURCE).map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+    std::fs::write(&prelude_path, igniter_compiler::igweb::PRELUDE_SOURCE)
+        .map_err(|e| IgWebBuildError::Io(e.to_string()))?;
     ig_paths.push(prelude_path.to_string_lossy().to_string());
 
-    let machine = IgniterMachine::new(None, "in_memory").map_err(|e| IgWebBuildError::Load(format!("{e:?}")))?;
+    let machine = IgniterMachine::new(None, "in_memory")
+        .map_err(|e| IgWebBuildError::Load(format!("{e:?}")))?;
     machine
         .load_program(&ig_paths, &input.entry)
         .map_err(|e| IgWebBuildError::Load(format!("{e:?}")))?;
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| IgWebBuildError::Io(e.to_string()))?;
-    Ok(Arc::new(IgWebServerApp { machine, rt, entry: input.entry }))
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+    Ok(Arc::new(IgWebServerApp {
+        machine,
+        rt,
+        entry: input.entry,
+    }))
 }
 
 /// The erased IgWeb app: dispatches the entry contract through the loaded machine and maps the
@@ -94,7 +118,9 @@ impl ServerApp for IgWebServerApp {
         }});
         match self.rt.block_on(self.machine.dispatch(&self.entry, input)) {
             Ok(decision) => map_decision(&decision, req.correlation_id),
-            Err(e) => ServerDecision::Respond { response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })) },
+            Err(e) => ServerDecision::Respond {
+                response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
+            },
         }
     }
 }
@@ -118,19 +144,49 @@ fn variant_of(v: &Value) -> Option<(String, Value)> {
 fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecision {
     let (tag, fields) = match variant_of(decision) {
         Some(t) => t,
-        None => return ServerDecision::Respond { response: ServerResponse::json(500, json!({ "error": "unmapped decision", "raw": decision })) },
+        None => {
+            return ServerDecision::Respond {
+                response: ServerResponse::json(
+                    500,
+                    json!({ "error": "unmapped decision", "raw": decision }),
+                ),
+            }
+        }
     };
-    let get_str = |k: &str| fields.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let get_str = |k: &str| {
+        fields
+            .get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let get_i = |k: &str| fields.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
     match tag.as_str() {
-        "Respond" => ServerDecision::Respond { response: ServerResponse::json(get_i("status") as u16, json!({ "body": get_str("body") })) },
+        "Respond" => ServerDecision::Respond {
+            response: ServerResponse::json(
+                get_i("status") as u16,
+                json!({ "body": get_str("body") }),
+            ),
+        },
         "InvokeEffect" => ServerDecision::InvokeEffect {
             target: get_str("target"),
             input: json!({ "input": get_str("input") }),
             correlation_id,
-            idempotency_key: { let k = get_str("idempotency_key"); if k.is_empty() { None } else { Some(k) } },
+            idempotency_key: {
+                let k = get_str("idempotency_key");
+                if k.is_empty() {
+                    None
+                } else {
+                    Some(k)
+                }
+            },
         },
-        other => ServerDecision::Respond { response: ServerResponse::json(500, json!({ "error": format!("unknown decision tag: {other}"), "raw": decision })) },
+        other => ServerDecision::Respond {
+            response: ServerResponse::json(
+                500,
+                json!({ "error": format!("unknown decision tag: {other}"), "raw": decision }),
+            ),
+        },
     }
 }
 
@@ -214,34 +270,56 @@ pub mod runner {
             match arg.as_str() {
                 "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
                 "--addr" => {
-                    let value = iter.next().ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
                     addr = parse_loopback_addr(&value)?;
                 }
                 "--max-requests" => {
-                    let value = iter.next().ok_or_else(|| RunnerError::Cli("--max-requests requires a value".into()))?;
-                    let parsed = value.parse::<usize>().map_err(|_| RunnerError::Cli(format!("--max-requests expects an integer, got `{value}`")))?;
+                    let value = iter.next().ok_or_else(|| {
+                        RunnerError::Cli("--max-requests requires a value".into())
+                    })?;
+                    let parsed = value.parse::<usize>().map_err(|_| {
+                        RunnerError::Cli(format!(
+                            "--max-requests expects an integer, got `{value}`"
+                        ))
+                    })?;
                     if parsed == 0 {
-                        return Err(RunnerError::Cli("--max-requests must be greater than zero".into()));
+                        return Err(RunnerError::Cli(
+                            "--max-requests must be greater than zero".into(),
+                        ));
                     }
                     max_requests = Some(parsed);
                 }
-                value if value.starts_with('-') => return Err(RunnerError::Cli(format!("unknown option `{value}`"))),
+                value if value.starts_with('-') => {
+                    return Err(RunnerError::Cli(format!("unknown option `{value}`")))
+                }
                 value => {
                     if app_dir.is_some() {
-                        return Err(RunnerError::Cli(format!("unexpected extra app_dir `{value}`")));
+                        return Err(RunnerError::Cli(format!(
+                            "unexpected extra app_dir `{value}`"
+                        )));
                     }
                     app_dir = Some(PathBuf::from(value));
                 }
             }
         }
         let app_dir = app_dir.ok_or_else(|| RunnerError::Cli("missing <app_dir>".into()))?;
-        Ok(RunnerCliCommand::Run(RunnerCliOptions { app_dir, addr, max_requests }))
+        Ok(RunnerCliCommand::Run(RunnerCliOptions {
+            app_dir,
+            addr,
+            max_requests,
+        }))
     }
 
     fn parse_loopback_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
-        let addr = raw.parse::<SocketAddr>().map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))?;
+        let addr = raw
+            .parse::<SocketAddr>()
+            .map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))?;
         if !addr.ip().is_loopback() {
-            return Err(RunnerError::Cli(format!("--addr must be loopback-only, got `{raw}`")));
+            return Err(RunnerError::Cli(format!(
+                "--addr must be loopback-only, got `{raw}`"
+            )));
         }
         Ok(addr)
     }
@@ -263,7 +341,9 @@ pub mod runner {
                 }
                 continue;
             }
-            let (key, val) = line.split_once('=').ok_or_else(|| RunnerError::Manifest(format!("expected `key = value`, got `{line}`")))?;
+            let (key, val) = line.split_once('=').ok_or_else(|| {
+                RunnerError::Manifest(format!("expected `key = value`, got `{line}`"))
+            })?;
             let key = key.trim();
             let val = val.trim();
             match (section.as_str(), key) {
@@ -281,11 +361,15 @@ pub mod runner {
             }
         }
         if m.entry.is_empty() {
-            return Err(RunnerError::Manifest("missing required `[app] entry`".into()));
+            return Err(RunnerError::Manifest(
+                "missing required `[app] entry`".into(),
+            ));
         }
         if let Some(mode) = &m.server_mode {
             if mode != "loopback" {
-                return Err(RunnerError::Manifest(format!("[server] mode `{mode}` unsupported in v0 (only `loopback`)")));
+                return Err(RunnerError::Manifest(format!(
+                    "[server] mode `{mode}` unsupported in v0 (only `loopback`)"
+                )));
             }
         }
         Ok(m)
@@ -296,34 +380,53 @@ pub mod runner {
         if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
             Ok(v[1..v.len() - 1].to_string())
         } else {
-            Err(RunnerError::Manifest(format!("expected a quoted string, got `{v}`")))
+            Err(RunnerError::Manifest(format!(
+                "expected a quoted string, got `{v}`"
+            )))
         }
     }
     fn parse_str_array(v: &str) -> Result<Vec<String>, RunnerError> {
-        let inner = v.trim().strip_prefix('[').and_then(|s| s.strip_suffix(']')).ok_or_else(|| RunnerError::Manifest(format!("expected `[...]` array, got `{v}`")))?;
-        inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).map(parse_str).collect()
+        let inner = v
+            .trim()
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .ok_or_else(|| RunnerError::Manifest(format!("expected `[...]` array, got `{v}`")))?;
+        inner
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(parse_str)
+            .collect()
     }
     fn parse_bool(v: &str) -> Result<bool, RunnerError> {
         match v.trim() {
             "true" => Ok(true),
             "false" => Ok(false),
-            other => Err(RunnerError::Manifest(format!("expected true/false, got `{other}`"))),
+            other => Err(RunnerError::Manifest(format!(
+                "expected true/false, got `{other}`"
+            ))),
         }
     }
     fn parse_int(v: &str) -> Result<usize, RunnerError> {
-        v.trim().parse().map_err(|_| RunnerError::Manifest(format!("expected an integer, got `{}`", v.trim())))
+        v.trim()
+            .parse()
+            .map_err(|_| RunnerError::Manifest(format!("expected an integer, got `{}`", v.trim())))
     }
 
     /// Load `<app_dir>/igweb.toml`.
     pub fn load_manifest(app_dir: &Path) -> Result<IgwebManifest, RunnerError> {
         let path = app_dir.join("igweb.toml");
-        let text = std::fs::read_to_string(&path).map_err(|e| RunnerError::Io(format!("{}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| RunnerError::Io(format!("{}: {e}", path.display())))?;
         parse_manifest(&text)
     }
 
     /// Resolve sources relative to the app dir: explicit `[app] sources`, else all `*.ig` + `*.igweb`
     /// directly in the dir, sorted deterministically.
-    pub fn resolve_sources(app_dir: &Path, manifest: &IgwebManifest) -> Result<Vec<PathBuf>, RunnerError> {
+    pub fn resolve_sources(
+        app_dir: &Path,
+        manifest: &IgwebManifest,
+    ) -> Result<Vec<PathBuf>, RunnerError> {
         if let Some(list) = &manifest.sources {
             return Ok(list.iter().map(|s| app_dir.join(s)).collect());
         }
@@ -339,14 +442,20 @@ pub mod runner {
         }
         out.sort();
         if out.is_empty() {
-            return Err(RunnerError::Manifest(format!("no `.ig`/`.igweb` sources found in {}", app_dir.display())));
+            return Err(RunnerError::Manifest(format!(
+                "no `.ig`/`.igweb` sources found in {}",
+                app_dir.display()
+            )));
         }
         Ok(out)
     }
 
     /// Compose the P8 wrapper stack from the manifest: `BodyLimit -> Auth -> Trace -> app` (only the
     /// configured layers). Auth token is read from `auth_token_env` (env var), never from the manifest.
-    fn compose(mut app: Arc<dyn ServerApp + Send + Sync>, manifest: &IgwebManifest) -> Arc<dyn ServerApp + Send + Sync> {
+    fn compose(
+        mut app: Arc<dyn ServerApp + Send + Sync>,
+        manifest: &IgwebManifest,
+    ) -> Arc<dyn ServerApp + Send + Sync> {
         if manifest.trace {
             app = Arc::new(TraceApp::new(app));
         }
@@ -362,10 +471,16 @@ pub mod runner {
 
     /// The runner primitive: load the manifest, build the IgWeb app, compose middleware. Returns the
     /// composed (erased) app + the manifest. The server host (loop/listener/reload) is the caller's.
-    pub fn build_app_from_dir(app_dir: &Path) -> Result<(Arc<dyn ServerApp + Send + Sync>, IgwebManifest), RunnerError> {
+    pub fn build_app_from_dir(
+        app_dir: &Path,
+    ) -> Result<(Arc<dyn ServerApp + Send + Sync>, IgwebManifest), RunnerError> {
         let manifest = load_manifest(app_dir)?;
         let sources = resolve_sources(app_dir, &manifest)?;
-        let built = build_igweb_app(IgWebBuildInput { sources, entry: manifest.entry.clone() }).map_err(RunnerError::Build)?;
+        let built = build_igweb_app(IgWebBuildInput {
+            sources,
+            entry: manifest.entry.clone(),
+        })
+        .map_err(RunnerError::Build)?;
         Ok((compose(built, &manifest), manifest))
     }
 }
@@ -435,15 +550,28 @@ app TodoWeb entry Serve {
 
     /// Build the canonical Todo app via the builder (no hand-assembly).
     pub fn build_todo_app(tag: &str) -> Arc<dyn ServerApp + Send + Sync> {
-        build_igweb_app(IgWebBuildInput { sources: write_todo_fixtures(tag), entry: "Serve".into() }).expect("build todo app")
+        build_igweb_app(IgWebBuildInput {
+            sources: write_todo_fixtures(tag),
+            entry: "Serve".into(),
+        })
+        .expect("build todo app")
     }
 
     /// One raw loopback HTTP request through `host::serve_once(&listener, app)` → (status, body json).
-    pub fn roundtrip(app: &dyn ServerApp, method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, Value) {
+    pub fn roundtrip(
+        app: &dyn ServerApp,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (u16, Value) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         let (m, p, b) = (method.to_string(), path.to_string(), body.to_string());
-        let hs: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let hs: Vec<(String, String)> = headers
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         let client = thread::spawn(move || {
             let mut s = TcpStream::connect(&addr).unwrap();
             let mut req = format!("{m} {p} HTTP/1.1\r\nHost: x\r\n");
@@ -456,7 +584,11 @@ app TodoWeb entry Serve {
             let mut raw = Vec::new();
             s.read_to_end(&mut raw).unwrap();
             let text = String::from_utf8_lossy(&raw).to_string();
-            let status: u16 = text.split_whitespace().nth(1).and_then(|x| x.parse().ok()).unwrap_or(0);
+            let status: u16 = text
+                .split_whitespace()
+                .nth(1)
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
             let bs = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(text.len());
             let bj: Value = serde_json::from_str(text[bs..].trim()).unwrap_or(Value::Null);
             (status, bj)
@@ -468,10 +600,17 @@ app TodoWeb entry Serve {
     /// Minimal loopback GET → status (for reload proofs).
     pub fn http_get(addr: &str, path: &str) -> u16 {
         let mut s = TcpStream::connect(addr).unwrap();
-        s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n").as_bytes()).unwrap();
+        s.write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
         s.flush().unwrap();
         let mut raw = Vec::new();
         s.read_to_end(&mut raw).unwrap();
-        String::from_utf8_lossy(&raw).split_whitespace().nth(1).and_then(|x| x.parse().ok()).unwrap_or(0)
+        String::from_utf8_lossy(&raw)
+            .split_whitespace()
+            .nth(1)
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(0)
     }
 }

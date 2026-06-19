@@ -32,12 +32,12 @@ pub struct FrameBindingAction {
 /// Why a bound action did not execute. Distinct variants so the refusal is precise.
 #[derive(Debug, Clone)]
 pub enum FrameBindingRefusal {
-    BadArtifact(String),         // not parseable JSON
-    MissingDeclaration(String),  // gate 1: not in the manifest
-    NotRegistered(String),       // gate 2: not in the ContractRegistry
-    NoRecipe(String),            // no accepted recipe for the pool
+    BadArtifact(String),                               // not parseable JSON
+    MissingDeclaration(String),                        // gate 1: not in the manifest
+    NotRegistered(String),                             // gate 2: not in the ContractRegistry
+    NoRecipe(String),                                  // no accepted recipe for the pool
     RecipeMismatch { action: String, recipe: String }, // gate 3
-    Pool(PoolRefusal),           // the coordination invoke gate (passport / grant / production)
+    Pool(PoolRefusal), // the coordination invoke gate (passport / grant / production)
 }
 
 /// The outcome of `handle_action`.
@@ -68,17 +68,28 @@ pub struct FrameBindingBridge;
 
 impl FrameBindingBridge {
     /// Parse just `actions.<action_name>` from a ViewArtifact JSON string. No rendering/compiling.
-    pub fn parse_action(artifact_json: &str, action_name: &str) -> Result<FrameBindingAction, FrameBindingRefusal> {
-        let v: Value = serde_json::from_str(artifact_json).map_err(|e| FrameBindingRefusal::BadArtifact(e.to_string()))?;
+    pub fn parse_action(
+        artifact_json: &str,
+        action_name: &str,
+    ) -> Result<FrameBindingAction, FrameBindingRefusal> {
+        let v: Value = serde_json::from_str(artifact_json)
+            .map_err(|e| FrameBindingRefusal::BadArtifact(e.to_string()))?;
         let action = v
             .get("actions")
             .and_then(|a| a.get(action_name))
-            .ok_or_else(|| FrameBindingRefusal::MissingDeclaration(format!("actions.{action_name}")))?;
+            .ok_or_else(|| {
+                FrameBindingRefusal::MissingDeclaration(format!("actions.{action_name}"))
+            })?;
         let contract = action
             .get("contract")
             .and_then(|c| c.as_str())
-            .ok_or_else(|| FrameBindingRefusal::MissingDeclaration(format!("actions.{action_name}.contract")))?;
-        Ok(FrameBindingAction { name: action_name.to_string(), contract: contract.to_string() })
+            .ok_or_else(|| {
+                FrameBindingRefusal::MissingDeclaration(format!("actions.{action_name}.contract"))
+            })?;
+        Ok(FrameBindingAction {
+            name: action_name.to_string(),
+            contract: contract.to_string(),
+        })
     }
 
     /// Resolve + execute one declared action through the real coordination serving path.
@@ -102,7 +113,9 @@ impl FrameBindingBridge {
         };
         // gate 2: registered in the host ContractRegistry (declaration/metadata authority)
         if registry.get(&action.contract).is_none() {
-            return FrameBindingResult::Refused(FrameBindingRefusal::NotRegistered(action.contract));
+            return FrameBindingResult::Refused(FrameBindingRefusal::NotRegistered(
+                action.contract,
+            ));
         }
         // gate 3: the action contract must match the pool's accepted recipe entry contract
         match hub.read_recipe(pool_id).await {
@@ -114,7 +127,11 @@ impl FrameBindingBridge {
                     });
                 }
             }
-            None => return FrameBindingResult::Refused(FrameBindingRefusal::NoRecipe(pool_id.to_string())),
+            None => {
+                return FrameBindingResult::Refused(FrameBindingRefusal::NoRecipe(
+                    pool_id.to_string(),
+                ))
+            }
         }
         // execute: the REAL serving invoke — passport / grant / production gate enforced inside
         match hub.invoke(passport, pool_id, payload).await {

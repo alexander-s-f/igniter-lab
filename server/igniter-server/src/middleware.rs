@@ -40,13 +40,20 @@ impl<A: ServerApp> TraceApp<A> {
 
 impl<A: ServerApp> ServerApp for TraceApp<A> {
     fn call(&self, mut request: ServerRequest) -> ServerDecision {
-        let correlation_id = request.correlation_id.clone().unwrap_or_else(|| deterministic_correlation(&request));
+        let correlation_id = request
+            .correlation_id
+            .clone()
+            .unwrap_or_else(|| deterministic_correlation(&request));
         request.correlation_id = Some(correlation_id.clone());
-        request.headers.insert("x-correlation-id".to_string(), correlation_id.clone());
+        request
+            .headers
+            .insert("x-correlation-id".to_string(), correlation_id.clone());
 
         match self.inner.call(request) {
             ServerDecision::Respond { mut response } => {
-                response.headers.insert("x-correlation-id".to_string(), correlation_id);
+                response
+                    .headers
+                    .insert("x-correlation-id".to_string(), correlation_id);
                 ServerDecision::Respond { response }
             }
             other => other, // Invoke / InvokeEffect pass through unchanged (no effect identity touched).
@@ -64,7 +71,9 @@ fn deterministic_correlation(req: &ServerRequest) -> String {
     let mut h = DefaultHasher::new();
     req.method.hash(&mut h);
     req.path.hash(&mut h);
-    serde_json::to_vec(&req.body).unwrap_or_default().hash(&mut h);
+    serde_json::to_vec(&req.body)
+        .unwrap_or_default()
+        .hash(&mut h);
     format!("corr-{:016x}", h.finish())
 }
 
@@ -80,7 +89,10 @@ pub struct AuthTokenApp<A> {
 
 impl<A: ServerApp> AuthTokenApp<A> {
     pub fn new(inner: A, expected_token: impl Into<String>) -> Self {
-        Self { inner, expected_token: expected_token.into() }
+        Self {
+            inner,
+            expected_token: expected_token.into(),
+        }
     }
 }
 
@@ -93,9 +105,13 @@ impl<A: ServerApp> ServerApp for AuthTokenApp<A> {
             .unwrap_or(false);
 
         if !ok {
-            return ServerDecision::Respond { response: ServerResponse::json(401, json!({ "error": "unauthorized" })) };
+            return ServerDecision::Respond {
+                response: ServerResponse::json(401, json!({ "error": "unauthorized" })),
+            };
         }
-        request.headers.insert("x-auth-ok".to_string(), "true".to_string());
+        request
+            .headers
+            .insert("x-auth-ok".to_string(), "true".to_string());
         self.inner.call(request)
     }
 
@@ -121,9 +137,13 @@ impl<A: ServerApp> BodyLimitApp<A> {
 
 impl<A: ServerApp> ServerApp for BodyLimitApp<A> {
     fn call(&self, request: ServerRequest) -> ServerDecision {
-        let body_len = serde_json::to_vec(&request.body).map(|v| v.len()).unwrap_or(0);
+        let body_len = serde_json::to_vec(&request.body)
+            .map(|v| v.len())
+            .unwrap_or(0);
         if body_len > self.max_bytes {
-            return ServerDecision::Respond { response: ServerResponse::json(413, json!({ "error": "payload too large" })) };
+            return ServerDecision::Respond {
+                response: ServerResponse::json(413, json!({ "error": "payload too large" })),
+            };
         }
         self.inner.call(request)
     }

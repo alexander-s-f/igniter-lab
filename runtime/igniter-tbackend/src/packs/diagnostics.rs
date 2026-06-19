@@ -77,39 +77,51 @@ impl ServerPack for DiagnosticsPack {
         let command_reg = &mut *kernel.command_registry.write();
 
         // 1. Register "diagnostics_summary" Route
-        command_reg.register("diagnostics_summary", Arc::new(move |_req, kernel| {
-            let elapsed = BOOT_TIME.get().map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
-            let engines_map = kernel.engines.read();
-            let stores_list: Vec<String> = engines_map.keys().cloned().collect();
-            let total_facts: usize = engines_map.values().map(|e| e.log.size()).sum();
+        command_reg.register(
+            "diagnostics_summary",
+            Arc::new(move |_req, kernel| {
+                let elapsed = BOOT_TIME
+                    .get()
+                    .map(|t| t.elapsed().as_secs_f64())
+                    .unwrap_or(0.0);
+                let engines_map = kernel.engines.read();
+                let stores_list: Vec<String> = engines_map.keys().cloned().collect();
+                let total_facts: usize = engines_map.values().map(|e| e.log.size()).sum();
 
-            let base_telemetry = crate::packs::base_audit::AUDIT_METRICS
-                .get()
-                .map(|m| m.to_json())
-                .unwrap_or(serde_json::json!({}));
+                let base_telemetry = crate::packs::base_audit::AUDIT_METRICS
+                    .get()
+                    .map(|m| m.to_json())
+                    .unwrap_or(serde_json::json!({}));
 
-            let registered_routes: Vec<String> = kernel.command_registry.read().routes.keys().cloned().collect();
-            let background_count = kernel.background_services.read().len();
-            let middlewares_count = kernel.middleware_chain.read().middlewares.len();
+                let registered_routes: Vec<String> = kernel
+                    .command_registry
+                    .read()
+                    .routes
+                    .keys()
+                    .cloned()
+                    .collect();
+                let background_count = kernel.background_services.read().len();
+                let middlewares_count = kernel.middleware_chain.read().middlewares.len();
 
-            serde_json::json!({
-                "ok": true,
-                "summary": {
-                    "host": kernel.host,
-                    "port": kernel.port,
-                    "data_dir": kernel.data_dir.as_deref().unwrap_or("ephemeral"),
-                    "pool_size": kernel.pool_size,
-                    "uptime_seconds": elapsed,
-                    "total_stores": stores_list.len(),
-                    "registered_stores": stores_list,
-                    "total_facts_across_stores": total_facts,
-                    "registered_operations": registered_routes,
-                    "background_services_count": background_count,
-                    "middlewares_count": middlewares_count,
-                },
-                "telemetry": base_telemetry
-            })
-        }));
+                serde_json::json!({
+                    "ok": true,
+                    "summary": {
+                        "host": kernel.host,
+                        "port": kernel.port,
+                        "data_dir": kernel.data_dir.as_deref().unwrap_or("ephemeral"),
+                        "pool_size": kernel.pool_size,
+                        "uptime_seconds": elapsed,
+                        "total_stores": stores_list.len(),
+                        "registered_stores": stores_list,
+                        "total_facts_across_stores": total_facts,
+                        "registered_operations": registered_routes,
+                        "background_services_count": background_count,
+                        "middlewares_count": middlewares_count,
+                    },
+                    "telemetry": base_telemetry
+                })
+            }),
+        );
 
         // 2. Register "diagnostics_stores" Route
         command_reg.register("diagnostics_stores", Arc::new(move |req, kernel| {
@@ -131,7 +143,7 @@ impl ServerPack for DiagnosticsPack {
                 }
 
                 let max_version_depth = key_counts.values().cloned().max().unwrap_or(0);
-                
+
                 let mut wal_disk_bytes = 0;
                 let has_persistence = engine.wal.is_some();
                 if let Some(ref dir) = kernel.data_dir {

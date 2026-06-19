@@ -22,7 +22,10 @@ impl ServerApp for DemoApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         match (req.method.as_str(), req.path.as_str()) {
             ("GET", "/health") => ServerDecision::Respond {
-                response: ServerResponse::json(200, json!({ "ok": true, "service": "igniter-server" })),
+                response: ServerResponse::json(
+                    200,
+                    json!({ "ok": true, "service": "igniter-server" }),
+                ),
             },
             ("POST", p) if p.starts_with("/effect/") => ServerDecision::InvokeEffect {
                 target: "demo-effect".into(),

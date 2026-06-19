@@ -8,17 +8,18 @@
 use async_trait::async_trait;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::bridge_effect::ServiceEffectBridge;
-use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::capability::{
     CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EchoCapabilityExecutor,
     EffectOutcome, EffectRequest, RECEIPTS_STORE,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility, ServiceRecipe,
+    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility,
+    ServiceRecipe,
 };
 use igniter_machine::ingress::IngressRequest;
 use igniter_machine::machine::IgniterMachine;
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior, WriteState};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -27,7 +28,10 @@ use std::sync::Arc;
 const EFFECT_CAP: &str = "IO.RecordCapability";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
@@ -35,7 +39,13 @@ fn clock() -> Arc<dyn ClockProvider> {
 
 // ── coordination side (copied setup pattern from the recipe/BRIDGE tests) ──────
 
-const SCOPES: &[&str] = &["create_pool", "import_capsule", "grant_access", "accept_recipe", "invoke"];
+const SCOPES: &[&str] = &[
+    "create_pool",
+    "import_capsule",
+    "grant_access",
+    "accept_recipe",
+    "invoke",
+];
 
 fn coord_passport(subject: &str) -> CapabilityPassport {
     CapabilityPassport {
@@ -49,7 +59,15 @@ fn coord_passport(subject: &str) -> CapabilityPassport {
     }
 }
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 async fn add_capsule_bytes() -> Vec<u8> {
     let m = IgniterMachine::new(None, "in_memory").unwrap();
@@ -83,11 +101,30 @@ async fn served_hub() -> CoordinationHub {
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
     register(&mut h, "mallory", AgentKind::RuntimeActor).await;
-    h.create_pool(&coord_passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &coord_passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&coord_passport("alice"), "svc", bytes, vec![]).await.unwrap();
-    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id)).await.unwrap();
-    h.grant(&coord_passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    let cref = h
+        .add_capsule(&coord_passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
+    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id))
+        .await
+        .unwrap();
+    h.grant(
+        &coord_passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     h
 }
 
@@ -110,7 +147,12 @@ fn webhook(corr: &str, idem: Option<&str>, body: Value) -> IngressRequest {
     if let Some(k) = idem {
         headers.insert("idempotency-key".into(), k.into());
     }
-    IngressRequest { method: "POST".into(), path: "/svc".into(), headers, body }
+    IngressRequest {
+        method: "POST".into(),
+        path: "/svc".into(),
+        headers,
+        body,
+    }
 }
 fn receipts() -> Arc<dyn TBackend> {
     Arc::new(InMemoryBackend::new())
@@ -129,11 +171,24 @@ fn webhook_activates_capsule_and_performs_effect() {
         let ep = effect_passport();
         let sf = SingleFlight::new();
         let bridge = ServiceEffectBridge {
-            registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf,
-            capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into(),
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
         };
 
-        let out = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &webhook("corr-1", Some("idem-1"), json!({"a": 20, "b": 22}))).await;
+        let out = bridge
+            .serve(
+                &hub,
+                &coord_passport("vendor:acme"),
+                "svc",
+                &webhook("corr-1", Some("idem-1"), json!({"a": 20, "b": 22})),
+            )
+            .await;
         assert_eq!(out.status, 200);
         assert_eq!(out.write_state, Some(WriteState::Committed));
         assert_eq!(echo.call_count(), 1);
@@ -143,7 +198,11 @@ fn webhook_activates_capsule_and_performs_effect() {
         assert_eq!(out.body["result"]["correlation_id"], json!("corr-1"));
 
         // and a receipt exists carrying the correlation
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.RecordCapability:idem-1", f64::MAX).await.unwrap().unwrap();
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.RecordCapability:idem-1", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["state"], json!("committed"));
         assert_eq!(r.value["correlation_id"], json!("corr-1"));
     });
@@ -161,14 +220,31 @@ fn replay_webhook_performs_effect_once() {
         reg.register(echo.clone());
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let bridge = ServiceEffectBridge {
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
+        };
 
         let wh = webhook("corr-2", Some("idem-2"), json!({"a": 1, "b": 2}));
-        let a = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &wh).await;
-        let b = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &wh).await;
+        let a = bridge
+            .serve(&hub, &coord_passport("vendor:acme"), "svc", &wh)
+            .await;
+        let b = bridge
+            .serve(&hub, &coord_passport("vendor:acme"), "svc", &wh)
+            .await;
         assert_eq!(a.status, 200);
         assert_eq!(b.status, 200);
-        assert_eq!(echo.call_count(), 1, "the effect runs once despite the capsule re-activating");
+        assert_eq!(
+            echo.call_count(),
+            1,
+            "the effect runs once despite the capsule re-activating"
+        );
     });
 }
 
@@ -184,9 +260,25 @@ fn missing_idempotency_key_fails_closed() {
         reg.register(echo.clone());
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let bridge = ServiceEffectBridge {
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
+        };
 
-        let out = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &webhook("corr-3", None, json!({"a": 1, "b": 1}))).await;
+        let out = bridge
+            .serve(
+                &hub,
+                &coord_passport("vendor:acme"),
+                "svc",
+                &webhook("corr-3", None, json!({"a": 1, "b": 1})),
+            )
+            .await;
         assert_eq!(out.status, 400);
         assert_eq!(out.write_state, None);
         assert_eq!(echo.call_count(), 0, "no effect without an idempotency key");
@@ -205,12 +297,32 @@ fn unknown_effect_is_accepted_unknown() {
         reg.register(exec);
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let bridge = ServiceEffectBridge {
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
+        };
 
-        let out = bridge.serve(&hub, &coord_passport("vendor:acme"), "svc", &webhook("corr-4", Some("idem-4"), json!({"a": 5, "b": 5}))).await;
+        let out = bridge
+            .serve(
+                &hub,
+                &coord_passport("vendor:acme"),
+                "svc",
+                &webhook("corr-4", Some("idem-4"), json!({"a": 5, "b": 5})),
+            )
+            .await;
         assert_eq!(out.status, 202);
         assert_eq!(out.write_state, Some(WriteState::UnknownExternalState));
-        let r = receipts.read_as_of(RECEIPTS_STORE, "IO.RecordCapability:idem-4", f64::MAX).await.unwrap().unwrap();
+        let r = receipts
+            .read_as_of(RECEIPTS_STORE, "IO.RecordCapability:idem-4", f64::MAX)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(r.value["state"], json!("unknown_external_state"));
     });
 }
@@ -227,10 +339,26 @@ fn serving_refusal_performs_no_effect() {
         reg.register(echo.clone());
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let bridge = ServiceEffectBridge {
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
+        };
 
         // mallory is registered but NOT granted ActivateCapsule on the pool
-        let out = bridge.serve(&hub, &coord_passport("mallory"), "svc", &webhook("corr-5", Some("idem-5"), json!({"a": 1, "b": 1}))).await;
+        let out = bridge
+            .serve(
+                &hub,
+                &coord_passport("mallory"),
+                "svc",
+                &webhook("corr-5", Some("idem-5"), json!({"a": 1, "b": 1})),
+            )
+            .await;
         assert_eq!(out.status, 403, "serving refusal → 403, before any effect");
         assert_eq!(out.write_state, None);
         assert_eq!(echo.call_count(), 0);
@@ -266,12 +394,24 @@ fn concurrent_same_webhook_performs_effect_once() {
     rt().block_on(async {
         let hub = served_hub().await;
         let receipts = receipts();
-        let exec = Arc::new(SlowEcho { cap: EFFECT_CAP.into(), calls: AtomicU64::new(0) });
+        let exec = Arc::new(SlowEcho {
+            cap: EFFECT_CAP.into(),
+            calls: AtomicU64::new(0),
+        });
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
         let ep = effect_passport();
         let sf = SingleFlight::new();
-        let bridge = ServiceEffectBridge { registry: &reg, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf, capability_id: EFFECT_CAP.into(), operation: "record".into(), scope: "write".into() };
+        let bridge = ServiceEffectBridge {
+            registry: &reg,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: EFFECT_CAP.into(),
+            operation: "record".into(),
+            scope: "write".into(),
+        };
 
         // two concurrent webhooks carrying the SAME idempotency key
         let wh = webhook("corr-cc", Some("idem-cc"), json!({"a": 3, "b": 4}));
@@ -282,6 +422,10 @@ fn concurrent_same_webhook_performs_effect_once() {
 
         assert_eq!(a.status, 200);
         assert_eq!(b.status, 200);
-        assert_eq!(exec.calls.load(Ordering::SeqCst), 1, "the effect runs once for two concurrent same-key webhooks");
+        assert_eq!(
+            exec.calls.load(Ordering::SeqCst),
+            1,
+            "the effect runs once for two concurrent same-key webhooks"
+        );
     });
 }

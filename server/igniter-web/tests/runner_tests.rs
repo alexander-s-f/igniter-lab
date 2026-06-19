@@ -4,7 +4,10 @@
 
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
-use igniter_web::runner::{build_app_from_dir, parse_cli_args, parse_manifest, resolve_sources, RunnerCliCommand, RunnerError};
+use igniter_web::runner::{
+    build_app_from_dir, parse_cli_args, parse_manifest, resolve_sources, RunnerCliCommand,
+    RunnerError,
+};
 use igniter_web::testkit::{http_get, roundtrip, HANDLERS, IGWEB};
 use serde_json::json;
 use std::net::TcpListener;
@@ -44,11 +47,41 @@ fn parses_full_manifest() {
 
 #[test]
 fn rejects_missing_entry_effects_inline_secret_and_bad_mode() {
-    assert!(matches!(parse_manifest("[server]\nmode=\"loopback\"\n"), Err(RunnerError::Manifest(_))), "missing entry");
-    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[effects]\nx=\"y\"\n"), Err(RunnerError::Manifest(_))), "[effects] unsupported");
-    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[middleware]\nauth_token=\"hunter2\"\n"), Err(RunnerError::Manifest(_))), "inline secret forbidden");
-    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[server]\nmode=\"public\"\n"), Err(RunnerError::Manifest(_))), "non-loopback mode");
-    assert!(matches!(parse_manifest("[app]\nentry=\"S\"\nbogus=\"x\"\n"), Err(RunnerError::Manifest(_))), "unknown key");
+    assert!(
+        matches!(
+            parse_manifest("[server]\nmode=\"loopback\"\n"),
+            Err(RunnerError::Manifest(_))
+        ),
+        "missing entry"
+    );
+    assert!(
+        matches!(
+            parse_manifest("[app]\nentry=\"S\"\n[effects]\nx=\"y\"\n"),
+            Err(RunnerError::Manifest(_))
+        ),
+        "[effects] unsupported"
+    );
+    assert!(
+        matches!(
+            parse_manifest("[app]\nentry=\"S\"\n[middleware]\nauth_token=\"hunter2\"\n"),
+            Err(RunnerError::Manifest(_))
+        ),
+        "inline secret forbidden"
+    );
+    assert!(
+        matches!(
+            parse_manifest("[app]\nentry=\"S\"\n[server]\nmode=\"public\"\n"),
+            Err(RunnerError::Manifest(_))
+        ),
+        "non-loopback mode"
+    );
+    assert!(
+        matches!(
+            parse_manifest("[app]\nentry=\"S\"\nbogus=\"x\"\n"),
+            Err(RunnerError::Manifest(_))
+        ),
+        "unknown key"
+    );
 }
 
 // ── CLI polish ────────────────────────────────────────────────────────────────────────────────────
@@ -82,7 +115,14 @@ fn cli_defaults_to_loopback_ephemeral_addr() {
 
 #[test]
 fn cli_accepts_loopback_addr_and_max_override() {
-    let parsed = parse_cli_args(["--addr", "127.0.0.1:39555", "--max-requests", "2", "examples/todo_app"]).unwrap();
+    let parsed = parse_cli_args([
+        "--addr",
+        "127.0.0.1:39555",
+        "--max-requests",
+        "2",
+        "examples/todo_app",
+    ])
+    .unwrap();
     match parsed {
         RunnerCliCommand::Run(opts) => {
             assert_eq!(opts.addr.to_string(), "127.0.0.1:39555");
@@ -95,10 +135,31 @@ fn cli_accepts_loopback_addr_and_max_override() {
 
 #[test]
 fn cli_rejects_public_addr_zero_max_unknown_option_and_extra_app_dir() {
-    assert!(matches!(parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]), Err(RunnerError::Cli(_))), "public bind forbidden");
-    assert!(matches!(parse_cli_args(["--max-requests", "0", "examples/todo_app"]), Err(RunnerError::Cli(_))), "zero max rejected");
-    assert!(matches!(parse_cli_args(["--wat", "examples/todo_app"]), Err(RunnerError::Cli(_))), "unknown option rejected");
-    assert!(matches!(parse_cli_args(["one", "two"]), Err(RunnerError::Cli(_))), "extra app dir rejected");
+    assert!(
+        matches!(
+            parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "public bind forbidden"
+    );
+    assert!(
+        matches!(
+            parse_cli_args(["--max-requests", "0", "examples/todo_app"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "zero max rejected"
+    );
+    assert!(
+        matches!(
+            parse_cli_args(["--wat", "examples/todo_app"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "unknown option rejected"
+    );
+    assert!(
+        matches!(parse_cli_args(["one", "two"]), Err(RunnerError::Cli(_))),
+        "extra app dir rejected"
+    );
 }
 
 #[test]
@@ -114,10 +175,16 @@ fn missing_manifest_is_structured_error() {
 fn default_source_discovery_is_deterministic_and_excludes_toml() {
     let m = igniter_web::runner::load_manifest(&example_dir()).unwrap();
     let srcs = resolve_sources(&example_dir(), &m).unwrap();
-    let names: Vec<String> = srcs.iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect();
+    let names: Vec<String> = srcs
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
     assert!(names.contains(&"todo_handlers.ig".to_string()));
     assert!(names.contains(&"routes.igweb".to_string()));
-    assert!(!names.iter().any(|n| n.ends_with(".toml")), "toml is not a source");
+    assert!(
+        !names.iter().any(|n| n.ends_with(".toml")),
+        "toml is not a source"
+    );
     let mut sorted = names.clone();
     sorted.sort();
     assert_eq!(names, sorted, "deterministic (sorted) order");
@@ -126,7 +193,9 @@ fn default_source_discovery_is_deterministic_and_excludes_toml() {
 // ── the P10 Todo app runs from manifest, no authored Rust, no web_types.ig ──────────────────────────
 
 fn build_example() -> std::sync::Arc<dyn igniter_server::protocol::ServerApp + Send + Sync> {
-    build_app_from_dir(&example_dir()).expect("build from examples/todo_app/igweb.toml").0
+    build_app_from_dir(&example_dir())
+        .expect("build from examples/todo_app/igweb.toml")
+        .0
 }
 
 #[test]
@@ -135,13 +204,30 @@ fn runner_serves_p10_todo_behavior() {
     assert_eq!(roundtrip(&*app, "GET", "/health", &[], "").0, 200);
     let (s, body) = roundtrip(&*app, "GET", "/todos/42", &[], "");
     assert_eq!(s, 200);
-    assert_eq!(body["body"], json!("42"), "path param via generated regexp/capture");
-    assert_eq!(roundtrip(&*app, "POST", "/todos/42/done", &[], "").0, 400, "keyless → 400");
-    let (se, be) = roundtrip(&*app, "POST", "/todos/42/done", &[("idempotency-key", "evt-1")], "{}");
+    assert_eq!(
+        body["body"],
+        json!("42"),
+        "path param via generated regexp/capture"
+    );
+    assert_eq!(
+        roundtrip(&*app, "POST", "/todos/42/done", &[], "").0,
+        400,
+        "keyless → 400"
+    );
+    let (se, be) = roundtrip(
+        &*app,
+        "POST",
+        "/todos/42/done",
+        &[("idempotency-key", "evt-1")],
+        "{}",
+    );
     assert_eq!(se, 202);
     assert_eq!(be["target"], json!("todo-done"));
     assert_eq!(be["idempotency_key"], json!("evt-1"));
-    assert!(be.get("capability_id").is_none(), "manifest cannot smuggle effect identity");
+    assert!(
+        be.get("capability_id").is_none(),
+        "manifest cannot smuggle effect identity"
+    );
     assert!(be.get("scope").is_none());
     assert_eq!(roundtrip(&*app, "GET", "/missing", &[], "").0, 404);
     assert_eq!(roundtrip(&*app, "POST", "/health", &[], "").0, 405);
@@ -151,19 +237,44 @@ fn runner_serves_p10_todo_behavior() {
 
 #[test]
 fn manifest_body_limit_rejects_oversized() {
-    let dir = write_app("bodylimit", "[app]\nentry = \"Serve\"\n[middleware]\nbody_limit_bytes = 10\n");
+    let dir = write_app(
+        "bodylimit",
+        "[app]\nentry = \"Serve\"\n[middleware]\nbody_limit_bytes = 10\n",
+    );
     let (app, _m) = build_app_from_dir(&dir).unwrap();
     let big = "{\"x\":\"this is definitely longer than ten bytes\"}";
-    assert_eq!(roundtrip(&*app, "POST", "/todos", &[("idempotency-key", "k")], big).0, 413, "body limit from manifest applied before app");
+    assert_eq!(
+        roundtrip(&*app, "POST", "/todos", &[("idempotency-key", "k")], big).0,
+        413,
+        "body limit from manifest applied before app"
+    );
 }
 
 #[test]
 fn manifest_auth_env_short_circuits_then_passes() {
     std::env::set_var("RUNNER_TEST_TOK", "s3cret");
-    let dir = write_app("auth", "[app]\nentry = \"Serve\"\n[middleware]\nauth_token_env = \"RUNNER_TEST_TOK\"\n");
+    let dir = write_app(
+        "auth",
+        "[app]\nentry = \"Serve\"\n[middleware]\nauth_token_env = \"RUNNER_TEST_TOK\"\n",
+    );
     let (app, _m) = build_app_from_dir(&dir).unwrap();
-    assert_eq!(roundtrip(&*app, "GET", "/health", &[], "").0, 401, "no token → auth short-circuits");
-    assert_eq!(roundtrip(&*app, "GET", "/health", &[("authorization", "Bearer s3cret")], "").0, 200, "valid token passes");
+    assert_eq!(
+        roundtrip(&*app, "GET", "/health", &[], "").0,
+        401,
+        "no token → auth short-circuits"
+    );
+    assert_eq!(
+        roundtrip(
+            &*app,
+            "GET",
+            "/health",
+            &[("authorization", "Bearer s3cret")],
+            ""
+        )
+        .0,
+        200,
+        "valid token passes"
+    );
     std::env::remove_var("RUNNER_TEST_TOK");
 }
 
@@ -177,7 +288,14 @@ fn runner_full_path_over_serve_loop() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let reload_srv = reloadable.clone();
-    let server = thread::spawn(move || serve_loop(&listener, &reload_srv, &ServingPolicy::new(1).loopback_only()).unwrap());
+    let server = thread::spawn(move || {
+        serve_loop(
+            &listener,
+            &reload_srv,
+            &ServingPolicy::new(1).loopback_only(),
+        )
+        .unwrap()
+    });
     assert_eq!(http_get(&addr, "/health"), 200);
     let report = server.join().unwrap();
     assert_eq!(report.requests_served, 1);

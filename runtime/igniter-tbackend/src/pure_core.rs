@@ -1,12 +1,12 @@
 // src/pure_core.rs
 // FFI-free Pure Rust Bitemporal Ledger Core Engine
 
-use serde::{Deserialize, Serialize};
 use parking_lot::{Mutex, RwLock};
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 
 const SHARD_COUNT: usize = 128;
@@ -69,15 +69,16 @@ impl ShardedFactLog {
         }
     }
 
-
     pub fn push(&self, data: FactData) {
         let idx = self.get_shard_index(&data.store, &data.key);
         let mut shard = self.shards[idx].write();
         let k = (data.store.clone(), data.key.clone());
-        
+
         let list_idx = shard.by_key.entry(k.clone()).or_default().len();
-        shard.by_id.insert(data.id.clone(), (k.0.clone(), k.1.clone(), list_idx));
-        
+        shard
+            .by_id
+            .insert(data.id.clone(), (k.0.clone(), k.1.clone(), list_idx));
+
         shard.by_key.get_mut(&k).unwrap().push(data);
     }
 
@@ -86,7 +87,7 @@ impl ShardedFactLog {
         let shard = self.shards[idx].read();
         let k = (store.to_string(), key.to_string());
         let timeline = shard.by_key.get(&k)?;
-        
+
         // Pick the fact with the greatest transaction_time at or before `as_of`
         // (or the greatest overall when `as_of` is None). A linear scan is correct
         // regardless of insertion order — `push` appends in arrival order, which is
@@ -107,7 +108,13 @@ impl ShardedFactLog {
         }
     }
 
-    pub fn facts_for_key(&self, store: &str, key: &str, since: Option<f64>, as_of: Option<f64>) -> Vec<FactData> {
+    pub fn facts_for_key(
+        &self,
+        store: &str,
+        key: &str,
+        since: Option<f64>,
+        as_of: Option<f64>,
+    ) -> Vec<FactData> {
         let idx = self.get_shard_index(store, key);
         let shard = self.shards[idx].read();
         let k = (store.to_string(), key.to_string());
@@ -115,14 +122,14 @@ impl ShardedFactLog {
             Some(t) => t,
             None => return Vec::new(),
         };
-        
+
         let start_idx = since.map_or(0, |s| {
             timeline.partition_point(|fact| fact.transaction_time < s)
         });
         let end_idx = as_of.map_or(timeline.len(), |a| {
             timeline.partition_point(|fact| fact.transaction_time <= a)
         });
-        
+
         if start_idx < end_idx {
             timeline[start_idx..end_idx].to_vec()
         } else {
@@ -130,7 +137,12 @@ impl ShardedFactLog {
         }
     }
 
-    pub fn facts_for_store(&self, store: &str, since: Option<f64>, as_of: Option<f64>) -> Vec<FactData> {
+    pub fn facts_for_store(
+        &self,
+        store: &str,
+        since: Option<f64>,
+        as_of: Option<f64>,
+    ) -> Vec<FactData> {
         let mut results = Vec::new();
         for shard_lock in &self.shards {
             let shard = shard_lock.read();
@@ -148,11 +160,20 @@ impl ShardedFactLog {
                 }
             }
         }
-        results.sort_by(|a, b| a.transaction_time.partial_cmp(&b.transaction_time).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            a.transaction_time
+                .partial_cmp(&b.transaction_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 
-    pub fn query_scope(&self, store: &str, filters: &serde_json::Value, as_of: Option<f64>) -> Vec<FactData> {
+    pub fn query_scope(
+        &self,
+        store: &str,
+        filters: &serde_json::Value,
+        as_of: Option<f64>,
+    ) -> Vec<FactData> {
         let mut results = Vec::new();
         for shard_lock in &self.shards {
             let shard = shard_lock.read();
@@ -208,9 +229,9 @@ impl ShardedFactLog {
 
 fn matches_filters(value: &serde_json::Value, filters: &serde_json::Value) -> bool {
     match (value, filters) {
-        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => {
-            f.iter().all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv))
-        }
+        (serde_json::Value::Object(v), serde_json::Value::Object(f)) => f
+            .iter()
+            .all(|(k, fv)| v.get(k).map_or(false, |vv| vv == fv)),
         _ => false,
     }
 }
@@ -226,10 +247,7 @@ pub struct FileBackend(Mutex<FileBackendInner>);
 
 impl FileBackend {
     pub fn new_pure(path: &str) -> Result<Self, std::io::Error> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(FileBackend(Mutex::new(FileBackendInner {
             path: path.to_string(),
             writer: BufWriter::new(file),
@@ -237,11 +255,12 @@ impl FileBackend {
     }
 
     pub fn write_fact_data(&self, data: &FactData) -> Result<(), String> {
-        let body = rmp_serde::to_vec_named(data)
-            .map_err(|e| e.to_string())?;
+        let body = rmp_serde::to_vec_named(data).map_err(|e| e.to_string())?;
         let crc = crc32fast::hash(&body);
         let mut inner = self.0.lock();
-        inner.writer.write_all(&(body.len() as u32).to_be_bytes())
+        inner
+            .writer
+            .write_all(&(body.len() as u32).to_be_bytes())
             .and_then(|_| inner.writer.write_all(&body))
             .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
             .and_then(|_| inner.writer.flush())

@@ -15,7 +15,9 @@
 use crate::backend::TBackend;
 use crate::capability::RECEIPTS_STORE;
 use crate::clock::ClockProvider;
-use crate::correlation::{reconcile_unknown_by_correlation, CorrelationReconcileResult, CorrelationResolver};
+use crate::correlation::{
+    reconcile_unknown_by_correlation, CorrelationReconcileResult, CorrelationResolver,
+};
 use crate::errors::EngineError;
 use crate::reconcile::{reconcile_unknown_write, ReconcileResult};
 use crate::write::WriteState;
@@ -40,7 +42,9 @@ async fn latest_receipts(receipts: &Arc<dyn TBackend>) -> Result<Vec<Value>, Eng
         if f.store != RECEIPTS_STORE {
             continue;
         }
-        let e = latest.entry(f.key.clone()).or_insert((f64::NEG_INFINITY, Value::Null));
+        let e = latest
+            .entry(f.key.clone())
+            .or_insert((f64::NEG_INFINITY, Value::Null));
         if f.transaction_time >= e.0 {
             *e = (f.transaction_time, f.value);
         }
@@ -51,7 +55,10 @@ async fn latest_receipts(receipts: &Arc<dyn TBackend>) -> Result<Vec<Value>, Eng
 /// `(capability_id, idempotency_key)` if this receipt is dangling and reconcilable.
 fn dangling_key(v: &Value) -> Option<(String, String)> {
     let state = WriteState::from_str(v.get("state").and_then(|s| s.as_str()).unwrap_or(""));
-    if !matches!(state, WriteState::Prepared | WriteState::UnknownExternalState) {
+    if !matches!(
+        state,
+        WriteState::Prepared | WriteState::UnknownExternalState
+    ) {
         return None;
     }
     let cap = v.get("capability_id")?.as_str()?.to_string();
@@ -95,7 +102,9 @@ pub async fn recover_dangling_by_correlation(
             report.scanned += 1;
             match reconcile_unknown_by_correlation(receipts, resolver, clock, &cap, &idem).await? {
                 CorrelationReconcileResult::ResolvedCommitted => report.committed += 1,
-                CorrelationReconcileResult::ResolvedPermanentFailure => report.permanent_failure += 1,
+                CorrelationReconcileResult::ResolvedPermanentFailure => {
+                    report.permanent_failure += 1
+                }
                 _ => report.still_unknown += 1,
             }
         }

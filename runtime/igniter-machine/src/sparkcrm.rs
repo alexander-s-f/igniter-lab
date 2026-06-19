@@ -58,7 +58,15 @@ impl SparkCrmExecutor {
         })
     }
 
-    async fn http_call(&self, method: &str, url: String, headers: Value, body: &str, correlation: &str, key: &str) -> EffectOutcome {
+    async fn http_call(
+        &self,
+        method: &str,
+        url: String,
+        headers: Value,
+        body: &str,
+        correlation: &str,
+        key: &str,
+    ) -> EffectOutcome {
         let args = json!({
             "method": method,
             "url": url,
@@ -84,11 +92,20 @@ impl CapabilityExecutor for SparkCrmExecutor {
 
     /// Forward action. `req.args = { action, lead, correlation_id }`.
     async fn execute(&self, req: &EffectRequest) -> EffectOutcome {
-        let action = req.args.get("action").and_then(|a| a.as_str()).unwrap_or("");
-        let correlation = req.args.get("correlation_id").and_then(|c| c.as_str()).unwrap_or("");
+        let action = req
+            .args
+            .get("action")
+            .and_then(|a| a.as_str())
+            .unwrap_or("");
+        let correlation = req
+            .args
+            .get("correlation_id")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
         match action {
             "create_lead" => {
-                let body = serde_json::to_string(req.args.get("lead").unwrap_or(&Value::Null)).unwrap_or_else(|_| "{}".into());
+                let body = serde_json::to_string(req.args.get("lead").unwrap_or(&Value::Null))
+                    .unwrap_or_else(|_| "{}".into());
                 self.http_call(
                     "POST",
                     format!("{}/leads", self.base_url),
@@ -106,9 +123,15 @@ impl CapabilityExecutor for SparkCrmExecutor {
 
 /// Extract the created resource id from a forward receipt's recorded result body.
 fn lead_id_from_receipt(original_receipt: &Value) -> Option<String> {
-    let body = original_receipt.get("result").and_then(|r| r.get("body")).and_then(|b| b.as_str())?;
+    let body = original_receipt
+        .get("result")
+        .and_then(|r| r.get("body"))
+        .and_then(|b| b.as_str())?;
     let parsed: Value = serde_json::from_str(body).ok()?;
-    parsed.get("id").and_then(|i| i.as_str()).map(|s| s.to_string())
+    parsed
+        .get("id")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string())
 }
 
 #[async_trait]
@@ -121,10 +144,18 @@ impl CompensatableExecutor for SparkCrmExecutor {
     }
 
     /// Compensating action: cancel the previously created lead.
-    async fn compensate(&self, original_receipt: &Value, compensation_correlation_id: &str) -> EffectOutcome {
+    async fn compensate(
+        &self,
+        original_receipt: &Value,
+        compensation_correlation_id: &str,
+    ) -> EffectOutcome {
         let lead_id = match lead_id_from_receipt(original_receipt) {
             Some(id) => id,
-            None => return EffectOutcome::permanent("cannot compensate: no lead id in original receipt"),
+            None => {
+                return EffectOutcome::permanent(
+                    "cannot compensate: no lead id in original receipt",
+                )
+            }
         };
         let key = format!("cancel-{compensation_correlation_id}");
         self.http_call(

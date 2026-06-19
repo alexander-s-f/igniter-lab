@@ -100,7 +100,9 @@ async fn test_machine_checkpoint_and_resume() {
     let checkpoint_file = std::env::temp_dir().join(format!("image_{}.igm", uuid::Uuid::new_v4()));
     machine.checkpoint(&checkpoint_file).await.unwrap();
 
-    let machine2 = IgniterMachine::resume(&checkpoint_file, None, "in_memory").await.unwrap();
+    let machine2 = IgniterMachine::resume(&checkpoint_file, None, "in_memory")
+        .await
+        .unwrap();
 
     let inputs = json!({
         "a": 10,
@@ -168,7 +170,9 @@ async fn test_machine_cross_contract_dispatch() {
     }
     ";
 
-    machine.load_contract_source(source, "Orchestrator").unwrap();
+    machine
+        .load_contract_source(source, "Orchestrator")
+        .unwrap();
     let inputs = json!({ "n": 5 });
     let result = machine.dispatch("Orchestrator", inputs).await.unwrap();
     assert_eq!(result, json!(10)); // Helper(5) = 10
@@ -179,7 +183,10 @@ async fn test_machine_cross_contract_dispatch() {
 #[tokio::test]
 async fn test_machine_loads_multifile_app() {
     let machine = IgniterMachine::new(None, "in_memory").unwrap();
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/igniter-apps/web_router");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/igniter-apps/web_router"
+    );
     let paths: Vec<String> = ["example.ig", "serve.ig", "types.ig"]
         .iter()
         .map(|f| format!("{}/{}", base, f))
@@ -197,25 +204,26 @@ async fn test_machine_loads_multifile_app() {
 async fn test_machine_fleet_sweep() {
     let apps: &[(&str, &str)] = &[
         ("advanced_logistics", "RunDailyRoutesDemo"),
-        ("air_combat",         "RunDuel"),
-        ("audit_ledger",       "BalanceAsOfDay5"),
-        ("batch_importer",     "RunImport"),
-        ("call_router",        "RunConnectedMatched"),
-        ("erp_logistics",      "RunBestRoute"),
-        ("igniter_parser",     "RunParseDemo"),
-        ("job_runner",         "RunSuccessSecond"),
-        ("lead_router",        "RunAccept"),
-        ("query_engine",       "RunQuery"),
-        ("reconciler",         "RunReconcileLoop"),
-        ("vector_editor",      "RunCanvasClickDemo"),
-        ("web_router",         "RunArticle"),
+        ("air_combat", "RunDuel"),
+        ("audit_ledger", "BalanceAsOfDay5"),
+        ("batch_importer", "RunImport"),
+        ("call_router", "RunConnectedMatched"),
+        ("erp_logistics", "RunBestRoute"),
+        ("igniter_parser", "RunParseDemo"),
+        ("job_runner", "RunSuccessSecond"),
+        ("lead_router", "RunAccept"),
+        ("query_engine", "RunQuery"),
+        ("reconciler", "RunReconcileLoop"),
+        ("vector_editor", "RunCanvasClickDemo"),
+        ("web_router", "RunArticle"),
     ];
     let apps_base = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/igniter-apps");
     let mut failures: Vec<String> = Vec::new();
     let mut ok = 0;
     for (app, entry) in apps {
         let dir = format!("{}/{}", apps_base, app);
-        let paths: Vec<String> = std::fs::read_dir(&dir).unwrap()
+        let paths: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("ig"))
@@ -232,7 +240,11 @@ async fn test_machine_fleet_sweep() {
         }
     }
     println!("machine-fleet sweep: {}/{} ok", ok, apps.len());
-    assert!(failures.is_empty(), "machine↔CLI divergence:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "machine↔CLI divergence:\n{}",
+        failures.join("\n")
+    );
 }
 
 // Time-travel pressure: write fact versions OUT of transaction_time order, then read
@@ -260,10 +272,26 @@ async fn test_machine_time_travel_out_of_order() {
     machine.write_fact(mk(200.0, 20)).await.unwrap();
 
     let bal = |o: Option<Fact>| o.map(|f| f.value);
-    assert_eq!(bal(machine.read_fact("acct","a",50.0).await.unwrap()),  None,                       "as-of before first → None");
-    assert_eq!(bal(machine.read_fact("acct","a",150.0).await.unwrap()), Some(json!({"balance":10})), "as-of 150 → tt=100");
-    assert_eq!(bal(machine.read_fact("acct","a",250.0).await.unwrap()), Some(json!({"balance":20})), "as-of 250 → tt=200");
-    assert_eq!(bal(machine.read_fact("acct","a",350.0).await.unwrap()), Some(json!({"balance":30})), "as-of 350 → tt=300");
+    assert_eq!(
+        bal(machine.read_fact("acct", "a", 50.0).await.unwrap()),
+        None,
+        "as-of before first → None"
+    );
+    assert_eq!(
+        bal(machine.read_fact("acct", "a", 150.0).await.unwrap()),
+        Some(json!({"balance":10})),
+        "as-of 150 → tt=100"
+    );
+    assert_eq!(
+        bal(machine.read_fact("acct", "a", 250.0).await.unwrap()),
+        Some(json!({"balance":20})),
+        "as-of 250 → tt=200"
+    );
+    assert_eq!(
+        bal(machine.read_fact("acct", "a", 350.0).await.unwrap()),
+        Some(json!({"balance":30})),
+        "as-of 350 → tt=300"
+    );
 }
 
 // Bitemporal valid-axis (LAB-MACHINE-BITEMPORAL-AXIS-P1 route B): a late CORRECTION —
@@ -291,15 +319,50 @@ async fn test_machine_bitemporal_valid_axis() {
 
     let bal = |o: Option<Fact>| o.map(|f| f.value);
     // valid@15 known@100: effective at 15 (vt=10), latest correction known by 100 → 105
-    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(15.0),Some(100.0)).await.unwrap()), Some(json!({"balance":105})), "valid@15 known@100");
+    assert_eq!(
+        bal(machine
+            .read_bitemporal("acct", "a", Some(15.0), Some(100.0))
+            .await
+            .unwrap()),
+        Some(json!({"balance":105})),
+        "valid@15 known@100"
+    );
     // valid@15 known@30: correction (tt50) not yet known → original 100
-    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(15.0),Some(30.0)).await.unwrap()),  Some(json!({"balance":100})), "valid@15 known@30 (pre-correction)");
+    assert_eq!(
+        bal(machine
+            .read_bitemporal("acct", "a", Some(15.0), Some(30.0))
+            .await
+            .unwrap()),
+        Some(json!({"balance":100})),
+        "valid@15 known@30 (pre-correction)"
+    );
     // valid@25 known@100: effective at 25 = max valid_time<=25 (vt=20) → 200
-    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(25.0),Some(100.0)).await.unwrap()), Some(json!({"balance":200})), "valid@25");
+    assert_eq!(
+        bal(machine
+            .read_bitemporal("acct", "a", Some(25.0), Some(100.0))
+            .await
+            .unwrap()),
+        Some(json!({"balance":200})),
+        "valid@25"
+    );
     // valid@5: no version valid that early → None (strict, valid_time=None excluded too)
-    assert_eq!(bal(machine.read_bitemporal("acct","a",Some(5.0),Some(100.0)).await.unwrap()),  None, "valid@5 → none");
+    assert_eq!(
+        bal(machine
+            .read_bitemporal("acct", "a", Some(5.0), Some(100.0))
+            .await
+            .unwrap()),
+        None,
+        "valid@5 → none"
+    );
     // valid_at=None → transaction-time only = latest knowledge (tt50 → 105)
-    assert_eq!(bal(machine.read_bitemporal("acct","a",None,Some(100.0)).await.unwrap()),       Some(json!({"balance":105})), "valid_at=None → latest known");
+    assert_eq!(
+        bal(machine
+            .read_bitemporal("acct", "a", None, Some(100.0))
+            .await
+            .unwrap()),
+        Some(json!({"balance":105})),
+        "valid_at=None → latest known"
+    );
 }
 
 // Capsule bytes API (LAB-MACHINE-CAPSULE-MANAGER-P1 step 1): a capsule is an immutable
@@ -319,27 +382,58 @@ async fn test_machine_checkpoint_bytes_roundtrip() {
     ";
     m.load_contract_source(src, "Add").unwrap();
     // facts across stores/keys, written OUT of order (stresses the deterministic sort)
-    let facts = [("acct","b",30.0,3),("acct","a",10.0,1),("orders","x",20.0,2),("acct","a",5.0,0)];
+    let facts = [
+        ("acct", "b", 30.0, 3),
+        ("acct", "a", 10.0, 1),
+        ("orders", "x", 20.0, 2),
+        ("acct", "a", 5.0, 0),
+    ];
     for (s, k, tt, v) in facts {
         m.write_fact(Fact {
-            id: format!("{}-{}-{}", s, k, tt as i64), store: s.to_string(), key: k.to_string(),
-            value: json!({ "v": v }), value_hash: String::new(), causation: None,
-            transaction_time: tt, valid_time: None, schema_version: 1, producer: None, derivation: None,
-        }).await.unwrap();
+            id: format!("{}-{}-{}", s, k, tt as i64),
+            store: s.to_string(),
+            key: k.to_string(),
+            value: json!({ "v": v }),
+            value_hash: String::new(),
+            causation: None,
+            transaction_time: tt,
+            valid_time: None,
+            schema_version: 1,
+            producer: None,
+            derivation: None,
+        })
+        .await
+        .unwrap();
     }
     let bytes1 = m.checkpoint_bytes().await.unwrap();
-    let m2 = IgniterMachine::resume_bytes(&bytes1, None, "in_memory").await.unwrap();
+    let m2 = IgniterMachine::resume_bytes(&bytes1, None, "in_memory")
+        .await
+        .unwrap();
     let bytes2 = m2.checkpoint_bytes().await.unwrap();
     assert_eq!(bytes1, bytes2, "capsule byte-identical roundtrip");
 
     // the resumed frame still dispatches and preserves facts
-    assert_eq!(m2.dispatch("Add", json!({ "a": 2, "b": 3 })).await.unwrap(), json!(5));
-    assert_eq!(m2.read_fact("acct","a",100.0).await.unwrap().unwrap().value, json!({ "v": 1 }));
+    assert_eq!(
+        m2.dispatch("Add", json!({ "a": 2, "b": 3 })).await.unwrap(),
+        json!(5)
+    );
+    assert_eq!(
+        m2.read_fact("acct", "a", 100.0)
+            .await
+            .unwrap()
+            .unwrap()
+            .value,
+        json!({ "v": 1 })
+    );
 
     // file `.igm` == checkpoint_bytes (the two APIs agree)
     let f = std::env::temp_dir().join(format!("cap_{}.igm", uuid::Uuid::new_v4()));
     m.checkpoint(&f).await.unwrap();
-    assert_eq!(std::fs::read(&f).unwrap(), bytes1, "file .igm == checkpoint_bytes");
+    assert_eq!(
+        std::fs::read(&f).unwrap(),
+        bytes1,
+        "file .igm == checkpoint_bytes"
+    );
     let _ = std::fs::remove_file(&f);
 }
 
@@ -360,27 +454,65 @@ async fn test_capsule_filmstrip() {
     mgr.snapshot("base", &m).await.unwrap(); // frame: Add loaded, no balance fact
 
     let bal = |v: i64| Fact {
-        id: format!("b{}", v), store: "acct".to_string(), key: "a".to_string(),
-        value: json!({ "balance": v }), value_hash: String::new(), causation: None,
-        transaction_time: 1.0, valid_time: None, schema_version: 1, producer: None, derivation: None,
+        id: format!("b{}", v),
+        store: "acct".to_string(),
+        key: "a".to_string(),
+        value: json!({ "balance": v }),
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: 1.0,
+        valid_time: None,
+        schema_version: 1,
+        producer: None,
+        derivation: None,
     };
     mgr.fork("base", "hi", &[bal(1000)]).await.unwrap();
     mgr.fork("base", "lo", &[bal(10)]).await.unwrap();
 
     // filmstrip: same activation (read balance) across frames → divergence
-    let hi = mgr.instantiate("hi").await.unwrap().read_fact("acct","a",100.0).await.unwrap().unwrap();
-    let lo = mgr.instantiate("lo").await.unwrap().read_fact("acct","a",100.0).await.unwrap().unwrap();
+    let hi = mgr
+        .instantiate("hi")
+        .await
+        .unwrap()
+        .read_fact("acct", "a", 100.0)
+        .await
+        .unwrap()
+        .unwrap();
+    let lo = mgr
+        .instantiate("lo")
+        .await
+        .unwrap()
+        .read_fact("acct", "a", 100.0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(hi.value, json!({ "balance": 1000 }));
     assert_eq!(lo.value, json!({ "balance": 10 }));
 
     // base frame is IMMUTABLE — the forks did not touch it
-    assert!(mgr.instantiate("base").await.unwrap().read_fact("acct","a",100.0).await.unwrap().is_none(),
-            "base frame untouched by forks");
+    assert!(
+        mgr.instantiate("base")
+            .await
+            .unwrap()
+            .read_fact("acct", "a", 100.0)
+            .await
+            .unwrap()
+            .is_none(),
+        "base frame untouched by forks"
+    );
 
     // dispatch activation works on a resumed frame
-    assert_eq!(mgr.activate("hi", "Add", json!({ "a": 2, "b": 3 })).await.unwrap(), json!(5));
+    assert_eq!(
+        mgr.activate("hi", "Add", json!({ "a": 2, "b": 3 }))
+            .await
+            .unwrap(),
+        json!(5)
+    );
 
-    assert_eq!(mgr.list(), vec!["base".to_string(), "hi".to_string(), "lo".to_string()]);
+    assert_eq!(
+        mgr.list(),
+        vec!["base".to_string(), "hi".to_string(), "lo".to_string()]
+    );
 }
 
 // Filmstrip activate_many (LAB-MACHINE-MCP-FILMSTRIP-P1): ONE request over N frames →
@@ -401,13 +533,17 @@ async fn test_capsule_activate_many() {
     };
 
     // one request (V, x=0) across both frames → divergence
-    let table = mgr.activate_many(&names, "V", json!({ "x": 0 }), false).await;
+    let table = mgr
+        .activate_many(&names, "V", json!({ "x": 0 }), false)
+        .await;
     assert_eq!(table.len(), 2);
     assert_eq!(out(&table, "big"), json!(1000));
     assert_eq!(out(&table, "small"), json!(10));
 
     // parallel mode → same results (frames immutable, no races)
-    let tp = mgr.activate_many(&names, "V", json!({ "x": 5 }), true).await;
+    let tp = mgr
+        .activate_many(&names, "V", json!({ "x": 5 }), true)
+        .await;
     assert_eq!(out(&tp, "big"), json!(1005));
     assert_eq!(out(&tp, "small"), json!(15));
 }

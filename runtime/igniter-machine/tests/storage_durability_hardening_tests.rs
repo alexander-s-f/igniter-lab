@@ -13,7 +13,7 @@ use igniter_machine::fact::Fact;
 use igniter_machine::recovery::recover_dangling_writes;
 use igniter_machine::retry_queue::{enqueue_retry, RETRY_QUEUE_STORE};
 use igniter_machine::write::{
-    payload_digest, value_digest, run_write_effect, FakeWriteExecutor, WriteBehavior, WriteRequest,
+    payload_digest, run_write_effect, value_digest, FakeWriteExecutor, WriteBehavior, WriteRequest,
     WriteState,
 };
 use serde_json::{json, Value};
@@ -71,7 +71,10 @@ fn prepared_fact(req: &WriteRequest, auth: &str) -> Fact {
     let store = req.payload["store"].as_str().unwrap();
     let key = req.payload["key"].as_str().unwrap();
     Fact {
-        id: format!("write-receipt:{}:{}:prepared", req.capability_id, req.idempotency_key),
+        id: format!(
+            "write-receipt:{}:{}:prepared",
+            req.capability_id, req.idempotency_key
+        ),
         store: RECEIPTS_STORE.into(),
         key: format!("{}:{}", req.capability_id, req.idempotency_key),
         value: json!({
@@ -81,17 +84,30 @@ fn prepared_fact(req: &WriteRequest, auth: &str) -> Fact {
             "target_key": key, "value_digest": value_digest(&req.payload["value"]),
             "correlation_id": "c", "state": "prepared", "result": Value::Null, "detail": Value::Null,
         }),
-        value_hash: String::new(), causation: None, transaction_time: 1.0, valid_time: None,
-        schema_version: 1, producer: None, derivation: None,
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: 1.0,
+        valid_time: None,
+        schema_version: 1,
+        producer: None,
+        derivation: None,
     }
 }
 fn target_fact(req: &WriteRequest) -> Fact {
     let store = req.payload["store"].as_str().unwrap().to_string();
     let key = req.payload["key"].as_str().unwrap().to_string();
     Fact {
-        id: format!("w:{store}:{key}"), store, key, value: req.payload["value"].clone(),
-        value_hash: String::new(), causation: None, transaction_time: 1.0, valid_time: None,
-        schema_version: 1, producer: None, derivation: None,
+        id: format!("w:{store}:{key}"),
+        store,
+        key,
+        value: req.payload["value"].clone(),
+        value_hash: String::new(),
+        causation: None,
+        transaction_time: 1.0,
+        valid_time: None,
+        schema_version: 1,
+        producer: None,
+        derivation: None,
     }
 }
 
@@ -135,12 +151,22 @@ async fn atomic_write_preserves_previous_version_on_failed_replace() {
     std::fs::write(store_dir.join(".k.mpk.999.tmp"), b"partial-garbage").unwrap();
     // Live .mpk must be a complete, valid file (the prior version is intact).
     let live = std::fs::read(store_dir.join("k.mpk")).unwrap();
-    assert!(rmp_serde::from_slice::<Vec<Fact>>(&live).is_ok(), "prior .mpk still valid");
+    assert!(
+        rmp_serde::from_slice::<Vec<Fact>>(&live).is_ok(),
+        "prior .mpk still valid"
+    );
 
     let re = MpkFileBackend::new(dir.clone()).unwrap();
-    assert!(re.corrupt_files().is_empty(), "leftover .tmp is not read as a fact file");
+    assert!(
+        re.corrupt_files().is_empty(),
+        "leftover .tmp is not read as a fact file"
+    );
     let all = re.facts_for("s", "k", None, None).await.unwrap();
-    assert_eq!(all.len(), 2, "both prior versions survive an interrupted replace");
+    assert_eq!(
+        all.len(),
+        2,
+        "both prior versions survive an interrupted replace"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -162,15 +188,37 @@ async fn receipt_prepare_torn_write_blocks_or_recovers_without_reexec() {
     } // drop = crash before the terminal receipt
     let receipts2 = be(&dir);
     let substrate2 = be(&sub);
-    let before = substrate2.facts_for("orders", "ord-torn", None, None).await.unwrap().len();
-    let report = recover_dangling_writes(&receipts2, &substrate2, &clock()).await.unwrap();
-    let after = substrate2.facts_for("orders", "ord-torn", None, None).await.unwrap().len();
+    let before = substrate2
+        .facts_for("orders", "ord-torn", None, None)
+        .await
+        .unwrap()
+        .len();
+    let report = recover_dangling_writes(&receipts2, &substrate2, &clock())
+        .await
+        .unwrap();
+    let after = substrate2
+        .facts_for("orders", "ord-torn", None, None)
+        .await
+        .unwrap()
+        .len();
 
-    assert_eq!(report.committed, 1, "dangling prepared reconciled to committed");
-    assert_eq!(before, after, "recovery never re-executes (substrate unchanged)");
+    assert_eq!(
+        report.committed, 1,
+        "dangling prepared reconciled to committed"
+    );
+    assert_eq!(
+        before, after,
+        "recovery never re-executes (substrate unchanged)"
+    );
     let state = receipts2
         .read_as_of(RECEIPTS_STORE, &format!("{CAP}:torn"), f64::MAX)
-        .await.unwrap().unwrap().value["state"].as_str().unwrap().to_string();
+        .await
+        .unwrap()
+        .unwrap()
+        .value["state"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(state, "committed");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -189,16 +237,27 @@ async fn receipt_spine_uses_hardened_factstore_path() {
     {
         let receipts = be(&dir);
         let res = run_write_effect(
-            &reg, &receipts, &clock(), &passport(), "write",
-            &write_req("spine", json!({ "q": 1 })), RunMode::Live,
-        ).await.unwrap();
+            &reg,
+            &receipts,
+            &clock(),
+            &passport(),
+            "write",
+            &write_req("spine", json!({ "q": 1 })),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(res.state, WriteState::Committed);
     } // drop = crash
     let receipts2 = be(&dir);
     let r = receipts2
         .read_as_of(RECEIPTS_STORE, &format!("{CAP}:spine"), f64::MAX)
-        .await.unwrap();
-    assert!(r.is_some(), "committed receipt from the spine survives reopen");
+        .await
+        .unwrap();
+    assert!(
+        r.is_some(),
+        "committed receipt from the spine survives reopen"
+    );
     assert_eq!(r.unwrap().value["state"].as_str().unwrap(), "committed");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -210,22 +269,45 @@ async fn retry_queue_and_deadletter_survive_reopen() {
     let dir = tmp();
     {
         let receipts = be(&dir);
-        enqueue_retry(&receipts, &clock(), &write_req("rq", json!(1)), "write", "auth", 3, 10.0)
-            .await.unwrap();
+        enqueue_retry(
+            &receipts,
+            &clock(),
+            &write_req("rq", json!(1)),
+            "write",
+            "auth",
+            3,
+            10.0,
+        )
+        .await
+        .unwrap();
         // a dead-letter fact (same shape the orchestrator writes)
-        receipts.write_fact(Fact {
-            id: "__dead_letter__:receipt:dl".into(),
-            store: "__dead_letter__".into(),
-            key: "receipt:dl".into(),
-            value: json!({ "kind": "receipt", "key": "dl", "reason": "unresolved" }),
-            value_hash: String::new(), causation: None, transaction_time: 1.0, valid_time: None,
-            schema_version: 1, producer: None, derivation: None,
-        }).await.unwrap();
+        receipts
+            .write_fact(Fact {
+                id: "__dead_letter__:receipt:dl".into(),
+                store: "__dead_letter__".into(),
+                key: "receipt:dl".into(),
+                value: json!({ "kind": "receipt", "key": "dl", "reason": "unresolved" }),
+                value_hash: String::new(),
+                causation: None,
+                transaction_time: 1.0,
+                valid_time: None,
+                schema_version: 1,
+                producer: None,
+                derivation: None,
+            })
+            .await
+            .unwrap();
     } // drop = crash
     let re = be(&dir);
-    let rq = re.facts_for(RETRY_QUEUE_STORE, "rq", None, None).await.unwrap();
+    let rq = re
+        .facts_for(RETRY_QUEUE_STORE, "rq", None, None)
+        .await
+        .unwrap();
     assert!(!rq.is_empty(), "retry intent survived reopen");
-    let dl = re.facts_for("__dead_letter__", "receipt:dl", None, None).await.unwrap();
+    let dl = re
+        .facts_for("__dead_letter__", "receipt:dl", None, None)
+        .await
+        .unwrap();
     assert!(!dl.is_empty(), "dead-letter fact survived reopen");
 
     let _ = std::fs::remove_dir_all(&dir);

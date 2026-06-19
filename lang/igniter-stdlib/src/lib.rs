@@ -1,10 +1,10 @@
 // src/lib.rs
 // Entrypoint for the Igniter Standard Library (igniter-stdlib)
 
-pub mod decimal;
 pub mod collections;
-pub mod temporal;
+pub mod decimal;
 pub mod io;
+pub mod temporal;
 
 // Expose FFI compatible entrypoint for Decimal addition
 #[no_mangle]

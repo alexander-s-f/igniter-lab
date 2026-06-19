@@ -20,7 +20,11 @@ fn wireframe_renders_through_render_host_boundary() {
     let svg = rt.render_svg();
     // projection-heavy: 8 vertices + 12 edges drawn via the WireframeRenderHost (a RenderHost).
     assert_eq!(svg.matches("<line").count(), EDGES.len(), "12 cube edges");
-    assert_eq!(svg.matches("<circle").count(), VERTS.len(), "8 cube vertices");
+    assert_eq!(
+        svg.matches("<circle").count(),
+        VERTS.len(),
+        "8 cube vertices"
+    );
     assert!(svg.contains("viewBox=\"0 0 400 400\""));
 }
 
@@ -31,7 +35,11 @@ fn tick_advances_and_changes_the_frame() {
     assert_eq!(rt.frame_index(), 0);
     assert!(rt.tick());
     assert_eq!(rt.frame_index(), 1, "a tick advances the step");
-    assert_ne!(rt.render_digest(), before, "rotation changes the projected frame");
+    assert_ne!(
+        rt.render_digest(),
+        before,
+        "rotation changes the projected frame"
+    );
 }
 
 #[test]
@@ -39,7 +47,10 @@ fn world_tick_is_deterministic() {
     // Two independent runs of the same tick count → identical frame-digest sequences.
     let a = digest_sequence(40);
     let b = digest_sequence(40);
-    assert_eq!(a, b, "same start + same tick count → byte-identical frame digests");
+    assert_eq!(
+        a, b,
+        "same start + same tick count → byte-identical frame digests"
+    );
     assert_eq!(a.len(), 41);
 }
 
@@ -51,7 +62,10 @@ fn replay_is_byte_identical() {
     assert_eq!(recorded, replayed);
     // and the cube actually animated (not a frozen frame)
     let distinct: std::collections::HashSet<_> = recorded.iter().collect();
-    assert!(distinct.len() > 5, "the wireframe genuinely rotates over the run");
+    assert!(
+        distinct.len() > 5,
+        "the wireframe genuinely rotates over the run"
+    );
 }
 
 #[test]
@@ -73,6 +87,10 @@ fn reset_returns_to_initial_frame() {
     }
     assert_ne!(rt.render_digest(), initial);
     rt.reset();
-    assert_eq!(rt.render_digest(), initial, "reset reproduces the initial frame exactly");
+    assert_eq!(
+        rt.render_digest(),
+        initial,
+        "reset reproduces the initial frame exactly"
+    );
     assert_eq!(rt.frame_index(), 0);
 }

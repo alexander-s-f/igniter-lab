@@ -74,11 +74,25 @@ impl FrameSink for MemWorld {
 
 #[async_trait]
 impl IntentSink for MemWorld {
-    async fn record_input(&self, input: &InputEvent, input_receipt_id: &str, _now: f64) -> Result<(), FrameError> {
-        self.inputs.lock().unwrap().push((input_receipt_id.to_string(), input.clone()));
+    async fn record_input(
+        &self,
+        input: &InputEvent,
+        input_receipt_id: &str,
+        _now: f64,
+    ) -> Result<(), FrameError> {
+        self.inputs
+            .lock()
+            .unwrap()
+            .push((input_receipt_id.to_string(), input.clone()));
         Ok(())
     }
-    async fn apply(&self, intent: &Intent, _input_receipt_id: &str, _effect_receipt_id: &str, _now: f64) -> Result<(), FrameError> {
+    async fn apply(
+        &self,
+        intent: &Intent,
+        _input_receipt_id: &str,
+        _effect_receipt_id: &str,
+        _now: f64,
+    ) -> Result<(), FrameError> {
         let mut state = self.state.lock().unwrap();
         let deltas = (self.reducer)(intent, &state);
         for (id, val) in deltas {
@@ -104,7 +118,12 @@ pub struct HostFrame {
 }
 
 impl HostFrame {
-    fn of(frame: &Frame, svg_host: &SvgRenderHost, input: Option<String>, effect: Option<String>) -> Self {
+    fn of(
+        frame: &Frame,
+        svg_host: &SvgRenderHost,
+        input: Option<String>,
+        effect: Option<String>,
+    ) -> Self {
         Self {
             frame_index: frame.frame_index,
             svg: svg_host.render(frame),
@@ -137,7 +156,10 @@ pub async fn drive(
     viewport: &Viewport,
     pointer_log: &[(f64, f64)],
 ) -> Result<Vec<HostFrame>, FrameError> {
-    let svg_host = SvgRenderHost { width: viewport.frame_w, height: viewport.frame_h };
+    let svg_host = SvgRenderHost {
+        width: viewport.frame_w,
+        height: viewport.frame_h,
+    };
     let mut out = Vec::new();
 
     let f0 = project_frame(world, camera, 0, None).await?;
@@ -145,9 +167,28 @@ pub async fn drive(
 
     for (i, (cx, cy)) in pointer_log.iter().enumerate() {
         let (fx, fy) = viewport.pointer_to_frame(*cx, *cy); // real pointer → frame coords
-        let input = InputEvent { kind: "click".to_string(), x: fx, y: fy, payload: json!(null) };
-        let res = input_step(world, world, world, camera, &input, i as u64, 10.0 + i as f64).await?;
-        out.push(HostFrame::of(&res.frame_after, &svg_host, Some(res.input_receipt_id), res.effect_receipt_id));
+        let input = InputEvent {
+            kind: "click".to_string(),
+            x: fx,
+            y: fy,
+            payload: json!(null),
+        };
+        let res = input_step(
+            world,
+            world,
+            world,
+            camera,
+            &input,
+            i as u64,
+            10.0 + i as f64,
+        )
+        .await?;
+        out.push(HostFrame::of(
+            &res.frame_after,
+            &svg_host,
+            Some(res.input_receipt_id),
+            res.effect_receipt_id,
+        ));
     }
     Ok(out)
 }

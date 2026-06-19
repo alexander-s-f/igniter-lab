@@ -59,10 +59,19 @@ fn discovers_declared_effect_surface() {
     let s = discover_effect_surface(&m, "ExecuteQuery").unwrap();
     assert_eq!(s.modifier, "effect");
     assert!(!s.is_pure());
-    assert!(s.capabilities.iter().any(|(n, t)| n == "storage" && t == STORAGE_CAP));
-    assert!(s.effects.iter().any(|(n, r)| n == "read_file" && r == "storage"));
+    assert!(s
+        .capabilities
+        .iter()
+        .any(|(n, t)| n == "storage" && t == STORAGE_CAP));
+    assert!(s
+        .effects
+        .iter()
+        .any(|(n, r)| n == "read_file" && r == "storage"));
     // effect → capability type resolution (what the executor id must be)
-    assert_eq!(s.capability_type_for("read_file").as_deref(), Some(STORAGE_CAP));
+    assert_eq!(
+        s.capability_type_for("read_file").as_deref(),
+        Some(STORAGE_CAP)
+    );
     assert_eq!(s.capability_type_for("not_an_effect"), None);
 
     // a pure contract from the same program declares no effect surface
@@ -84,9 +93,14 @@ fn host_entrypoint_performs_declared_effect_and_writes_receipt() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
 
-        let out = run_service(&m, &reg, &host_req("read_file", "q1", json!({"key": "users"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "q1", json!({"key": "users"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(out.kind, OutcomeKind::Succeeded);
         assert_eq!(out.result, json!({"rows": 3}));
@@ -117,12 +131,21 @@ fn contract_body_does_not_perform_io() {
         // Dispatching the contract runs only the VM. The VM has NO access to the executor
         // registry by construction — so the contract body cannot perform the effect.
         let _ = m.dispatch("ExecuteQuery", json!({"plan": {}})).await;
-        assert_eq!(exec.call_count(), 0, "contract execution must not touch the executor");
+        assert_eq!(
+            exec.call_count(),
+            0,
+            "contract execution must not touch the executor"
+        );
 
         // Only the host entrypoint performs the effect.
-        run_service(&m, &reg, &host_req("read_file", "io1", json!({"key": "x"})), RunMode::Live)
-            .await
-            .unwrap();
+        run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "io1", json!({"key": "x"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(exec.call_count(), 1, "only the host entrypoint performs IO");
     });
 }
@@ -139,20 +162,39 @@ fn idempotency_and_replay_through_host() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
 
-        let first = run_service(&m, &reg, &host_req("read_file", "same", json!({"key": "k"})), RunMode::Live)
-            .await
-            .unwrap();
-        let second = run_service(&m, &reg, &host_req("read_file", "same", json!({"key": "k"})), RunMode::Live)
-            .await
-            .unwrap();
+        let first = run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "same", json!({"key": "k"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let second = run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "same", json!({"key": "k"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(first.result, json!("v"));
         assert_eq!(second.result, json!("v")); // replayed from receipt
-        assert_eq!(exec.call_count(), 1, "idempotency: executor runs once per key");
+        assert_eq!(
+            exec.call_count(),
+            1,
+            "idempotency: executor runs once per key"
+        );
 
         // replay mode reconstructs the typed response from the receipt, no executor
-        let replay = run_service(&m, &reg, &host_req("read_file", "same", json!({"key": "k"})), RunMode::Replay)
-            .await
-            .unwrap();
+        let replay = run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "same", json!({"key": "k"})),
+            RunMode::Replay,
+        )
+        .await
+        .unwrap();
         assert_eq!(replay.result, json!("v"));
         assert_eq!(exec.call_count(), 1);
     });
@@ -168,9 +210,14 @@ fn preflight_refuses_undeclared_effect() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec.clone());
 
-        let out = run_service(&m, &reg, &host_req("write_everything", "u1", json!({})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_service(
+            &m,
+            &reg,
+            &host_req("write_everything", "u1", json!({})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(exec.call_count(), 0);
         assert!(m
@@ -199,7 +246,11 @@ fn preflight_refuses_pure_contract() {
         };
         let out = run_service(&m, &reg, &req, RunMode::Live).await.unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied);
-        assert_eq!(exec.call_count(), 0, "pure contract declares no effect to perform");
+        assert_eq!(
+            exec.call_count(),
+            0,
+            "pure contract declares no effect to perform"
+        );
     });
 }
 
@@ -230,9 +281,14 @@ fn unregistered_capability_refused_before_executor() {
         let m = load_machine();
         // registry is EMPTY — the declared capability has no bound executor
         let reg = CapabilityExecutorRegistry::new();
-        let out = run_service(&m, &reg, &host_req("read_file", "n1", json!({"key": "x"})), RunMode::Live)
-            .await
-            .unwrap();
+        let out = run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "n1", json!({"key": "x"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(out.kind, OutcomeKind::Denied); // preflight: unknown capability
         assert!(m
             .storage
@@ -258,11 +314,18 @@ fn host_entrypoint_is_in_process_data_plane() {
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
 
-        run_service(&m, &reg, &host_req("read_file", "dp1", json!({"key": "k"})), RunMode::Live)
-            .await
-            .unwrap();
+        run_service(
+            &m,
+            &reg,
+            &host_req("read_file", "dp1", json!({"key": "k"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         let all = m.storage.all_facts().await.unwrap();
-        assert!(all.iter().any(|f| f.store == RECEIPTS_STORE && f.key == "IO.StorageCapability:dp1"));
+        assert!(all
+            .iter()
+            .any(|f| f.store == RECEIPTS_STORE && f.key == "IO.StorageCapability:dp1"));
     });
 }

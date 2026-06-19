@@ -1,14 +1,14 @@
 // src/packs/trigger.rs
 // Reactive Triggers & Dynamic Async Webhook Dispatcher Pack for TBackend
 
-use crate::kernel::{PackManifest, RequestMiddleware, ServerKernel, ServerPack, BackgroundService};
-use std::collections::HashMap;
-use std::net::TcpStream;
-use std::io::{Read, Write};
-use std::sync::{Arc, OnceLock};
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread;
+use crate::kernel::{BackgroundService, PackManifest, RequestMiddleware, ServerKernel, ServerPack};
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, OnceLock};
+use std::thread;
 use uuid::Uuid;
 
 // ── Trigger Domain Model & Registry ──────────────────────────────────────────
@@ -27,7 +27,9 @@ pub struct TriggerRegistry {
 
 impl TriggerRegistry {
     pub fn new() -> Self {
-        Self { triggers: HashMap::new() }
+        Self {
+            triggers: HashMap::new(),
+        }
     }
 }
 
@@ -60,7 +62,9 @@ fn parse_url(url: &str) -> Result<ParsedUrl, String> {
     let (host, port) = match host_port.find(':') {
         Some(idx) => {
             let h = host_port[..idx].to_string();
-            let p = host_port[idx+1..].parse::<u16>().map_err(|e| e.to_string())?;
+            let p = host_port[idx + 1..]
+                .parse::<u16>()
+                .map_err(|e| e.to_string())?;
             (h, p)
         }
         None => (host_port.to_string(), 80),
@@ -74,12 +78,16 @@ fn parse_url(url: &str) -> Result<ParsedUrl, String> {
 
 fn dispatch_webhook(url: &str, payload: &serde_json::Value) -> Result<(), String> {
     let parsed = parse_url(url)?;
-    
+
     let mut stream = TcpStream::connect(format!("{}:{}", parsed.host, parsed.port))
         .map_err(|e| e.to_string())?;
-        
-    stream.set_write_timeout(Some(std::time::Duration::from_secs(3))).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(3))).map_err(|e| e.to_string())?;
+
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .map_err(|e| e.to_string())?;
 
     let body = serde_json::to_string(payload).unwrap();
     let req_str = format!(
@@ -89,16 +97,21 @@ fn dispatch_webhook(url: &str, payload: &serde_json::Value) -> Result<(), String
          Content-Length: {}\r\n\
          Connection: close\r\n\r\n\
          {}",
-        parsed.path, parsed.host, body.len(), body
+        parsed.path,
+        parsed.host,
+        body.len(),
+        body
     );
 
-    stream.write_all(req_str.as_bytes()).map_err(|e| e.to_string())?;
+    stream
+        .write_all(req_str.as_bytes())
+        .map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())?;
-    
+
     // Read response header briefly to assert delivery success
     let mut resp_buf = [0u8; 1024];
     let _ = stream.read(&mut resp_buf);
-    
+
     Ok(())
 }
 
@@ -175,11 +188,20 @@ pub struct TriggerPackMiddleware {
 }
 
 impl RequestMiddleware for TriggerPackMiddleware {
-    fn before_request(&self, _req: &mut serde_json::Value, _kernel: &ServerKernel) -> Result<(), String> {
+    fn before_request(
+        &self,
+        _req: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn after_response(&self, req: &serde_json::Value, resp: &mut serde_json::Value, _kernel: &ServerKernel) {
+    fn after_response(
+        &self,
+        req: &serde_json::Value,
+        resp: &mut serde_json::Value,
+        _kernel: &ServerKernel,
+    ) {
         // Intercept successful write_fact operations
         let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
         if op == "write_fact" && resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
@@ -270,11 +292,14 @@ impl ServerPack for TriggerPack {
 
         // 3. Register command "trigger_list"
         let registry_c = self.registry.clone();
-        registry.register("trigger_list", Arc::new(move |_req, _kernel| {
-            let map = registry_c.read();
-            let list: Vec<Trigger> = map.triggers.values().cloned().collect();
-            serde_json::json!({ "ok": true, "triggers": list })
-        }));
+        registry.register(
+            "trigger_list",
+            Arc::new(move |_req, _kernel| {
+                let map = registry_c.read();
+                let list: Vec<Trigger> = map.triggers.values().cloned().collect();
+                serde_json::json!({ "ok": true, "triggers": list })
+            }),
+        );
 
         // 4. Register command "trigger_delete"
         let registry_c = self.registry.clone();
@@ -289,13 +314,19 @@ impl ServerPack for TriggerPack {
         }));
 
         // 5. Register Interception Middleware
-        kernel.middleware_chain.write().register(Arc::new(TriggerPackMiddleware {
-            registry: self.registry.clone(),
-        }));
+        kernel
+            .middleware_chain
+            .write()
+            .register(Arc::new(TriggerPackMiddleware {
+                registry: self.registry.clone(),
+            }));
 
         // 6. Register Background Dispatcher Thread
         let dispatcher = TriggerDispatcherService::new(rx);
-        kernel.background_services.write().push(Box::new(dispatcher));
+        kernel
+            .background_services
+            .write()
+            .push(Box::new(dispatcher));
 
         Ok(())
     }

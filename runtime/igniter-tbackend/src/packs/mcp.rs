@@ -2,12 +2,11 @@
 // Zero-dependency native stdio Model Context Protocol (MCP) server for TBackend
 
 use crate::kernel::{PackManifest, ServerKernel, ServerPack, ServerProfile};
+use serde_json::json;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::io::FromRawFd;
 use std::sync::Arc;
-use serde_json::json;
-
 
 pub struct McpPack;
 
@@ -33,7 +32,11 @@ impl ServerPack for McpPack {
     }
 }
 
-pub fn run_mcp_loop(kernel: Arc<ServerKernel>, profile: ServerProfile, original_stdout_fd: std::os::raw::c_int) {
+pub fn run_mcp_loop(
+    kernel: Arc<ServerKernel>,
+    profile: ServerProfile,
+    original_stdout_fd: std::os::raw::c_int,
+) {
     // 3. Create BufReader for stdin and Write for duplicated stdout
     let stdin = std::io::stdin();
     let stdin_lock = stdin.lock();
@@ -72,7 +75,10 @@ pub fn run_mcp_loop(kernel: Arc<ServerKernel>, profile: ServerProfile, original_
                 };
 
                 let method = request.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                let id = request.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                let id = request
+                    .get("id")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
 
                 match method {
                     "tools/list" => {
@@ -199,32 +205,66 @@ pub fn run_mcp_loop(kernel: Arc<ServerKernel>, profile: ServerProfile, original_
                     }
                     "tools/call" => {
                         let params = request.get("params");
-                        let tool_name = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()).unwrap_or("");
-                        let arguments = params.and_then(|p| p.get("arguments")).cloned().unwrap_or(json!({}));
+                        let tool_name = params
+                            .and_then(|p| p.get("name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let arguments = params
+                            .and_then(|p| p.get("arguments"))
+                            .cloned()
+                            .unwrap_or(json!({}));
 
                         // Translate Tool Call to standard TCP operation payload
                         let mut op_req = match tool_name {
                             "tbackend_write_fact" => {
-                                let store = arguments.get("store").cloned().unwrap_or(serde_json::Value::Null);
-                                let key = arguments.get("key").cloned().unwrap_or(serde_json::Value::Null);
-                                                                let value = arguments.get("value").cloned().unwrap_or(serde_json::Value::Null);
-                                let valid_time = arguments.get("valid_time").cloned().unwrap_or(serde_json::Value::Null);
-                                let producer = arguments.get("producer").cloned().unwrap_or(serde_json::Value::Null);
-                                let causation = arguments.get("causation").cloned().unwrap_or(serde_json::Value::Null);
-                                
+                                let store = arguments
+                                    .get("store")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                let key = arguments
+                                    .get("key")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                let value = arguments
+                                    .get("value")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                let valid_time = arguments
+                                    .get("valid_time")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                let producer = arguments
+                                    .get("producer")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                let causation = arguments
+                                    .get("causation")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+
                                 let id = arguments.get("id").cloned().unwrap_or_else(|| {
                                     serde_json::Value::String(uuid::Uuid::new_v4().to_string())
                                 });
 
-                                let tx_time = arguments.get("transaction_time").cloned().unwrap_or_else(|| {
-                                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
-                                    serde_json::json!(now)
-                                });
+                                let tx_time = arguments
+                                    .get("transaction_time")
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs_f64();
+                                        serde_json::json!(now)
+                                    });
 
-                                let val_hash = arguments.get("value_hash").cloned().unwrap_or_else(|| {
-                                    let val_str = serde_json::to_string(&value).unwrap_or_default();
-                                    serde_json::Value::String(blake3::hash(val_str.as_bytes()).to_hex().to_string())
-                                });
+                                let val_hash =
+                                    arguments.get("value_hash").cloned().unwrap_or_else(|| {
+                                        let val_str =
+                                            serde_json::to_string(&value).unwrap_or_default();
+                                        serde_json::Value::String(
+                                            blake3::hash(val_str.as_bytes()).to_hex().to_string(),
+                                        )
+                                    });
 
                                 let mut fact = json!({
                                     "id": id,
@@ -276,7 +316,7 @@ pub fn run_mcp_loop(kernel: Arc<ServerKernel>, profile: ServerProfile, original_
                                 r["op"] = json!("diagnostics_summary");
                                 r
                             }
-                            _ => json!({ "error": format!("Unsupported tool: {}", tool_name) })
+                            _ => json!({ "error": format!("Unsupported tool: {}", tool_name) }),
                         };
 
                         if op_req.get("error").is_some() {
@@ -306,7 +346,9 @@ pub fn run_mcp_loop(kernel: Arc<ServerKernel>, profile: ServerProfile, original_
                                 let op = op_req.get("op").and_then(|v| v.as_str()).unwrap_or("");
                                 match profile.command_registry.call(op, &op_req, &kernel) {
                                     Some(res) => res,
-                                    None => json!({ "ok": false, "error": format!("Unknown operation: {}", op) })
+                                    None => {
+                                        json!({ "ok": false, "error": format!("Unknown operation: {}", op) })
+                                    }
                                 }
                             };
 

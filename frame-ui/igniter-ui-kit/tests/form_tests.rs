@@ -23,7 +23,15 @@ fn typed(rt: &mut FormRuntime, s: &str) {
 fn component_tree_projects_to_frame_nodes() {
     let rt = FormRuntime::lead_intake();
     let svg = rt.render_svg();
-    for needle in ["New Lead", "Name", "Phone", "Source", "Qualified", "Submit", "select"] {
+    for needle in [
+        "New Lead",
+        "Name",
+        "Phone",
+        "Source",
+        "Qualified",
+        "Submit",
+        "select",
+    ] {
         assert!(svg.contains(needle), "missing component: {needle}");
     }
 }
@@ -33,7 +41,10 @@ fn focus_then_type_updates_value_through_reducer() {
     let mut rt = FormRuntime::lead_intake();
     assert!(rt.click(NAME.0, NAME.1), "clicking the field focuses it");
     typed(&mut rt, "Ada");
-    assert!(rt.render_svg().contains("Ada"), "value updated via the reducer, not the host");
+    assert!(
+        rt.render_svg().contains("Ada"),
+        "value updated via the reducer, not the host"
+    );
     assert_eq!(rt.frame_index(), 4, "focus + 3 keystrokes = 4 effects");
 }
 
@@ -50,7 +61,10 @@ fn checkbox_toggles_and_select_cycles() {
     assert!(rt.click(QUALIFIED.0, QUALIFIED.1));
     assert!(rt.render_svg().contains("[x] Qualified"));
     assert!(rt.click(SOURCE.0, SOURCE.1));
-    assert!(rt.render_svg().contains("web"), "select cycles to the first option");
+    assert!(
+        rt.render_svg().contains("web"),
+        "select cycles to the first option"
+    );
     rt.click(SOURCE.0, SOURCE.1);
     assert!(rt.render_svg().contains("referral"), "and to the next");
 }
@@ -60,8 +74,14 @@ fn submit_empty_shows_validation_from_state() {
     let mut rt = FormRuntime::lead_intake();
     assert!(rt.click(SUBMIT.0, SUBMIT.1));
     let svg = rt.render_svg();
-    assert!(svg.contains("required"), "empty required text fields flagged");
-    assert!(svg.contains("select one"), "unselected required select flagged");
+    assert!(
+        svg.contains("required"),
+        "empty required text fields flagged"
+    );
+    assert!(
+        svg.contains("select one"),
+        "unselected required select flagged"
+    );
     assert!(!svg.contains("lead submitted"), "not submitted");
 }
 
@@ -95,7 +115,11 @@ fn deterministic_replay_of_form_event_log() {
     };
     let mut a = FormRuntime::lead_intake();
     let mut b = FormRuntime::lead_intake();
-    assert_eq!(script(&mut a), script(&mut b), "same form event log → identical frames");
+    assert_eq!(
+        script(&mut a),
+        script(&mut b),
+        "same form event log → identical frames"
+    );
 }
 
 #[test]

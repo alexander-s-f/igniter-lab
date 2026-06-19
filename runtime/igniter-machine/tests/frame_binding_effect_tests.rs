@@ -9,7 +9,8 @@ use igniter_machine::capability::{
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility, ServiceRecipe,
+    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRight, PoolVisibility,
+    ServiceRecipe,
 };
 use igniter_machine::frame_binding::FrameBindingRefusal;
 use igniter_machine::frame_binding_effect::{FrameBindingEffectBridge, FrameBindingEffectRefusal};
@@ -23,13 +24,22 @@ use std::sync::Arc;
 const EFFECT_CAP: &str = "IO.FrameFixture";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
 }
 
-const SCOPES: &[&str] = &["create_pool", "import_capsule", "grant_access", "accept_recipe", "invoke"];
+const SCOPES: &[&str] = &[
+    "create_pool",
+    "import_capsule",
+    "grant_access",
+    "accept_recipe",
+    "invoke",
+];
 fn coord_passport(subject: &str) -> CapabilityPassport {
     CapabilityPassport {
         subject: subject.into(),
@@ -55,7 +65,15 @@ fn effect_passport(scope: &str) -> CapabilityPassport {
 }
 
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
-    h.register_agent(AgentIdentity { agent_id: id.into(), kind, label: id.into(), status: AgentStatus::Active, registered_at: 0.0 }).await.unwrap();
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
 }
 async fn add_capsule_bytes() -> Vec<u8> {
     let m = IgniterMachine::new(None, "in_memory").unwrap();
@@ -86,11 +104,30 @@ async fn served_hub() -> CoordinationHub {
     register(&mut h, "alice", AgentKind::Agent).await;
     register(&mut h, "dev", AgentKind::Developer).await;
     register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
-    h.create_pool(&coord_passport("alice"), "svc", "candidate", PoolVisibility::Private).await.unwrap();
+    h.create_pool(
+        &coord_passport("alice"),
+        "svc",
+        "candidate",
+        PoolVisibility::Private,
+    )
+    .await
+    .unwrap();
     let bytes = add_capsule_bytes().await;
-    let cref = h.add_capsule(&coord_passport("alice"), "svc", bytes, vec![]).await.unwrap();
-    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id)).await.unwrap();
-    h.grant(&coord_passport("dev"), "svc", "vendor:acme", PoolRight::ActivateCapsule).await.unwrap();
+    let cref = h
+        .add_capsule(&coord_passport("alice"), "svc", bytes, vec![])
+        .await
+        .unwrap();
+    h.accept_recipe(&coord_passport("dev"), "svc", recipe(&cref.capsule_id))
+        .await
+        .unwrap();
+    h.grant(
+        &coord_passport("dev"),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
     h
 }
 
@@ -103,7 +140,11 @@ fn receipts() -> Arc<dyn TBackend> {
     Arc::new(InMemoryBackend::new())
 }
 async fn receipt(receipts: &Arc<dyn TBackend>, key: &str) -> Option<Value> {
-    receipts.read_as_of(RECEIPTS_STORE, key, f64::MAX).await.unwrap().map(|f| f.value)
+    receipts
+        .read_as_of(RECEIPTS_STORE, key, f64::MAX)
+        .await
+        .unwrap()
+        .map(|f| f.value)
 }
 
 const ARTIFACT: &str = r#"{ "artifact":"view","layout":"workbench",
@@ -125,19 +166,41 @@ fn declared_action_invokes_capsule_then_performs_effect_with_receipt() {
         let contracts = registry_with_add();
         let ep = effect_passport("write");
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
         let out = bridge
-            .handle_effect_action(ARTIFACT, "record", json!({ "a": 20, "b": 22 }), "idem-1", &coord_passport("vendor:acme"), "svc", &hub)
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 20, "b": 22 }),
+                "idem-1",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
             .await
             .expect("happy path");
 
         // acceptance 1+3: real capsule result (20+22=42) + receipt state + receipt key
-        assert_eq!(out.invoke_result, json!(42), "the real capsule activation produced the value");
+        assert_eq!(
+            out.invoke_result,
+            json!(42),
+            "the real capsule activation produced the value"
+        );
         assert_eq!(out.receipt_state, WriteState::Committed);
         assert_eq!(out.receipt_key, "IO.FrameFixture:idem-1");
         // acceptance 2: a receipt fact exists in __receipts__
-        assert_eq!(receipt(&receipts, "IO.FrameFixture:idem-1").await.unwrap()["state"], json!("committed"));
+        assert_eq!(
+            receipt(&receipts, "IO.FrameFixture:idem-1").await.unwrap()["state"],
+            json!("committed")
+        );
         assert_eq!(echo.call_count(), 1, "the host executor ran exactly once");
     });
 }
@@ -153,12 +216,45 @@ fn replay_same_idempotency_key_runs_effect_once() {
         let contracts = registry_with_add();
         let ep = effect_passport("write");
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
         let p = || coord_passport("vendor:acme");
-        bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 1, "b": 2 }), "idem-2", &p(), "svc", &hub).await.unwrap();
-        bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 1, "b": 2 }), "idem-2", &p(), "svc", &hub).await.unwrap();
-        assert_eq!(echo.call_count(), 1, "the effect runs once despite the capsule re-activating");
+        bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 1, "b": 2 }),
+                "idem-2",
+                &p(),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 1, "b": 2 }),
+                "idem-2",
+                &p(),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            echo.call_count(),
+            1,
+            "the effect runs once despite the capsule re-activating"
+        );
     });
 }
 
@@ -173,13 +269,36 @@ fn malformed_effect_refuses_before_executor_no_receipt() {
         let contracts = registry_with_add();
         let ep = effect_passport("write");
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
         // the action is declared+registered (invoke runs) but it has NO effect block
-        let out = bridge.handle_effect_action(NO_EFFECT, "record", json!({ "a": 1, "b": 1 }), "idem-3", &coord_passport("vendor:acme"), "svc", &hub).await;
-        assert!(matches!(out, Err(FrameBindingEffectRefusal::MalformedEffect(_))));
+        let out = bridge
+            .handle_effect_action(
+                NO_EFFECT,
+                "record",
+                json!({ "a": 1, "b": 1 }),
+                "idem-3",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await;
+        assert!(matches!(
+            out,
+            Err(FrameBindingEffectRefusal::MalformedEffect(_))
+        ));
         assert_eq!(echo.call_count(), 0, "no effect executed");
-        assert!(receipt(&receipts, "IO.FrameFixture:idem-3").await.is_none(), "no receipt");
+        assert!(
+            receipt(&receipts, "IO.FrameFixture:idem-3").await.is_none(),
+            "no receipt"
+        );
     });
 }
 
@@ -196,12 +315,37 @@ fn the_effect_needs_its_own_host_authority() {
         let contracts = registry_with_add();
         let ep = effect_passport("read"); // WRONG scope for a write effect
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
-        let out = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 2, "b": 2 }), "idem-4", &coord_passport("vendor:acme"), "svc", &hub).await.unwrap();
-        assert_eq!(out.receipt_state, WriteState::Denied, "the effect authority gate refused");
+        let out = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 2, "b": 2 }),
+                "idem-4",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            out.receipt_state,
+            WriteState::Denied,
+            "the effect authority gate refused"
+        );
         assert_eq!(echo.call_count(), 0, "no effect ran without host authority");
-        assert!(receipt(&receipts, "IO.FrameFixture:idem-4").await.is_none(), "an authority refusal writes no receipt");
+        assert!(
+            receipt(&receipts, "IO.FrameFixture:idem-4").await.is_none(),
+            "an authority refusal writes no receipt"
+        );
     });
 }
 
@@ -217,10 +361,32 @@ fn unknown_external_state_maps_to_receipt_state_without_panic() {
         let contracts = registry_with_add();
         let ep = effect_passport("write");
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
-        let out = bridge.handle_effect_action(ARTIFACT, "record", json!({ "a": 9, "b": 1 }), "idem-5", &coord_passport("vendor:acme"), "svc", &hub).await.unwrap();
-        assert_eq!(out.receipt_state, WriteState::UnknownExternalState, "unknown fate surfaces as a state, not a panic");
+        let out = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "record",
+                json!({ "a": 9, "b": 1 }),
+                "idem-5",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            out.receipt_state,
+            WriteState::UnknownExternalState,
+            "unknown fate surfaces as a state, not a panic"
+        );
     });
 }
 
@@ -235,10 +401,32 @@ fn p17_declaration_gate_still_refuses_before_invoke() {
         let contracts = registry_with_add();
         let ep = effect_passport("write");
         let sf = SingleFlight::new();
-        let bridge = FrameBindingEffectBridge { contracts: &contracts, executors: &execs, receipts: &receipts, clock: &clock(), effect_passport: &ep, single_flight: &sf };
+        let bridge = FrameBindingEffectBridge {
+            contracts: &contracts,
+            executors: &execs,
+            receipts: &receipts,
+            clock: &clock(),
+            effect_passport: &ep,
+            single_flight: &sf,
+        };
 
-        let out = bridge.handle_effect_action(ARTIFACT, "not_declared", json!({}), "idem-6", &coord_passport("vendor:acme"), "svc", &hub).await;
-        assert!(matches!(out, Err(FrameBindingEffectRefusal::Binding(FrameBindingRefusal::MissingDeclaration(_)))));
+        let out = bridge
+            .handle_effect_action(
+                ARTIFACT,
+                "not_declared",
+                json!({}),
+                "idem-6",
+                &coord_passport("vendor:acme"),
+                "svc",
+                &hub,
+            )
+            .await;
+        assert!(matches!(
+            out,
+            Err(FrameBindingEffectRefusal::Binding(
+                FrameBindingRefusal::MissingDeclaration(_)
+            ))
+        ));
         assert_eq!(echo.call_count(), 0);
     });
 }

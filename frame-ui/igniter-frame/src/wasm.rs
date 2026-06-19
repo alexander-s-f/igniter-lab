@@ -20,7 +20,9 @@ impl WasmRuntime {
     /// Initialise the demo scene (a clickable entity between two static posts).
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmRuntime {
-        WasmRuntime { inner: FrameRuntime::demo() }
+        WasmRuntime {
+            inner: FrameRuntime::demo(),
+        }
     }
 
     /// Render the CURRENT frame to an SVG string (the host draws this verbatim).

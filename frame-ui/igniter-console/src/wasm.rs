@@ -14,7 +14,9 @@ pub struct WasmConsole {
 impl WasmConsole {
     /// Build a console around a ViewArtifact-authored workbench. Errors throw a JS string.
     pub fn from_artifact(json: &str) -> Result<WasmConsole, String> {
-        Console::from_artifact(json).map(|inner| WasmConsole { inner }).map_err(|e| e.to_string())
+        Console::from_artifact(json)
+            .map(|inner| WasmConsole { inner })
+            .map_err(|e| e.to_string())
     }
 
     /// Route a console-space pointer click (strip chip → scrub; viewer → forward to the target).

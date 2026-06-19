@@ -17,8 +17,8 @@
 //! never the contract. This is machine-host IO, NOT language IO.
 
 use crate::capability::{
-    run_effect_with_clock, run_effect_with_passport, CapabilityExecutorRegistry, CapabilityPassport,
-    EffectOutcome, EffectRequest, RunMode,
+    run_effect_with_clock, run_effect_with_passport, CapabilityExecutorRegistry,
+    CapabilityPassport, EffectOutcome, EffectRequest, RunMode,
 };
 use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;

@@ -7,7 +7,9 @@
 //! offline/in-memory/sanitized: no live SparkCRM, no network, no DB, no credentials.
 #![allow(dead_code)] // shared across two test binaries; each uses a subset.
 
-use igniter_server::protocol::{AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use igniter_server::protocol::{
+    AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
+};
 use serde_json::{json, Value};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -33,7 +35,11 @@ impl SparkCrmApp {
     /// by the capsule as `code = base + attempt`); the host injects `attempt`. Extra descriptive
     /// fields are carried for traceability — the capsule reads only what it declares.
     fn normalize_input(target: &str, body: &Value) -> Value {
-        let lead_id = body.get("lead").and_then(|l| l.get("external_id")).and_then(|v| v.as_str()).unwrap_or("unknown");
+        let lead_id = body
+            .get("lead")
+            .and_then(|l| l.get("external_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let value_cents = body.get("value_cents").and_then(|v| v.as_i64());
         let bid_cents = body.get("bid_amount_cents").and_then(|v| v.as_i64());
         match target {
@@ -111,12 +117,23 @@ impl ServerApp for SparkCrmApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
         let target = match Self::target_for(&req.method, &req.path) {
             Some(t) => t,
-            None => return ServerDecision::Respond { response: ServerResponse::json(404, json!({ "error": "no route" })) },
+            None => {
+                return ServerDecision::Respond {
+                    response: ServerResponse::json(404, json!({ "error": "no route" })),
+                }
+            }
         };
         // Keyless webhook → 400, ZERO effects (never silently treated as fresh).
         let key = match Self::extract_key(&req) {
             Some(k) => k,
-            None => return ServerDecision::Respond { response: ServerResponse::json(400, json!({ "error": "missing duplicate key" })) },
+            None => {
+                return ServerDecision::Respond {
+                    response: ServerResponse::json(
+                        400,
+                        json!({ "error": "missing duplicate key" }),
+                    ),
+                }
+            }
         };
         let input = Self::normalize_input(target, &req.body);
         ServerDecision::InvokeEffect {

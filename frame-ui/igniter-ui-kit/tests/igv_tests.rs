@@ -37,7 +37,10 @@ fn igv_lowers_to_existing_viewartifact_shape() {
     assert_eq!(fields[0]["kind"], "text");
     assert_eq!(fields[0]["required"], true);
     assert_eq!(fields[1]["id"], "stage");
-    assert_eq!(fields[1]["options"], serde_json::json!(["new", "qualified", "won"]));
+    assert_eq!(
+        fields[1]["options"],
+        serde_json::json!(["new", "qualified", "won"])
+    );
     assert_eq!(fields[2]["id"], "hot");
     assert_eq!(fields[2]["required"], false);
 }
@@ -67,13 +70,21 @@ fn lowering_is_deterministic_byte_stable() {
 fn igv_bound_source_runs_through_the_fixture_host() {
     // acceptance 2/4: the lowered JSON is accepted by the existing binding host, and the source runs
     let json = lower_igv(IGV).unwrap().to_string();
-    let mut host = BoundViewHost::from_artifact(&json, FixtureContractRegistry::lead_review()).expect("binding host accepts the lowered artifact");
-    assert_eq!(host.leads(), vec!["Ada", "Grace", "Linus"], "leads came from ListLeads via the lowered source");
+    let mut host = BoundViewHost::from_artifact(&json, FixtureContractRegistry::lead_review())
+        .expect("binding host accepts the lowered artifact");
+    assert_eq!(
+        host.leads(),
+        vec!["Ada", "Grace", "Linus"],
+        "leads came from ListLeads via the lowered source"
+    );
     assert_eq!(host.calls("ListLeads"), 1);
 
     // submit (empty Ada) → scoped validation through the lowered action's validate contract
     host.click(344.0, 224.0); // submit button
-    assert!(host.errors_for("Ada").is_some(), "the lowered action's validate ran");
+    assert!(
+        host.errors_for("Ada").is_some(),
+        "the lowered action's validate ran"
+    );
     assert!(host.last_receipt().is_none());
 }
 
@@ -91,16 +102,28 @@ fn invalid_igv_reports_stable_error() {
     let bad = "view x workbench {\n  field s select \"S\"\n  submit a\n}";
     assert!(matches!(lower_igv(bad), Err(IgvError { line: 2, .. })));
     // unknown statement
-    assert!(matches!(lower_igv("view x workbench {\n  wat\n}"), Err(IgvError { line: 2, .. })));
+    assert!(matches!(
+        lower_igv("view x workbench {\n  wat\n}"),
+        Err(IgvError { line: 2, .. })
+    ));
 }
 
 #[test]
 fn igv_lowers_equivalently_to_the_handwritten_bound_artifact() {
     // the lowered JSON drives the same workbench as the hand-written bound artifact (same leads+fields)
-    let from_igv = BoundViewHost::from_artifact(&lower_igv(IGV).unwrap().to_string(), FixtureContractRegistry::lead_review()).unwrap();
+    let from_igv = BoundViewHost::from_artifact(
+        &lower_igv(IGV).unwrap().to_string(),
+        FixtureContractRegistry::lead_review(),
+    )
+    .unwrap();
     const BOUND: &str = include_str!("../web/lead_review_bound.view.json");
-    let from_json = BoundViewHost::from_artifact(BOUND, FixtureContractRegistry::lead_review()).unwrap();
-    assert_eq!(from_igv.workbench_render_digest(), from_json.workbench_render_digest(), ".igv ≡ hand-written bound artifact");
+    let from_json =
+        BoundViewHost::from_artifact(BOUND, FixtureContractRegistry::lead_review()).unwrap();
+    assert_eq!(
+        from_igv.workbench_render_digest(),
+        from_json.workbench_render_digest(),
+        ".igv ≡ hand-written bound artifact"
+    );
 }
 
 #[test]

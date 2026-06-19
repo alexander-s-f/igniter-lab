@@ -40,7 +40,13 @@ impl FrameRuntime {
         viewport: Viewport,
         render_host: Box<dyn RenderHost>,
     ) -> Self {
-        Self::with_projector(entities, reducer, Box::new(CameraProjector::new(camera)), viewport, render_host)
+        Self::with_projector(
+            entities,
+            reducer,
+            Box::new(CameraProjector::new(camera)),
+            viewport,
+            render_host,
+        )
     }
 
     /// Construct with an explicit projection strategy (e.g. a GUI orthographic box layout).
@@ -51,7 +57,16 @@ impl FrameRuntime {
         viewport: Viewport,
         render_host: Box<dyn RenderHost>,
     ) -> Self {
-        Self { world: entities, reducer, projector, viewport, render_host, step: 0, last_input: None, last_effect: None }
+        Self {
+            world: entities,
+            reducer,
+            projector,
+            viewport,
+            render_host,
+            step: 0,
+            last_input: None,
+            last_effect: None,
+        }
     }
 
     /// The demo world from `examples/render_demo`: a clickable entity (`e1`) between two static
@@ -60,20 +75,32 @@ impl FrameRuntime {
         let world = vec![
             ("post_l".to_string(), json!({"x": -1.5, "y": 0.0, "z": 0.0})),
             ("post_r".to_string(), json!({"x":  1.5, "y": 0.0, "z": 0.0})),
-            ("e1".to_string(), json!({"x": -1.0, "y": 0.0, "z": 0.0, "on_click": {"action": "move_right"}})),
+            (
+                "e1".to_string(),
+                json!({"x": -1.0, "y": 0.0, "z": 0.0, "on_click": {"action": "move_right"}}),
+            ),
         ];
         Self::new(
             world,
             demo_reducer(),
             Camera::default(),
-            Viewport { css_w: 800.0, css_h: 800.0, frame_w: 400, frame_h: 400 },
-            Box::new(SvgRenderHost { width: 400, height: 400 }),
+            Viewport {
+                css_w: 800.0,
+                css_h: 800.0,
+                frame_w: 400,
+                frame_h: 400,
+            },
+            Box::new(SvgRenderHost {
+                width: 400,
+                height: 400,
+            }),
         )
     }
 
     /// Project the current world → the current `Frame` (sync; `source_receipt_id` = the last effect).
     fn current_frame(&self) -> Frame {
-        self.projector.project(&self.world, self.step, self.last_effect.clone())
+        self.projector
+            .project(&self.world, self.step, self.last_effect.clone())
     }
 
     pub fn render_svg(&self) -> String {
@@ -112,7 +139,12 @@ impl FrameRuntime {
     pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
         let (fx, fy) = self.viewport.pointer_to_frame(css_x, css_y); // real pointer → frame coords
         let frame = self.current_frame();
-        let input = InputEvent { kind: "click".to_string(), x: fx, y: fy, payload: json!(null) };
+        let input = InputEvent {
+            kind: "click".to_string(),
+            x: fx,
+            y: fy,
+            payload: json!(null),
+        };
         self.last_input = Some(format!("input:{}", self.step));
         match derive_intent(&frame, &input) {
             Some(intent) => {
@@ -147,7 +179,11 @@ impl FrameRuntime {
     /// (`<action>:N → effect:N → frame:N+1`). The host routes the event; the reducer owns the state.
     /// Returns `true` iff state changed.
     pub fn send(&mut self, action: &str, params: Value) -> bool {
-        let intent = Intent { action: action.to_string(), target: None, params };
+        let intent = Intent {
+            action: action.to_string(),
+            target: None,
+            params,
+        };
         self.last_input = Some(format!("{}:{}", action, self.step));
         let deltas = (self.reducer)(&intent, &self.world);
         if deltas.is_empty() {
@@ -174,8 +210,12 @@ pub fn demo_reducer() -> IntentReducer {
         if intent.action != "move_right" {
             return vec![];
         }
-        let Some(target) = &intent.target else { return vec![] };
-        let Some((_, cur)) = world.iter().find(|(k, _)| k == target) else { return vec![] };
+        let Some(target) = &intent.target else {
+            return vec![];
+        };
+        let Some((_, cur)) = world.iter().find(|(k, _)| k == target) else {
+            return vec![];
+        };
         let x = cur.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) + 1.0;
         let mut next = cur.clone();
         next["x"] = json!(x);
