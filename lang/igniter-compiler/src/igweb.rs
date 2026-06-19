@@ -109,6 +109,9 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
     let mut closed = false;
     // Stack of absolute (already-composed) scope prefixes; the innermost is `last()`. Empty = top level.
     let mut scope_stack: Vec<String> = Vec::new();
+    // When inside a `resource { ... }` block: the resource's absolute base path (scope + base composed)
+    // plus the header line for line-positioned unclosed-block diagnostics.
+    let mut in_resource: Option<(String, usize)> = None;
 
     for (i, raw) in src.lines().enumerate() {
         let line = i + 1;
@@ -131,7 +134,11 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             continue;
         }
         if t == "}" {
-            // `}` closes the innermost open block: a scope if one is open, else the app.
+            // `}` closes the innermost open block: a resource, else a scope, else the app.
+            if in_resource.is_some() {
+                in_resource = None;
+                continue;
+            }
             if scope_stack.pop().is_some() {
                 continue;
             }
@@ -142,8 +149,14 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             }
             return Err(IgwebError {
                 line,
-                message: "unexpected `}` (no open `app` or `scope` block)".into(),
+                message: "unexpected `}` (no open `app`, `scope`, or `resource` block)".into(),
             });
+        }
+        // Inside a resource body, every non-`}` line is an action line (validated by the closed table).
+        if let Some((base, _resource_line)) = &in_resource {
+            let r = parse_resource_action(t, line, base)?;
+            routes.push(r);
+            continue;
         }
         if let Some(rest) = t.strip_prefix("scope ") {
             if !in_app {
@@ -160,6 +173,17 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                 compose_path(base, &raw_prefix)
             };
             scope_stack.push(composed);
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("resource ") {
+            if !in_app {
+                return Err(IgwebError {
+                    line,
+                    message: "`resource` outside an `app { ... }` block".into(),
+                });
+            }
+            let scope_base = scope_stack.last().map(String::as_str).unwrap_or("");
+            in_resource = Some((parse_resource_header(rest, line, scope_base)?, line));
             continue;
         }
         if let Some(rest) = t.strip_prefix("handlers ") {
@@ -211,6 +235,12 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
         line: 0,
         message: "missing `handlers <ModuleName>` directive".into(),
     })?;
+    if let Some((_base, resource_line)) = in_resource {
+        return Err(IgwebError {
+            line: resource_line,
+            message: "unclosed `resource { ... }` block (missing `}`)".into(),
+        });
+    }
     if !scope_stack.is_empty() {
         return Err(IgwebError {
             line: 0,
@@ -263,6 +293,168 @@ fn parse_scope_prefix(rest: &str, line: usize) -> Result<String, IgwebError> {
         });
     }
     Ok(prefix)
+}
+
+/// Parse `resource <name> "<base>" {` (the part after `resource `) into the resource's absolute base
+/// path (the `scope` prefix, if any, composed with the resource base). `<name>` is author-facing only —
+/// it is never used to derive a contract name.
+fn parse_resource_header(rest: &str, line: usize, scope_base: &str) -> Result<String, IgwebError> {
+    let rest = rest.trim();
+    let (name, rest) = rest.split_once(char::is_whitespace).ok_or(IgwebError {
+        line,
+        message: "expected `resource <name> \"<base>\" {`".into(),
+    })?;
+    if name.is_empty() {
+        return Err(IgwebError {
+            line,
+            message: "expected a resource name before the base path".into(),
+        });
+    }
+    let rest = rest.trim_start();
+    if !rest.starts_with('"') {
+        return Err(IgwebError {
+            line,
+            message: "expected a quoted \"<base>\" after the resource name".into(),
+        });
+    }
+    let after_open = &rest[1..];
+    let close = after_open.find('"').ok_or(IgwebError {
+        line,
+        message: "unterminated resource base string".into(),
+    })?;
+    let base = &after_open[..close];
+    let tail = after_open[close + 1..].trim();
+    if tail != "{" {
+        return Err(IgwebError {
+            line,
+            message: "expected `{` after the resource base".into(),
+        });
+    }
+    if base.is_empty() || !base.starts_with('/') {
+        return Err(IgwebError {
+            line,
+            message: "resource base must start with `/`".into(),
+        });
+    }
+    Ok(if scope_base.is_empty() {
+        base.to_string()
+    } else {
+        compose_path(scope_base, base)
+    })
+}
+
+/// The closed resource action table — a **validator, not a generator**. Given an action keyword and the
+/// authored method + optional suffix, validate the method against the action and return the effective
+/// path suffix to compose onto the resource base. It NEVER derives a contract name or method.
+fn resource_action_suffix(
+    action: &str,
+    method: &str,
+    suffix: Option<&str>,
+    line: usize,
+) -> Result<String, IgwebError> {
+    let bad_method = |allowed: &str| IgwebError {
+        line,
+        message: format!("resource action `{action}` must use {allowed}, got `{method}`"),
+    };
+    let reject_suffix = |s: Option<&str>| -> Result<(), IgwebError> {
+        if s.is_some() {
+            Err(IgwebError {
+                line,
+                message: format!("resource action `{action}` takes no path suffix"),
+            })
+        } else {
+            Ok(())
+        }
+    };
+    match action {
+        "index" => {
+            if method != "GET" {
+                return Err(bad_method("GET"));
+            }
+            reject_suffix(suffix)?;
+            Ok("/".into())
+        }
+        "create" => {
+            if method != "POST" {
+                return Err(bad_method("POST"));
+            }
+            reject_suffix(suffix)?;
+            Ok("/".into())
+        }
+        "show" => {
+            if method != "GET" {
+                return Err(bad_method("GET"));
+            }
+            Ok(suffix.unwrap_or("/:id").to_string())
+        }
+        "update" => {
+            if method != "PATCH" && method != "PUT" {
+                return Err(bad_method("PATCH or PUT"));
+            }
+            Ok(suffix.unwrap_or("/:id").to_string())
+        }
+        "delete" => {
+            if method != "DELETE" {
+                return Err(bad_method("DELETE"));
+            }
+            Ok(suffix.unwrap_or("/:id").to_string())
+        }
+        "member" | "collection" => suffix.map(str::to_string).ok_or(IgwebError {
+            line,
+            message: format!("resource action `{action}` requires an explicit quoted suffix"),
+        }),
+        other => Err(IgwebError {
+            line,
+            message: format!(
+                "unknown resource action `{other}` (expected index/create/show/update/delete/member/collection)"
+            ),
+        }),
+    }
+}
+
+/// Parse one resource action line `<action> <METHOD> ["<suffix>"] -> <Contract> [requires idempotency]`
+/// against the closed table, then reuse the route grammar/lowering by synthesizing the equivalent flat
+/// `route` tail on the resource `base` (so composition, duplicate-param refusal, and the idempotency
+/// guard all come from the existing path — resource sugar adds no new lowering).
+fn parse_resource_action(t: &str, line: usize, base: &str) -> Result<Route, IgwebError> {
+    let (action, rest) = t.split_once(char::is_whitespace).ok_or(IgwebError {
+        line,
+        message: "expected `<action> <METHOD> [\"<suffix>\"] -> <Contract>`".into(),
+    })?;
+    // Split on `->` first so a missing contract is reported clearly even when no suffix is present.
+    let (head, contract_part) = rest.split_once("->").ok_or(IgwebError {
+        line,
+        message: "missing `->` before the handler contract".into(),
+    })?;
+    let head = head.trim();
+    let (method, rest_head) = match head.split_once(char::is_whitespace) {
+        Some((m, r)) => (m, r.trim()),
+        None => (head, ""),
+    };
+    let suffix = if rest_head.is_empty() {
+        None
+    } else if rest_head.starts_with('"') {
+        let inner = &rest_head[1..];
+        let close = inner.find('"').ok_or(IgwebError {
+            line,
+            message: "unterminated resource suffix string".into(),
+        })?;
+        if !inner[close + 1..].trim().is_empty() {
+            return Err(IgwebError {
+                line,
+                message: "unexpected tokens after the resource suffix".into(),
+            });
+        }
+        Some(&inner[..close])
+    } else {
+        return Err(IgwebError {
+            line,
+            message: "expected a quoted \"<suffix>\" or `->` after the method".into(),
+        });
+    };
+    let effective = resource_action_suffix(action, method, suffix, line)?;
+    let route_tail = format!("{} \"{}\" -> {}", method, effective, contract_part.trim());
+    parse_route(&route_tail, line, base)
 }
 
 /// Parse `<METHOD> "<pattern>" -> <Contract> [requires idempotency]` (the part after `route `).
@@ -617,5 +809,155 @@ mod tests {
             "app X entry Serve {\n  handlers H\n  scope \"/s\" {\n    route GET \"/x\" -> A\n";
         let err = lower_igweb(src).unwrap_err();
         assert!(err.message.contains("unclosed"), "got {err:?}");
+    }
+
+    // ---- P17: resource sugar ----
+
+    const RESOURCE_TODO: &str = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    index  GET            -> TodoIndex\n    create POST           -> TodoCreate requires idempotency\n    show   GET    \"/:id\"  -> TodoShow\n    member POST \"/:id/done\" -> TodoDone requires idempotency\n  }\n}\n";
+
+    const FLAT_TODO: &str = "app X entry Serve {\n  handlers H\n  route GET  \"/todos\"          -> TodoIndex\n  route POST \"/todos\"          -> TodoCreate requires idempotency\n  route GET  \"/todos/:id\"      -> TodoShow\n  route POST \"/todos/:id/done\" -> TodoDone requires idempotency\n}\n";
+
+    /// Test 1 — a resource lowers byte-identically to the equivalent flat routes.
+    #[test]
+    fn resource_is_byte_identical_to_flat() {
+        assert_eq!(
+            lower_igweb(RESOURCE_TODO).unwrap(),
+            lower_igweb(FLAT_TODO).unwrap()
+        );
+    }
+
+    /// Test 2 — a missing `-> Contract` is rejected, line-positioned (no auto-naming).
+    #[test]
+    fn resource_requires_explicit_contract() {
+        let src = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    index GET\n  }\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("->"), "got {err:?}");
+        assert_eq!(err.line, 4);
+    }
+
+    /// Test 3 — the action table validates methods: `index POST` and `create GET` are refused.
+    #[test]
+    fn resource_action_method_is_validated() {
+        let bad_index = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    index POST -> X\n  }\n}\n";
+        let e1 = lower_igweb(bad_index).unwrap_err();
+        assert!(e1.message.contains("must use GET"), "got {e1:?}");
+        assert_eq!(e1.line, 4);
+
+        let bad_create = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    create GET -> X\n  }\n}\n";
+        let e2 = lower_igweb(bad_create).unwrap_err();
+        assert!(e2.message.contains("must use POST"), "got {e2:?}");
+    }
+
+    /// Test 4 — `show`/`update`/`delete` with no suffix default to `/:id`.
+    #[test]
+    fn resource_default_member_suffix_is_id() {
+        let src = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    show   GET    -> S\n    update PATCH  -> U\n    delete DELETE -> D\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/todos/([^/]+)$\")"));
+        assert!(
+            ig.contains("call_contract(\"S\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))")
+        );
+        // show/update/delete share the same `/todos/:id` pattern group (one matches arm).
+        assert_eq!(
+            ig.matches("matches(req.path, \"^/todos/([^/]+)$\")")
+                .count(),
+            1
+        );
+    }
+
+    /// Test 5 — custom suffixes lower as written (`show "/:slug"`, `member "/:id/done"`).
+    #[test]
+    fn resource_custom_suffixes_lower() {
+        let src = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    show   GET  \"/:slug\"    -> S\n    member POST \"/:id/done\" -> M requires idempotency\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/todos/([^/]+)$\")")); // /:slug
+        assert!(
+            ig.contains("call_contract(\"S\", req, capture(req.path, \"^/todos/([^/]+)$\", 1))")
+        );
+        assert!(ig.contains("matches(req.path, \"^/todos/([^/]+)/done$\")"));
+        assert!(ig.contains("status: 400")); // member is mutating + requires idempotency
+    }
+
+    /// Test 6 — `index` + `create` share one pattern group, so DELETE on the base is 405 not 404.
+    #[test]
+    fn resource_same_path_grouping_405() {
+        let ig = lower_igweb(RESOURCE_TODO).unwrap();
+        // exactly one matches arm for the base `/todos` (index GET + create POST grouped).
+        assert_eq!(ig.matches("matches(req.path, \"^/todos$\")").count(), 1);
+        assert!(ig.contains("if req.method == \"GET\""));
+        assert!(ig.contains("if req.method == \"POST\""));
+        assert!(ig.contains("status: 405"));
+        assert!(ig.contains("status: 404"));
+    }
+
+    /// Test 7 — a mutating resource action with `requires idempotency` emits the keyless 400 guard.
+    #[test]
+    fn resource_idempotency_guard() {
+        let ig = lower_igweb(RESOURCE_TODO).unwrap();
+        assert!(ig.contains("if req.idempotency_key == \"\""));
+        assert!(ig.contains("status: 400"));
+    }
+
+    /// Test 8 — resource composes with a P16 scope prefix.
+    #[test]
+    fn resource_composes_with_scope() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/accounts/:account_id\" {\n    resource todos \"/todos\" {\n      index GET            -> AccountTodosIndex\n      show  GET \"/:todo_id\" -> AccountTodoShow\n    }\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("matches(req.path, \"^/accounts/([^/]+)/todos$\")"));
+        assert!(ig.contains("call_contract(\"AccountTodosIndex\", req, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1))"));
+        assert!(ig.contains("call_contract(\"AccountTodoShow\", req, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1), capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2))"));
+    }
+
+    /// Test 9 — duplicate param across scope + resource suffix is refused (P16 rule still applies).
+    #[test]
+    fn resource_duplicate_param_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  scope \"/todos/:id\" {\n    resource comments \"/comments\" {\n      show GET \"/:id\" -> CommentShow\n    }\n  }\n}\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("duplicate"), "got {err:?}");
+    }
+
+    /// Test 10 — interleaved plain route / resource / scope keep authored arm order.
+    #[test]
+    fn resource_preserves_source_order() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/health\" -> Health\n  resource todos \"/todos\" {\n    index GET -> TodoIndex\n  }\n  scope \"/s\" {\n    route GET \"/z\" -> Z\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        let ih = ig.find("^/health$").expect("health");
+        let it = ig.find("^/todos$").expect("todos");
+        let iz = ig.find("^/s/z$").expect("s/z");
+        assert!(ih < it && it < iz, "arm order must follow source order");
+    }
+
+    /// Test 13 — resource lowering is deterministic (byte-identical across two calls).
+    #[test]
+    fn resource_lowering_is_deterministic() {
+        assert_eq!(
+            lower_igweb(RESOURCE_TODO).unwrap(),
+            lower_igweb(RESOURCE_TODO).unwrap()
+        );
+    }
+
+    /// member/collection require an explicit suffix; unknown actions are refused.
+    #[test]
+    fn resource_member_needs_suffix_and_unknown_refused() {
+        let no_suffix = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    member POST -> M\n  }\n}\n";
+        assert!(lower_igweb(no_suffix)
+            .unwrap_err()
+            .message
+            .contains("requires an explicit"));
+
+        let unknown = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    frobnicate GET -> X\n  }\n}\n";
+        assert!(lower_igweb(unknown)
+            .unwrap_err()
+            .message
+            .contains("unknown resource action"));
+    }
+
+    /// Unclosed resource is reported (missing `}`).
+    #[test]
+    fn unclosed_resource_is_reported() {
+        let src = "app X entry Serve {\n  handlers H\n  resource todos \"/todos\" {\n    index GET -> I\n";
+        let err = lower_igweb(src).unwrap_err();
+        assert!(err.message.contains("unclosed `resource"), "got {err:?}");
+        assert_eq!(err.line, 3);
     }
 }

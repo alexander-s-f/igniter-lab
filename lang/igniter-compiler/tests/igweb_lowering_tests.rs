@@ -131,6 +131,46 @@ fn scoped_todo_is_byte_identical_to_flat_and_compiles() {
     );
 }
 
+// P17: the same 5-route Todo app authored with a `resource todos "/todos"` block (plus a plain
+// `/health` route). It MUST lower byte-identically to the flat `TODO_IGWEB`, and the generated project
+// must still compile clean through the real multifile compiler.
+const TODO_IGWEB_RESOURCE: &str = "\
+app TodoWeb entry Serve {
+  handlers TodoHandlers
+  route GET \"/health\" -> Health
+  resource todos \"/todos\" {
+    index  GET            -> TodoIndex
+    create POST           -> TodoCreate requires idempotency
+    show   GET    \"/:id\"     -> TodoShow
+    member POST \"/:id/done\" -> TodoDone requires idempotency
+  }
+}
+";
+
+#[test]
+fn resource_todo_is_byte_identical_to_flat_and_compiles() {
+    let flat = lower_igweb(TODO_IGWEB).expect("lower flat");
+    let resourced = lower_igweb(TODO_IGWEB_RESOURCE).expect("lower resource");
+    // resource sugar is a validator/expander: the generated `.ig` is identical to the flat form.
+    assert_eq!(
+        flat, resourced,
+        "resource authoring must lower byte-identically to flat routes"
+    );
+
+    let stdout = compile_generated(&resourced, "todo_resource");
+    assert!(
+        !stdout.contains("OOF-RE1"),
+        "generated regexp must be valid (no OOF-RE1).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        resourced,
+        stdout
+    );
+    assert!(
+        !stdout.contains("OOF-TY0"),
+        "generated call_contract/regexp must typecheck (no OOF-TY0).\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        resourced, stdout
+    );
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
