@@ -1,5 +1,8 @@
 # Igniter View Engine Lab Prototype
 
+> Status: see `STATUS.md` before cleanup or relocation; this tree is still an `igniter-ide` runtime
+> dependency.
+
 `igniter-view-engine` is a lab-only prototype for Igniter view artifacts,
 `.igv` view sketches, safe rendering, slot injection, collection rendering,
 contract-schema linkage, and diagnostic reports.
