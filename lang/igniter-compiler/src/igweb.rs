@@ -51,6 +51,170 @@ struct Route {
     regex: String,
     /// optional route-level guard (`via Guard(args) as name`); P20.
     via: Option<Via>,
+    /// P26: explicit handler arg names from `-> Handler(a, b, …)` (None = legacy `req + captures`).
+    handler_args: Option<Vec<String>>,
+    /// P26: pre-resolved handler `call_contract(...)` expression (filled by `apply_bindings`).
+    handler_call: Option<String>,
+    /// P26: pre-resolved guard `call_contract(...)` expression; when present the handler is wrapped in a
+    /// `match … { Ok { value } => <handler> Err { error } => error }`.
+    guard_call: Option<String>,
+}
+
+/// A `let`/`guard` context binding (P26). `let` is infallible (lowers to a top-level `compute`); `guard`
+/// is fallible (`Result[T, Decision]`, lowers to the P20 match). `args` are author-facing names resolved
+/// to `req` / a `let` name / a path param / (for handler args) the guard's `value`.
+#[derive(Clone)]
+struct Binding {
+    is_guard: bool,
+    name: String,
+    contract: String,
+    args: Vec<String>,
+    line: usize,
+}
+
+/// Parse `<name> = <Contract>(<arg,…>)` (the part after `let `/`guard `).
+fn parse_binding(rest: &str, is_guard: bool, line: usize) -> Result<Binding, IgwebError> {
+    let kw = if is_guard { "guard" } else { "let" };
+    let (name, after_eq) = rest.split_once('=').ok_or(IgwebError {
+        line,
+        message: format!("expected `{kw} <name> = <Contract>(<args>)`"),
+    })?;
+    let name = name.trim().to_string();
+    if name.is_empty() || name.split_whitespace().count() != 1 {
+        return Err(IgwebError {
+            line,
+            message: format!("`{kw}` binding needs a single name before `=`"),
+        });
+    }
+    let after_eq = after_eq.trim_start();
+    let (contract, rest2) = after_eq.split_once('(').ok_or(IgwebError {
+        line,
+        message: format!("expected `(` after the `{kw}` contract name"),
+    })?;
+    let contract = contract.trim().to_string();
+    if contract.is_empty() || contract.split_whitespace().count() != 1 {
+        return Err(IgwebError {
+            line,
+            message: format!("`{kw} {name}` needs a single contract name"),
+        });
+    }
+    let (args_str, tail) = rest2.split_once(')').ok_or(IgwebError {
+        line,
+        message: format!("expected `)` to close the `{kw} {name}` arguments"),
+    })?;
+    if !tail.trim().is_empty() {
+        return Err(IgwebError {
+            line,
+            message: format!("unexpected tokens after `{kw} {name}(…)`"),
+        });
+    }
+    let args: Vec<String> = if args_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        args_str.split(',').map(|a| a.trim().to_string()).collect()
+    };
+    for a in &args {
+        if a.is_empty() || a.split_whitespace().count() != 1 {
+            return Err(IgwebError {
+                line,
+                message: format!("`{kw} {name}` argument must be a single name"),
+            });
+        }
+    }
+    Ok(Binding {
+        is_guard,
+        name,
+        contract,
+        args,
+        line,
+    })
+}
+
+/// Resolve an author-facing arg name to its `.ig` expression: `req`, a `let` name (bare identifier),
+/// the active guard's success payload (`value`), or a positional path capture. Unknown → line error.
+fn resolve_arg(
+    name: &str,
+    line: usize,
+    let_names: &[String],
+    guard_name: Option<&str>,
+    params: &[String],
+    regex: &str,
+) -> Result<String, IgwebError> {
+    if name == "req" {
+        Ok("req".to_string())
+    } else if let_names.iter().any(|l| l == name) {
+        Ok(name.to_string())
+    } else if Some(name) == guard_name {
+        Ok("value".to_string())
+    } else if let Some(pos) = params.iter().position(|p| p == name) {
+        Ok(capture_expr(regex, pos + 1))
+    } else {
+        Err(IgwebError {
+            line,
+            message: format!("unknown arg `{}` (not `req`, a `let`, the guard, or a path param)", name),
+        })
+    }
+}
+
+/// P26: resolve the active `let`/`guard` bindings into the route's `guard_call` + `handler_call`
+/// expressions, with refusals. `via` and P26 bindings are mutually exclusive; a route with a guard or any
+/// explicit handler args must list its handler args explicitly (no auto-injection).
+fn apply_bindings(
+    route: &mut Route,
+    let_names: &[String],
+    active_guard: Option<&Binding>,
+    line: usize,
+) -> Result<(), IgwebError> {
+    if route.via.is_some() {
+        if active_guard.is_some() || route.handler_args.is_some() {
+            return Err(IgwebError {
+                line,
+                message: "route-level `via` cannot be combined with `guard`/explicit handler args".into(),
+            });
+        }
+        return Ok(()); // P20 via path, no bindings
+    }
+    let needs_p26 = active_guard.is_some() || route.handler_args.is_some();
+    if !needs_p26 {
+        return Ok(()); // legacy `req + captures` path
+    }
+    // a binding name must not collide with a path param.
+    for p in &route.params {
+        if let_names.iter().any(|l| l == p) || active_guard.map(|g| &g.name == p).unwrap_or(false) {
+            return Err(IgwebError {
+                line,
+                message: format!("binding name `{}` collides with a path param", p),
+            });
+        }
+    }
+    let guard_name = active_guard.map(|g| g.name.as_str());
+    let args = route.handler_args.as_ref().ok_or(IgwebError {
+        line,
+        message: "handler must list explicit args (e.g. `-> H(req, …)`) when a `guard`/`let` is active"
+            .into(),
+    })?;
+    let resolved: Vec<String> = args
+        .iter()
+        .map(|a| resolve_arg(a, line, let_names, guard_name, &route.params, &route.regex))
+        .collect::<Result<_, _>>()?;
+    route.handler_call = Some(format!(
+        "call_contract(\"{}\", {})",
+        route.contract,
+        resolved.join(", ")
+    ));
+    if let Some(g) = active_guard {
+        let g_resolved: Vec<String> = g
+            .args
+            .iter()
+            .map(|a| resolve_arg(a, g.line, let_names, None, &route.params, &route.regex))
+            .collect::<Result<_, _>>()?;
+        route.guard_call = Some(format!(
+            "call_contract(\"{}\", {})",
+            g.contract,
+            g_resolved.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 /// A route-level guard clause `via <Contract>(<param,...>) as <name>` (P20). `arg_indices` are the
@@ -110,13 +274,15 @@ fn pattern_to_regex(pattern: &str) -> (String, Vec<String>) {
     (regex, params)
 }
 
-/// Is this trimmed line a block delimiter or directive (never a `->` statement, never a continuation)?
+/// Is this trimmed line a complete standalone statement — a block opener (`… {`), a close (`}`), a
+/// directive (`handlers`), or a binding (`let`/`guard`) — i.e. never a `->` continuation? Such lines are
+/// emitted as-is and never absorbed into a multi-line `route`/action join.
 fn is_block_or_directive(t: &str) -> bool {
     t == "}"
-        || t.starts_with("app ")
-        || t.starts_with("scope ")
-        || t.starts_with("resource ")
+        || t.ends_with('{')
         || t.starts_with("handlers ")
+        || t.starts_with("let ")
+        || t.starts_with("guard ")
 }
 
 /// Fold physical lines into logical statements, dropping comments/blank lines and keeping each
@@ -164,6 +330,103 @@ fn fold_logical_lines(src: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// Parse `<METHOD> "<pattern>"` (the head of a route-body opener `route GET "/x" {`).
+fn parse_method_pattern(s: &str, line: usize) -> Result<(String, String), IgwebError> {
+    let (method, rest) = s.trim().split_once(char::is_whitespace).ok_or(IgwebError {
+        line,
+        message: "expected `<METHOD> \"<pattern>\"`".into(),
+    })?;
+    let rest = rest.trim_start();
+    if !rest.starts_with('"') {
+        return Err(IgwebError {
+            line,
+            message: "expected a quoted \"<pattern>\" after the method".into(),
+        });
+    }
+    let inner = &rest[1..];
+    let close = inner.find('"').ok_or(IgwebError {
+        line,
+        message: "unterminated route pattern string".into(),
+    })?;
+    if !inner[close + 1..].trim().is_empty() {
+        return Err(IgwebError {
+            line,
+            message: "unexpected tokens after route pattern".into(),
+        });
+    }
+    Ok((method.trim().to_string(), inner[..close].to_string()))
+}
+
+/// Record a `let`/`guard` binding: `let` resolves to a hoisted top-level `compute` (req/earlier-let only);
+/// `guard` is pushed onto the active binding level. Refuses a duplicate binding name.
+fn add_binding(
+    is_guard: bool,
+    rest: &str,
+    line: usize,
+    let_names: &mut Vec<String>,
+    let_computes: &mut Vec<String>,
+    binding_levels: &mut [Vec<Binding>],
+) -> Result<(), IgwebError> {
+    let b = parse_binding(rest, is_guard, line)?;
+    if let_names.iter().any(|n| n == &b.name) || binding_levels.iter().flatten().any(|x| x.name == b.name)
+    {
+        return Err(IgwebError {
+            line,
+            message: format!("duplicate binding name `{}`", b.name),
+        });
+    }
+    if is_guard {
+        binding_levels
+            .last_mut()
+            .ok_or(IgwebError {
+                line,
+                message: "`guard` outside a block".into(),
+            })?
+            .push(b);
+    } else {
+        let resolved: Vec<String> = b
+            .args
+            .iter()
+            .map(|a| resolve_arg(a, line, let_names, None, &[], ""))
+            .collect::<Result<_, _>>()?;
+        let_computes.push(format!(
+            "compute {} = call_contract(\"{}\", {})",
+            b.name,
+            b.contract,
+            resolved.join(", ")
+        ));
+        let_names.push(b.name);
+    }
+    Ok(())
+}
+
+/// Resolve a parsed route against the active bindings: at most one active `guard` (else error), then
+/// `apply_bindings` to fill `guard_call`/`handler_call`.
+fn finalize_route(
+    mut route: Route,
+    binding_levels: &[Vec<Binding>],
+    let_names: &[String],
+    line: usize,
+) -> Result<Route, IgwebError> {
+    let guards: Vec<&Binding> = binding_levels.iter().flatten().filter(|b| b.is_guard).collect();
+    if guards.len() > 1 {
+        return Err(IgwebError {
+            line,
+            message: format!(
+                "at most one active `guard` per route (found {}: {})",
+                guards.len(),
+                guards
+                    .iter()
+                    .map(|g| g.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    apply_bindings(&mut route, let_names, guards.first().copied(), line)?;
+    Ok(route)
+}
+
 /// Lower `.igweb` source into an explicit `AppRoutes` `.ig` module. Deterministic: routes keep source
 /// order, patterns are grouped in first-seen order, and there is no map iteration in the output.
 pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
@@ -177,6 +440,13 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
     // When inside a `resource { ... }` block: the resource's absolute base path (scope + base composed)
     // plus the header line for line-positioned unclosed-block diagnostics.
     let mut in_resource: Option<(String, usize)> = None;
+    // P26 context composition: hoisted `let` computes + their names; the active `guard` binding levels
+    // (one Vec per open block); and an optional open route-body block.
+    let mut let_computes: Vec<String> = Vec::new();
+    let mut let_names: Vec<String> = Vec::new();
+    let mut binding_levels: Vec<Vec<Binding>> = Vec::new();
+    // (method, raw_pattern, line, handler-seen) of an open `route … { … }` body block.
+    let mut in_route_body: Option<(String, String, usize, bool)> = None;
 
     for (line, logical) in fold_logical_lines(src) {
         let t = logical.as_str();
@@ -192,30 +462,78 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             }
             entry = Some(parts[2].to_string());
             in_app = true;
+            binding_levels.push(Vec::new());
             continue;
         }
         if t == "}" {
-            // `}` closes the innermost open block: a resource, else a scope, else the app.
+            // `}` closes the innermost open block: route-body, else resource, else scope, else app.
+            if let Some((_, _, _, done)) = in_route_body {
+                if !done {
+                    return Err(IgwebError {
+                        line,
+                        message: "route body must end with `-> Handler(...)` before `}`".into(),
+                    });
+                }
+                in_route_body = None;
+                binding_levels.pop();
+                continue;
+            }
             if in_resource.is_some() {
                 in_resource = None;
+                binding_levels.pop();
                 continue;
             }
             if scope_stack.pop().is_some() {
+                binding_levels.pop();
                 continue;
             }
             if in_app {
                 in_app = false;
                 closed = true;
+                binding_levels.pop();
                 continue;
             }
             return Err(IgwebError {
                 line,
-                message: "unexpected `}` (no open `app`, `scope`, or `resource` block)".into(),
+                message: "unexpected `}` (no open `app`, `scope`, `resource`, or route block)".into(),
+            });
+        }
+        // Inside a route body: only `let`/`guard` lines and the terminal `-> Handler(...)`.
+        if let Some((method, raw_pattern, _, done)) = &in_route_body {
+            if *done {
+                return Err(IgwebError {
+                    line,
+                    message: "unexpected line after `-> Handler(...)` in route body".into(),
+                });
+            }
+            if let Some(rest) = t.strip_prefix("let ") {
+                add_binding(false, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+                continue;
+            }
+            if let Some(rest) = t.strip_prefix("guard ") {
+                add_binding(true, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+                continue;
+            }
+            if t.starts_with("->") {
+                let prefix = scope_stack.last().map(String::as_str).unwrap_or("").to_string();
+                let tail = format!("{} \"{}\" {}", method, raw_pattern, t);
+                let r = parse_route(&tail, line, &prefix)?;
+                let r = finalize_route(r, &binding_levels, &let_names, line)?;
+                routes.push(r);
+                if let Some(rb) = in_route_body.as_mut() {
+                    rb.3 = true;
+                }
+                continue;
+            }
+            return Err(IgwebError {
+                line,
+                message: "route body only allows `let`/`guard`/`-> Handler(...)`".into(),
             });
         }
         // Inside a resource body, every non-`}` line is an action line (validated by the closed table).
-        if let Some((base, _resource_line)) = &in_resource {
-            let r = parse_resource_action(t, line, base)?;
+        if let Some((base, _resource_line)) = in_resource.clone() {
+            let r = parse_resource_action(t, line, &base)?;
+            let r = finalize_route(r, &binding_levels, &let_names, line)?;
             routes.push(r);
             continue;
         }
@@ -234,6 +552,7 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                 compose_path(base, &raw_prefix)
             };
             scope_stack.push(composed);
+            binding_levels.push(Vec::new());
             continue;
         }
         if let Some(rest) = t.strip_prefix("resource ") {
@@ -245,6 +564,7 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             }
             let scope_base = scope_stack.last().map(String::as_str).unwrap_or("");
             in_resource = Some((parse_resource_header(rest, line, scope_base)?, line));
+            binding_levels.push(Vec::new());
             continue;
         }
         if let Some(rest) = t.strip_prefix("handlers ") {
@@ -270,6 +590,27 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             handlers = Some(name.to_string());
             continue;
         }
+        // P26 `let`/`guard` binding at app/scope level.
+        if let Some(rest) = t.strip_prefix("let ") {
+            if !in_app {
+                return Err(IgwebError {
+                    line,
+                    message: "`let` outside an `app { ... }` block".into(),
+                });
+            }
+            add_binding(false, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("guard ") {
+            if !in_app {
+                return Err(IgwebError {
+                    line,
+                    message: "`guard` outside an `app { ... }` block".into(),
+                });
+            }
+            add_binding(true, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+            continue;
+        }
         if let Some(rest) = t.strip_prefix("route ") {
             if !in_app {
                 return Err(IgwebError {
@@ -277,8 +618,17 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                     message: "`route` outside an `app { ... }` block".into(),
                 });
             }
+            if t.ends_with('{') {
+                // route-body opener: `route GET "/x" {`
+                let opener = rest.trim_end_matches('{').trim();
+                let (method, raw_pattern) = parse_method_pattern(opener, line)?;
+                in_route_body = Some((method, raw_pattern, line, false));
+                binding_levels.push(Vec::new());
+                continue;
+            }
             let prefix = scope_stack.last().map(String::as_str).unwrap_or("");
             let r = parse_route(rest, line, prefix)?;
+            let r = finalize_route(r, &binding_levels, &let_names, line)?;
             routes.push(r);
             continue;
         }
@@ -296,6 +646,12 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
         line: 0,
         message: "missing `handlers <ModuleName>` directive".into(),
     })?;
+    if let Some((_, _, body_line, _)) = in_route_body {
+        return Err(IgwebError {
+            line: body_line,
+            message: "unclosed route `{ ... }` body block (missing `}`)".into(),
+        });
+    }
     if let Some((_base, resource_line)) = in_resource {
         return Err(IgwebError {
             line: resource_line,
@@ -321,7 +677,7 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
         });
     }
 
-    Ok(generate_ig(&entry, &handlers, &routes))
+    Ok(generate_ig(&entry, &handlers, &routes, &let_computes))
 }
 
 /// Parse `scope "<prefix>" {` (the part after `scope `) into the raw prefix string. The prefix must be
@@ -632,16 +988,44 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
             message: "expected `->` before the handler contract".into(),
         })?
         .trim_start();
-    // Contract [requires idempotency]
-    let mut parts = rest.split_whitespace();
-    let contract = parts
-        .next()
-        .ok_or(IgwebError {
+    // Contract [(<explicit handler args>)] [requires idempotency]
+    let split_at = rest
+        .find(|c: char| c == '(' || c.is_whitespace())
+        .unwrap_or(rest.len());
+    let contract = rest[..split_at].to_string();
+    if contract.is_empty() {
+        return Err(IgwebError {
             line,
             message: "missing handler contract name after `->`".into(),
-        })?
-        .to_string();
-    let tail: Vec<&str> = parts.collect();
+        });
+    }
+    let after_contract = rest[split_at..].trim_start();
+    // optional explicit handler arg list `(a, b, …)` (P26).
+    let (handler_args, after_args) = if after_contract.starts_with('(') {
+        let inner = &after_contract[1..];
+        let close = inner.find(')').ok_or(IgwebError {
+            line,
+            message: "expected `)` to close the handler argument list".into(),
+        })?;
+        let args_str = &inner[..close];
+        let args: Vec<String> = if args_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            args_str.split(',').map(|a| a.trim().to_string()).collect()
+        };
+        for a in &args {
+            if a.is_empty() || a.split_whitespace().count() != 1 {
+                return Err(IgwebError {
+                    line,
+                    message: "handler argument must be a single name".into(),
+                });
+            }
+        }
+        (Some(args), inner[close + 1..].trim_start())
+    } else {
+        (None, after_contract)
+    };
+    let tail: Vec<&str> = after_args.split_whitespace().collect();
     let requires_idem = match tail.as_slice() {
         [] => false,
         ["requires", "idempotency"] => true,
@@ -705,6 +1089,9 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
         params,
         regex,
         via,
+        handler_args,
+        handler_call: None,
+        guard_call: None,
     })
 }
 
@@ -719,7 +1106,7 @@ fn patterns_in_order(routes: &[Route]) -> Vec<String> {
     seen
 }
 
-fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route]) -> String {
+fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route], let_computes: &[String]) -> String {
     let mut out = String::new();
     out.push_str("-- GENERATED by lower_igweb (LAB-IGNITER-WEB-ROUTING-LOWERING-P4/P10). Do not edit by hand.\n");
     out.push_str("-- Routing/product meaning lives here (the app), never in igniter-server.\n");
@@ -728,6 +1115,11 @@ fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route]) -> String {
     out.push_str(&format!("import {}\n\n", handlers_module));
     out.push_str(&format!("pure contract {} {{\n", entry));
     out.push_str("  input req : Request\n");
+    // P26: hoisted `let` bindings become top-level computes (req-only / earlier-let-only), in scope for
+    // every route arm's guard/handler.
+    for c in let_computes {
+        out.push_str(&format!("  {}\n", c));
+    }
     out.push_str("  compute decision : Decision =\n");
     out.push_str(&route_chain(routes, &patterns_in_order(routes), 4));
     out.push_str("\n  output decision : Decision\n");
@@ -793,7 +1185,18 @@ fn method_chain(group: &[&Route], indent: usize) -> String {
 /// handler `call_contract` (regexp-captured params as `Option[String]`), or — when the route carries a
 /// `via` guard — a `match call_contract("Guard", …) { Ok { value } => <handler> Err { error } => error }`.
 fn handler_arm(r: &Route) -> String {
-    let body = if let Some(via) = &r.via {
+    let body = if let Some(hcall) = &r.handler_call {
+        // P26: `let`/`guard` bindings. A pre-resolved guard wraps the pre-resolved handler call in the
+        // P20 match; with no guard the handler call stands alone.
+        if let Some(gcall) = &r.guard_call {
+            format!(
+                "match {} {{ Ok {{ value }} => {} Err {{ error }} => error }}",
+                gcall, hcall
+            )
+        } else {
+            hcall.clone()
+        }
+    } else if let Some(via) = &r.via {
         // guard call: req + the named args resolved to their positional captures.
         let mut guard = format!("call_contract(\"{}\", req", via.contract);
         for &idx in &via.arg_indices {
@@ -1331,5 +1734,81 @@ mod tests {
         assert!(ig.contains(
             "match call_contract(\"RequireAuth\", req) { Ok { value } => call_contract(\"Me\", req, value) Err { error } => error }"
         ), "got:\n{ig}");
+    }
+
+    // ---- P26: let/guard context composition ----
+
+    const CTX: &str = "app ContextDemo entry Serve {\n  handlers ContextHandlers\n  let req_info = ReqInfo(req)\n  scope \"/accounts/:account_id\" {\n    guard account = LoadAccount(req, req_info, account_id)\n    resource todos \"/todos\" {\n      index GET -> TodoIndex(req, req_info, account)\n      show  GET \"/:todo_id\" -> TodoShow(req, req_info, account, todo_id)\n    }\n  }\n}\n";
+
+    /// `let` hoists to a top-level compute; scope `guard` + explicit handler args lower to the P20 match
+    /// with names resolved to `req` / let / guard `value` / path capture.
+    #[test]
+    fn ctx_let_guard_explicit_args_lower() {
+        let ig = lower_igweb(CTX).unwrap();
+        assert!(ig.contains("  compute req_info = call_contract(\"ReqInfo\", req)\n"), "let hoist:\n{ig}");
+        // index: account_id consumed by the guard (capture 1); handler gets req, req_info, value.
+        assert!(ig.contains(
+            "match call_contract(\"LoadAccount\", req, req_info, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1)) { Ok { value } => call_contract(\"TodoIndex\", req, req_info, value) Err { error } => error }"
+        ), "index arm:\n{ig}");
+        // show: todo_id is an unconsumed param → capture 2 in the handler.
+        assert!(ig.contains(
+            "match call_contract(\"LoadAccount\", req, req_info, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)) { Ok { value } => call_contract(\"TodoShow\", req, req_info, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2)) Err { error } => error }"
+        ), "show arm:\n{ig}");
+    }
+
+    /// A route-body block `route … { let …; guard …; -> H(...) }` lowers the same way.
+    #[test]
+    fn ctx_route_body_block_lowers() {
+        let src = "app X entry Serve {\n  handlers H\n  route GET \"/accounts/:account_id/todos/:todo_id\" {\n    let req_info = ReqInfo(req)\n    guard account = LoadAccount(req, req_info, account_id)\n    -> TodoShow(req, req_info, account, todo_id)\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains("compute req_info = call_contract(\"ReqInfo\", req)"));
+        assert!(ig.contains(
+            "match call_contract(\"LoadAccount\", req, req_info, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 1)) { Ok { value } => call_contract(\"TodoShow\", req, req_info, value, capture(req.path, \"^/accounts/([^/]+)/todos/([^/]+)$\", 2)) Err { error } => error }"
+        ), "got:\n{ig}");
+    }
+
+    /// `let` + explicit args with NO guard → a bare handler call (no match), idempotency stays outermost.
+    #[test]
+    fn ctx_let_only_and_idempotency_outermost() {
+        let src = "app X entry Serve {\n  handlers H\n  let req_info = ReqInfo(req)\n  route POST \"/p/:id\" -> Make(req, req_info, id) requires idempotency\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "if req.idempotency_key == \"\" { Respond { status: 400, body: \"missing idempotency-key\" } } else { call_contract(\"Make\", req, req_info, capture(req.path, \"^/p/([^/]+)$\", 1)) }"
+        ), "got:\n{ig}");
+    }
+
+    /// Refusals (all line-positioned).
+    #[test]
+    fn ctx_refusals() {
+        // unknown handler arg
+        let unknown = "app X entry Serve {\n  handlers H\n  route GET \"/x\" -> H(req, nope)\n}\n";
+        assert!(lower_igweb(unknown).unwrap_err().message.contains("unknown arg"));
+        // duplicate binding name
+        let dup = "app X entry Serve {\n  handlers H\n  let a = F(req)\n  let a = G(req)\n  route GET \"/x\" -> H(req, a)\n}\n";
+        assert!(lower_igweb(dup).unwrap_err().message.contains("duplicate binding"));
+        // binding name collides with a path param
+        let collide = "app X entry Serve {\n  handlers H\n  scope \"/a/:account\" {\n    guard account = LoadAccount(req)\n    route GET \"/x\" -> H(req, account)\n  }\n}\n";
+        assert!(lower_igweb(collide).unwrap_err().message.contains("collides with a path param"));
+        // forward reference: a let referencing a later let
+        let fwd = "app X entry Serve {\n  handlers H\n  let a = F(b)\n  let b = G(req)\n  route GET \"/x\" -> H(req, a, b)\n}\n";
+        assert!(lower_igweb(fwd).unwrap_err().message.contains("unknown arg"));
+        // more than one active guard
+        let two = "app X entry Serve {\n  handlers H\n  guard user = RequireUser(req)\n  scope \"/a/:id\" {\n    guard account = LoadAccount(req, id)\n    route GET \"/x\" -> H(req, user, account)\n  }\n}\n";
+        assert!(lower_igweb(two).unwrap_err().message.contains("at most one active `guard`"));
+        // via cannot mix with explicit args / guard
+        let mix = "app X entry Serve {\n  handlers H\n  route GET \"/a/:id\" via G(id) as g -> H(req, g)\n}\n";
+        assert!(lower_igweb(mix).unwrap_err().message.contains("cannot be combined"));
+        // route-body opener rejects stray tokens after the quoted pattern
+        let extra = "app X entry Serve {\n  handlers H\n  route GET \"/x\" extra {\n    -> H(req)\n  }\n}\n";
+        assert!(lower_igweb(extra).unwrap_err().message.contains("unexpected tokens"));
+        // unclosed route body
+        let unclosed = "app X entry Serve {\n  handlers H\n  route GET \"/x\" {\n    let a = F(req)\n";
+        assert!(lower_igweb(unclosed).unwrap_err().message.contains("unclosed route"));
+    }
+
+    /// `let`/`guard` lowering is deterministic.
+    #[test]
+    fn ctx_lowering_is_deterministic() {
+        assert_eq!(lower_igweb(CTX).unwrap(), lower_igweb(CTX).unwrap());
     }
 }

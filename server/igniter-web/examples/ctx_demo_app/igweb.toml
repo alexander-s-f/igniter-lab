@@ -1,0 +1,13 @@
+# igweb.toml — IgWeb context-composition demo (LAB-IGNITER-WEB-CONTEXT-COMPOSITION-P26). Same no-Rust
+# authoring path: `[app]` is author-owned; `[server]`/`[middleware]` are host policy.
+
+[app]
+entry = "Serve"
+
+[server]
+mode = "loopback"
+max_requests = 16
+
+[middleware]
+trace = true
+body_limit_bytes = 65536

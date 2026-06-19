@@ -1,0 +1,19 @@
+-- IgWeb context-composition demo (LAB-IGNITER-WEB-CONTEXT-COMPOSITION-P26). An app-level `let` and a
+-- scope-level `guard` are inherited by the nested resource routes; handlers list their context args
+-- explicitly. Lowers deterministically to plain `.ig` (hoisted `compute req_info` + the P20 guard match);
+-- igniter-server stays route-free.
+app ContextDemo entry Serve {
+  handlers ContextHandlers
+
+  let req_info = ReqInfo(req)
+
+  scope "/accounts/:account_id" {
+    guard account = LoadAccount(req, req_info, account_id)
+
+    resource todos "/todos" {
+      index  GET            -> TodoIndex(req, req_info, account)
+      show   GET "/:todo_id" -> TodoShow(req, req_info, account, todo_id)
+      create POST           -> TodoCreate(req, req_info, account) requires idempotency
+    }
+  }
+}

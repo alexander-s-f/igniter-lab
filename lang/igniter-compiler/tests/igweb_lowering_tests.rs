@@ -380,6 +380,42 @@ fn composite_guard_fixture_uses_live_record_and_internal_chain() {
     assert!(COMPOSITE_GUARD_HANDLERS.contains("Err { error } => err(error)"));
 }
 
+// P26: `let`/`guard` context composition. An app `let` + scope `guard` + explicit handler args must
+// compile clean through the real multifile compiler — the hoisted `compute req_info`, the P20 guard
+// match, and the field-free String context all typecheck.
+const CTX_HANDLERS: &str = include_str!("fixtures/igweb_ctx/handlers.ig");
+
+const CTX_IGWEB: &str = "\
+app ContextDemo entry Serve {
+  handlers ContextHandlers
+  let req_info = ReqInfo(req)
+  scope \"/accounts/:account_id\" {
+    guard account = LoadAccount(req, req_info, account_id)
+    resource todos \"/todos\" {
+      index  GET            -> TodoIndex(req, req_info, account)
+      show   GET \"/:todo_id\" -> TodoShow(req, req_info, account, todo_id)
+      create POST           -> TodoCreate(req, req_info, account) requires idempotency
+    }
+  }
+}
+";
+
+#[test]
+fn ctx_let_guard_project_compiles_clean() {
+    let routes = lower_igweb(CTX_IGWEB).expect("lower ctx app");
+    assert!(routes.contains("compute req_info = call_contract(\"ReqInfo\", req)"));
+    assert!(routes.contains("match call_contract(\"LoadAccount\", req, req_info,"));
+    assert!(routes.contains("Ok { value } => call_contract(\"TodoIndex\", req, req_info, value)"));
+
+    let stdout = compile_with_handlers(CTX_HANDLERS, &routes, "ctx");
+    assert!(
+        !stdout.contains("OOF-RE1") && !stdout.contains("OOF-TY0"),
+        "let/guard context app must compile clean.\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        routes,
+        stdout
+    );
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).
