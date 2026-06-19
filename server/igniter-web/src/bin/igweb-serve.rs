@@ -8,18 +8,24 @@
 
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
-use igniter_web::runner::build_app_from_dir;
+use igniter_web::runner::{build_app_from_dir, parse_cli_args, resolve_sources, RunnerCliCommand};
 use std::net::TcpListener;
-use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_dir = PathBuf::from(std::env::args().nth(1).ok_or("usage: igweb-serve <app_dir>")?);
+    let cli = match parse_cli_args(std::env::args().skip(1))? {
+        RunnerCliCommand::Help(text) => {
+            println!("{text}");
+            return Ok(());
+        }
+        RunnerCliCommand::Run(cli) => cli,
+    };
+    let app_dir = cli.app_dir;
     let (app, manifest) = build_app_from_dir(&app_dir)?;
 
-    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let listener = TcpListener::bind(cli.addr)?;
     let addr = listener.local_addr()?;
-    let source_count = igniter_web::runner::resolve_sources(&app_dir, &manifest)?.len();
-    let max = manifest.max_requests.unwrap_or(1024);
+    let source_count = resolve_sources(&app_dir, &manifest)?.len();
+    let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
     println!(
         "igweb-serve: app_dir={} entry={} sources={} listening http://{} (loopback, bounded to {} request(s))",
         app_dir.display(), manifest.entry, source_count, addr, max
@@ -27,7 +33,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The host owns the loop + reload unit; the manifest-built (composed) app is the swap unit.
     let reloadable = ReloadableApp::new(app);
-    let report = serve_loop(&listener, &reloadable, &ServingPolicy::new(max).loopback_only())?;
-    println!("igweb-serve: served {} request(s); exiting", report.requests_served);
+    let report = serve_loop(
+        &listener,
+        &reloadable,
+        &ServingPolicy::new(max).loopback_only(),
+    )?;
+    println!(
+        "igweb-serve: served {} request(s); exiting",
+        report.requests_served
+    );
     Ok(())
 }

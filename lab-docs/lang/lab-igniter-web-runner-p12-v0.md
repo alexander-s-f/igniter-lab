@@ -120,6 +120,11 @@ Public CLI stability; `.igweb→.ig` source maps; assets/raw responses; live eff
 `202`); `[effects]` target binding (rejected in v0); package artifact (`.igwebpkg`); file-watch /
 auto-reload; multi-app hosting; public bind. None block the runner.
 
+## Follow-up
+
+P13 (`lab-igniter-web-runner-cli-p13-v0.md`) added CLI polish: `--help`, loopback-only `--addr`, and
+`--max-requests` process override. It does not change the P12 manifest or authority boundary.
+
 ---
 
 *Lab implementation. Compiled 2026-06-18; igniter-web 20 tests green; `igweb-serve examples/todo_app`

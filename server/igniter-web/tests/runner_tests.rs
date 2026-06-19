@@ -4,7 +4,7 @@
 
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
-use igniter_web::runner::{build_app_from_dir, parse_manifest, resolve_sources, RunnerError};
+use igniter_web::runner::{build_app_from_dir, parse_cli_args, parse_manifest, resolve_sources, RunnerCliCommand, RunnerError};
 use igniter_web::testkit::{http_get, roundtrip, HANDLERS, IGWEB};
 use serde_json::json;
 use std::net::TcpListener;
@@ -49,6 +49,56 @@ fn rejects_missing_entry_effects_inline_secret_and_bad_mode() {
     assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[middleware]\nauth_token=\"hunter2\"\n"), Err(RunnerError::Manifest(_))), "inline secret forbidden");
     assert!(matches!(parse_manifest("[app]\nentry=\"S\"\n[server]\nmode=\"public\"\n"), Err(RunnerError::Manifest(_))), "non-loopback mode");
     assert!(matches!(parse_manifest("[app]\nentry=\"S\"\nbogus=\"x\"\n"), Err(RunnerError::Manifest(_))), "unknown key");
+}
+
+// ── CLI polish ────────────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn cli_help_is_available_without_app_dir() {
+    let parsed = parse_cli_args(["--help"]).unwrap();
+    match parsed {
+        RunnerCliCommand::Help(text) => {
+            assert!(text.contains("igweb-serve"));
+            assert!(text.contains("--addr"));
+            assert!(text.contains("--max-requests"));
+            assert!(text.contains("Loopback only"));
+        }
+        other => panic!("expected help, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_defaults_to_loopback_ephemeral_addr() {
+    let parsed = parse_cli_args(["examples/todo_app"]).unwrap();
+    match parsed {
+        RunnerCliCommand::Run(opts) => {
+            assert_eq!(opts.app_dir, PathBuf::from("examples/todo_app"));
+            assert_eq!(opts.addr.to_string(), "127.0.0.1:0");
+            assert_eq!(opts.max_requests, None);
+        }
+        other => panic!("expected run, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_accepts_loopback_addr_and_max_override() {
+    let parsed = parse_cli_args(["--addr", "127.0.0.1:39555", "--max-requests", "2", "examples/todo_app"]).unwrap();
+    match parsed {
+        RunnerCliCommand::Run(opts) => {
+            assert_eq!(opts.addr.to_string(), "127.0.0.1:39555");
+            assert_eq!(opts.max_requests, Some(2));
+            assert_eq!(opts.app_dir, PathBuf::from("examples/todo_app"));
+        }
+        other => panic!("expected run, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_rejects_public_addr_zero_max_unknown_option_and_extra_app_dir() {
+    assert!(matches!(parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]), Err(RunnerError::Cli(_))), "public bind forbidden");
+    assert!(matches!(parse_cli_args(["--max-requests", "0", "examples/todo_app"]), Err(RunnerError::Cli(_))), "zero max rejected");
+    assert!(matches!(parse_cli_args(["--wat", "examples/todo_app"]), Err(RunnerError::Cli(_))), "unknown option rejected");
+    assert!(matches!(parse_cli_args(["one", "two"]), Err(RunnerError::Cli(_))), "extra app dir rejected");
 }
 
 #[test]

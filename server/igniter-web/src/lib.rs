@@ -142,6 +142,7 @@ pub mod runner {
     use super::{build_igweb_app, IgWebBuildError, IgWebBuildInput};
     use igniter_server::middleware::{AuthTokenApp, BodyLimitApp, TraceApp};
     use igniter_server::protocol::ServerApp;
+    use std::net::SocketAddr;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
@@ -162,6 +163,8 @@ pub mod runner {
         Io(String),
         /// malformed/forbidden manifest content.
         Manifest(String),
+        /// malformed/forbidden runner CLI argument.
+        Cli(String),
         Build(IgWebBuildError),
     }
 
@@ -170,11 +173,78 @@ pub mod runner {
             match self {
                 RunnerError::Io(m) => write!(f, "igweb runner io error: {m}"),
                 RunnerError::Manifest(m) => write!(f, "igweb.toml error: {m}"),
+                RunnerError::Cli(m) => write!(f, "igweb-serve argument error: {m}"),
                 RunnerError::Build(e) => write!(f, "igweb build error: {e:?}"),
             }
         }
     }
     impl std::error::Error for RunnerError {}
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunnerCliOptions {
+        pub app_dir: PathBuf,
+        pub addr: SocketAddr,
+        pub max_requests: Option<usize>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum RunnerCliCommand {
+        Help(String),
+        Run(RunnerCliOptions),
+    }
+
+    pub const DEFAULT_ADDR: &str = "127.0.0.1:0";
+
+    pub fn usage() -> &'static str {
+        "usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
+         \n\
+         Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side."
+    }
+
+    pub fn parse_cli_args<I, S>(args: I) -> Result<RunnerCliCommand, RunnerError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut addr = parse_loopback_addr(DEFAULT_ADDR)?;
+        let mut max_requests = None;
+        let mut app_dir = None;
+        let mut iter = args.into_iter().map(Into::into);
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
+                "--addr" => {
+                    let value = iter.next().ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
+                    addr = parse_loopback_addr(&value)?;
+                }
+                "--max-requests" => {
+                    let value = iter.next().ok_or_else(|| RunnerError::Cli("--max-requests requires a value".into()))?;
+                    let parsed = value.parse::<usize>().map_err(|_| RunnerError::Cli(format!("--max-requests expects an integer, got `{value}`")))?;
+                    if parsed == 0 {
+                        return Err(RunnerError::Cli("--max-requests must be greater than zero".into()));
+                    }
+                    max_requests = Some(parsed);
+                }
+                value if value.starts_with('-') => return Err(RunnerError::Cli(format!("unknown option `{value}`"))),
+                value => {
+                    if app_dir.is_some() {
+                        return Err(RunnerError::Cli(format!("unexpected extra app_dir `{value}`")));
+                    }
+                    app_dir = Some(PathBuf::from(value));
+                }
+            }
+        }
+        let app_dir = app_dir.ok_or_else(|| RunnerError::Cli("missing <app_dir>".into()))?;
+        Ok(RunnerCliCommand::Run(RunnerCliOptions { app_dir, addr, max_requests }))
+    }
+
+    fn parse_loopback_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
+        let addr = raw.parse::<SocketAddr>().map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))?;
+        if !addr.ip().is_loopback() {
+            return Err(RunnerError::Cli(format!("--addr must be loopback-only, got `{raw}`")));
+        }
+        Ok(addr)
+    }
 
     /// Hand-rolled tiny `igweb.toml` parse (no toml crate; mirrors `project.rs::parse_source_roots_toml`).
     /// Supports only the documented v0 subset; unsupported sections/keys are rejected with a clear error.
