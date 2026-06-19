@@ -97,7 +97,7 @@ runner, not a public deployment interface.
 
 Good next slices:
 
-1. `LAB-IGNITER-WEB-RUNNER-CHECK-P14` — `igweb-serve check <app_dir>` / dry build with structured
-   diagnostics, no socket.
+1. `LAB-IGNITER-WEB-RUNNER-CHECK-P14` — CLOSED; `igweb-serve check <app_dir>` dry-builds the app
+   without opening a socket (`lab-igniter-web-runner-check-p14-v0.md`).
 2. `LAB-IGNITER-WEB-SOURCE-MAP-READINESS-P14` — only if real diagnostics pressure appears.
 3. `LAB-IGNITER-WEB-PACKAGE-READINESS-*` — package manager/workspace decisions, not runner polish.

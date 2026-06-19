@@ -8,13 +8,25 @@
 
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
-use igniter_web::runner::{build_app_from_dir, parse_cli_args, resolve_sources, RunnerCliCommand};
+use igniter_web::runner::{
+    build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
+};
 use std::net::TcpListener;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = match parse_cli_args(std::env::args().skip(1))? {
         RunnerCliCommand::Help(text) => {
             println!("{text}");
+            return Ok(());
+        }
+        RunnerCliCommand::Check(cli) => {
+            let report = check_app_dir(&cli.app_dir)?;
+            println!(
+                "igweb-serve: check ok app_dir={} entry={} sources={} (no socket opened)",
+                cli.app_dir.display(),
+                report.entry,
+                report.source_count
+            );
             return Ok(());
         }
         RunnerCliCommand::Run(cli) => cli,

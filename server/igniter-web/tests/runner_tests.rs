@@ -5,8 +5,8 @@
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
 use igniter_web::runner::{
-    build_app_from_dir, parse_cli_args, parse_manifest, resolve_sources, RunnerCliCommand,
-    RunnerError,
+    build_app_from_dir, check_app_dir, parse_cli_args, parse_manifest, resolve_sources,
+    RunnerCliCommand, RunnerError,
 };
 use igniter_web::testkit::{http_get, roundtrip, HANDLERS, IGWEB};
 use serde_json::json;
@@ -92,6 +92,7 @@ fn cli_help_is_available_without_app_dir() {
     match parsed {
         RunnerCliCommand::Help(text) => {
             assert!(text.contains("igweb-serve"));
+            assert!(text.contains("check <app_dir>"));
             assert!(text.contains("--addr"));
             assert!(text.contains("--max-requests"));
             assert!(text.contains("Loopback only"));
@@ -111,6 +112,32 @@ fn cli_defaults_to_loopback_ephemeral_addr() {
         }
         other => panic!("expected run, got {other:?}"),
     }
+}
+
+#[test]
+fn cli_check_parses_as_dry_build_command() {
+    let parsed = parse_cli_args(["check", "examples/todo_app"]).unwrap();
+    match parsed {
+        RunnerCliCommand::Check(opts) => {
+            assert_eq!(opts.app_dir, PathBuf::from("examples/todo_app"));
+        }
+        other => panic!("expected check, got {other:?}"),
+    }
+}
+
+#[test]
+fn cli_check_rejects_missing_and_extra_app_dir() {
+    assert!(
+        matches!(parse_cli_args(["check"]), Err(RunnerError::Cli(_))),
+        "missing check app dir rejected"
+    );
+    assert!(
+        matches!(
+            parse_cli_args(["check", "one", "two"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "extra check argument rejected"
+    );
 }
 
 #[test]
@@ -160,6 +187,21 @@ fn cli_rejects_public_addr_zero_max_unknown_option_and_extra_app_dir() {
         matches!(parse_cli_args(["one", "two"]), Err(RunnerError::Cli(_))),
         "extra app dir rejected"
     );
+}
+
+// ── check command ──────────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn check_app_dir_builds_without_serving() {
+    let report = check_app_dir(&example_dir()).unwrap();
+    assert_eq!(report.entry, "Serve");
+    assert_eq!(report.source_count, 2);
+}
+
+#[test]
+fn check_app_dir_reports_build_errors_without_panicking() {
+    let dir = write_app("check_bad", "[app]\nentry = \"MissingEntry\"\n");
+    assert!(matches!(check_app_dir(&dir), Err(RunnerError::Build(_))));
 }
 
 #[test]

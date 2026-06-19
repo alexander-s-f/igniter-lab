@@ -244,15 +244,22 @@ pub mod runner {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunnerCheckOptions {
+        pub app_dir: PathBuf,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum RunnerCliCommand {
         Help(String),
         Run(RunnerCliOptions),
+        Check(RunnerCheckOptions),
     }
 
     pub const DEFAULT_ADDR: &str = "127.0.0.1:0";
 
     pub fn usage() -> &'static str {
         "usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
+         usage: igweb-serve check <app_dir>\n\
          \n\
          Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side."
     }
@@ -269,6 +276,19 @@ pub mod runner {
         while let Some(arg) = iter.next() {
             match arg.as_str() {
                 "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
+                "check" => {
+                    let app_dir = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("check requires <app_dir>".into()))?;
+                    if let Some(extra) = iter.next() {
+                        return Err(RunnerError::Cli(format!(
+                            "unexpected extra argument `{extra}`"
+                        )));
+                    }
+                    return Ok(RunnerCliCommand::Check(RunnerCheckOptions {
+                        app_dir: PathBuf::from(app_dir),
+                    }));
+                }
                 "--addr" => {
                     let value = iter
                         .next()
@@ -482,6 +502,28 @@ pub mod runner {
         })
         .map_err(RunnerError::Build)?;
         Ok((compose(built, &manifest), manifest))
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunnerCheckReport {
+        pub entry: String,
+        pub source_count: usize,
+    }
+
+    /// Dry-build an app directory without opening a socket or composing runtime loop state.
+    pub fn check_app_dir(app_dir: &Path) -> Result<RunnerCheckReport, RunnerError> {
+        let manifest = load_manifest(app_dir)?;
+        let sources = resolve_sources(app_dir, &manifest)?;
+        let source_count = sources.len();
+        build_igweb_app(IgWebBuildInput {
+            sources,
+            entry: manifest.entry.clone(),
+        })
+        .map_err(RunnerError::Build)?;
+        Ok(RunnerCheckReport {
+            entry: manifest.entry,
+            source_count,
+        })
     }
 }
 
