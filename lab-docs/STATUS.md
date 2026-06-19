@@ -1,62 +1,66 @@
 # igniter-lab: Current Status
 
-Last updated: 2026-06-06
+Last updated: 2026-06-19
 
 `igniter-lab` is the frontier lab repo for Igniter experiments. It contains
 working prototypes, proof runners, research reports, and agent handoffs that
-help pressure-test future language, runtime, backend, tooling, and GUI ideas.
+help pressure-test future language, runtime, backend, tooling, UI, and server
+ideas.
 
 The lab is evidence only. It is not the canonical language specification, not
-public runtime support, not a Reference Runtime, and not a release or
-production surface.
+public runtime support, not a Reference Runtime, and not a release or production
+surface.
 
-## Transfer Snapshot
+## Current Shape
 
-The initial positive transfer is being committed package by package. Generated
-outputs, build directories, logs, WAL/state files, and local machine paths are
-excluded by default.
+The repo is now organized by flat domain umbrellas:
 
-Committed source packages so far:
-
-| Package | Status |
+| Domain | Purpose |
 | --- | --- |
-| `igniter-compiler/` | Imported as lab compiler baseline. |
-| `igniter-vm/` | Imported as lab VM baseline. |
-| `igniter-stdlib/` | Imported as lab stdlib baseline. |
-| `igniter-tbackend/` | Imported as lab temporal backend baseline. |
-| `igniter-runtime/` | Imported as Ruby IVM/runtime research baseline. |
-| `acts-as-tbackend/` | Imported as ActiveRecord adapter sketch. |
-| `igniter-machine/` | Imported as machine/kernel prototype. |
-| `igniter-view-engine/` | Imported as view artifact prototype. |
-| `igniter-gui-engine/` | Imported as headless GUI prototype. |
-| `igniter-design-system/` | Imported as design-system prototype. |
-| `igniter-ide/` | Imported as IDE prototype. |
-| `igniter-jetbrains-plugin/` | Imported as JetBrains plugin prototype. |
-| `igniter-apps/` | Imported as small app prototypes. |
+| `lang/` | Compiler, VM, stdlib, language research. |
+| `runtime/` | Machine runtime, temporal backend, storage/runtime adapters. |
+| `server/` | `igniter-server`, `igniter-web`, IgWeb runner and server protocol work. |
+| `frame-ui/` | Frame/UI kit/console/3D/GUI/view-engine/design-system work. |
+| `ide/` | JetBrains plugin and Tauri/Svelte lab IDE. |
+| `apps/` | App/product pressure fixtures. |
+| `archive/` | Parked stubs and old nested lab material. |
 
-Still open in this transfer slice:
+There is still no root Cargo workspace; crates remain package-local.
 
-| Surface | Intended treatment |
+## Latest Structural Checkpoint
+
+`9bb6508 Rehome lab into domain umbrellas`
+
+Verified after the move:
+
+| Check | Result |
 | --- | --- |
-| `.agents/` | Agent handoff index plus living cards. |
-| `lab-docs/` | Meaningful reports, proofs, pressure packages, status, roadmap. |
-| `igniter-site/` | Keep as stub for later generated docs/tutorial site work. |
-| `igniter-lab-value-transfer.md` | Final transfer receipt and policy summary. |
+| `runtime/igniter-machine cargo test --no-default-features --no-fail-fast` | green |
+| `ide/igniter-jetbrains-plugin ./gradlew test --rerun-tasks` | green |
+| `ide/igniter-ide/src-tauri cargo check` | green |
+| active-code stale-path scan | clean |
+
+Known older red tests, not attributed to the rehome:
+
+| Surface | Known red |
+| --- | --- |
+| `lang/igniter-compiler` | 4 `loop_conformance_tests` failures |
+| `lang/igniter-vm` | 1 `vm_candidate_proof_tests` failure |
 
 ## Live Lab Lanes
 
 | Lane | Status | Boundary |
 | --- | --- | --- |
-| Forms | Active pressure lane. | Evidence for future language design; no stable grammar claim. |
-| IO / capability passports | Active security/capability lane. NET-P2..P6 (300+ checks). PROP-035 grammar landed in igniter-lang 2026-06-07. | Lab-only capability and passport evidence; no public runtime authority. |
-| View / GUI / IDE | Active frontier lane. | Prototypes for authoring, preview, trace, and GUI ideas; no framework or product promise. |
-| Tauri IVF | Active frontier lane. | Isomorphic view and trace shell experiments; no public app platform claim. |
-| Native GUI | Active frontier lane. | Headless scene/layout/rendering proofs; no production renderer claim. |
-| Loops / recursion | Mainline-pressure lane. | Lab behavior remains evidence until accepted by explicit mainline decisions. |
-| Backend / machine | Research lane. | Backend and unified-machine ideas remain substrate research, not runtime authority. |
+| Language / stdlib | Active pressure lane (`lang/`). | Evidence for future language design; no stable grammar claim. |
+| Machine / capability IO | Active runtime/substrate lane (`runtime/`). | Lab-only capability and machine evidence; no public runtime authority. |
+| Server / IgWeb | Active server/app DX lane (`server/`). | Loopback/lab runner evidence; no public hosting or production claim. |
+| Frame / UI / console | Active UI authoring lane (`frame-ui/`). | Machine-free UI evidence unless explicitly bridged by host-side proof. |
+| IDE tooling | Active tooling lane (`ide/`). | Editor/tooling assistance only; no language/runtime authority. |
+| Apps / product pressure | Active fixture lane (`apps/`). | Product/DX learning only. |
 
 ## Operating Rule
 
 Use `.agents/` for dispatch and handoff memory. Use `lab-docs/` for durable
-meaning. When in doubt, keep the living source package small and put large
-explanations in `lab-docs`.
+meaning. Use `MAP.md` and this status file as the front door. When answering
+"is X implemented?", verify the package-local `IMPLEMENTED_SURFACE.md` and
+live source before trusting old proof prose.

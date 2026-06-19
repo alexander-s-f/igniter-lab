@@ -6,7 +6,9 @@ the repo for what exists.
 ## Verify-first (the one rule)
 
 "Is X implemented?" →
-1. Check the crate's **`IMPLEMENTED_SURFACE.md`** (e.g. `igniter-vm/IMPLEMENTED_SURFACE.md`).
+1. Check the package's **`IMPLEMENTED_SURFACE.md`** when it has one (e.g.
+   `lang/igniter-vm/IMPLEMENTED_SURFACE.md` or
+   `runtime/igniter-machine/IMPLEMENTED_SURFACE.md`).
 2. **Grep the live source** (`src/**`).
 3. Only then trust any doc's "not implemented / deferred / blocked" claim.
 
@@ -43,5 +45,5 @@ against the implemented surface + source, then (if it misleads) supersede the do
 
 ## Navigation order (capsule layers)
 
-`MAP.md` → `IMPLEMENTED_SURFACE.md` / `lab-docs/STATUS.md` → active cards → archive.
+`MAP.md` → package `IMPLEMENTED_SURFACE.md` / `lab-docs/STATUS.md` → active cards → archive.
 Default reads stop before archive unless a card sends you there.

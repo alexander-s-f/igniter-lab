@@ -1,6 +1,6 @@
 # igniter-lab: Roadmap
 
-Last updated: 2026-06-06
+Last updated: 2026-06-19
 
 This roadmap is intentionally compact. It names the next useful frontier
 directions without turning lab behavior into canonical language, runtime,
@@ -10,23 +10,24 @@ package, release, or production authority.
 
 | Direction | Next useful work | Boundary |
 | --- | --- | --- |
-| Docs and handoff closure | Finish `.agents` index, `lab-docs` status, transfer receipt, and site stub. | Documentation only. |
-| Forms | Continue import hiding/overriding and proposal/errata pressure after mainline routing. | No stable grammar or implementation authority. |
-| IO / capability passports | NET-P2..P6 complete (300+ checks). PROP-035 grammar experiment-pass in igniter-lang. Next: runtime injection design, PROP-033 (via profile binding). | No public runtime support. |
-| View / GUI | Continue view artifact, slot binding, safe renderer, and native GUI proof lanes. | Lab-only UX and architecture evidence. |
-| Tauri IVF | Continue trace subscription, redaction, playback, and command bridge hardening. | No product app platform claim. |
-| Loops / recursion | Feed bounded loop and managed recursion evidence back to mainline spec/proposal routes. | Lab implementation is not canon. |
+| Cargo workspace root | Add an explicit root workspace only after the domain umbrella move has settled. | Structural convenience only; no crate moves hidden inside it. |
+| IgWeb runner polish | Continue manifest/runner DX after `igweb-serve`; defer source-map/diagnostics until requirements harden. | Lab CLI/runner evidence, not stable public CLI. |
+| Package/workspace model | Continue workspace/import ownership research before registry/lockfile work. | Research and lab proofs only. |
+| Server app boundary | Keep domain apps outside `igniter-server`; grow extension/middleware/app examples from `server/`. | No hardcoded product domains in server core. |
+| Language/stdlib | Continue regexp, routing lowering, Option ergonomics, and known loop gaps as bounded cards. | No canon promotion without mainline route. |
+| Runtime/machine | Continue explicit capability/security/storage slices as lab proofs. | No live external runtime without human gate. |
+| Frame/UI/IDE | Continue frame/UI/console/IDE work under `frame-ui/` and `ide/`. | UI evidence only unless bridged by explicit host proof. |
 
 ## Later
 
 | Direction | Trigger |
 | --- | --- |
-| `igniter-site/` generated docs/tutorial builder | Open after docs and agents are clean enough to index safely. |
-| Package-level proof refresh | Open when a package needs a fresh reader-facing README or verification matrix. |
-| Archive/quarantine pass | Open if stale or oversized docs obscure the active lab signal. |
+| Source-map / diagnostics for projection dialects | Open when IgWeb/.igv users hit concrete diagnostic pain. |
+| Package-level README refresh | Open when a package becomes active again or needs external handoff. |
+| Archive/quarantine pass | Open if stale docs or parked stubs obscure active lab signal. |
 | Mainline intake | Open only through explicit Igniter Main Line decision routes. |
 
-## Closed
+## Closed Boundaries
 
 The roadmap does not authorize stable API, Reference Runtime status, public
 runtime support, production readiness, release evidence, public performance

@@ -36,4 +36,4 @@ Navigation only, ~1 screen. Cross-repo master: `igniter-gov/MAP.md`.
 - **Doc segmentation:** `igniter-gov/docs/doc-segmentation-standard.md`
 - **Canon spec/covenant:** `igniter-lang/MAP.md`
 
-**Maintained:** 2026-06-15 · update via `igniter-gov/cards/map-maintenance.md`.
+**Maintained:** 2026-06-19 · update via `igniter-gov/cards/map-maintenance.md`.
