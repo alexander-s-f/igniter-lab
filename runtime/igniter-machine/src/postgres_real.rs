@@ -26,6 +26,7 @@ use crate::postgres_write::{
 };
 use async_trait::async_trait;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio_postgres::types::ToSql;
@@ -115,15 +116,84 @@ fn decode_value(row: &tokio_postgres::Row, i: usize, kind: PostgresReadValueKind
     }
 }
 
+/// The SQL cast applied to a filter/order column so a typed compare is sound (P11): integer →
+/// `::bigint`, boolean → `::bool`, timestamp → `::timestamptz`, everything else → `::text`.
+fn compare_cast(field: &str, kind: PostgresReadValueKind) -> String {
+    let q = quote_ident(field);
+    match kind {
+        PostgresReadValueKind::Integer => format!("{q}::bigint"),
+        PostgresReadValueKind::Boolean => format!("{q}::bool"),
+        PostgresReadValueKind::Timestamp => format!("{q}::timestamptz"),
+        _ => format!("{q}::text"),
+    }
+}
+
+/// Bind one scalar JSON value as a typed parameter for its kind (P11). Type mismatch → Err (a
+/// permanent query error — never a silent coercion). Timestamp/Text/Decimal bind as text and the
+/// placeholder applies the cast.
+fn bind_scalar(
+    kind: PostgresReadValueKind,
+    v: &Value,
+) -> Result<Box<dyn ToSql + Sync + Send>, String> {
+    match kind {
+        PostgresReadValueKind::Integer => v
+            .as_i64()
+            .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+            .ok_or_else(|| format!("expected integer value, got {v}")),
+        PostgresReadValueKind::Boolean => v
+            .as_bool()
+            .map(|b| Box::new(b) as Box<dyn ToSql + Sync + Send>)
+            .ok_or_else(|| format!("expected boolean value, got {v}")),
+        _ => Ok(Box::new(value_to_text(v)) as Box<dyn ToSql + Sync + Send>),
+    }
+}
+
+/// Bind an `in` list as a typed array parameter (P11). `in` is only allowed for Text/Integer/Boolean.
+fn bind_array(
+    kind: PostgresReadValueKind,
+    vs: &[Value],
+) -> Result<Box<dyn ToSql + Sync + Send>, String> {
+    match kind {
+        PostgresReadValueKind::Integer => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(v.as_i64().ok_or_else(|| format!("expected integer, got {v}"))?);
+            }
+            Ok(Box::new(out) as Box<dyn ToSql + Sync + Send>)
+        }
+        PostgresReadValueKind::Boolean => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(v.as_bool().ok_or_else(|| format!("expected boolean, got {v}"))?);
+            }
+            Ok(Box::new(out) as Box<dyn ToSql + Sync + Send>)
+        }
+        _ => Ok(Box::new(vs.iter().map(value_to_text).collect::<Vec<String>>())
+            as Box<dyn ToSql + Sync + Send>),
+    }
+}
+
+/// The SQL operator for a scalar range/eq op.
+fn sql_op(op: &str) -> &'static str {
+    match op {
+        "gt" => ">",
+        "gte" => ">=",
+        "lt" => "<",
+        "lte" => "<=",
+        _ => "=",
+    }
+}
+
 #[async_trait]
 impl PostgresReadAdapter for TokioPostgresReadAdapter {
     async fn query(
         &self,
         plan: &QueryPlan,
         effective_limit: i64,
-        kinds: &[PostgresReadValueKind],
+        kinds: &HashMap<String, PostgresReadValueKind>,
     ) -> PostgresReadResult {
         self.queries.fetch_add(1, Ordering::SeqCst);
+        let kind_of = |f: &str| kinds.get(f).copied().unwrap_or_default();
 
         // v0 requires an explicit projection (keeps the value→JSON mapping bounded + allowlisted).
         if plan.projection.is_empty() {
@@ -134,26 +204,34 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
         let cols: Vec<String> = plan
             .projection
             .iter()
-            .enumerate()
-            .map(|(i, c)| projection_expr(c, kinds.get(i).copied().unwrap_or_default()))
+            .map(|c| projection_expr(c, kind_of(c)))
             .collect();
 
-        // eq-only filters; values bound as $1..$n; column cast ::text for a uniform text compare.
+        // Typed predicates (already validated by the executor): values bound as $1..$n. `in` →
+        // `= ANY($n)` over a typed array; range/eq → `<cast> <op> $n` (timestamp param cast too).
         let mut where_parts: Vec<String> = Vec::new();
-        let mut params: Vec<String> = Vec::new();
+        let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
         for f in &plan.filters {
-            if f.op != "eq" {
-                return PostgresReadResult::QueryError(format!(
-                    "unsupported filter op in v0: {}",
-                    f.op
-                ));
+            let kind = kind_of(&f.field);
+            let lhs = compare_cast(&f.field, kind);
+            if f.op == "in" {
+                match bind_array(kind, &f.values) {
+                    Ok(p) => params.push(p),
+                    Err(e) => return PostgresReadResult::QueryError(e),
+                }
+                where_parts.push(format!("{lhs} = ANY(${})", params.len()));
+            } else {
+                match bind_scalar(kind, &f.value) {
+                    Ok(p) => params.push(p),
+                    Err(e) => return PostgresReadResult::QueryError(e),
+                }
+                let ph = if kind == PostgresReadValueKind::Timestamp {
+                    format!("${}::timestamptz", params.len())
+                } else {
+                    format!("${}", params.len())
+                };
+                where_parts.push(format!("{lhs} {} {ph}", sql_op(&f.op)));
             }
-            params.push(value_to_text(&f.value));
-            where_parts.push(format!(
-                "{}::text = ${}",
-                quote_ident(&f.field),
-                params.len()
-            ));
         }
 
         let mut sql = format!(
@@ -165,11 +243,25 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
             sql.push_str(" WHERE ");
             sql.push_str(&where_parts.join(" AND "));
         }
+        if !plan.order_by.is_empty() {
+            let parts: Vec<String> = plan
+                .order_by
+                .iter()
+                .map(|o| {
+                    let dir = if o.dir == "desc" { "DESC" } else { "ASC" };
+                    format!("{} {dir}", compare_cast(&o.field, kind_of(&o.field)))
+                })
+                .collect();
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&parts.join(", "));
+        }
         let lim = effective_limit.max(0);
         sql.push_str(&format!(" LIMIT {lim}"));
 
-        let param_refs: Vec<&(dyn ToSql + Sync)> =
-            params.iter().map(|s| s as &(dyn ToSql + Sync)).collect();
+        let param_refs: Vec<&(dyn ToSql + Sync)> = params
+            .iter()
+            .map(|b| b.as_ref() as &(dyn ToSql + Sync))
+            .collect();
 
         match self.client.query(sql.as_str(), &param_refs).await {
             Ok(rows) => {
@@ -178,8 +270,7 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
                     .map(|row| {
                         let mut obj = Map::new();
                         for (i, field) in plan.projection.iter().enumerate() {
-                            let kind = kinds.get(i).copied().unwrap_or_default();
-                            obj.insert(field.clone(), decode_value(row, i, kind));
+                            obj.insert(field.clone(), decode_value(row, i, kind_of(field)));
                         }
                         Value::Object(obj)
                     })

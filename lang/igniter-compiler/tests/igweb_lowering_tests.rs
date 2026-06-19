@@ -416,6 +416,41 @@ fn ctx_let_guard_project_compiles_clean() {
     );
 }
 
+// P27: depth-2 same-name `guard ctx` accumulation. App `guard ctx` + scope `guard ctx` nest; each step
+// enriches a `Ctx` record; the handler sees the latest context. Must compile clean.
+const CTX_ACCUM_HANDLERS: &str = include_str!("fixtures/igweb_ctx_accum/handlers.ig");
+
+const CTX_ACCUM_IGWEB: &str = "\
+app TodoWeb entry Serve {
+  handlers ContextAccumHandlers
+  let req_info = ReqInfo(req)
+  guard ctx = RequireUserContext(req, req_info)
+  scope \"/accounts/:account_id\" {
+    guard ctx = LoadAccountContext(req, ctx, account_id)
+    resource todos \"/todos\" {
+      index  GET            -> TodoIndex(req, ctx)
+      show   GET \"/:todo_id\" -> TodoShow(req, ctx, todo_id)
+      create POST           -> TodoCreate(req, ctx) requires idempotency
+    }
+  }
+}
+";
+
+#[test]
+fn ctx_accumulation_project_compiles_clean() {
+    let routes = lower_igweb(CTX_ACCUM_IGWEB).expect("lower accumulation app");
+    // sanity: nested same-name guard matches; inner guard receives the outer `value`.
+    assert!(routes.contains("match call_contract(\"RequireUserContext\", req, req_info) { Ok { value } => match call_contract(\"LoadAccountContext\", req, value, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1))"));
+
+    let stdout = compile_with_handlers(CTX_ACCUM_HANDLERS, &routes, "ctx_accum");
+    assert!(
+        !stdout.contains("OOF-RE1") && !stdout.contains("OOF-TY0"),
+        "depth-2 accumulation app must compile clean.\n--- routes.ig ---\n{}\n--- stdout ---\n{}",
+        routes,
+        stdout
+    );
+}
+
 #[test]
 fn nested_middle_param_lowers_two_captures() {
     // /accounts/:account_id/todos/:id — the middle-param case split+nth could not express (P3 unlock).

@@ -1,0 +1,14 @@
+-- TodoApp view-manifest routes (LAB-TODOAPP-VIEW-MANIFEST-P2, authored `.igweb`).
+-- View/page routes return a structured `View` JSON descriptor; a contrast `/api` data route returns
+-- the older `{"body": ...}` shape. Lowers deterministically to inspectable `.ig` like any IgWeb app.
+app TodoViewWeb entry Serve {
+  handlers TodoViews
+
+  route GET "/"              -> TodoIndexView
+  route GET "/todos"         -> TodoIndexView
+  route GET "/todos/:todo_id" -> TodoDetailView
+
+  scope "/api" {
+    route GET "/health" -> ApiHealth
+  }
+}

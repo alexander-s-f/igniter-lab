@@ -1,0 +1,10 @@
+[app]
+entry = "Serve"
+
+[server]
+mode = "loopback"
+max_requests = 16
+
+[middleware]
+trace = true
+body_limit_bytes = 65536

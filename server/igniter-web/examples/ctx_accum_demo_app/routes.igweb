@@ -1,0 +1,20 @@
+-- IgWeb depth-2 context accumulation demo (LAB-IGNITER-WEB-CONTEXT-ACCUMULATION-P27). An app-level
+-- `guard ctx` and a scope-level `guard ctx` of the SAME name accumulate one enriched context record:
+-- the scope guard receives the prior `ctx`, the handlers receive the latest. Lowers to nested P20 matches
+-- over plain `.ig`; igniter-server stays route-free.
+app TodoWeb entry Serve {
+  handlers ContextAccumHandlers
+
+  let req_info = ReqInfo(req)
+  guard ctx = RequireUserContext(req, req_info)
+
+  scope "/accounts/:account_id" {
+    guard ctx = LoadAccountContext(req, ctx, account_id)
+
+    resource todos "/todos" {
+      index  GET            -> TodoIndex(req, ctx)
+      show   GET "/:todo_id" -> TodoShow(req, ctx, todo_id)
+      create POST           -> TodoCreate(req, ctx) requires idempotency
+    }
+  }
+}

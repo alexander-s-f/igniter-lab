@@ -416,6 +416,157 @@ fn fake_typed_values_survive_projection_and_receipt() {
     });
 }
 
+// ── P11: typed predicates (eq/in/range) + order_by, evaluated by the fake adapter ─────────────
+
+fn typed_todo_rows() -> Vec<serde_json::Value> {
+    vec![
+        json!({"id": 1, "account_id": "a-7", "title": "alpha", "done": false}),
+        json!({"id": 2, "account_id": "a-7", "title": "bravo", "done": true}),
+        json!({"id": 3, "account_id": "a-9", "title": "charlie", "done": false}),
+        json!({"id": 4, "account_id": "a-7", "title": "delta", "done": false}),
+    ]
+}
+
+fn typed_policy() -> PostgresReadPolicy {
+    use PostgresReadValueKind::*;
+    PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
+        "todos",
+        &[
+            ("id", Integer),
+            ("account_id", Text),
+            ("title", Text),
+            ("done", Boolean),
+        ],
+    )
+}
+
+fn run_typed(plan: serde_json::Value, key: &str) -> igniter_machine::capability::EffectOutcome {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", typed_todo_rows()));
+        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter, typed_policy()));
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec);
+        let store = receipts();
+        run_effect(&reg, &store, &req(key, plan), RunMode::Live)
+            .await
+            .unwrap()
+    })
+}
+
+/// Test 1 — `eq` still works with a scalar string `value` (backward-compatible).
+#[test]
+fn eq_filter_backward_compatible() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "account_id", "op": "eq", "value": "a-9"}]}),
+        "eq",
+    );
+    assert_eq!(out.kind, OutcomeKind::Succeeded);
+    assert_eq!(out.result["count"], json!(1));
+    assert_eq!(out.result["rows"][0]["id"], json!(3));
+}
+
+/// Test 2 — `in` filters by text and by integer.
+#[test]
+fn in_filter_text_and_integer() {
+    let by_text = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "account_id", "op": "in", "values": ["a-9", "a-nope"]}]}),
+        "in-text",
+    );
+    assert_eq!(by_text.result["count"], json!(1));
+
+    let by_int = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "id", "op": "in", "values": [1, 3]}]}),
+        "in-int",
+    );
+    assert_eq!(by_int.result["count"], json!(2));
+}
+
+/// Test 3 — range filters by integer.
+#[test]
+fn range_filter_integer() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "id", "op": "gte", "value": 3}]}),
+        "range",
+    );
+    assert_eq!(out.result["count"], json!(2)); // ids 3, 4
+}
+
+/// Test 4 — `order_by` sorts deterministically before the limit.
+#[test]
+fn order_by_sorts_before_limit() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id"], "order_by": [{"field": "id", "dir": "desc"}], "limit": 2}),
+        "order",
+    );
+    assert_eq!(out.result["count"], json!(2));
+    assert_eq!(out.result["rows"][0]["id"], json!(4));
+    assert_eq!(out.result["rows"][1]["id"], json!(3));
+}
+
+/// Test 5 — order_by on a non-allowlisted field is denied before the adapter.
+#[test]
+fn order_by_non_allowlisted_field_denied() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id"], "order_by": [{"field": "ssn", "dir": "asc"}]}),
+        "order-bad",
+    );
+    assert_eq!(out.kind, OutcomeKind::Denied); // field allowlist gate
+}
+
+/// Test 6 — invalid `in` (empty / too long) is a permanent failure before the adapter.
+#[test]
+fn invalid_in_is_permanent() {
+    let empty = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "id", "op": "in", "values": []}]}),
+        "in-empty",
+    );
+    assert_eq!(empty.kind, OutcomeKind::PermanentFailure);
+
+    // a tight policy bound, exceeded.
+    let out = rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", typed_todo_rows()));
+        let pol = typed_policy().with_predicate_limits(2, 3);
+        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter, pol));
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec);
+        let store = receipts();
+        run_effect(
+            &reg,
+            &store,
+            &req("in-long", json!({"source": "todos", "projection": ["id"], "filters": [{"field": "id", "op": "in", "values": [1, 2, 3]}]})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap()
+    });
+    assert_eq!(out.kind, OutcomeKind::PermanentFailure);
+}
+
+/// Test 7 — a range op on a kind that forbids it (Boolean) is refused before the adapter.
+#[test]
+fn invalid_range_kind_refused() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id"], "filters": [{"field": "done", "op": "gt", "value": true}]}),
+        "range-bad",
+    );
+    assert_eq!(out.kind, OutcomeKind::PermanentFailure);
+}
+
+/// Test 10 — typed values survive projection + predicate/order evaluation in the receipt.
+#[test]
+fn typed_values_survive_predicate_and_order() {
+    let out = run_typed(
+        json!({"source": "todos", "projection": ["id", "done"], "filters": [{"field": "done", "op": "eq", "value": false}], "order_by": [{"field": "id", "dir": "asc"}]}),
+        "typed-pred",
+    );
+    assert_eq!(out.kind, OutcomeKind::Succeeded);
+    assert_eq!(out.result["count"], json!(3)); // ids 1,3,4 are done=false
+    assert_eq!(out.result["rows"][0]["id"], json!(1));
+    assert!(out.result["rows"][0]["id"].is_i64());
+    assert_eq!(out.result["rows"][0]["done"], json!(false));
+    assert!(out.result["rows"][0]["done"].is_boolean());
+}
+
 // ── #10: replay with same idempotency key bypasses the adapter (count stays 1) ─
 
 #[test]

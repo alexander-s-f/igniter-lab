@@ -27,9 +27,25 @@ type Request {
   idempotency_key : String
 }
 
+-- LAB-TODOAPP-VIEW-MANIFEST-P2: a tiny, domain-free structured-view envelope. `RespondView` lets a
+-- handler return a typed view DESCRIPTOR whose JSON object becomes the wire body ROOT (not a string
+-- inside `{\"body\": ...}`). `.ig` has no recursive types, so this is a 2-level page->items tree —
+-- enough to prove the JSON-first ViewArtifact path; an arbitrary JSON body type is a later, named slice.
+type ViewItem {
+  key   : String
+  label : String
+}
+
+type View {
+  kind  : String
+  title : String
+  items : Collection[ViewItem]
+}
+
 variant Decision {
   Respond      { status : Integer, body : String }
   InvokeEffect { target : String, input : String, idempotency_key : String }
+  RespondView  { status : Integer, view : View }
 }
 ";
 
@@ -55,9 +71,10 @@ struct Route {
     handler_args: Option<Vec<String>>,
     /// P26: pre-resolved handler `call_contract(...)` expression (filled by `apply_bindings`).
     handler_call: Option<String>,
-    /// P26: pre-resolved guard `call_contract(...)` expression; when present the handler is wrapped in a
-    /// `match … { Ok { value } => <handler> Err { error } => error }`.
-    guard_call: Option<String>,
+    /// P26/P27: pre-resolved guard `call_contract(...)` expressions, outer→inner. The handler is wrapped
+    /// in one `match … { Ok { value } => … Err { error } => error }` per guard; with same-name
+    /// accumulation (P27) each later guard receives the prior `value` and the handler sees the latest.
+    guard_calls: Vec<String>,
 }
 
 /// A `let`/`guard` context binding (P26). `let` is infallible (lowers to a top-level `compute`); `guard`
@@ -156,17 +173,20 @@ fn resolve_arg(
     }
 }
 
-/// P26: resolve the active `let`/`guard` bindings into the route's `guard_call` + `handler_call`
-/// expressions, with refusals. `via` and P26 bindings are mutually exclusive; a route with a guard or any
-/// explicit handler args must list its handler args explicitly (no auto-injection).
+/// P26/P27: resolve the active `let`/`guard` bindings into the route's `guard_calls` + `handler_call`
+/// expressions, with refusals. `guards` are ordered outer→inner and all share one binding name (same-name
+/// accumulation, P27): the first guard cannot reference the context name; each later guard and the handler
+/// resolve the shared name to the in-scope `value` (the prior / latest accumulated context). `via` and
+/// P26/P27 bindings are mutually exclusive; a route with a guard or explicit handler args must list its
+/// handler args explicitly (no auto-injection).
 fn apply_bindings(
     route: &mut Route,
     let_names: &[String],
-    active_guard: Option<&Binding>,
+    guards: &[&Binding],
     line: usize,
 ) -> Result<(), IgwebError> {
     if route.via.is_some() {
-        if active_guard.is_some() || route.handler_args.is_some() {
+        if !guards.is_empty() || route.handler_args.is_some() {
             return Err(IgwebError {
                 line,
                 message: "route-level `via` cannot be combined with `guard`/explicit handler args".into(),
@@ -174,20 +194,35 @@ fn apply_bindings(
         }
         return Ok(()); // P20 via path, no bindings
     }
-    let needs_p26 = active_guard.is_some() || route.handler_args.is_some();
-    if !needs_p26 {
+    if guards.is_empty() && route.handler_args.is_none() {
         return Ok(()); // legacy `req + captures` path
     }
+    let ctx_name = guards.first().map(|g| g.name.as_str());
     // a binding name must not collide with a path param.
     for p in &route.params {
-        if let_names.iter().any(|l| l == p) || active_guard.map(|g| &g.name == p).unwrap_or(false) {
+        if let_names.iter().any(|l| l == p) || ctx_name == Some(p.as_str()) {
             return Err(IgwebError {
                 line,
                 message: format!("binding name `{}` collides with a path param", p),
             });
         }
     }
-    let guard_name = active_guard.map(|g| g.name.as_str());
+    // each guard, outer→inner: the first cannot see the context name; later ones resolve it to `value`.
+    route.guard_calls.clear();
+    for (i, g) in guards.iter().enumerate() {
+        let visible_ctx = if i == 0 { None } else { ctx_name };
+        let resolved: Vec<String> = g
+            .args
+            .iter()
+            .map(|a| resolve_arg(a, g.line, let_names, visible_ctx, &route.params, &route.regex))
+            .collect::<Result<_, _>>()?;
+        route.guard_calls.push(format!(
+            "call_contract(\"{}\", {})",
+            g.contract,
+            resolved.join(", ")
+        ));
+    }
+    // handler args resolve the context name to the latest (innermost) `value`.
     let args = route.handler_args.as_ref().ok_or(IgwebError {
         line,
         message: "handler must list explicit args (e.g. `-> H(req, …)`) when a `guard`/`let` is active"
@@ -195,25 +230,13 @@ fn apply_bindings(
     })?;
     let resolved: Vec<String> = args
         .iter()
-        .map(|a| resolve_arg(a, line, let_names, guard_name, &route.params, &route.regex))
+        .map(|a| resolve_arg(a, line, let_names, ctx_name, &route.params, &route.regex))
         .collect::<Result<_, _>>()?;
     route.handler_call = Some(format!(
         "call_contract(\"{}\", {})",
         route.contract,
         resolved.join(", ")
     ));
-    if let Some(g) = active_guard {
-        let g_resolved: Vec<String> = g
-            .args
-            .iter()
-            .map(|a| resolve_arg(a, g.line, let_names, None, &route.params, &route.regex))
-            .collect::<Result<_, _>>()?;
-        route.guard_call = Some(format!(
-            "call_contract(\"{}\", {})",
-            g.contract,
-            g_resolved.join(", ")
-        ));
-    }
     Ok(())
 }
 
@@ -368,8 +391,11 @@ fn add_binding(
     binding_levels: &mut [Vec<Binding>],
 ) -> Result<(), IgwebError> {
     let b = parse_binding(rest, is_guard, line)?;
-    if let_names.iter().any(|n| n == &b.name) || binding_levels.iter().flatten().any(|x| x.name == b.name)
-    {
+    let name_is_let = let_names.iter().any(|n| n == &b.name);
+    let name_is_guard = binding_levels.iter().flatten().any(|x| x.name == b.name);
+    // A `let` may not reuse any active name. A `guard` may reuse an existing GUARD name (P27 same-name
+    // accumulation step), but not a `let` name.
+    if (!is_guard && (name_is_let || name_is_guard)) || (is_guard && name_is_let) {
         return Err(IgwebError {
             line,
             message: format!("duplicate binding name `{}`", b.name),
@@ -400,8 +426,9 @@ fn add_binding(
     Ok(())
 }
 
-/// Resolve a parsed route against the active bindings: at most one active `guard` (else error), then
-/// `apply_bindings` to fill `guard_call`/`handler_call`.
+/// Resolve a parsed route against the active bindings. Multiple active guards are allowed ONLY when they
+/// share one binding name (P27 same-name accumulation); distinct names are refused (no ambiguous
+/// multi-context environment). Then `apply_bindings` fills `guard_calls`/`handler_call`.
 fn finalize_route(
     mut route: Route,
     binding_levels: &[Vec<Binding>],
@@ -409,21 +436,19 @@ fn finalize_route(
     line: usize,
 ) -> Result<Route, IgwebError> {
     let guards: Vec<&Binding> = binding_levels.iter().flatten().filter(|b| b.is_guard).collect();
-    if guards.len() > 1 {
+    let mut names: Vec<&str> = guards.iter().map(|g| g.name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.len() > 1 {
         return Err(IgwebError {
             line,
             message: format!(
-                "at most one active `guard` per route (found {}: {})",
-                guards.len(),
-                guards
-                    .iter()
-                    .map(|g| g.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "distinct active `guard` names ({}); only same-name accumulation (e.g. `guard ctx` then `guard ctx`) is allowed",
+                names.join(", ")
             ),
         });
     }
-    apply_bindings(&mut route, let_names, guards.first().copied(), line)?;
+    apply_bindings(&mut route, let_names, &guards, line)?;
     Ok(route)
 }
 
@@ -1091,7 +1116,7 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
         via,
         handler_args,
         handler_call: None,
-        guard_call: None,
+        guard_calls: Vec::new(),
     })
 }
 
@@ -1186,16 +1211,17 @@ fn method_chain(group: &[&Route], indent: usize) -> String {
 /// `via` guard — a `match call_contract("Guard", …) { Ok { value } => <handler> Err { error } => error }`.
 fn handler_arm(r: &Route) -> String {
     let body = if let Some(hcall) = &r.handler_call {
-        // P26: `let`/`guard` bindings. A pre-resolved guard wraps the pre-resolved handler call in the
-        // P20 match; with no guard the handler call stands alone.
-        if let Some(gcall) = &r.guard_call {
-            format!(
+        // P26/P27: `let`/`guard` bindings. Nest one match per active guard (outer→inner) around the
+        // pre-resolved handler call; with no guard the handler call stands alone. Same-name accumulation
+        // means each inner `value` shadows the outer intentionally — `value` is always the latest context.
+        let mut inner = hcall.clone();
+        for gcall in r.guard_calls.iter().rev() {
+            inner = format!(
                 "match {} {{ Ok {{ value }} => {} Err {{ error }} => error }}",
-                gcall, hcall
-            )
-        } else {
-            hcall.clone()
+                gcall, inner
+            );
         }
+        inner
     } else if let Some(via) = &r.via {
         // guard call: req + the named args resolved to their positional captures.
         let mut guard = format!("call_contract(\"{}\", req", via.contract);
@@ -1792,9 +1818,9 @@ mod tests {
         // forward reference: a let referencing a later let
         let fwd = "app X entry Serve {\n  handlers H\n  let a = F(b)\n  let b = G(req)\n  route GET \"/x\" -> H(req, a, b)\n}\n";
         assert!(lower_igweb(fwd).unwrap_err().message.contains("unknown arg"));
-        // more than one active guard
+        // distinct active guard names (P27 only allows same-name accumulation)
         let two = "app X entry Serve {\n  handlers H\n  guard user = RequireUser(req)\n  scope \"/a/:id\" {\n    guard account = LoadAccount(req, id)\n    route GET \"/x\" -> H(req, user, account)\n  }\n}\n";
-        assert!(lower_igweb(two).unwrap_err().message.contains("at most one active `guard`"));
+        assert!(lower_igweb(two).unwrap_err().message.contains("distinct active `guard`"));
         // via cannot mix with explicit args / guard
         let mix = "app X entry Serve {\n  handlers H\n  route GET \"/a/:id\" via G(id) as g -> H(req, g)\n}\n";
         assert!(lower_igweb(mix).unwrap_err().message.contains("cannot be combined"));
@@ -1810,5 +1836,49 @@ mod tests {
     #[test]
     fn ctx_lowering_is_deterministic() {
         assert_eq!(lower_igweb(CTX).unwrap(), lower_igweb(CTX).unwrap());
+    }
+
+    // ---- P27: same-name guard accumulation ----
+
+    const ACCUM: &str = "app TodoWeb entry Serve {\n  handlers H\n  let req_info = ReqInfo(req)\n  guard ctx = RequireUserContext(req, req_info)\n  scope \"/accounts/:account_id\" {\n    guard ctx = LoadAccountContext(req, ctx, account_id)\n    route GET \"/todos\" -> TodoIndex(req, ctx)\n  }\n}\n";
+
+    /// Two same-name guards nest: the second receives the outer `value`, the handler receives the inner.
+    #[test]
+    fn accum_same_name_guards_nest() {
+        let ig = lower_igweb(ACCUM).unwrap();
+        assert!(ig.contains("compute req_info = call_contract(\"ReqInfo\", req)"));
+        assert!(ig.contains(
+            "match call_contract(\"RequireUserContext\", req, req_info) { Ok { value } => match call_contract(\"LoadAccountContext\", req, value, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1)) { Ok { value } => call_contract(\"TodoIndex\", req, value) Err { error } => error } Err { error } => error }"
+        ), "got:\n{ig}");
+    }
+
+    /// Distinct guard names remain refused (only same-name accumulation is allowed).
+    #[test]
+    fn accum_distinct_names_refused() {
+        let src = "app X entry Serve {\n  handlers H\n  guard user = RequireUser(req)\n  scope \"/a/:id\" {\n    guard account = LoadAccount(req, id)\n    route GET \"/x\" -> H(req, account)\n  }\n}\n";
+        assert!(lower_igweb(src).unwrap_err().message.contains("distinct active `guard`"));
+    }
+
+    /// The first guard cannot reference the context name (no prior step) → unknown arg.
+    #[test]
+    fn accum_first_guard_cannot_use_ctx() {
+        let src = "app X entry Serve {\n  handlers H\n  guard ctx = First(req, ctx)\n  route GET \"/x\" -> H(req, ctx)\n}\n";
+        assert!(lower_igweb(src).unwrap_err().message.contains("unknown arg"));
+    }
+
+    /// Idempotency stays outermost over the whole accumulation chain.
+    #[test]
+    fn accum_idempotency_outermost() {
+        let src = "app X entry Serve {\n  handlers H\n  guard ctx = First(req)\n  scope \"/a/:id\" {\n    guard ctx = Second(req, ctx, id)\n    route POST \"/x\" -> Make(req, ctx) requires idempotency\n  }\n}\n";
+        let ig = lower_igweb(src).unwrap();
+        assert!(ig.contains(
+            "if req.idempotency_key == \"\" { Respond { status: 400, body: \"missing idempotency-key\" } } else { match call_contract(\"First\", req)"
+        ), "got:\n{ig}");
+    }
+
+    /// Accumulation lowering is deterministic.
+    #[test]
+    fn accum_is_deterministic() {
+        assert_eq!(lower_igweb(ACCUM).unwrap(), lower_igweb(ACCUM).unwrap());
     }
 }

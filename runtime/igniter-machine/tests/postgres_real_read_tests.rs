@@ -404,3 +404,65 @@ fn real_typed_read_decodes_by_kind() {
         assert_eq!(adapter.query_count(), 1);
     });
 }
+
+// ── P11: typed in/range/order_by against a real DB (gated, local-only; skips without DSN) ────
+//
+// Reuses the `igniter_typed_read` fixture from the P10 test header. Proves the real adapter renders
+// `= ANY($n)`, `<cast> <op> $n`, and `ORDER BY <cast> DIR` as parameterized SQL. Skips cleanly when
+// IGNITER_PG_DSN is unset.
+#[test]
+fn real_typed_predicates_and_order() {
+    use igniter_machine::postgres_read::PostgresReadValueKind::*;
+    rt().block_on(async {
+        let Some(adapter) = connect_or_skip().await else {
+            return;
+        };
+        let pol = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
+            "igniter_typed_read",
+            &[("id", Integer), ("active", Boolean), ("note", Text)],
+        );
+        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(exec);
+        let store = receipts();
+
+        // in(id) + range(id) + order_by(id desc) — all parameterized, allowlisted.
+        let out = run_effect(
+            &reg,
+            &store,
+            &req(
+                "typed-pred",
+                json!({
+                    "source": "igniter_typed_read",
+                    "projection": ["id", "active"],
+                    "filters": [
+                        {"field": "id", "op": "in", "values": [1, 2, 7]},
+                        {"field": "id", "op": "gte", "value": 1}
+                    ],
+                    "order_by": [{"field": "id", "dir": "desc"}],
+                    "limit": 10
+                }),
+            ),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            out.kind,
+            OutcomeKind::Succeeded,
+            "expected `igniter_typed_read` fixture (see P10 test header SQL)"
+        );
+        let rows = out.result["rows"].as_array().expect("rows array");
+        // structural: ids are integers and (if ≥2 rows) descending.
+        for r in rows {
+            assert!(r["id"].is_i64(), "Integer projection stays a number");
+        }
+        if rows.len() >= 2 {
+            let a = rows[0]["id"].as_i64().unwrap();
+            let b = rows[1]["id"].as_i64().unwrap();
+            assert!(a >= b, "order_by id desc must be non-increasing");
+        }
+        assert_eq!(adapter.query_count(), 1);
+    });
+}

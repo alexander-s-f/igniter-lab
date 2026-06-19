@@ -27,14 +27,23 @@ use std::sync::Arc;
 
 // ── Typed query plan (the intent a contract emits — never SQL) ─────────────────
 
-/// One filter predicate. The field is allowlist-checked; the value is treated as a *bound
-/// parameter* (never interpolated into SQL). v0 does not evaluate predicates in the fake adapter
-/// — predicate evaluation is a separate, named slice. The op string is carried, not interpreted.
+/// One filter predicate. The field is allowlist-checked; values are treated as *bound parameters*
+/// (never interpolated into SQL). P11 supports `eq`/`in`/`gt`/`gte`/`lt`/`lte`: `value` carries the
+/// scalar for `eq`/range, `values` carries the list for `in`. The op is validated (kind + shape)
+/// before any adapter work.
 #[derive(Clone, Debug)]
 pub struct QueryFilter {
     pub field: String,
     pub op: String,
     pub value: Value,
+    pub values: Vec<Value>,
+}
+
+/// One `ORDER BY` clause. `field` is allowlist-checked; `dir` is normalized to `asc`/`desc`.
+#[derive(Clone, Debug)]
+pub struct QueryOrder {
+    pub field: String,
+    pub dir: String,
 }
 
 /// A typed read plan. The `source` is a logical table/view name resolved against the policy
@@ -46,6 +55,7 @@ pub struct QueryPlan {
     pub op: String,
     pub projection: Vec<String>,
     pub filters: Vec<QueryFilter>,
+    pub order_by: Vec<QueryOrder>,
     pub limit: Option<i64>,
 }
 
@@ -95,7 +105,34 @@ impl QueryPlan {
                             .unwrap_or("eq")
                             .to_string();
                         let value = f.get("value").cloned().unwrap_or(Value::Null);
-                        Some(QueryFilter { field, op, value })
+                        let values = f
+                            .get("values")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        Some(QueryFilter {
+                            field,
+                            op,
+                            value,
+                            values,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let order_by = p
+            .get("order_by")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|o| {
+                        let field = o.get("field").and_then(|v| v.as_str())?.to_string();
+                        let dir = o
+                            .get("dir")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("asc")
+                            .to_ascii_lowercase();
+                        Some(QueryOrder { field, dir })
                     })
                     .collect()
             })
@@ -106,15 +143,17 @@ impl QueryPlan {
             op,
             projection,
             filters,
+            order_by,
             limit,
         })
     }
 
-    /// All field names the plan touches (projection + filter fields) — the set the field
+    /// All field names the plan touches (projection + filter + order_by fields) — the set the field
     /// allowlist must cover.
     fn referenced_fields(&self) -> Vec<String> {
         let mut out: Vec<String> = self.projection.clone();
         out.extend(self.filters.iter().map(|f| f.field.clone()));
+        out.extend(self.order_by.iter().map(|o| o.field.clone()));
         out
     }
 }
@@ -136,6 +175,110 @@ fn is_mutating_op(op: &str) -> bool {
             | "replace"
             | "write"
     )
+}
+
+// ── P11: typed predicate + order policy ────────────────────────────────────────
+
+/// The supported filter ops. `eq` is the default; `in` takes a list; the four range ops take a scalar.
+fn is_range_op(op: &str) -> bool {
+    matches!(op, "gt" | "gte" | "lt" | "lte")
+}
+
+/// Which ops a host-declared field kind permits (the v0 matrix). Json/Array carry no predicates.
+fn kind_allows_op(kind: PostgresReadValueKind, op: &str) -> bool {
+    use PostgresReadValueKind::*;
+    match (kind, op) {
+        (Json, _) | (Array, _) => false,
+        (_, "eq") => true,                                  // every scalar kind supports equality
+        (Text, "in") | (Integer, "in") | (Boolean, "in") => true,
+        (Integer, o) | (Timestamp, o) if is_range_op(o) => true, // range: integer + timestamp
+        _ => false,
+    }
+}
+
+/// Which kinds may be ordered (v0): Text (lexicographic), Integer, Timestamp.
+fn kind_allows_order(kind: PostgresReadValueKind) -> bool {
+    matches!(
+        kind,
+        PostgresReadValueKind::Text
+            | PostgresReadValueKind::Integer
+            | PostgresReadValueKind::Timestamp
+    )
+}
+
+/// Validate every predicate + order clause against the field kinds and policy bounds — BEFORE any
+/// adapter work. Returns a stable error string for a `PermanentFailure` (malformed/over-broad plan).
+fn validate_predicates(
+    plan: &QueryPlan,
+    policy: &PostgresReadPolicy,
+    kinds: &HashMap<String, PostgresReadValueKind>,
+) -> Result<(), String> {
+    for f in &plan.filters {
+        let kind = kinds.get(&f.field).copied().unwrap_or_default();
+        if !kind_allows_op(kind, &f.op) {
+            return Err(format!(
+                "op `{}` not allowed for field `{}` ({:?})",
+                f.op, f.field, kind
+            ));
+        }
+        if f.op == "in" {
+            if f.values.is_empty() {
+                return Err(format!("`in` on `{}` requires a non-empty `values`", f.field));
+            }
+            if f.values.len() > policy.max_in_values {
+                return Err(format!(
+                    "`in` on `{}` exceeds max {} values",
+                    f.field, policy.max_in_values
+                ));
+            }
+        } else if is_range_op(&f.op) && f.value.is_null() {
+            return Err(format!("range `{}` on `{}` requires a `value`", f.op, f.field));
+        }
+    }
+    if plan.order_by.len() > policy.max_order_by {
+        return Err(format!(
+            "order_by exceeds max {} clauses",
+            policy.max_order_by
+        ));
+    }
+    for o in &plan.order_by {
+        if o.dir != "asc" && o.dir != "desc" {
+            return Err(format!("order_by dir must be asc|desc, got `{}`", o.dir));
+        }
+        let kind = kinds.get(&o.field).copied().unwrap_or_default();
+        if !kind_allows_order(kind) {
+            return Err(format!(
+                "order_by not allowed for field `{}` ({:?})",
+                o.field, kind
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Compare two JSON values for the fake evaluator: numbers numerically, bools as bools, otherwise a
+/// string fallback (stable + total). `None` only on a NaN number compare (not reachable for JSON).
+fn cmp_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x.as_f64()?.partial_cmp(&y.as_f64()?),
+        (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
+        (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
+        _ => Some(a.to_string().cmp(&b.to_string())),
+    }
+}
+
+/// Does row value `a` satisfy filter `f` (fake evaluator)? Unsupported ops were already refused.
+fn row_matches_filter(a: &Value, f: &QueryFilter) -> bool {
+    use std::cmp::Ordering::*;
+    match f.op.as_str() {
+        "eq" => cmp_values(a, &f.value) == Some(Equal),
+        "in" => f.values.iter().any(|v| cmp_values(a, v) == Some(Equal)),
+        "gt" => cmp_values(a, &f.value) == Some(Greater),
+        "gte" => matches!(cmp_values(a, &f.value), Some(Greater) | Some(Equal)),
+        "lt" => cmp_values(a, &f.value) == Some(Less),
+        "lte" => matches!(cmp_values(a, &f.value), Some(Less) | Some(Equal)),
+        _ => false,
+    }
 }
 
 // ── Host-owned read policy (the allowlist gates) ───────────────────────────────
@@ -176,6 +319,10 @@ pub struct PostgresReadPolicy {
     pub field_kinds: HashMap<String, HashMap<String, PostgresReadValueKind>>,
     /// Hard server-side row cap. A plan limit above this is CLAMPED (not denied).
     pub row_limit: i64,
+    /// Max length of an `in` value list (P11). A longer list is a permanent failure before adapter.
+    pub max_in_values: usize,
+    /// Max number of `order_by` clauses (P11).
+    pub max_order_by: usize,
 }
 
 impl PostgresReadPolicy {
@@ -186,7 +333,19 @@ impl PostgresReadPolicy {
             allowed_fields: HashMap::new(),
             field_kinds: HashMap::new(),
             row_limit,
+            max_in_values: 100,
+            max_order_by: 3,
         }
+    }
+    /// Override the `in`-list and `order_by`-clause bounds (P11).
+    pub fn with_predicate_limits(mut self, max_in_values: usize, max_order_by: usize) -> Self {
+        self.max_in_values = max_in_values;
+        self.max_order_by = max_order_by;
+        self
+    }
+    /// All declared field decode kinds for a source (empty = every field decodes as `Text`).
+    pub fn source_field_kinds(&self, source: &str) -> HashMap<String, PostgresReadValueKind> {
+        self.field_kinds.get(source).cloned().unwrap_or_default()
     }
     /// Allowlist a source + its fields, all decoded as `Text` (the pre-P10 behaviour, unchanged).
     pub fn allow_source(mut self, source: &str, fields: &[&str]) -> Self {
@@ -242,16 +401,18 @@ pub enum PostgresReadResult {
 }
 
 /// The host-side read port. The real implementation holds a connection and renders an allowlisted
-/// parameterised statement. The plan it receives is already gate-checked and the limit clamped;
-/// `kinds[i]` is the host-declared decode kind for `plan.projection[i]` (P10). The fake adapter
-/// already carries typed `serde_json::Value` rows and ignores `kinds`.
+/// parameterised statement. The plan it receives is already gate-checked (incl. typed-predicate
+/// validation) and the limit clamped; `kinds` maps every field of the source to its host-declared
+/// decode kind (P10/P11) — used by the real adapter to cast/bind/decode projection, filter, and
+/// order fields. A field absent from the map decodes as `Text`. The fake adapter already carries
+/// typed `serde_json::Value` rows and ignores `kinds`.
 #[async_trait]
 pub trait PostgresReadAdapter: Send + Sync {
     async fn query(
         &self,
         plan: &QueryPlan,
         effective_limit: i64,
-        kinds: &[PostgresReadValueKind],
+        kinds: &HashMap<String, PostgresReadValueKind>,
     ) -> PostgresReadResult;
 }
 
@@ -328,17 +489,19 @@ impl<A: PostgresReadAdapter + 'static> CapabilityExecutor for PostgresReadExecut
             }
         }
 
+        // Source field decode kinds from host policy (P10/P11; Text where unspecified).
+        let kinds = self.policy.source_field_kinds(&plan.source);
+
+        // (G3.5) typed predicate + order validation (P11) — malformed/over-broad plan is permanent,
+        // refused BEFORE the adapter is reached.
+        if let Err(e) = validate_predicates(&plan, &self.policy, &kinds) {
+            return EffectOutcome::permanent(&format!("invalid predicate: {e}"));
+        }
+
         // (G4) row-limit clamp — NOT a denial. effective = min(requested, cap).
         let requested = plan.limit.unwrap_or(self.policy.row_limit);
         let effective_limit = requested.clamp(0, self.policy.row_limit);
         let clamped = requested > self.policy.row_limit;
-
-        // Per-projected-field decode kinds from host policy (P10; Text where unspecified).
-        let kinds: Vec<PostgresReadValueKind> = plan
-            .projection
-            .iter()
-            .map(|f| self.policy.field_kind(&plan.source, f))
-            .collect();
 
         // Adapter call (the ONLY place the external port is reached). Everything above gated it.
         match self.adapter.query(&plan, effective_limit, &kinds).await {
@@ -427,13 +590,14 @@ impl FakePostgresAdapter {
 
 #[async_trait]
 impl PostgresReadAdapter for FakePostgresAdapter {
-    // The fake stores already-typed `serde_json::Value` rows, so it preserves int/bool/json/null
-    // types through projection-shaping unchanged and ignores the decode `kinds` (P10).
+    // The fake stores already-typed `serde_json::Value` rows; it preserves int/bool/json/null types
+    // and ignores the decode `kinds`. P11: it now EVALUATES the (already-validated) predicates +
+    // order_by deterministically — filter → sort → project → limit. No SQL, no expression language.
     async fn query(
         &self,
         plan: &QueryPlan,
         effective_limit: i64,
-        _kinds: &[PostgresReadValueKind],
+        _kinds: &HashMap<String, PostgresReadValueKind>,
     ) -> PostgresReadResult {
         self.queries.fetch_add(1, Ordering::SeqCst);
         match self.sources.get(&plan.source) {
@@ -441,15 +605,40 @@ impl PostgresReadAdapter for FakePostgresAdapter {
             Some(SourceBehavior::Transient(m)) => PostgresReadResult::Transient(m.clone()),
             Some(SourceBehavior::QueryError(m)) => PostgresReadResult::QueryError(m.clone()),
             Some(SourceBehavior::Table(rows)) => {
-                // Apply projection-shaping (pure shaping, not predicate evaluation — v0 does NOT
-                // evaluate filters here) and the clamped limit.
+                // 1. filter: every predicate must hold (AND-composed); a missing field never matches.
+                let mut matched: Vec<&Value> = rows
+                    .iter()
+                    .filter(|row| {
+                        plan.filters.iter().all(|f| {
+                            row.get(&f.field)
+                                .map(|v| row_matches_filter(v, f))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .collect();
+
+                // 2. order_by: stable sort, last clause first → earlier clauses dominate.
+                for o in plan.order_by.iter().rev() {
+                    matched.sort_by(|a, b| {
+                        let av = a.get(&o.field).unwrap_or(&Value::Null);
+                        let bv = b.get(&o.field).unwrap_or(&Value::Null);
+                        let ord = cmp_values(av, bv).unwrap_or(std::cmp::Ordering::Equal);
+                        if o.dir == "desc" {
+                            ord.reverse()
+                        } else {
+                            ord
+                        }
+                    });
+                }
+
+                // 3. project + 4. limit (types preserved by cloning the stored value).
                 let take = if effective_limit < 0 {
                     0
                 } else {
                     effective_limit as usize
                 };
-                let shaped: Vec<Value> = rows
-                    .iter()
+                let shaped: Vec<Value> = matched
+                    .into_iter()
                     .take(take)
                     .map(|row| {
                         if plan.projection.is_empty() {

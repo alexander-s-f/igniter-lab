@@ -1,0 +1,19 @@
+-- igniter-web Postgres-shaped Todo API — routes (LAB-TODOAPP-API-SHAPE-P2). Authored `.igweb`
+-- Projection Dialect: scope + resource + route-level `via` composite guards + idempotent mutating routes,
+-- NO new syntax (the P16–P22 stack). Lowers deterministically to a pure Serve(Request) -> Decision .ig
+-- contract; igniter-server stays route-free. Effects name only logical targets; reads are shaped, not yet
+-- executed (the effect-host seam is a later card).
+app TodoPgWeb entry Serve {
+  handlers TodoPgHandlers
+
+  route GET "/health" -> Health
+
+  scope "/accounts/:account_id" {
+    resource todos "/todos" {
+      index  GET                     via LoadAccountTodos(account_id) as ctx         -> AccountTodoIndex
+      show   GET    "/:todo_id"       via LoadTodoContext(account_id, todo_id) as ctx -> AccountTodoShow
+      create POST                    via LoadAccountTodos(account_id) as ctx         -> AccountTodoCreate requires idempotency
+      member POST   "/:todo_id/done"  via LoadTodoContext(account_id, todo_id) as ctx -> AccountTodoDone requires idempotency
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# igweb.toml — TodoApp view-manifest example (LAB-TODOAPP-VIEW-MANIFEST-P2).
+# Proves the JSON-first view path: `.igweb` view routes + `.ig` handlers return a typed `View`
+# descriptor whose JSON object is the wire body root. Fake/static data only — no DB, no raw HTML.
+
+[app]
+entry = "Serve"
+# sources omitted → all *.ig + *.igweb in this dir (deterministic): todo_views.ig + routes.igweb.
+
+[server]
+mode = "loopback"
+max_requests = 7
+
+[middleware]
+trace = true
+body_limit_bytes = 65536

@@ -168,6 +168,15 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
                 json!({ "body": get_str("body") }),
             ),
         },
+        // LAB-TODOAPP-VIEW-MANIFEST-P2: the typed `view` descriptor IS the JSON body root — no string
+        // wrapping, no double-parse. The VM-encoded record carries internal `__arm`/`__variant` keys
+        // only on variant values; the plain `View`/`ViewItem` records serialize as clean objects.
+        "RespondView" => ServerDecision::Respond {
+            response: ServerResponse::json(
+                get_i("status") as u16,
+                fields.get("view").cloned().unwrap_or(Value::Null),
+            ),
+        },
         "InvokeEffect" => ServerDecision::InvokeEffect {
             target: get_str("target"),
             input: json!({ "input": get_str("input") }),
