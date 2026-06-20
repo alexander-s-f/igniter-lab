@@ -220,6 +220,29 @@ fn list_html_maps_domain_collection_to_nodes() {
 }
 
 #[test]
+fn pending_html_filters_then_maps_domain_collection() {
+    // P22: `filter(todos, t -> t.done == false)` then `map` — a conditional list. Only pending (done:false)
+    // items render, in original order; the done item is omitted.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/pending-html", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+
+    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(body.contains("<title>Pending</title>"));
+    // kept: the two pending items, in original order.
+    let i_milk = body.find("Buy milk").expect("pending item 1 present");
+    let i_bills = body.find("Pay bills").expect("pending item 3 present");
+    assert!(i_milk < i_bills, "kept items in original order");
+    // omitted: the done item.
+    assert!(!body.contains("Write the spec"), "done item must be omitted: {body}");
+    // kept malicious text is still escaped.
+    assert!(body.contains("Buy milk &lt;script&gt;"));
+    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+}
+
+#[test]
 fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     let app = build();
     let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");

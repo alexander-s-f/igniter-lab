@@ -125,6 +125,24 @@ pure contract TodoListHtml {
   output d : Decision
 }
 
+-- LAB-IGNITER-WEB-VIEWARTIFACT-CONDITIONAL-LISTS-P22: a conditional list — `filter` the domain collection
+-- (keep only pending todos) BEFORE mapping to nodes. `filter(coll, x -> predicate)` is the live shape
+-- (apps/bookkeeping `filter(tx.postings, p -> p.direction == "Debit")`); `filter` then `map` preserves
+-- order. Reuses P21 `TodoItem`/`TodoLabel` + P20 `FormView`; no renderer/prelude change, no new syntax.
+pure contract TodoPendingHtml {
+  input req : Request
+  compute todos : Collection[TodoItem] = [
+    { id: "1", title: "Buy milk <script>", done: false },
+    { id: "2", title: "Write the spec",    done: true  },
+    { id: "3", title: "Pay bills",         done: false }
+  ]
+  compute pending : Collection[TodoItem] = filter(todos, t -> t.done == false)
+  compute body : Collection[HtmlNode] = map(pending, t -> call_contract("TodoLabel", t))
+  compute view : ViewArtifact = call_contract("FormView", "Pending", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
+
 -- Helper-authored route. SAME inputs/content as the verbose `TodoAuthoredHtml`, so its rendered HTML must
 -- be byte-identical — proving helpers are sugar over the proven record model. Named `compute` nodes
 -- (call_contract results) compose into the body collection.

@@ -16,6 +16,8 @@ app TodoViewWeb entry Serve {
   -- LAB-IGNITER-WEB-VIEWARTIFACT-LIST-AUTHORING-P21: a list view built by `map`-ing a domain collection
   -- into nodes. Static suffix, authored BEFORE `/todos/:todo_id` so it is reachable (P18 priority policy).
   route GET "/todos/list-html" -> TodoListHtml
+  -- LAB-...-CONDITIONAL-LISTS-P22: filter the domain collection (pending only) before mapping to nodes.
+  route GET "/todos/pending-html" -> TodoPendingHtml
 
   route GET "/todos/:todo_id" -> TodoDetailView
 
