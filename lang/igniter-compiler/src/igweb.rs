@@ -42,11 +42,32 @@ type View {
   items : Collection[ViewItem]
 }
 
+-- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: a bounded, domain-free typed descriptor matching the
+-- render-html v0 `form` vocabulary. Flat HtmlNode (one record, `kind` + leaf fields, unused defaulted)
+-- so the VM serializes it DIRECTLY to the renderer's kind-dispatched JSON — no variant/__arm adapter.
+-- `RenderView` hands this typed value (not a JSON string); igniter-web serializes + projects it to HTML.
+type HtmlNode {
+  kind     : String
+  id       : String
+  label    : String
+  text     : String
+  required : Bool
+  action   : String
+}
+
+type ViewArtifact {
+  artifact : String
+  layout   : String
+  title    : String
+  body     : Collection[HtmlNode]
+}
+
 variant Decision {
   Respond      { status : Integer, body : String }
   InvokeEffect { target : String, input : String, idempotency_key : String }
   RespondView  { status : Integer, view : View }
   Render       { status : Integer, artifact_json : String }
+  RenderView   { status : Integer, view : ViewArtifact }
 }
 ";
 

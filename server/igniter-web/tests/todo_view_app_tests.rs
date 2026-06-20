@@ -142,3 +142,45 @@ fn todo_html_preview_invalid_artifact_is_json_500() {
     assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
     assert!(body.contains("render failed"));
 }
+
+// ---- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: HTML authored from typed `.ig` records (RenderView) ----
+
+#[test]
+fn authored_renderview_returns_html_built_from_ig_records() {
+    let app = build();
+    // No request body — the ViewArtifact is authored in `.ig` records; the path param flows in.
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/authored-html/42", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
+    assert!(!head.contains("application/json"));
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(!body.contains("{\"body\""));
+    assert!(body.contains("<title>Todo Detail</title>"));
+    // route param flowed into a leaf field.
+    assert!(body.contains("<p class=\"ig-label\">42</p>"), "param in artifact: {body}");
+    // the typed `button` record rendered.
+    assert!(body.contains("data-action=\"submit\""));
+    // a `<script>` leaf is escaped on the way to bytes.
+    assert!(body.contains("Buy milk &lt;script&gt;"));
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
+}
+
+#[test]
+fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");
+    assert_eq!(status, 500, "unsupported `kind` → 500, not a panic");
+    let (head, body) = split(&wire);
+    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
+    assert!(body.contains("render failed"));
+    assert!(body.contains("unsupported_node"), "kind surfaced: {body}");
+}

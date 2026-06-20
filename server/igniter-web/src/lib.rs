@@ -195,25 +195,38 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
         // seam. The renderer validates structure + escapes; bad/unsafe artifacts fail closed to a JSON 500
         // carrying only the error kind/message (never the raw artifact body). igniter-server stays
         // renderer-free — the dependency lives here.
-        "Render" => match igniter_render_html::render_html(&get_str("artifact_json")) {
-            Ok(html) => ServerDecision::Respond {
-                response: ServerResponse::raw(
-                    get_i("status") as u16,
-                    html.into_bytes(),
-                    "text/html; charset=utf-8",
-                ),
-            },
-            Err(e) => ServerDecision::Respond {
-                response: ServerResponse::json(
-                    500,
-                    json!({ "error": "render failed", "kind": render_error_kind(&e), "message": e.to_string() }),
-                ),
-            },
-        },
+        "Render" => render_to_decision(get_i("status") as u16, &get_str("artifact_json")),
+        // LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: the handler authored a typed `ViewArtifact` RECORD
+        // in `.ig` (no JSON string); the VM serialized it to a clean nested JSON `view` value. Serialize
+        // it and feed the SAME render path as `Render`. `ViewArtifact`/`HtmlNode` are records, so the
+        // value carries no `__arm`/`__variant` discriminants — it matches the renderer's kind-dispatched
+        // schema directly.
+        "RenderView" => render_to_decision(
+            get_i("status") as u16,
+            &fields.get("view").cloned().unwrap_or(Value::Null).to_string(),
+        ),
         other => ServerDecision::Respond {
             response: ServerResponse::json(
                 500,
                 json!({ "error": format!("unknown decision tag: {other}"), "raw": decision }),
+            ),
+        },
+    }
+}
+
+/// Project a ViewArtifact JSON string to HTML and wrap it as a `Respond`. Shared by the `Render`
+/// (P16, JSON-string source) and `RenderView` (P19, typed-record source) decision arms: success → a raw
+/// `text/html` response (P15 seam); failure → a JSON 500 carrying only the error kind/message (no artifact
+/// body leak). igniter-server stays renderer-free — the dependency lives here.
+fn render_to_decision(status: u16, artifact_json: &str) -> ServerDecision {
+    match igniter_render_html::render_html(artifact_json) {
+        Ok(html) => ServerDecision::Respond {
+            response: ServerResponse::raw(status, html.into_bytes(), "text/html; charset=utf-8"),
+        },
+        Err(e) => ServerDecision::Respond {
+            response: ServerResponse::json(
+                500,
+                json!({ "error": "render failed", "kind": render_error_kind(&e), "message": e.to_string() }),
             ),
         },
     }

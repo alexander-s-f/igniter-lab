@@ -15,6 +15,11 @@ app TodoViewWeb entry Serve {
 
   route GET "/todos/:todo_id" -> TodoDetailView
 
+  -- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: HTML authored from typed `.ig` records via `RenderView`
+  -- (no request-body JSON). Distinct 3-segment pattern, so no clash with the `/todos/:todo_id` detail.
+  route GET "/todos/authored-html/:todo_id" -> TodoAuthoredHtml
+  route GET "/bad-node"                      -> TodoBadNode
+
   scope "/api" {
     route GET "/health" -> ApiHealth
   }

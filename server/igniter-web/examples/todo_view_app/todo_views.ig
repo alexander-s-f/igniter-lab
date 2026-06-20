@@ -43,3 +43,31 @@ pure contract TodoHtmlPreview {
   compute d : Decision = Render { status: 200, artifact_json: req.body }
   output d : Decision
 }
+
+-- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: author the ViewArtifact from ordinary typed `.ig` records
+-- (NO request-body JSON, NO JSON/HTML string literals, NO concatenation). The captured `todo_id` flows
+-- into a leaf field; a `<script>` leaf proves the renderer escapes it. `RenderView` carries the typed
+-- value; igniter-web serializes + projects it to text/html.
+pure contract TodoAuthoredHtml {
+  input req     : Request
+  input todo_id : Option[String]
+  compute body : Collection[HtmlNode] = [
+    { kind: "label",  id: "", label: "", text: or_else(todo_id, "none"), required: false, action: "" },
+    { kind: "label",  id: "", label: "", text: "Buy milk <script>",      required: false, action: "" },
+    { kind: "button", id: "done", label: "Done", text: "", required: false, action: "submit" }
+  ]
+  compute view : ViewArtifact = { artifact: "view", layout: "form", title: "Todo Detail", body: body }
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
+
+-- Failure proof: an unsupported node `kind` must fail closed to the same JSON 500 the render path uses.
+pure contract TodoBadNode {
+  input req : Request
+  compute body : Collection[HtmlNode] = [
+    { kind: "marquee", id: "", label: "", text: "x", required: false, action: "" }
+  ]
+  compute view : ViewArtifact = { artifact: "view", layout: "form", title: "Bad", body: body }
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
