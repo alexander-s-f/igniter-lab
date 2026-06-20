@@ -563,6 +563,14 @@ pub enum Expr {
     ArrayLiteral { items: Vec<Expr> },
     #[serde(rename = "record_literal")]
     RecordLiteral { fields: HashMap<String, Expr> },
+    /// LAB-LANG-RECORD-SPREAD-P2: record spread/update `{ ...base, field: value }`. Pure sugar — the
+    /// typechecker expands it to an explicit field-by-field `RecordLiteral` (copying the source's fields that
+    /// the target type declares, explicit fields overriding) once the target record type is known.
+    #[serde(rename = "record_spread")]
+    RecordSpread {
+        spread: Box<Expr>,
+        fields: HashMap<String, Expr>,
+    },
     #[serde(rename = "symbol")]
     Symbol { value: String },
     /// PROP-044 P3: variant construction expression — `ArmName { field: expr, ... }`
@@ -577,6 +585,11 @@ pub enum Expr {
         subject: Box<Expr>,
         arms: Vec<MatchArm>,
     },
+    /// LAB-LANG-MATCH-ARM-BINDINGS-P2: a block expression `{ let x = e  ...  return_expr }`. Today it
+    /// arises only as a `match` arm body (parsed when an arm body starts with `{`); `let`-bound names are
+    /// block-local. Lowers like an if-branch `BlockBody` — no new SIR node kind, no ordered effects.
+    #[serde(rename = "block")]
+    Block(BlockBody),
     #[serde(rename = "error")]
     Error { token: String },
 }
@@ -1540,13 +1553,28 @@ impl Parser {
             None
         };
 
+        // LAB-LANG-SIGNATURE-BOUND-CONTRACT-SURFACE-P2: optional compact signature
+        // `(in: T, ...) -> (out: U, ...)`. When present, the header IS the contract's graph boundary:
+        // inputs desugar to canonical `input` decls, outputs to `output` decls, and the body is bare
+        // `name [:T] = expr` bindings that desugar to `compute`. No new node kind — same AST/SIR as the
+        // explicit form. `<-` boundary bindings, `?`, and comprehensions are out of scope (later cards).
+        let signature = if self.peek_type(TokenType::LParen) {
+            Some(self.parse_contract_signature()?)
+        } else {
+            None
+        };
+
         let (forms, no_form) = self.parse_form_header_annotations();
 
         self.expect_type(TokenType::LBrace)?;
         let mut body = Vec::new();
-        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
-            if let Some(b) = self.parse_body_decl() {
-                body.push(b);
+        if let Some((inputs, outputs)) = signature {
+            self.build_signature_body(&name, name_line, name_col, &inputs, &outputs, &mut body);
+        } else {
+            while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+                if let Some(b) = self.parse_body_decl() {
+                    body.push(b);
+                }
             }
         }
         self.expect_type(TokenType::RBrace)?;
@@ -1564,6 +1592,139 @@ impl Parser {
             specialization_of: None,
             type_args: None,
         })
+    }
+
+    /// Parse a compact contract signature `(name: Type, ...) -> (name: Type, ...)` (P2).
+    fn parse_contract_signature(
+        &mut self,
+    ) -> Result<(Vec<(String, TypeRef)>, Vec<(String, TypeRef)>), String> {
+        let inputs = self.parse_sig_param_list()?;
+        self.expect_type(TokenType::Arrow)?;
+        let outputs = self.parse_sig_param_list()?;
+        Ok((inputs, outputs))
+    }
+
+    /// Parse one `(name: Type, ...)` parameter list for a contract signature.
+    fn parse_sig_param_list(&mut self) -> Result<Vec<(String, TypeRef)>, String> {
+        self.expect_type(TokenType::LParen)?;
+        let mut params = Vec::new();
+        while !self.peek_type(TokenType::RParen) && !self.peek_type(TokenType::Eof) {
+            let name = self.name_token()?;
+            self.expect_type(TokenType::Colon)?;
+            let ty = self.parse_type_ref()?;
+            params.push((name, ty));
+            if self.peek_type(TokenType::Comma) {
+                self.advance();
+            }
+        }
+        self.expect_type(TokenType::RParen)?;
+        Ok(params)
+    }
+
+    /// Desugar a signature-bound contract body into canonical `input`/`compute`/`output` body decls
+    /// (P2). Inputs → `input`; bare `name [:T] = expr` bindings → `compute` (reusing `parse_compute_decl`);
+    /// signature outputs → `output`. An output's compute inherits the signature type when its binding
+    /// omits one. Emits line-positioned diagnostics for a missing output binding or a duplicate body node.
+    fn build_signature_body(
+        &mut self,
+        contract: &str,
+        hdr_line: usize,
+        hdr_col: usize,
+        inputs: &[(String, TypeRef)],
+        outputs: &[(String, TypeRef)],
+        body: &mut Vec<BodyDecl>,
+    ) {
+        // inputs → canonical `input` decls
+        for (name, ty) in inputs {
+            body.push(BodyDecl::Input {
+                name: name.clone(),
+                type_annotation: ty.clone(),
+            });
+            self.record_span(
+                format!("input:{}.{}", contract, name),
+                "input",
+                hdr_line,
+                hdr_col,
+            );
+        }
+
+        // body: bare `name [:T] = expr` bindings → canonical `compute` decls (no leading keyword)
+        let mut seen: Vec<String> = Vec::new();
+        while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
+            let tok = match self.current() {
+                Some(t) => t.clone(),
+                None => break,
+            };
+            match self.parse_compute_decl() {
+                Ok(decl) => {
+                    if let BodyDecl::Compute { name, .. } | BodyDecl::FoldStream { name, .. } = &decl
+                    {
+                        if seen.iter().any(|n| n == name) {
+                            self.add_parse_error(
+                                "OOF-P1",
+                                &format!("duplicate body binding `{}` in signature contract", name),
+                                name,
+                                tok.line,
+                                tok.col,
+                            );
+                        }
+                        seen.push(name.clone());
+                        self.record_span(
+                            format!("compute:{}.{}", contract, name),
+                            "compute",
+                            tok.line,
+                            tok.col,
+                        );
+                    }
+                    body.push(decl);
+                }
+                Err(msg) => {
+                    self.add_parse_error("OOF-P1", &msg, &tok.value, tok.line, tok.col);
+                    self.skip_until_body_boundary();
+                }
+            }
+        }
+
+        // an output binding may omit its type — fill it from the signature output type.
+        for decl in body.iter_mut() {
+            if let BodyDecl::Compute {
+                name,
+                type_annotation,
+                ..
+            } = decl
+            {
+                if type_annotation.is_none() {
+                    if let Some((_, ty)) = outputs.iter().find(|(n, _)| n == name) {
+                        *type_annotation = Some(ty.clone());
+                    }
+                }
+            }
+        }
+
+        // signature outputs → canonical `output` decls; each must be bound exactly once in the body.
+        for (name, ty) in outputs {
+            if !seen.iter().any(|n| n == name) {
+                self.add_parse_error(
+                    "OOF-P1",
+                    &format!("signature output `{}` is not defined in the contract body", name),
+                    name,
+                    hdr_line,
+                    hdr_col,
+                );
+            }
+            body.push(BodyDecl::Output {
+                name: name.clone(),
+                type_annotation: ty.clone(),
+                lifecycle: None,
+                evidence: None,
+            });
+            self.record_span(
+                format!("output:{}.{}", contract, name),
+                "output",
+                hdr_line,
+                hdr_col,
+            );
+        }
     }
 
     fn parse_contract_type_params(&mut self) -> Result<Vec<ContractTypeParam>, String> {
@@ -3546,11 +3707,26 @@ impl Parser {
         let brace_line = self.current().map(|t| t.line).unwrap_or(0);
         let brace_col = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBrace)?;
+        // LAB-LANG-RECORD-SPREAD-P2: a leading `...expr` makes this a record spread/update.
+        let spread = if self.peek_type(TokenType::Spread) {
+            self.advance();
+            let src = self.parse_expr()?;
+            // optional separator before explicit fields (also allows `{ ...base }`)
+            if self.peek_type(TokenType::Comma) {
+                self.advance();
+            }
+            Some(Box::new(src))
+        } else {
+            None
+        };
         let mut fields = HashMap::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
             let key = self.name_token()?;
             self.expect_type(TokenType::Colon)?;
             let val = self.parse_expr()?;
+            if fields.contains_key(&key) {
+                return Err(format!("duplicate field `{}` in record literal", key));
+            }
             fields.insert(key, val);
             if self.peek_type(TokenType::Comma) {
                 self.advance();
@@ -3559,11 +3735,19 @@ impl Parser {
         self.expect_type(TokenType::RBrace)?;
         // LAB-SRCMAP-P1
         if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+            let kind = if spread.is_some() {
+                "record_spread"
+            } else {
+                "record_literal"
+            };
             let id = format!(
-                "record_literal:{}.{}@L{}",
-                self.current_contract, self.current_decl, brace_line
+                "{}:{}.{}@L{}",
+                kind, self.current_contract, self.current_decl, brace_line
             );
-            self.record_span(id, "record_literal", brace_line, brace_col);
+            self.record_span(id, kind, brace_line, brace_col);
+        }
+        if let Some(spread) = spread {
+            return Ok(Expr::RecordSpread { spread, fields });
         }
         Ok(Expr::RecordLiteral { fields })
     }
@@ -3661,7 +3845,14 @@ impl Parser {
             None => return Ok(None),
         };
         self.expect_type(TokenType::FatArrow)?;
-        let body = self.parse_expr()?;
+        // LAB-LANG-MATCH-ARM-BINDINGS-P2: an arm body may be a block `{ let x = e  ...  expr }` with
+        // branch-local bindings, or (unchanged) a single expression. A `{` in expression position is a
+        // record literal, so block arms are recognized only here, at the arm-body position.
+        let body = if self.peek_type(TokenType::LBrace) {
+            Expr::Block(self.parse_block_body()?)
+        } else {
+            self.parse_expr()?
+        };
         Ok(Some(MatchArm {
             pattern,
             body: Box::new(body),

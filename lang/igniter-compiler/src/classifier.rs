@@ -1760,10 +1760,12 @@ impl Classifier {
             Expr::Lambda { .. } => "lambda".to_string(),
             Expr::ArrayLiteral { .. } => "array_literal".to_string(),
             Expr::RecordLiteral { .. } => "record_literal".to_string(),
+            Expr::RecordSpread { .. } => "record_spread".to_string(),
             Expr::Symbol { .. } => "symbol".to_string(),
             Expr::Error { .. } => "error".to_string(),
             Expr::VariantConstruct { .. } => "variant_construct".to_string(),
             Expr::MatchExpr { .. } => "match_expr".to_string(),
+            Expr::Block(_) => "block".to_string(),
         }
     }
 
@@ -1810,32 +1812,17 @@ impl Classifier {
                 else_block,
             } => {
                 self.collect_expr_refs(cond, refs);
-                for s in &then.stmts {
-                    match s {
-                        crate::parser::Stmt::Let { expr, .. } => self.collect_expr_refs(expr, refs),
-                        crate::parser::Stmt::ExprStmt { expr } => {
-                            self.collect_expr_refs(expr, refs)
-                        }
-                    }
-                }
-                if let Some(re) = &then.return_expr {
-                    self.collect_expr_refs(re, refs);
-                }
+                // LAB-LANG-MATCH-ARM-BINDINGS-P2: a block's `let`-bound names are block-LOCAL — they are
+                // definitions, not external deps, so they must be excluded from collected refs (mirrors
+                // the lambda-`params` exclusion below). Without this, `{ let a = x  a }` reports `a` as an
+                // unresolved symbol.
+                self.collect_block_refs(then, refs);
                 if let Some(eb) = else_block {
-                    for s in &eb.stmts {
-                        match s {
-                            crate::parser::Stmt::Let { expr, .. } => {
-                                self.collect_expr_refs(expr, refs)
-                            }
-                            crate::parser::Stmt::ExprStmt { expr } => {
-                                self.collect_expr_refs(expr, refs)
-                            }
-                        }
-                    }
-                    if let Some(re) = &eb.return_expr {
-                        self.collect_expr_refs(re, refs);
-                    }
+                    self.collect_block_refs(eb, refs);
                 }
+            }
+            Expr::Block(b) => {
+                self.collect_block_refs(b, refs);
             }
             Expr::Lambda { params, body } => {
                 let mut temp_refs = Vec::new();
@@ -1873,7 +1860,38 @@ impl Classifier {
                     self.collect_expr_refs(v, refs);
                 }
             }
+            // LAB-LANG-RECORD-SPREAD-P2: spread source + explicit fields are all refs.
+            Expr::RecordSpread { spread, fields } => {
+                self.collect_expr_refs(spread, refs);
+                for v in fields.values() {
+                    self.collect_expr_refs(v, refs);
+                }
+            }
             _ => {}
+        }
+    }
+
+    /// Collect external refs from a block body, EXCLUDING names bound by the block's own `let`
+    /// statements (block-local definitions, not external deps). LAB-LANG-MATCH-ARM-BINDINGS-P2.
+    fn collect_block_refs(&self, block: &crate::parser::BlockBody, refs: &mut Vec<String>) {
+        let mut local: Vec<String> = Vec::new();
+        let mut inner: Vec<String> = Vec::new();
+        for s in &block.stmts {
+            match s {
+                crate::parser::Stmt::Let { name, expr } => {
+                    self.collect_expr_refs(expr, &mut inner);
+                    local.push(name.clone());
+                }
+                crate::parser::Stmt::ExprStmt { expr } => self.collect_expr_refs(expr, &mut inner),
+            }
+        }
+        if let Some(re) = &block.return_expr {
+            self.collect_expr_refs(re, &mut inner);
+        }
+        for r in inner {
+            if !local.contains(&r) {
+                refs.push(r);
+            }
         }
     }
 
@@ -2114,6 +2132,16 @@ fn expr_has_write(expr: &Expr) -> bool {
                 }
             }
         }
+        Expr::RecordSpread { spread, fields } => {
+            if expr_has_write(spread) {
+                return true;
+            }
+            for v in fields.values() {
+                if expr_has_write(v) {
+                    return true;
+                }
+            }
+        }
         _ => {}
     }
     false
@@ -2257,6 +2285,16 @@ fn expr_has_io_call(expr: &Expr) -> bool {
             }
         }
         Expr::RecordLiteral { fields } => {
+            for v in fields.values() {
+                if expr_has_io_call(v) {
+                    return true;
+                }
+            }
+        }
+        Expr::RecordSpread { spread, fields } => {
+            if expr_has_io_call(spread) {
+                return true;
+            }
             for v in fields.values() {
                 if expr_has_io_call(v) {
                     return true;
@@ -2592,6 +2630,19 @@ fn check_expr_io(
             }
         }
         Expr::RecordLiteral { fields } => {
+            for v in fields.values() {
+                check_expr_io(
+                    v,
+                    capabilities,
+                    effects,
+                    contract_name,
+                    is_pure,
+                    diagnostics,
+                );
+            }
+        }
+        Expr::RecordSpread { spread, fields } => {
+            check_expr_io(spread, capabilities, effects, contract_name, is_pure, diagnostics);
             for v in fields.values() {
                 check_expr_io(
                     v,

@@ -1662,6 +1662,142 @@ impl TypeChecker {
                                 }
                             }
                         }
+                        // LAB-LANG-RECORD-SPREAD-P2: expand a record spread `{ ...src, f: v }` to an
+                        // explicit field-by-field RecordLiteral once the target record type is known. Copied
+                        // fields are exactly those the TARGET declares AND the SOURCE has; explicit fields
+                        // override. The expanded literal is stashed as `annotated_expr` so the emitter lowers
+                        // it via the existing record-literal path (no new SIR node kind).
+                        else if let Some(Expr::RecordSpread { spread, fields }) = decl.expr.as_ref() {
+                            if let Some(expected_type_name) = output_type_hints.get(&decl.name) {
+                                if let Some(target_shape) =
+                                    local_type_shapes.get(expected_type_name.as_str()).cloned()
+                                {
+                                    // Resolve the source's record type (into scratch errors — the source
+                                    // was already typed in the main pass, avoid duplicate diagnostics).
+                                    let mut scratch = Vec::new();
+                                    let src_typed = self.infer_expr(
+                                        spread,
+                                        &symbol_types,
+                                        olap_env,
+                                        &local_type_shapes,
+                                        &mut scratch,
+                                        &mut type_warnings,
+                                        &decl.name,
+                                        functions,
+                                        contract_registry,
+                                        &classified.name,
+                                    );
+                                    let src_type_name = self.type_name(&src_typed.resolved_type);
+                                    match local_type_shapes.get(&src_type_name) {
+                                        None => {
+                                            type_errors.push(ClassifierDiagnostic {
+                                                rule: "OOF-TY0".to_string(),
+                                                message: format!(
+                                                    "record spread source must be a known record type, got `{}`",
+                                                    src_type_name
+                                                ),
+                                                node: decl.name.clone(),
+                                                line: None,
+                                            });
+                                        }
+                                        Some(src_shape) => {
+                                            // Build the expanded explicit field set.
+                                            let mut expanded: HashMap<String, Expr> = HashMap::new();
+                                            for (fname, ftype) in target_shape.iter() {
+                                                if let Some(explicit) = fields.get(fname) {
+                                                    expanded.insert(fname.clone(), explicit.clone());
+                                                } else if let Some(stype) = src_shape.get(fname) {
+                                                    // copied field — verify source/target field types agree
+                                                    if self.type_name(stype) != self.type_name(ftype) {
+                                                        type_errors.push(ClassifierDiagnostic {
+                                                            rule: "OOF-TY0".to_string(),
+                                                            message: format!(
+                                                                "record spread field `{}` type mismatch: source {} vs target {}",
+                                                                fname,
+                                                                self.type_name(stype),
+                                                                self.type_name(ftype)
+                                                            ),
+                                                            node: decl.name.clone(),
+                                                            line: None,
+                                                        });
+                                                    }
+                                                    expanded.insert(
+                                                        fname.clone(),
+                                                        Expr::FieldAccess {
+                                                            object: spread.clone(),
+                                                            field: fname.clone(),
+                                                        },
+                                                    );
+                                                }
+                                                // else: neither explicit nor in source → left missing,
+                                                // reported below by the shape checker.
+                                            }
+                                            // explicit fields not in the target are rejected by the shape
+                                            // checker (extra-field); include them so it can see them.
+                                            for (fname, explicit) in fields.iter() {
+                                                expanded
+                                                    .entry(fname.clone())
+                                                    .or_insert_with(|| explicit.clone());
+                                            }
+                                            let errors_before = type_errors.len();
+                                            self.check_record_literal_shape(
+                                                &expanded,
+                                                &target_shape,
+                                                expected_type_name,
+                                                &decl.name,
+                                                &symbol_types,
+                                                &local_type_shapes,
+                                                &mut type_errors,
+                                            );
+                                            if type_errors.len() == errors_before {
+                                                // expansion is well-typed — stash it for the emitter and
+                                                // upgrade the compute node type.
+                                                let lit = Expr::RecordLiteral { fields: expanded };
+                                                if let Ok(json) = serde_json::to_value(&lit) {
+                                                    typed_expr.annotated_expr = Some(json);
+                                                }
+                                                typed_expr.resolved_type = self.type_ir(
+                                                    &serde_json::Value::String(
+                                                        expected_type_name.clone(),
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                type_errors.push(ClassifierDiagnostic {
+                                    rule: "OOF-TY0".to_string(),
+                                    message:
+                                        "record spread requires a known target record type (declare the output/compute type)"
+                                            .to_string(),
+                                    node: decl.name.clone(),
+                                    line: None,
+                                });
+                            }
+                        }
+                    }
+                    // LAB-LANG-RECORD-SPREAD-P2: v0 supports record spread only at the top level of a
+                    // typed compute/output (where the target record type drives expansion). A spread nested
+                    // inside another expression has no target type here, so reject it with a clear
+                    // diagnostic rather than letting an unexpanded `record_spread` reach the emitter.
+                    let top_is_spread =
+                        matches!(decl.expr.as_ref(), Some(Expr::RecordSpread { .. }));
+                    if !top_is_spread {
+                        if let Some(e) = decl.expr.as_ref() {
+                            if let Ok(j) = serde_json::to_string(e) {
+                                if j.contains("\"record_spread\"") {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-TY0".to_string(),
+                                        message:
+                                            "record spread is only supported at the top level of a typed compute/output (v0)"
+                                                .to_string(),
+                                        node: decl.name.clone(),
+                                        line: None,
+                                    });
+                                }
+                            }
+                        }
                     }
                     // LAB-TC-ARRAY-P1: contextual ArrayLiteral typing in a typed
                     // Collection[T] output position. Mirrors the RecordLiteral
@@ -2627,6 +2763,12 @@ impl TypeChecker {
                 }
             }
             Expr::RecordLiteral { fields } => {
+                for v in fields.values() {
+                    self.collect_expr_escape_refs(v, stream_symbols, lambda_params, escape_refs);
+                }
+            }
+            Expr::RecordSpread { spread, fields } => {
+                self.collect_expr_escape_refs(spread, stream_symbols, lambda_params, escape_refs);
                 for v in fields.values() {
                     self.collect_expr_escape_refs(v, stream_symbols, lambda_params, escape_refs);
                 }
@@ -3654,6 +3796,13 @@ impl TypeChecker {
                     .map(|(k, v)| (k.clone(), self.rewrite_concat_calls(v, symbol_types)))
                     .collect(),
             },
+            Expr::RecordSpread { spread, fields } => Expr::RecordSpread {
+                spread: Box::new(self.rewrite_concat_calls(spread, symbol_types)),
+                fields: fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), self.rewrite_concat_calls(v, symbol_types)))
+                    .collect(),
+            },
             // Leaf nodes: clone as-is
             _ => expr.clone(),
         }
@@ -3678,6 +3827,61 @@ impl TypeChecker {
             "metric" => "metric".to_string(),
             _ => "blocks".to_string(),
         }
+    }
+
+    /// LAB-LANG-MATCH-ARM-BINDINGS-P2: type a block body's `let` statements left-to-right, returning a
+    /// child symbol scope that includes the block-local bindings. `let`-bound names are block-local and do
+    /// not leak past the block; expr-statements are typed for diagnostics. The block's final expression is
+    /// typed by the caller in the returned scope.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_block_scope(
+        &self,
+        block: &crate::parser::BlockBody,
+        symbol_types: &HashMap<String, serde_json::Value>,
+        olap_env: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_shapes: &HashMap<String, HashMap<String, serde_json::Value>>,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+        type_warnings: &mut Vec<ClassifierDiagnostic>,
+        node_name: &str,
+        functions: &[crate::parser::FunctionDecl],
+        contract_registry: &HashMap<String, ContractRegistryEntry>,
+        current_contract_name: &str,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut scope = symbol_types.clone();
+        for stmt in &block.stmts {
+            match stmt {
+                crate::parser::Stmt::Let { name, expr } => {
+                    let t = self.infer_expr(
+                        expr,
+                        &scope,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                    scope.insert(name.clone(), t.resolved_type);
+                }
+                crate::parser::Stmt::ExprStmt { expr } => {
+                    let _ = self.infer_expr(
+                        expr,
+                        &scope,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                }
+            }
+        }
+        scope
     }
 
     fn infer_expr(
@@ -3919,9 +4123,36 @@ impl TypeChecker {
                     };
                 }
 
+                // LAB-LANG-MATCH-ARM-BINDINGS-P2: each branch's `let` bindings are block-local — type the
+                // final expression in a child scope that includes them (the branch body is a DAG, not a
+                // sequence; `let` is just a named subexpression).
+                let then_scope = self.infer_block_scope(
+                    then,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                let else_scope = self.infer_block_scope(
+                    else_block.as_ref().unwrap(),
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
                 let then_typed = self.infer_expr(
                     then_final.unwrap(),
-                    symbol_types,
+                    &then_scope,
                     olap_env,
                     type_shapes,
                     type_errors,
@@ -3933,7 +4164,7 @@ impl TypeChecker {
                 );
                 let else_typed = self.infer_expr(
                     else_final.unwrap(),
-                    symbol_types,
+                    &else_scope,
                     olap_env,
                     type_shapes,
                     type_errors,
@@ -3976,6 +4207,42 @@ impl TypeChecker {
                     resolved_type,
                     deps,
                     annotated_expr: None,
+                }
+            }
+            // LAB-LANG-MATCH-ARM-BINDINGS-P2: a block expr (match-arm block) — type its `let` bindings
+            // into a child scope, then the final expression IS the block's value.
+            Expr::Block(block) => {
+                let scope = self.infer_block_scope(
+                    block,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                match block.return_expr.as_ref() {
+                    Some(re) => self.infer_expr(
+                        re,
+                        &scope,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    ),
+                    None => TypedExpression {
+                        resolved_type: self
+                            .type_ir(&serde_json::Value::String("Unknown".to_string())),
+                        deps: Vec::new(),
+                        annotated_expr: None,
+                    },
                 }
             }
             Expr::Call { fn_name, args } => {
@@ -4501,6 +4768,59 @@ impl TypeChecker {
                     annotated_expr: None,
                 }
             }
+            // LAB-LANG-RECORD-SPREAD-P2: type the spread source + explicit fields for deps/diagnostics; the
+            // literal stays Unknown here. The actual expansion to an explicit `record_literal` (and the
+            // shape-check against the declared target record type) happens at the compute-decl level, where
+            // the target type hint is available (mirrors the RecordLiteral nominal upgrade).
+            Expr::RecordSpread { spread, fields } => {
+                for key in fields.keys() {
+                    if key.starts_with("__") {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-KIND6".to_string(),
+                            message: format!(
+                                "Record literal field '{}' uses reserved compiler prefix '__' (compiler-owned variant runtime field)",
+                                key
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+                let mut deps = Vec::new();
+                let src_typed = self.infer_expr(
+                    spread,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                deps.extend(src_typed.deps);
+                for expr in fields.values() {
+                    let typed = self.infer_expr(
+                        expr,
+                        symbol_types,
+                        olap_env,
+                        type_shapes,
+                        type_errors,
+                        type_warnings,
+                        node_name,
+                        functions,
+                        contract_registry,
+                        current_contract_name,
+                    );
+                    deps.extend(typed.deps);
+                }
+                TypedExpression {
+                    resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    deps,
+                    annotated_expr: None,
+                }
+            }
             Expr::ArrayLiteral { items } => {
                 // LAB-TC-ARRAY-P1: ArrayLiteral element typing.
                 // Each element expression is typed for dependency collection and
@@ -4658,6 +4978,8 @@ impl TypeChecker {
             Expr::Symbol { .. } => "symbol".to_string(),
             Expr::VariantConstruct { .. } => "variant_construct".to_string(),
             Expr::MatchExpr { .. } => "match_expr".to_string(),
+            Expr::Block(_) => "block".to_string(),
+            Expr::RecordSpread { .. } => "record_spread".to_string(),
             Expr::Error { .. } => "error".to_string(),
         }
     }
@@ -6115,6 +6437,9 @@ fn expr_has_call(expr: &Expr, fn_name: &str) -> bool {
         },
         Expr::ArrayLiteral { items } => items.iter().any(|item| expr_has_call(item, fn_name)),
         Expr::RecordLiteral { fields } => fields.values().any(|v| expr_has_call(v, fn_name)),
+        Expr::RecordSpread { spread, fields } => {
+            expr_has_call(spread, fn_name) || fields.values().any(|v| expr_has_call(v, fn_name))
+        }
         _ => false,
     }
 }
@@ -6166,6 +6491,9 @@ fn expr_has_now(expr: &Expr) -> bool {
         },
         Expr::ArrayLiteral { items } => items.iter().any(expr_has_now),
         Expr::RecordLiteral { fields } => fields.values().any(expr_has_now),
+        Expr::RecordSpread { spread, fields } => {
+            expr_has_now(spread) || fields.values().any(expr_has_now)
+        }
         _ => false,
     }
 }
@@ -6267,6 +6595,12 @@ fn expr_collect_calls(expr: &Expr, fn_names: &HashSet<String>, out: &mut HashSet
         Expr::ArrayLiteral { items } => {
             for item in items {
                 expr_collect_calls(item, fn_names, out);
+            }
+        }
+        Expr::RecordSpread { spread, fields } => {
+            expr_collect_calls(spread, fn_names, out);
+            for v in fields.values() {
+                expr_collect_calls(v, fn_names, out);
             }
         }
         Expr::RecordLiteral { fields } => {

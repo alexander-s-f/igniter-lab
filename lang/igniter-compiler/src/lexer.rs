@@ -16,6 +16,7 @@ pub enum TokenType {
     RBracket,
     Dot,
     DotDot,
+    Spread, // ... (LAB-LANG-RECORD-SPREAD-P2)
     Comma,
     Colon,
     Arrow,    // ->
@@ -452,7 +453,18 @@ impl<'a> Lexer<'a> {
                 })
             }
             '.' => {
-                if self.peek(1) == Some('.') {
+                if self.peek(1) == Some('.') && self.peek(2) == Some('.') {
+                    // LAB-LANG-RECORD-SPREAD-P2: `...` record-spread token.
+                    self.advance();
+                    self.advance();
+                    self.advance();
+                    Some(Token {
+                        token_type: TokenType::Spread,
+                        value: "...".to_string(),
+                        line: l,
+                        col: c,
+                    })
+                } else if self.peek(1) == Some('.') {
                     self.advance();
                     self.advance();
                     Some(Token {

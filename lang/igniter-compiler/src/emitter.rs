@@ -958,6 +958,12 @@ impl Emitter {
         }
         match val {
             Value::Object(map) => {
+                // LAB-LANG-MATCH-ARM-BINDINGS-P2: a `block` expr (a match-arm block with branch-local
+                // `let`s) lowers like a function/if body — a right-nested `let` chain ending in the return
+                // expr. The VM `let` handler already threads the continuation, so no new node kind needed.
+                if map.get("kind").and_then(|k| k.as_str()) == Some("block") {
+                    return self.emit_function_body(val);
+                }
                 // PROP-039 gate 5: recur() call → recur_call sub-expression node
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call")
                     && map.get("fn").and_then(|f| f.as_str()) == Some("recur")
@@ -1403,6 +1409,9 @@ impl Emitter {
                 m.insert("kind".to_string(), Value::String("match_node".to_string()));
                 Value::Object(m)
             }
+            // LAB-LANG-RECORD-SPREAD-P2: the typechecker expands a record spread into an explicit
+            // `record_literal` AST and stashes it here — lower it via the normal record path.
+            Some("record_literal") => self.semantic_expr(val),
             _ => val.clone(),
         }
     }

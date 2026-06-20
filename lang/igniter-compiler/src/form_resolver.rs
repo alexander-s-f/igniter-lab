@@ -439,10 +439,12 @@ impl FormResolver {
             | Expr::Symbol { .. }
             | Expr::ArrayLiteral { .. }
             | Expr::RecordLiteral { .. }
+            | Expr::RecordSpread { .. }
             | Expr::SliceRecord { .. }
             | Expr::Error { .. }
             | Expr::VariantConstruct { .. }
-            | Expr::MatchExpr { .. } => {}
+            | Expr::MatchExpr { .. }
+            | Expr::Block(_) => {}
         }
     }
 
