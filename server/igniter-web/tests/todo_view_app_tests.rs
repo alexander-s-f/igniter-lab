@@ -243,6 +243,29 @@ fn pending_html_filters_then_maps_domain_collection() {
 }
 
 #[test]
+fn filter_html_renders_select_options_in_order_escaped() {
+    // P23: a `select` node authored from a `Collection[String]` via MakeSelect — options render in
+    // authored order, each escaped.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/filter-html", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+
+    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(body.contains("<select name=\"status\">"), "select rendered: {body}");
+    // options in authored order.
+    let i_all = body.find("<option value=\"all\">all</option>").expect("option all");
+    let i_pending = body.find("pending &lt;script&gt;").expect("option pending escaped");
+    let i_done = body.find("<option value=\"done\">done</option>").expect("option done");
+    assert!(i_all < i_pending && i_pending < i_done, "options in authored order");
+    // malicious option text escaped; no raw script.
+    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+    // the sibling button still renders (mixed node kinds in one body).
+    assert!(body.contains("data-action=\"/todos\""));
+}
+
+#[test]
 fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     let app = build();
     let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");

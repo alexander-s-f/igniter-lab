@@ -53,6 +53,7 @@ type HtmlNode {
   text     : String
   required : Bool
   action   : String
+  options  : Collection[String]
 }
 
 type ViewArtifact {

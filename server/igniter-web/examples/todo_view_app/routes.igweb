@@ -18,6 +18,8 @@ app TodoViewWeb entry Serve {
   route GET "/todos/list-html" -> TodoListHtml
   -- LAB-...-CONDITIONAL-LISTS-P22: filter the domain collection (pending only) before mapping to nodes.
   route GET "/todos/pending-html" -> TodoPendingHtml
+  -- LAB-...-SELECT-OPTIONS-P23: a select node authored from an option collection.
+  route GET "/todos/filter-html" -> TodoFilterHtml
 
   route GET "/todos/:todo_id" -> TodoDetailView
 

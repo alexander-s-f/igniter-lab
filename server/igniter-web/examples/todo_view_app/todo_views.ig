@@ -52,9 +52,9 @@ pure contract TodoAuthoredHtml {
   input req     : Request
   input todo_id : Option[String]
   compute body : Collection[HtmlNode] = [
-    { kind: "label",  id: "", label: "", text: or_else(todo_id, "none"), required: false, action: "" },
-    { kind: "label",  id: "", label: "", text: "Buy milk <script>",      required: false, action: "" },
-    { kind: "button", id: "done", label: "Done", text: "", required: false, action: "submit" }
+    { kind: "label",  id: "", label: "", text: or_else(todo_id, "none"), required: false, action: "", options: [] },
+    { kind: "label",  id: "", label: "", text: "Buy milk <script>",      required: false, action: "", options: [] },
+    { kind: "button", id: "done", label: "Done", text: "", required: false, action: "submit", options: [] }
   ]
   compute view : ViewArtifact = { artifact: "view", layout: "form", title: "Todo Detail", body: body }
   compute d : Decision = RenderView { status: 200, view: view }
@@ -65,7 +65,7 @@ pure contract TodoAuthoredHtml {
 pure contract TodoBadNode {
   input req : Request
   compute body : Collection[HtmlNode] = [
-    { kind: "marquee", id: "", label: "", text: "x", required: false, action: "" }
+    { kind: "marquee", id: "", label: "", text: "x", required: false, action: "", options: [] }
   ]
   compute view : ViewArtifact = { artifact: "view", layout: "form", title: "Bad", body: body }
   compute d : Decision = RenderView { status: 200, view: view }
@@ -77,7 +77,7 @@ pure contract TodoBadNode {
 -- the caller reads like composition. No new protocol, no node enum, no renderer change — pure `.ig`.
 pure contract MakeLabel {
   input text : String
-  compute node : HtmlNode = { kind: "label", id: "", label: "", text: text, required: false, action: "" }
+  compute node : HtmlNode = { kind: "label", id: "", label: "", text: text, required: false, action: "", options: [] }
   output node : HtmlNode
 }
 
@@ -85,7 +85,7 @@ pure contract MakeButton {
   input id     : String
   input label  : String
   input action : String
-  compute node : HtmlNode = { kind: "button", id: id, label: label, text: "", required: false, action: action }
+  compute node : HtmlNode = { kind: "button", id: id, label: label, text: "", required: false, action: action, options: [] }
   output node : HtmlNode
 }
 
@@ -94,6 +94,28 @@ pure contract FormView {
   input body  : Collection[HtmlNode]
   compute view : ViewArtifact = { artifact: "view", layout: "form", title: title, body: body }
   output view : ViewArtifact
+}
+
+-- LAB-IGNITER-WEB-VIEWARTIFACT-SELECT-OPTIONS-P23: a select/dropdown node from an authored option
+-- collection. `HtmlNode.options : Collection[String]` (the renderer's select schema); options render in
+-- authored order, each escaped. App-local helper over the flat record; no new dialect, no client JS.
+pure contract MakeSelect {
+  input id      : String
+  input label   : String
+  input options : Collection[String]
+  compute node : HtmlNode = { kind: "select", id: id, label: label, text: "", required: false, action: "", options: options }
+  output node : HtmlNode
+}
+
+pure contract TodoFilterHtml {
+  input req : Request
+  compute options : Collection[String] = ["all", "pending <script>", "done"]
+  compute sel   : HtmlNode = call_contract("MakeSelect", "status", "Status", options)
+  compute apply : HtmlNode = call_contract("MakeButton", "apply", "Apply", "/todos")
+  compute body  : Collection[HtmlNode] = [sel, apply]
+  compute view  : ViewArtifact = call_contract("FormView", "Filter", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
 }
 
 -- LAB-IGNITER-WEB-VIEWARTIFACT-LIST-AUTHORING-P21: a domain collection → node collection. `map` over a
