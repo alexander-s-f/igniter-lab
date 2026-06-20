@@ -196,7 +196,8 @@ contract SumAll {
   input items: Collection[Integer]
   compute total = 0
   for ProcessAll item in items {
-    compute total = total + item
+    lead acc: Integer = 0
+    compute acc = acc + item
   }
   output total: Integer
 }
@@ -265,7 +266,8 @@ contract ShapeCheck {
   input items: Collection[Integer]
   compute total = 0
   for Scan item in items {
-    compute total = total + item
+    lead acc: Integer = 0
+    compute acc = acc + item
   }
   output total: Integer
 }
@@ -312,7 +314,8 @@ contract BudgetShape {
   input nums: Collection[Integer]
   compute total = 0
   loop Process n in nums max_steps: 50 {
-    compute total = total + n
+    lead acc: Integer = 0
+    compute acc = acc + n
   }
   output total: Integer
 }
@@ -443,7 +446,8 @@ contract KindCheck {
   input xs: Collection[Integer]
   compute acc = 0
   loop DoLoop x in xs max_steps: 10 {
-    compute acc = acc + x
+    lead sum: Integer = 0
+    compute sum = sum + x
   }
   output acc: Integer
 }
