@@ -1,0 +1,11 @@
+-- LAB-IGNITER-WEB-RENDER-DECISION-P16 example — a route returns a `Render` decision carrying a full
+-- ViewArtifact JSON STRING; igniter-web projects it to escaped HTML (P3) and ships it as text/html bytes.
+-- The artifact string is sourced from the request body: `.ig` string literals cannot contain `"` (the
+-- lexer has no escapes), so authoring a JSON literal inline is impossible — the descriptor arrives as
+-- `req.body`. (Typed/authored ViewArtifact in `.ig` is a separate, named follow-up.)
+app RenderWeb entry Serve {
+  handlers RenderHandlers
+
+  route POST "/render" -> RenderPage
+  route GET  "/data"   -> DataApi
+}

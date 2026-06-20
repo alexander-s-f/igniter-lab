@@ -190,12 +190,43 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
                 }
             },
         },
+        // LAB-IGNITER-WEB-RENDER-DECISION-P16: the handler hands a ViewArtifact JSON STRING; igniter-web
+        // projects it to escaped HTML (P3 renderer) and ships it as verbatim bytes through the P15 raw
+        // seam. The renderer validates structure + escapes; bad/unsafe artifacts fail closed to a JSON 500
+        // carrying only the error kind/message (never the raw artifact body). igniter-server stays
+        // renderer-free — the dependency lives here.
+        "Render" => match igniter_render_html::render_html(&get_str("artifact_json")) {
+            Ok(html) => ServerDecision::Respond {
+                response: ServerResponse::raw(
+                    get_i("status") as u16,
+                    html.into_bytes(),
+                    "text/html; charset=utf-8",
+                ),
+            },
+            Err(e) => ServerDecision::Respond {
+                response: ServerResponse::json(
+                    500,
+                    json!({ "error": "render failed", "kind": render_error_kind(&e), "message": e.to_string() }),
+                ),
+            },
+        },
         other => ServerDecision::Respond {
             response: ServerResponse::json(
                 500,
                 json!({ "error": format!("unknown decision tag: {other}"), "raw": decision }),
             ),
         },
+    }
+}
+
+/// Stable kind string for a render failure (the `message` carries detail; neither leaks the artifact body).
+fn render_error_kind(e: &igniter_render_html::RenderHtmlError) -> &'static str {
+    use igniter_render_html::RenderHtmlError::*;
+    match e {
+        InvalidArtifact(_) => "invalid_artifact",
+        UnsupportedNode(_) => "unsupported_node",
+        UnsafeUrl(_) => "unsafe_url",
+        Render(_) => "render",
     }
 }
 
@@ -674,6 +705,45 @@ app TodoWeb entry Serve {
             let bs = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(text.len());
             let bj: Value = serde_json::from_str(text[bs..].trim()).unwrap_or(Value::Null);
             (status, bj)
+        });
+        host::serve_once(&listener, app).unwrap();
+        client.join().unwrap()
+    }
+
+    /// Like `roundtrip`, but returns the RAW response text (head + body) so non-JSON bodies — HTML from a
+    /// `Render` decision, etc. — can be inspected verbatim (content-type header, body bytes).
+    pub fn roundtrip_raw(
+        app: &dyn ServerApp,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (u16, String) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let (m, p, b) = (method.to_string(), path.to_string(), body.to_string());
+        let hs: Vec<(String, String)> = headers
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let client = thread::spawn(move || {
+            let mut s = TcpStream::connect(&addr).unwrap();
+            let mut req = format!("{m} {p} HTTP/1.1\r\nHost: x\r\n");
+            for (k, v) in &hs {
+                req.push_str(&format!("{k}: {v}\r\n"));
+            }
+            req.push_str(&format!("Content-Length: {}\r\n\r\n{}", b.len(), b));
+            s.write_all(req.as_bytes()).unwrap();
+            s.flush().unwrap();
+            let mut raw = Vec::new();
+            s.read_to_end(&mut raw).unwrap();
+            let text = String::from_utf8_lossy(&raw).to_string();
+            let status: u16 = text
+                .split_whitespace()
+                .nth(1)
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            (status, text)
         });
         host::serve_once(&listener, app).unwrap();
         client.join().unwrap()

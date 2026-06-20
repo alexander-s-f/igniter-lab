@@ -416,11 +416,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "igniter_render_html"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "igniter_server"
 version = "0.1.0"
 dependencies = [
+ "igniter_machine",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -469,6 +478,7 @@ version = "0.1.0"
 dependencies = [
  "igniter_compiler",
  "igniter_machine",
+ "igniter_render_html",
  "igniter_server",
  "serde_json",
  "tokio",

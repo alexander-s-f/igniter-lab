@@ -12,5 +12,14 @@ edition = "2021"
 igniter_server = { path = "../igniter-server" }
 igniter_compiler = { path = "../../lang/igniter-compiler" }
 igniter_machine = { path = "../../runtime/igniter-machine" }
+# Render decision (LAB-IGNITER-WEB-RENDER-DECISION-P16): ViewArtifact JSON → HTML via the P3 projector.
+# igniter-web carries the renderer weight so igniter-server core stays renderer/view-free.
+igniter_render_html = { path = "../../frame-ui/igniter-render-html" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
+
+[features]
+# Opt-in machine-backed effect execution for proof harnesses (LAB-IGNITER-WEB-EFFECT-HOST-WRITE-P4).
+# Passes through to igniter-server's `machine` feature (exposes `effect_host` + `serve_*_effect`). The
+# DEFAULT build is unchanged — `igweb-serve` and the app builder stay observed/machine-free.
+machine = ["igniter_server/machine"]

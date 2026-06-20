@@ -1,0 +1,9 @@
+[app]
+entry = "Serve"
+
+[server]
+mode = "loopback"
+max_requests = 7
+
+[middleware]
+trace = true
