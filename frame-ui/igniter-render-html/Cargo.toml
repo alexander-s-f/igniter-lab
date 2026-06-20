@@ -1,0 +1,12 @@
+[package]
+name = "igniter_render_html"
+version = "0.1.0"
+edition = "2021"
+
+# LAB-IGNITER-RENDER-HTML-P3 — a pure, standalone ViewArtifact JSON → escaped HTML projector. The first
+# SSR render target (the analogue of the frame RenderHosts), with ZERO dependency on igniter-server /
+# igniter-web / igniter-frame: it mirrors the canonical ViewArtifact schema (frame-ui/igniter-ui-kit/
+# src/view_artifact.rs) and only needs serde_json. No raw-response, no .ig.html, no server protocol.
+
+[dependencies]
+serde_json = "1.0"
