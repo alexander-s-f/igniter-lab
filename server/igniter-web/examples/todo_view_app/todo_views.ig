@@ -33,3 +33,13 @@ pure contract ApiHealth {
   compute d : Decision = Respond { status: 200, body: "ok" }
   output d : Decision
 }
+
+-- LAB-TODOAPP-VIEW-HTML-P17: hand the request-body ViewArtifact JSON through `Render`; igniter-web
+-- projects it to escaped HTML (P3 renderer) and ships verbatim text/html bytes (P15 raw seam). `.ig`
+-- cannot author a JSON literal, so the descriptor is sourced from `req.body` — JSON-first `RespondView`
+-- routes above are untouched.
+pure contract TodoHtmlPreview {
+  input req : Request
+  compute d : Decision = Render { status: 200, artifact_json: req.body }
+  output d : Decision
+}

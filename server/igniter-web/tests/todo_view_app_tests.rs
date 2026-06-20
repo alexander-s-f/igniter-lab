@@ -4,12 +4,16 @@
 // that clean view JSON object — NOT a `{"body": "<escaped-json>"}` double-wrap. Fake data, no DB, no Rust.
 
 use igniter_web::runner::check_app_dir;
-use igniter_web::testkit::roundtrip;
+use igniter_web::testkit::{roundtrip, roundtrip_raw};
 use igniter_web::{build_igweb_app, IgWebBuildInput};
 use igniter_server::protocol::ServerApp;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+// LAB-TODOAPP-VIEW-HTML-P17: a Todo-shaped full ViewArtifact form. The first item text carries
+// `<script>` to prove escaping on the way to HTML bytes. Built in Rust; sent as the request body.
+const TODO_ARTIFACT: &str = r#"{"artifact":"view","layout":"form","title":"Todos","body":[{"kind":"label","text":"Buy milk <script>"},{"kind":"label","text":"Write the spec"},{"kind":"button","id":"done","label":"Done","action":"submit"}]}"#;
 
 fn dir() -> PathBuf {
     PathBuf::from(format!("{}/examples/todo_view_app", env!("CARGO_MANIFEST_DIR")))
@@ -91,4 +95,50 @@ fn unknown_and_method_refusals_unchanged() {
     let app = build();
     assert_eq!(roundtrip(&*app, "GET", "/missing", &[], "").0, 404);
     assert_eq!(roundtrip(&*app, "POST", "/", &[], "").0, 405);
+}
+
+/// Split a raw HTTP/1.1 response into (lower-cased head, body).
+fn split(wire: &str) -> (String, &str) {
+    let pos = wire.find("\r\n\r\n").map(|i| i + 4).unwrap_or(wire.len());
+    (wire[..pos].to_lowercase(), &wire[pos..])
+}
+
+#[test]
+fn todo_html_preview_returns_verbatim_text_html() {
+    // P17: the SAME Todo app gains one HTML route via the P16 `Render` seam; the JSON routes are untouched.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "POST", "/todos/html-preview", &[], TODO_ARTIFACT);
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
+    assert!(!head.contains("application/json"));
+    // verbatim HTML document — not JSON-quoted, not `{"body": ...}` wrapped.
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(!body.contains("{\"body\""));
+    // Todo content from the supplied ViewArtifact is present, ESCAPED.
+    assert!(body.contains("<title>Todos</title>"));
+    assert!(body.contains("Buy milk &lt;script&gt;"));
+    assert!(body.contains("Write the spec"));
+    assert!(body.contains("data-action=\"submit\""));
+    // the malicious `<script>` never becomes a real script tag.
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
+}
+
+#[test]
+fn todo_html_preview_invalid_artifact_is_json_500() {
+    let app = build();
+    // valid JSON but not a view artifact → renderer rejects → JSON 500, not HTML, not a panic.
+    let (status, wire) = roundtrip_raw(&*app, "POST", "/todos/html-preview", &[], r#"{"todo":"x"}"#);
+    assert_eq!(status, 500);
+    let (head, body) = split(&wire);
+    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
+    assert!(body.contains("render failed"));
 }

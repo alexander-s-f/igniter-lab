@@ -6,6 +6,13 @@ app TodoViewWeb entry Serve {
 
   route GET "/"              -> TodoIndexView
   route GET "/todos"         -> TodoIndexView
+
+  -- LAB-TODOAPP-VIEW-HTML-P17: a Todo-facing HTML route. The ViewArtifact JSON arrives as the request
+  -- body (`.ig` cannot author a JSON literal — no string escapes); igniter-web renders it to text/html.
+  -- Authored BEFORE `/todos/:todo_id` so the static suffix is reachable (P18 route-priority policy:
+  -- IgWeb matches in authored order and does not auto-rank static over param suffixes).
+  route POST "/todos/html-preview" -> TodoHtmlPreview
+
   route GET "/todos/:todo_id" -> TodoDetailView
 
   scope "/api" {
