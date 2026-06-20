@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-READ-GUARD-HOST-READINESS-P5 - IgWeb read guard host seam
 
-Status: OPEN
+Status: CLOSED
 Lane: standard
 Type: readiness / architecture
 Delegation code: OPUS-IGWEB-READ-GUARD-HOST-P5
@@ -271,17 +271,47 @@ smaller and safer.
 
 ## Acceptance
 
-- [ ] Live `MachineEffectHost`/P4 write proof read and correctly characterized.
-- [ ] Live IgWeb `via`/context composition constraints read and correctly characterized.
-- [ ] Live relational `QueryPlan`/fake read executor read and correctly characterized.
-- [ ] Final writes and mid-request reads are kept separate.
-- [ ] At least five design alternatives compared.
-- [ ] Recommended v0 seam is explicit.
-- [ ] Authority split is explicit.
-- [ ] Error mapping is explicit.
-- [ ] Runner sync/async boundary is explicitly acknowledged.
-- [ ] Next implementation card is named with concrete tests.
-- [ ] No code changed.
+- [x] Live `MachineEffectHost`/P4 write proof read and correctly characterized.
+- [x] Live IgWeb `via`/context composition constraints read and correctly characterized.
+- [x] Live relational `QueryPlan`/fake read executor read and correctly characterized.
+- [x] Final writes and mid-request reads are kept separate.
+- [x] At least five design alternatives compared.
+- [x] Recommended v0 seam is explicit.
+- [x] Authority split is explicit.
+- [x] Error mapping is explicit.
+- [x] Runner sync/async boundary is explicitly acknowledged.
+- [x] Next implementation card is named with concrete tests.
+- [x] No code changed.
+
+---
+
+## Closing Report (2026-06-20)
+
+**Deliverable:** `lab-docs/lang/lab-igniter-web-read-guard-host-readiness-p5-v0.md` — readiness packet, **no
+code** (`git diff` clean). Answers Q1–Q10; ≥5 alternatives compared.
+
+**Verify-first (live):** the prelude `Decision` has only final arms (`Respond`/`InvokeEffect`/`RespondView`/
+`Render`/`RenderView`) — **none is staged**; `via`/`let`/`guard` (P20/P26) lower to pure `call_contract`
+(no IO); `MachineEffectHost` executes an *already-returned* final effect; the fake `PostgresReadExecutor`
+gates without a live DB. Note: `RenderView` is the P19 addition and does not change the read-seam conclusion.
+
+**Recommendation (Q1=B):** a **generic staged `ReadThen { plan, then }` decision** — the app's Serve returns
+a query plan + continuation-contract name; the host executes the read under host policy; re-enters the named
+continuation with rows; the continuation returns an **ordinary** final `Decision` (uniform across
+Respond/RespondView/InvokeEffect/Render/RenderView, so it composes with P4 writes and P16/P19 render).
+Rejected: host-magic `via` (hidden IO authority), final-`InvokeEffect`-for-reads (can't feed rows),
+pre-dispatch middleware (too coarse).
+
+**Honest constraints surfaced:** rows reach the continuation as a **JSON string** in v0 (typed row
+destructuring deferred); not-found = empty rows → app-owned 404 vs infra failure → host-mapped error; the
+**same `block_on` boundary as P4** is *worse* here (the host must re-enter the app for the continuation), so
+v0 must be a **direct-dispatch harness**, not the full async runner.
+
+**Next card:** `LAB-IGNITER-WEB-READ-GUARD-HOST-P6` — a machine-gated direct-dispatch harness (no new
+`.igweb`/prelude change): query contract → fake `PostgresReadExecutor` (policy-gated) → continuation, with 9
+acceptance tests (found→200, not-found→app-404, denied source/field before adapter, clamp, raw-SQL refusal,
+no identity in `.ig`, default build unchanged, no live DB). Downstream: `LAB-TODOAPP-API-READ-P*`, the staged
+`read …` syntax + `ReadThen` arm, `…-EFFECT-HOST-RUNNER-P*`.
 
 ## Suggested Verification Commands
 
