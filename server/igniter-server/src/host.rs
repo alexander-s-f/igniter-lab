@@ -18,7 +18,9 @@
 //!   protocol-first proof, and it would risk DB/live. The decision is faithfully observable so P3 can
 //!   execute it without changing the protocol.
 
-use crate::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse, PROTOCOL_VERSION};
+use crate::protocol::{
+    ResponseBody, ServerApp, ServerDecision, ServerRequest, ServerResponse, PROTOCOL_VERSION,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -227,11 +229,22 @@ pub(crate) fn status_text(status: u16) -> &'static str {
 /// Encode a `ServerResponse` to raw HTTP/1.1 bytes. Shared by the sync loopback writer and the
 /// (feature-gated) async machine-effect writer so both wire formats are identical.
 pub(crate) fn encode_response(resp: &ServerResponse) -> Vec<u8> {
-    let body = serde_json::to_vec(&resp.body).unwrap_or_default();
     let mut head = format!("HTTP/1.1 {} {}\r\n", resp.status, status_text(resp.status));
     for (k, v) in &resp.headers {
         head.push_str(&format!("{}: {}\r\n", k, v));
     }
+    // JSON bodies are serialized (content-type comes from `headers`, set by `ServerResponse::json`);
+    // raw bodies are written VERBATIM with their own content-type — no quoting/wrapping/reserialization.
+    let body: Vec<u8> = match &resp.body {
+        ResponseBody::Json(v) => serde_json::to_vec(v).unwrap_or_default(),
+        ResponseBody::Raw {
+            bytes,
+            content_type,
+        } => {
+            head.push_str(&format!("content-type: {}\r\n", content_type));
+            bytes.clone()
+        }
+    };
     head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
     let mut out = head.into_bytes();
     out.extend_from_slice(&body);
@@ -241,4 +254,74 @@ pub(crate) fn encode_response(resp: &ServerResponse) -> Vec<u8> {
 fn write_response(stream: &mut TcpStream, resp: &ServerResponse) -> std::io::Result<()> {
     stream.write_all(&encode_response(resp))?;
     stream.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Split raw HTTP/1.1 bytes into (head string, body bytes) at the `\r\n\r\n` separator.
+    fn split(wire: &[u8]) -> (String, Vec<u8>) {
+        let pos = wire
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("header/body separator");
+        (
+            String::from_utf8_lossy(&wire[..pos]).to_string(),
+            wire[pos + 4..].to_vec(),
+        )
+    }
+
+    #[test]
+    fn json_response_encodes_unchanged() {
+        let wire = encode_response(&ServerResponse::json(200, json!({"ok": true})));
+        let (head, body) = split(&wire);
+        assert!(head.contains("HTTP/1.1 200"));
+        assert!(head.contains("content-type: application/json"));
+        assert_eq!(body, br#"{"ok":true}"#.to_vec(), "JSON body, not double-wrapped");
+        assert!(head.contains(&format!("Content-Length: {}", body.len())));
+    }
+
+    #[test]
+    fn raw_html_is_written_verbatim() {
+        let wire = encode_response(&ServerResponse::raw(
+            200,
+            b"<h1>Hello</h1>".to_vec(),
+            "text/html; charset=utf-8",
+        ));
+        let (head, body) = split(&wire);
+        assert_eq!(
+            body,
+            b"<h1>Hello</h1>".to_vec(),
+            "verbatim bytes — no quotes, escaping, or {{\"body\":...}} wrap"
+        );
+        assert!(head.contains("content-type: text/html; charset=utf-8"));
+        assert!(head.contains("Content-Length: 14"));
+        assert!(!head.contains("application/json"));
+    }
+
+    #[test]
+    fn raw_preserves_binary_bytes_including_nul_and_non_utf8() {
+        let bytes = vec![0u8, 0xFF, 0x42, 0xFE, b'\n'];
+        let wire = encode_response(&ServerResponse::raw(
+            200,
+            bytes.clone(),
+            "application/octet-stream",
+        ));
+        let (head, body) = split(&wire);
+        assert_eq!(body, bytes, "0x00 and non-UTF8 bytes preserved exactly");
+        assert!(head.contains(&format!("Content-Length: {}", bytes.len())));
+    }
+
+    #[test]
+    fn raw_carries_content_disposition_as_a_normal_header() {
+        let mut resp = ServerResponse::raw(200, b"col1,col2\n1,2\n".to_vec(), "text/csv");
+        resp.headers.insert(
+            "content-disposition".to_string(),
+            "attachment; filename=\"report.csv\"".to_string(),
+        );
+        let (head, _) = split(&encode_response(&resp));
+        assert!(head.contains("content-disposition: attachment; filename=\"report.csv\""));
+        assert!(head.contains("content-type: text/csv"));
+    }
 }

@@ -20,7 +20,7 @@
 //! because execution IS `handle_effect`; this module adds no effect semantics.
 
 use crate::host;
-use crate::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse};
+use crate::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRequest, ServerResponse};
 use igniter_machine::coordination::CoordinationHub;
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRequest, IngressRouter};
 use serde_json::{json, Value};
@@ -123,7 +123,7 @@ impl<'a> MachineEffectHost<'a> {
         ServerResponse {
             status: resp.status,
             headers: out_headers,
-            body: resp.body,
+            body: ResponseBody::Json(resp.body),
         }
     }
 }

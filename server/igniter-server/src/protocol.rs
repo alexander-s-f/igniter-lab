@@ -29,21 +29,58 @@ impl ServerRequest {
     }
 }
 
+/// A response body — either a structured JSON `Value` (the default, JSON-serialized to the wire) or
+/// already-produced **raw bytes** with their own content-type (written verbatim, NOT JSON-serialized).
+/// `Raw` is the generic seam for HTML / CSV / XLSX / PDF / binary downloads: server-core ships bytes a
+/// projector/exporter already produced, and stays format-agnostic (no renderer, no export, no files).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseBody {
+    Json(Value),
+    Raw { bytes: Vec<u8>, content_type: String },
+}
+
+impl ResponseBody {
+    /// The JSON value if this is a JSON body; `None` for a raw body.
+    pub fn as_json(&self) -> Option<&Value> {
+        match self {
+            ResponseBody::Json(v) => Some(v),
+            ResponseBody::Raw { .. } => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerResponse {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
-    pub body: Value,
+    pub body: ResponseBody,
 }
 
 impl ServerResponse {
+    /// A JSON response. Sets `content-type: application/json` and JSON-serializes the body to the wire.
     pub fn json(status: u16, body: Value) -> Self {
         let mut headers = BTreeMap::new();
         headers.insert("content-type".to_string(), "application/json".to_string());
         Self {
             status,
             headers,
-            body,
+            body: ResponseBody::Json(body),
+        }
+    }
+
+    /// A verbatim raw-byte response (e.g. `text/html`, `text/csv`, an `.xlsx` blob). The bytes are
+    /// written to the wire EXACTLY as given — no JSON quoting/wrapping/reserialization — and
+    /// `content_type` becomes the response `content-type`. Other headers (e.g. `content-disposition`
+    /// for a download) flow through `headers` as usual. The server only ships already-produced bytes;
+    /// it never produces, renders, or reads them.
+    pub fn raw(status: u16, bytes: Vec<u8>, content_type: impl Into<String>) -> Self {
+        Self {
+            status,
+            headers: BTreeMap::new(),
+            body: ResponseBody::Raw {
+                bytes,
+                content_type: content_type.into(),
+            },
         }
     }
 }
@@ -193,5 +230,22 @@ mod tests {
             response.headers.get("content-type").map(String::as_str),
             Some("application/json")
         );
+        assert_eq!(response.body.as_json(), Some(&json!({"accepted": true})));
+    }
+
+    #[test]
+    fn raw_helper_carries_bytes_and_content_type() {
+        let response = ServerResponse::raw(200, b"<h1>Hello</h1>".to_vec(), "text/html; charset=utf-8");
+
+        assert_eq!(response.status, 200);
+        match &response.body {
+            ResponseBody::Raw { bytes, content_type } => {
+                assert_eq!(bytes, b"<h1>Hello</h1>");
+                assert_eq!(content_type, "text/html; charset=utf-8");
+            }
+            other => panic!("expected Raw body, got {other:?}"),
+        }
+        // a raw body is not JSON; `as_json` reflects that.
+        assert_eq!(response.body.as_json(), None);
     }
 }

@@ -115,7 +115,10 @@ fn test_keyless_webhook_refusal_is_400() {
     match d {
         ServerDecision::Respond { response } => {
             assert_eq!(response.status, 400, "keyless webhook → 400");
-            assert_eq!(response.body["error"], json!("missing duplicate key"));
+            assert_eq!(
+                response.body.as_json().unwrap()["error"],
+                json!("missing duplicate key")
+            );
         }
         other => panic!("expected Respond 400, got {other:?}"),
     }
