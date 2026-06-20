@@ -3481,6 +3481,14 @@ impl Parser {
                 self.expect_type(TokenType::RParen)?;
                 Ok(expr)
             }
+            // LAB-LANG-STRING-ESCAPES-P1: a malformed lexeme (invalid escape / unterminated string).
+            // `tok.value` carries the lexer's reason — surface it verbatim as a clear diagnostic.
+            TokenType::Illegal => {
+                let reason = tok.value.clone();
+                self.add_parse_error("OOF-LEX1", &reason, &reason, tok.line, tok.col);
+                self.advance();
+                Ok(Expr::Error { token: reason })
+            }
             _ => {
                 let err_tok = tok.value.clone();
                 self.add_parse_error(

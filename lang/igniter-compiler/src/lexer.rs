@@ -26,6 +26,7 @@ pub enum TokenType {
     Question, // ?
     Bang,     // !
     At,       // @
+    Illegal,  // a malformed lexeme (e.g. invalid string escape / unterminated string); `value` = reason
     Eof,
 }
 
@@ -505,21 +506,53 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// LAB-LANG-STRING-ESCAPES-P1: read a `"`-delimited string, decoding a minimal conventional escape
+    /// set (`\"` `\\` `\n` `\t` `\r`). An invalid escape or an unterminated string returns an `Illegal`
+    /// token whose `value` carries the reason — the parser surfaces it as a line-positioned diagnostic.
+    /// Ordinary escape-free strings are unchanged (no `.ig` string literal in the tree contains a `\`).
     fn read_string(&mut self, l: usize, c: usize) -> Token {
         self.advance(); // consume opening "
         let mut buf = String::new();
-        while let Some(ch) = self.peek(0) {
-            if ch == '"' {
-                break;
-            }
-            buf.push(self.advance().unwrap());
-        }
-        self.advance(); // consume closing "
-        Token {
-            token_type: TokenType::StringLit,
-            value: buf,
+        let illegal = |reason: &str| Token {
+            token_type: TokenType::Illegal,
+            value: reason.to_string(),
             line: l,
             col: c,
+        };
+        loop {
+            match self.peek(0) {
+                None => return illegal("unterminated string literal"),
+                Some('"') => {
+                    self.advance(); // consume closing "
+                    return Token {
+                        token_type: TokenType::StringLit,
+                        value: buf,
+                        line: l,
+                        col: c,
+                    };
+                }
+                Some('\\') => {
+                    self.advance(); // consume the backslash
+                    match self.peek(0) {
+                        None => return illegal("unterminated string literal (trailing backslash)"),
+                        Some(esc) => {
+                            let decoded = match esc {
+                                '"' => '"',
+                                '\\' => '\\',
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                other => {
+                                    return illegal(&format!("invalid string escape: \\{}", other))
+                                }
+                            };
+                            self.advance(); // consume the escape char
+                            buf.push(decoded);
+                        }
+                    }
+                }
+                Some(_) => buf.push(self.advance().unwrap()),
+            }
         }
     }
 
