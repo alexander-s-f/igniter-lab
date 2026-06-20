@@ -18,6 +18,8 @@ app TodoViewWeb entry Serve {
   -- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: HTML authored from typed `.ig` records via `RenderView`
   -- (no request-body JSON). Distinct 3-segment pattern, so no clash with the `/todos/:todo_id` detail.
   route GET "/todos/authored-html/:todo_id" -> TodoAuthoredHtml
+  -- LAB-IGNITER-WEB-VIEWARTIFACT-HELPER-CONTRACTS-P20: same artifact via helper contracts.
+  route GET "/todos/helper-html/:todo_id"   -> TodoHelperHtml
   route GET "/bad-node"                      -> TodoBadNode
 
   scope "/api" {

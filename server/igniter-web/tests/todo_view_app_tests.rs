@@ -174,6 +174,31 @@ fn authored_renderview_returns_html_built_from_ig_records() {
 }
 
 #[test]
+fn helper_authored_html_is_byte_identical_to_direct_records() {
+    // P20: the helper-contract route and the P19 direct-record route build the SAME artifact from the same
+    // inputs → their rendered HTML must be byte-identical (helpers are sugar over the proven record model).
+    let app = build();
+    let (s_helper, w_helper) = roundtrip_raw(&*app, "GET", "/todos/helper-html/7", &[], "");
+    let (s_direct, w_direct) = roundtrip_raw(&*app, "GET", "/todos/authored-html/7", &[], "");
+    assert_eq!(s_helper, 200);
+    assert_eq!(s_direct, 200);
+    let (h_helper, b_helper) = split(&w_helper);
+    let (_, b_direct) = split(&w_direct);
+
+    assert!(h_helper.contains("content-type: text/html; charset=utf-8"));
+    assert_eq!(
+        b_helper, b_direct,
+        "helper-authored HTML must equal direct-record HTML"
+    );
+    // sanity on the helper output itself: param flowed through a helper; `<script>` escaped.
+    assert!(b_helper.contains("<title>Todo Detail</title>"));
+    assert!(b_helper.contains("<p class=\"ig-label\">7</p>"));
+    assert!(b_helper.contains("Buy milk &lt;script&gt;"));
+    assert!(b_helper.contains("data-action=\"submit\""));
+    assert!(!b_helper.contains("<script>"));
+}
+
+#[test]
 fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     let app = build();
     let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");

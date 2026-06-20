@@ -71,3 +71,42 @@ pure contract TodoBadNode {
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }
+
+-- LAB-IGNITER-WEB-VIEWARTIFACT-HELPER-CONTRACTS-P20: app-local helper contracts that return the SAME P19
+-- flat `HtmlNode`/`ViewArtifact` records, so the verbose defaulted fields are set ONCE in the helper and
+-- the caller reads like composition. No new protocol, no node enum, no renderer change — pure `.ig`.
+pure contract MakeLabel {
+  input text : String
+  compute node : HtmlNode = { kind: "label", id: "", label: "", text: text, required: false, action: "" }
+  output node : HtmlNode
+}
+
+pure contract MakeButton {
+  input id     : String
+  input label  : String
+  input action : String
+  compute node : HtmlNode = { kind: "button", id: id, label: label, text: "", required: false, action: action }
+  output node : HtmlNode
+}
+
+pure contract FormView {
+  input title : String
+  input body  : Collection[HtmlNode]
+  compute view : ViewArtifact = { artifact: "view", layout: "form", title: title, body: body }
+  output view : ViewArtifact
+}
+
+-- Helper-authored route. SAME inputs/content as the verbose `TodoAuthoredHtml`, so its rendered HTML must
+-- be byte-identical — proving helpers are sugar over the proven record model. Named `compute` nodes
+-- (call_contract results) compose into the body collection.
+pure contract TodoHelperHtml {
+  input req     : Request
+  input todo_id : Option[String]
+  compute n_id   : HtmlNode = call_contract("MakeLabel", or_else(todo_id, "none"))
+  compute n_milk : HtmlNode = call_contract("MakeLabel", "Buy milk <script>")
+  compute n_done : HtmlNode = call_contract("MakeButton", "done", "Done", "submit")
+  compute body : Collection[HtmlNode] = [n_id, n_milk, n_done]
+  compute view : ViewArtifact = call_contract("FormView", "Todo Detail", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
