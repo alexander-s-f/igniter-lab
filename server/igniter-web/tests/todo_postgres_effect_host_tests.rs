@@ -1,0 +1,381 @@
+//! igniter-web/tests/todo_postgres_effect_host_tests.rs — LAB-IGNITER-WEB-EFFECT-HOST-WRITE-P4
+//!
+//! The smallest live execution bridge: the authored `examples/todo_postgres_app` (ZERO app Rust) runs its
+//! FINAL mutating `InvokeEffect` decisions through the EXISTING `igniter-server` `MachineEffectHost`
+//! contour (→ `IngressRouter::handle_effect` → CoordinationHub → fake write executor → machine receipt) —
+//! i.e. keyed writes are EXECUTED, not merely observed. The host binding (`target → machine route`) lives
+//! entirely in this harness; the app names only logical targets (`todo-create`/`todo-done`). No live
+//! Postgres, no DSN, no read guards, no `[effects]` in the app manifest. Gated behind `--features machine`.
+#![cfg(feature = "machine")]
+
+use igniter_machine::backend::{InMemoryBackend, TBackend};
+use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport};
+use igniter_machine::clock::{ClockProvider, FixedClock};
+use igniter_machine::coordination::{
+    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
+    PoolVisibility, ServiceRecipe,
+};
+use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
+use igniter_machine::machine::IgniterMachine;
+use igniter_machine::single_flight::SingleFlight;
+use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
+
+use igniter_server::effect_host::MachineEffectHost;
+use igniter_server::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRequest};
+
+use igniter_web::runner::build_app_from_dir;
+
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+const CAP: &str = "IO.TodoWrite"; // neutral host capability — never named by the app.
+
+fn rt() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+fn clock() -> Arc<dyn ClockProvider> {
+    Arc::new(FixedClock::new(100.0))
+}
+fn cpass(subject: &str, cap: &str, scopes: &[&str]) -> CapabilityPassport {
+    CapabilityPassport {
+        subject: subject.to_string(),
+        capability_id: cap.to_string(),
+        scopes: scopes.iter().map(|s| s.to_string()).collect(),
+        issued_at: 0.0,
+        expires_at: Some(1_000_000.0),
+        revoked: false,
+        evidence_digest: "sig".to_string(),
+    }
+}
+fn vendor() -> CapabilityPassport {
+    cpass(
+        "vendor:acme",
+        "coordination",
+        &[
+            "create_pool",
+            "import_capsule",
+            "activate_capsule",
+            "grant_access",
+            "accept_recipe",
+            "invoke",
+        ],
+    )
+}
+async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
+    h.register_agent(AgentIdentity {
+        agent_id: id.into(),
+        kind,
+        label: id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await
+    .unwrap();
+}
+/// Neutral pool capsule. Reads only the dedup-injected `attempt` (the app's `{input}` body is ignored by
+/// the service contract — the effect side keys on the app's idempotency key).
+async fn capsule_bytes() -> Vec<u8> {
+    let m = IgniterMachine::new(None, "in_memory").unwrap();
+    m.load_contract_source(
+        "contract WriteRecord { input attempt: Integer  compute code = attempt  output code: Integer }",
+        "WriteRecord",
+    )
+    .unwrap();
+    m.checkpoint_bytes().await.unwrap()
+}
+/// Duplicate policy keyed on the app's `idempotency-key` (what `run_invoke_effect` injects from the
+/// decision), so the machine dedup gate keys on exactly what the IgWeb route required.
+fn policy() -> DuplicatePolicy {
+    DuplicatePolicy {
+        mode: "dedup_strict".into(),
+        key_header: "idempotency-key".into(),
+        max_fresh: 0,
+        after_limit: "dedup_last".into(),
+        seed_field: "attempt".into(),
+        variant_payload: false,
+        require_key: true,
+    }
+}
+fn recipe(digest: &str, n: u32) -> ServiceRecipe {
+    ServiceRecipe {
+        recipe_id: "r1".into(),
+        capsule_digest: digest.into(),
+        entry_contract: "WriteRecord".into(),
+        input_schema_digest: None,
+        capability_bindings: vec![],
+        required_scopes: vec!["invoke".into()],
+        receipt_policy: "audit".into(),
+        retry_policy_ref: None,
+        pool_sizing: n,
+        created_by: "alice".into(),
+        accepted_by: None,
+        accepted_at: None,
+        duplicate_policy: Some(policy()),
+    }
+}
+/// Production pool + accepted recipe + granted vendor + ingress route `/w` → pool `svc` + token `vtok`.
+async fn prod(n: usize) -> (CoordinationHub, IngressRouter) {
+    let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+    let mut h = CoordinationHub::new(audit, clock());
+    register(&mut h, "alice", AgentKind::Agent).await;
+    register(&mut h, "dev", AgentKind::Developer).await;
+    register(&mut h, "vendor:acme", AgentKind::RuntimeActor).await;
+    h.create_pool(&vendor(), "svc", "candidate", PoolVisibility::Private)
+        .await
+        .unwrap();
+    let bytes = capsule_bytes().await;
+    let mut digest = String::new();
+    for _ in 0..n {
+        digest = h
+            .add_capsule(&vendor(), "svc", bytes.clone(), vec![])
+            .await
+            .unwrap()
+            .capsule_id;
+    }
+    h.accept_recipe(
+        &cpass("dev", "coordination", &["accept_recipe"]),
+        "svc",
+        recipe(&digest, n as u32),
+    )
+    .await
+    .unwrap();
+    h.grant(
+        &cpass("dev", "coordination", &["grant_access"]),
+        "svc",
+        "vendor:acme",
+        PoolRight::ActivateCapsule,
+    )
+    .await
+    .unwrap();
+    let mut r = IngressRouter::new();
+    r.route("/w", "svc");
+    r.token("vtok", vendor());
+    (h, r)
+}
+
+struct EffectState {
+    exec: Arc<FakeWriteExecutor>,
+    registry: CapabilityExecutorRegistry,
+    receipts: Arc<dyn TBackend>,
+    eclock: Arc<dyn ClockProvider>,
+    ep: CapabilityPassport,
+    sf: SingleFlight,
+}
+fn effect_state() -> EffectState {
+    let exec = Arc::new(FakeWriteExecutor::new(CAP, WriteBehavior::Commit));
+    let mut registry = CapabilityExecutorRegistry::new();
+    registry.register(exec.clone());
+    EffectState {
+        exec,
+        registry,
+        receipts: Arc::new(InMemoryBackend::new()),
+        eclock: clock(),
+        ep: cpass("host", CAP, &["write"]),
+        sf: SingleFlight::new(),
+    }
+}
+fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
+    EffectBridgeConfig {
+        registry: &s.registry,
+        receipts: &s.receipts,
+        effect_clock: &s.eclock,
+        effect_passport: &s.ep,
+        single_flight: &s.sf,
+        capability_id: CAP.into(),
+        operation: "write_record".into(),
+        scope: "write".into(),
+    }
+}
+/// Host with the INFRA bindings the app's logical targets map to (both → the one fake write route `/w`).
+fn effect_host<'a>(
+    router: &'a IngressRouter,
+    hub: &'a CoordinationHub,
+    cfg: &'a EffectBridgeConfig<'a>,
+) -> MachineEffectHost<'a> {
+    let mut eh = MachineEffectHost::new(router, hub, cfg);
+    eh.bind_target("todo-create", "/w");
+    eh.bind_target("todo-done", "/w");
+    eh
+}
+
+fn app_dir() -> PathBuf {
+    PathBuf::from(format!(
+        "{}/examples/todo_postgres_app",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+}
+fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
+    build_app_from_dir(&app_dir())
+        .expect("build examples/todo_postgres_app (zero authored Rust)")
+        .0
+}
+
+/// Build the request the way the runner would (the app reads `idempotency_key` from the field; the
+/// machine ingress passport `Authorization: Bearer vtok` rides in the headers — the app never sets/reads
+/// it).
+fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
+    let mut req = ServerRequest::new(method, path, json!({}));
+    req.headers
+        .insert("authorization".to_string(), "Bearer vtok".to_string());
+    req.idempotency_key = idem_key.map(|k| k.to_string());
+    req
+}
+
+/// Execute one already-computed app decision through `MachineEffectHost`. A final `InvokeEffect` is
+/// EXECUTED (the write contour); any other decision (e.g. the 400 guard `Respond`) is NOT — returns
+/// `(status, body, executed)`. NOTE: the app's decision is computed by `app.call()` BEFORE entering the
+/// tokio runtime — `IgWebServerApp::call` does an internal `block_on`, which cannot nest inside the async
+/// effect host (see the proof doc's honest limitation about the full socket serve loop).
+async fn execute(
+    eh: &MachineEffectHost<'_>,
+    req: &ServerRequest,
+    decision: ServerDecision,
+) -> (u16, Value, bool) {
+    match decision {
+        ServerDecision::InvokeEffect {
+            target,
+            input,
+            correlation_id,
+            idempotency_key,
+        } => {
+            let resp = eh
+                .run_invoke_effect(req, &target, &input, correlation_id, idempotency_key)
+                .await;
+            let body = match resp.body {
+                ResponseBody::Json(v) => v,
+                _ => Value::Null,
+            };
+            (resp.status, body, true)
+        }
+        ServerDecision::Respond { response } => {
+            let body = match response.body {
+                ResponseBody::Json(v) => v,
+                _ => Value::Null,
+            };
+            (response.status, body, false)
+        }
+        other => panic!("unexpected decision: {other:?}"),
+    }
+}
+
+// ── 1: keyed create EXECUTES through the machine host (not just observed 202) ─────────────────────
+
+#[test]
+fn keyed_create_executes_via_machine_host() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos", Some("evt-1"));
+    let decision = app.call(req.clone()); // sync VM dispatch — OUTSIDE the runtime.
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (status, body, executed) = execute(&eh, &req, decision).await;
+
+        assert!(executed, "a keyed mutating route produces a final InvokeEffect");
+        assert_eq!(status, 200, "committed effect → 200, body={body}");
+        assert_eq!(body["status"], json!("committed"));
+        assert_eq!(st.exec.attempts(), 1, "exactly one write effect performed");
+        // the executed response carries NO capability identity.
+        assert!(body.get("capability_id").is_none());
+        assert!(body.get("scope").is_none());
+        assert!(body.get("operation").is_none());
+    });
+}
+
+// ── 2: keyed done EXECUTES through the machine host ───────────────────────────────────────────────
+
+#[test]
+fn keyed_done_executes_via_machine_host() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos/42/done", Some("evt-2"));
+    let decision = app.call(req.clone());
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (status, body, executed) = execute(&eh, &req, decision).await;
+
+        assert!(executed);
+        assert_eq!(status, 200, "body={body}");
+        assert_eq!(body["status"], json!("committed"));
+        assert_eq!(st.exec.attempts(), 1);
+    });
+}
+
+// ── 3: keyless mutating request → 400 BEFORE the effect host; executor untouched ──────────────────
+
+#[test]
+fn keyless_create_400_before_host() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos", None);
+    let decision = app.call(req.clone());
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (status, _b, executed) = execute(&eh, &req, decision).await;
+
+        assert!(!executed, "keyless request never reaches the effect host");
+        assert_eq!(status, 400, "keyless idempotency guard fires in the app");
+        assert_eq!(st.exec.attempts(), 0, "executor untouched");
+    });
+}
+
+// ── 4: replay with the SAME idempotency key performs exactly one effect ───────────────────────────
+
+#[test]
+fn replay_same_key_one_effect() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos", Some("evt-9"));
+    // deterministic: compute the same effect intent twice (both off-runtime).
+    let d1 = app.call(req.clone());
+    let d2 = app.call(req.clone());
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (s1, _b1, _e1) = execute(&eh, &req, d1).await;
+        let (s2, _b2, _e2) = execute(&eh, &req, d2).await;
+
+        assert_eq!(s1, 200);
+        assert_eq!(s2, 200);
+        assert_eq!(
+            st.exec.attempts(),
+            1,
+            "same idempotency key → exactly one write effect (machine dedup)"
+        );
+    });
+}
+
+// ── 5: the app's decision carries no capability identity (structural) ─────────────────────────────
+
+#[test]
+fn app_decision_carries_no_capability_identity() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos", Some("evt-x"));
+    match app.call(req) {
+        ServerDecision::InvokeEffect {
+            target,
+            idempotency_key,
+            ..
+        } => {
+            // the InvokeEffect variant structurally has ONLY target/input/correlation_id/idempotency_key;
+            // there is no field for capability_id/operation/scope to smuggle.
+            assert_eq!(target, "todo-create");
+            assert_eq!(idempotency_key.as_deref(), Some("evt-x"));
+        }
+        other => panic!("expected InvokeEffect, got {other:?}"),
+    }
+}
