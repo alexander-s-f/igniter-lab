@@ -13,6 +13,10 @@ app TodoViewWeb entry Serve {
   -- IgWeb matches in authored order and does not auto-rank static over param suffixes).
   route POST "/todos/html-preview" -> TodoHtmlPreview
 
+  -- LAB-IGNITER-WEB-VIEWARTIFACT-LIST-AUTHORING-P21: a list view built by `map`-ing a domain collection
+  -- into nodes. Static suffix, authored BEFORE `/todos/:todo_id` so it is reachable (P18 priority policy).
+  route GET "/todos/list-html" -> TodoListHtml
+
   route GET "/todos/:todo_id" -> TodoDetailView
 
   -- LAB-IGNITER-WEB-VIEWARTIFACT-AUTHORING-P19: HTML authored from typed `.ig` records via `RenderView`

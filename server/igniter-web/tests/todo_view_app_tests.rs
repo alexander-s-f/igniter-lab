@@ -199,6 +199,27 @@ fn helper_authored_html_is_byte_identical_to_direct_records() {
 }
 
 #[test]
+fn list_html_maps_domain_collection_to_nodes() {
+    // P21: `body : Collection[HtmlNode] = map(todos, t -> call_contract("TodoLabel", t))` — a domain
+    // collection transformed into nodes, NOT manual per-node enumeration.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/list-html", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+
+    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(body.contains("<title>Todos</title>"));
+    // both items render, in authored order (map preserves order).
+    let i_milk = body.find("Buy milk").expect("first item present");
+    let i_spec = body.find("Write the spec").expect("second item present");
+    assert!(i_milk < i_spec, "deterministic authored order");
+    // malicious title text is escaped on the way to bytes.
+    assert!(body.contains("Buy milk &lt;script&gt;"));
+    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+}
+
+#[test]
 fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     let app = build();
     let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");

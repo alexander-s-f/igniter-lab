@@ -96,6 +96,35 @@ pure contract FormView {
   output view : ViewArtifact
 }
 
+-- LAB-IGNITER-WEB-VIEWARTIFACT-LIST-AUTHORING-P21: a domain collection → node collection. `map` over a
+-- `Collection[TodoItem]` with a helper-contract callback (the live `map(coll, x -> call_contract(...))`
+-- shape, proven in apps/batch_importer + bloom_filter) builds `body : Collection[HtmlNode]` — no manual
+-- per-node enumeration. App-local domain type + helper; no DB, no new syntax, no renderer change.
+type TodoItem {
+  id    : String
+  title : String
+  done  : Bool
+}
+
+pure contract TodoLabel {
+  input todo : TodoItem
+  compute text : String = todo.title
+  compute node : HtmlNode = call_contract("MakeLabel", text)
+  output node : HtmlNode
+}
+
+pure contract TodoListHtml {
+  input req : Request
+  compute todos : Collection[TodoItem] = [
+    { id: "1", title: "Buy milk <script>", done: false },
+    { id: "2", title: "Write the spec",    done: true  }
+  ]
+  compute body : Collection[HtmlNode] = map(todos, t -> call_contract("TodoLabel", t))
+  compute view : ViewArtifact = call_contract("FormView", "Todos", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
+
 -- Helper-authored route. SAME inputs/content as the verbose `TodoAuthoredHtml`, so its rendered HTML must
 -- be byte-identical — proving helpers are sugar over the proven record model. Named `compute` nodes
 -- (call_contract results) compose into the body collection.
