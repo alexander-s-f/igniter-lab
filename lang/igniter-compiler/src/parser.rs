@@ -3817,8 +3817,15 @@ impl Parser {
         let mut fields = HashMap::new();
         while !self.peek_type(TokenType::RBrace) && !self.peek_type(TokenType::Eof) {
             let key = self.name_token()?;
-            self.expect_type(TokenType::Colon)?;
-            let val = self.parse_expr()?;
+            // LAB-LANG-RECORD-FIELD-PUNNING-P2: a field with no `:` is punned — `{ name }` ⇒
+            // `{ name: name }` (also `{ ...base, name }`). Desugars immediately to a `Ref`, so the
+            // record literal/spread sees the canonical `{ name: <ref> }` shape (no new node kind).
+            let val = if self.peek_type(TokenType::Colon) {
+                self.advance();
+                self.parse_expr()?
+            } else {
+                Expr::Ref { name: key.clone() }
+            };
             if fields.contains_key(&key) {
                 return Err(format!("duplicate field `{}` in record literal", key));
             }

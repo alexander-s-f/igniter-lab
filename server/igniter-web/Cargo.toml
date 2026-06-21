@@ -31,3 +31,8 @@ machine = ["igniter_server/machine"]
 # adapters and pulls in tokio-postgres for the test-owned DDL/seed/cleanup. Used ONLY by
 # `tests/todo_postgres_local_e2e_tests.rs`, which SKIPS cleanly when `IGNITER_TODO_PG_DSN` is unset.
 postgres = ["machine", "igniter_machine/postgres", "dep:tokio-postgres"]
+
+[dev-dependencies]
+# LAB-IGNITER-WEB-EFFECT-HOST-RUNNER-P9: the typed-write effect-host runner test implements a thin
+# `CapabilityExecutor` decorator, which uses the `#[async_trait]` macro (same version as igniter-machine).
+async-trait = "0.1"

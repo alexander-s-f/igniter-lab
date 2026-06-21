@@ -564,6 +564,7 @@ dependencies = [
 name = "igniter_web"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "igniter_compiler",
  "igniter_machine",
  "igniter_render_html",

@@ -105,6 +105,32 @@ pub struct VM {
     pub trace_collector: Option<std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
 }
 
+// LAB-LANG-REGEXP-RUNTIME-CACHE-P4: process-global compiled-regex cache for the `matches`/`capture`
+// builtins. A PER-VM cache would be useless here: `IgniterMachine::dispatch` builds a FRESH `VM` per
+// request (`machine.rs:313 let mut vm = VM::new(...)`), so a per-VM cache never survives across
+// requests (and each route pattern appears once within a request). A process-global cache persists
+// across dispatches, so a route's anchored patterns compile ONCE process-wide instead of on every
+// request. Behavior-identical: a pattern is a pure function of its string, so a cached `Regex` matches
+// exactly as a freshly compiled one (replay/test-safe — sharing cannot change any result). Growth: keyed
+// by pattern string; an app's route-regex set is small and stable, so v0 leaves it unbounded
+// (documented). Invalid patterns are NOT cached — they recompile and surface the same operational error.
+static REGEX_CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, regex::Regex>>> =
+    std::sync::OnceLock::new();
+
+/// Compile `pattern` once process-wide and reuse it for every later call with the same string. Returns
+/// the same `Result<Regex, regex::Error>` shape `regex::Regex::new` does, so callers keep identical
+/// match/error semantics. The lock is held only to read/insert; the cheap (Arc-backed) `Regex` clone is
+/// matched against text outside the lock. Only successful compiles are cached.
+fn cached_regex(pattern: &str) -> Result<regex::Regex, regex::Error> {
+    let cache = REGEX_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    if let Some(re) = cache.lock().unwrap().get(pattern) {
+        return Ok(re.clone());
+    }
+    let re = regex::Regex::new(pattern)?;
+    cache.lock().unwrap().insert(pattern.to_string(), re.clone());
+    Ok(re)
+}
+
 impl VM {
     pub fn new(backend: Option<Arc<dyn TBackend>>) -> Self {
         Self {
@@ -1266,7 +1292,7 @@ impl VM {
                             }
                             let text = args[0].as_str()?;
                             let pattern = args[1].as_str()?;
-                            match regex::Regex::new(pattern) {
+                            match cached_regex(pattern) {
                                 Ok(re) => Value::Bool(re.is_match(text)),
                                 Err(e) => {
                                     return Err(format!("regexp.matches: invalid pattern: {}", e))
@@ -1283,7 +1309,7 @@ impl VM {
                             let text = args[0].as_str()?;
                             let pattern = args[1].as_str()?;
                             let index = args[2].as_integer()?;
-                            match regex::Regex::new(pattern) {
+                            match cached_regex(pattern) {
                                 Ok(re) => {
                                     if index < 0 {
                                         Value::Nil
@@ -4154,7 +4180,7 @@ fn eval_ast<'a>(
                         }
                         let text = evaluated_operands[0].as_str()?;
                         let pattern = evaluated_operands[1].as_str()?;
-                        match regex::Regex::new(pattern) {
+                        match cached_regex(pattern) {
                             Ok(re) => Ok(Value::Bool(re.is_match(text))),
                             Err(e) => Err(format!("regexp.matches: invalid pattern: {}", e)),
                         }
@@ -4169,7 +4195,7 @@ fn eval_ast<'a>(
                         let text = evaluated_operands[0].as_str()?;
                         let pattern = evaluated_operands[1].as_str()?;
                         let index = evaluated_operands[2].as_integer()?;
-                        match regex::Regex::new(pattern) {
+                        match cached_regex(pattern) {
                             Ok(re) => {
                                 if index < 0 {
                                     Ok(Value::Nil)
