@@ -1,0 +1,5 @@
+# mid declares its own dependency on `deep` — v0 does NOT traverse it (direct-only).
+source_roots = ["src"]
+
+[dependencies]
+deep = { path = "../deep" }

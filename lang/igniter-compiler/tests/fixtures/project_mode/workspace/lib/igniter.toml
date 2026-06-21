@@ -1,0 +1,2 @@
+# LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2 — the dependency package.
+source_roots = ["src"]

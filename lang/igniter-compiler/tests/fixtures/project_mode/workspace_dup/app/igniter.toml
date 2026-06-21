@@ -1,0 +1,5 @@
+# LAB-...-WORKSPACE-RESOLVER-P2 — duplicate module ownership across packages → OOF-IMP4.
+source_roots = ["src"]
+
+[dependencies]
+lib = { path = "../lib" }

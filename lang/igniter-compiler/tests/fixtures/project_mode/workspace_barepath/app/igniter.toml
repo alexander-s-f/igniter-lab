@@ -1,0 +1,6 @@
+# Bare-string shorthand path intentionally contains the substring "path"; this guards the hand-rolled
+# dependency parser from mistaking the quoted value for an inline-table `path` key.
+source_roots = ["src"]
+
+[dependencies]
+lib = "../pathlib"

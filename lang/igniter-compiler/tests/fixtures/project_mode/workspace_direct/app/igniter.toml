@@ -1,0 +1,5 @@
+# LAB-...-WORKSPACE-RESOLVER-P2 — direct-only: `mid`'s own [dependencies] (deep) are NOT traversed.
+source_roots = ["src"]
+
+[dependencies]
+mid = { path = "../mid" }

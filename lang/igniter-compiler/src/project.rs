@@ -21,6 +21,7 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -31,10 +32,26 @@ const IGNORED_DIRS: &[&str] = &[".git", "target", "build", ".idea"];
 /// Minimal project configuration.
 ///
 /// P1 keeps this intentionally small: a list of source roots relative to the
-/// project root. A richer `igniter.toml` schema is deferred.
+/// project root. LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2 adds `dependencies`:
+/// relative paths to LOCAL dependency package roots whose source roots are folded
+/// into this project's module index. A richer `igniter.toml` schema (versions,
+/// registry, lock) is deferred.
 #[derive(Debug, Clone)]
 pub struct ProjectConfig {
     pub source_roots: Vec<PathBuf>,
+    /// P2: local dependency package declarations (`[dependencies]`). Direct
+    /// dependencies only — a dependency's own `[dependencies]` are not pulled in
+    /// v0 (no transitive package graph, no registry, no version solver).
+    pub dependencies: Vec<Dependency>,
+}
+
+/// LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2 / LOCK-PROVENANCE-P3.
+/// A declared local path dependency: a human `name` (DX, P1 two-layer identity)
+/// and the relative `path` to the dependency package root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dependency {
+    pub name: String,
+    pub path: PathBuf,
 }
 
 impl ProjectConfig {
@@ -42,21 +59,30 @@ impl ProjectConfig {
     ///
     /// Behavior:
     /// - If `<root>/igniter.toml` exists, read a `source_roots = ["a", "b"]`
-    ///   array (minimal hand-rolled parse; no toml crate dependency in P1).
+    ///   array (minimal hand-rolled parse; no toml crate dependency).
     /// - Otherwise default to `["."]` (scan the whole project root).
+    /// - P2: also read a `[dependencies]` table of local path dependencies.
     pub fn load(root: &Path) -> Self {
+        let mut source_roots = vec![PathBuf::from(".")];
+        let mut dependencies = Vec::new();
         let toml_path = root.join("igniter.toml");
         if let Ok(content) = fs::read_to_string(&toml_path) {
             if let Some(roots) = parse_source_roots_toml(&content) {
                 if !roots.is_empty() {
-                    return ProjectConfig {
-                        source_roots: roots.into_iter().map(PathBuf::from).collect(),
-                    };
+                    source_roots = roots.into_iter().map(PathBuf::from).collect();
                 }
             }
+            dependencies = parse_dependencies_toml(&content)
+                .into_iter()
+                .map(|(name, path)| Dependency {
+                    name,
+                    path: PathBuf::from(path),
+                })
+                .collect();
         }
         ProjectConfig {
-            source_roots: vec![PathBuf::from(".")],
+            source_roots,
+            dependencies,
         }
     }
 }
@@ -245,6 +271,145 @@ pub fn resolve_entry_with_overlays(
     Ok(paths)
 }
 
+// ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3: per-workspace dependency lock ────────────────────────────
+
+/// One locked dependency: human `name` + declared `path` + a `digest` over its sorted source set.
+/// Two-layer identity (P1): the name is for DX, the digest is the reproducibility anchor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedDependency {
+    pub name: String,
+    pub path: String,
+    /// `sha256:<hex>` over the dependency's sorted (relative-path + content) source files.
+    pub digest: String,
+}
+
+/// A per-workspace lock: a deterministic, name-sorted list of dependency digests. Pins package content
+/// for reproducible offline rebuilds. v0 is **digest-only** — compiler/stdlib/lowerer-version fields are
+/// deferred. The digest algorithm is **sha256**, matching the live compiler source-hash convention
+/// (`main.rs` / `multifile.rs`), not blake3 (P1's suggestion); aligning algorithms is a separate concern.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceLock {
+    pub dependencies: Vec<LockedDependency>,
+}
+
+/// A detected difference between the on-disk workspace and a lock. Empty list = reproducible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockDrift {
+    /// content digest differs from the lock.
+    Changed {
+        name: String,
+        locked: String,
+        actual: String,
+    },
+    /// in the lock but no longer a workspace dependency.
+    Missing { name: String },
+    /// a workspace dependency absent from the lock.
+    New { name: String },
+}
+
+impl WorkspaceLock {
+    /// Deterministic JSON for the lockfile (name-sorted, stable field order).
+    pub fn to_value(&self) -> Value {
+        json!({
+            "version": 1,
+            "dependencies": self
+                .dependencies
+                .iter()
+                .map(|d| json!({ "name": d.name, "path": d.path, "digest": d.digest }))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    /// Parse a lock back from its JSON value (`None` if malformed).
+    pub fn from_value(v: &Value) -> Option<WorkspaceLock> {
+        let arr = v.get("dependencies")?.as_array()?;
+        let mut dependencies = Vec::with_capacity(arr.len());
+        for e in arr {
+            dependencies.push(LockedDependency {
+                name: e.get("name")?.as_str()?.to_string(),
+                path: e.get("path")?.as_str()?.to_string(),
+                digest: e.get("digest")?.as_str()?.to_string(),
+            });
+        }
+        Some(WorkspaceLock { dependencies })
+    }
+}
+
+/// Compute the per-workspace lock: one `sha256` content digest per declared dependency, name-sorted for
+/// determinism. Direct dependencies only (a dependency's own `[dependencies]` are not digested here).
+pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
+    let config = ProjectConfig::load(root);
+    let mut deps: Vec<&Dependency> = config.dependencies.iter().collect();
+    deps.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut locked = Vec::with_capacity(deps.len());
+    for dep in deps {
+        let dep_root = root.join(&dep.path);
+        locked.push(LockedDependency {
+            name: dep.name.clone(),
+            path: dep.path.to_string_lossy().to_string(),
+            digest: dependency_digest(&dep_root)?,
+        });
+    }
+    Ok(WorkspaceLock {
+        dependencies: locked,
+    })
+}
+
+/// Recompute the workspace lock and diff it against `lock`. Returns the (possibly empty) drift list:
+/// `Changed` (digest differs), `New` (on disk, not in lock), `Missing` (in lock, not on disk).
+pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, ProjectError> {
+    let current = workspace_lock(root)?;
+    let mut drifts = Vec::new();
+    for cur in &current.dependencies {
+        match lock.dependencies.iter().find(|d| d.name == cur.name) {
+            Some(locked) if locked.digest != cur.digest => drifts.push(LockDrift::Changed {
+                name: cur.name.clone(),
+                locked: locked.digest.clone(),
+                actual: cur.digest.clone(),
+            }),
+            Some(_) => {}
+            None => drifts.push(LockDrift::New {
+                name: cur.name.clone(),
+            }),
+        }
+    }
+    for locked in &lock.dependencies {
+        if !current.dependencies.iter().any(|c| c.name == locked.name) {
+            drifts.push(LockDrift::Missing {
+                name: locked.name.clone(),
+            });
+        }
+    }
+    Ok(drifts)
+}
+
+/// `sha256` over a dependency's sorted source files. Each file contributes its **relative** path
+/// (location-independent) followed by its raw content; files are sorted so the digest is deterministic.
+fn dependency_digest(dep_root: &Path) -> Result<String, ProjectError> {
+    let dep_config = ProjectConfig::load(dep_root);
+    let mut files: Vec<PathBuf> = Vec::new();
+    for source_root in &dep_config.source_roots {
+        let scan_root = if source_root == Path::new(".") {
+            dep_root.to_path_buf()
+        } else {
+            dep_root.join(source_root)
+        };
+        collect_ig_files(&scan_root, &mut files)?;
+    }
+    files.sort();
+    files.dedup();
+    let mut hasher = Sha256::new();
+    for file in &files {
+        let rel = file.strip_prefix(dep_root).unwrap_or(file);
+        hasher.update(rel.to_string_lossy().as_bytes());
+        hasher.update([0u8]);
+        let content = fs::read(file)?;
+        hasher.update(&content);
+        hasher.update([0u8]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
 /// Recursively scan source roots and build the module index by parsing each
 /// `.ig` file's `module` declaration. Directory names never define modules.
 ///
@@ -265,6 +430,23 @@ fn build_module_index(
             root.join(source_root)
         };
         collect_ig_files(&scan_root, &mut files)?;
+    }
+
+    // LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2: fold each declared LOCAL path dependency's source roots
+    // into the SAME file set, so cross-package `import Foo.Bar` resolves and duplicate module ownership
+    // across packages is caught by the existing OOF-IMP4 check below. Direct dependencies only — a
+    // dependency's own `[dependencies]` are NOT traversed in v0 (no transitive package graph).
+    for dep in &config.dependencies {
+        let dep_root = root.join(&dep.path);
+        let dep_config = ProjectConfig::load(&dep_root);
+        for source_root in &dep_config.source_roots {
+            let scan_root = if source_root == Path::new(".") {
+                dep_root.clone()
+            } else {
+                dep_root.join(source_root)
+            };
+            collect_ig_files(&scan_root, &mut files)?;
+        }
     }
 
     // Inject overlay originals that are not present on disk (new unsaved files).
@@ -462,6 +644,61 @@ fn normalize_abs(path: &Path) -> PathBuf {
         }
     }
     out.iter().collect()
+}
+
+/// LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2: extract local path dependencies from a `[dependencies]`
+/// table. Each entry is `name = { path = "X" }` (canonical, future-proof for `version`/`git`) or the
+/// shorthand `name = "X"`. Minimal hand-rolled parse (no toml crate); section-aware so only the
+/// `[dependencies]` table is read. Returns the declared dependency paths in source order.
+fn parse_dependencies_toml(content: &str) -> Vec<(String, String)> {
+    let mut deps = Vec::new();
+    let mut in_deps = false;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_deps = line == "[dependencies]";
+            continue;
+        }
+        if !in_deps {
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        let name = name.trim().to_string();
+        let value = value.trim();
+        // Bare string `"X"`: take it directly. Inline table `{ path = "X" }`: anchor on the `path` key.
+        // Check the bare-string case first so a path like "../pathlib" is not mistaken for a table key.
+        let path = if value.starts_with('"') || value.starts_with('\'') {
+            first_quoted(value)
+        } else if let Some(pos) = value.find("path") {
+            let after_key = &value[pos + "path".len()..];
+            after_key
+                .split_once('=')
+                .and_then(|(_, v)| first_quoted(v))
+        } else {
+            None
+        };
+        if let Some(p) = path {
+            if !p.is_empty() && !name.is_empty() {
+                deps.push((name, p));
+            }
+        }
+    }
+    deps
+}
+
+/// Content of the first `"..."` (or `'...'`) quoted token in `s`, if any.
+fn first_quoted(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let start = bytes.iter().position(|&b| b == b'"' || b == b'\'')?;
+    let quote = bytes[start];
+    let rest = &s[start + 1..];
+    let end = rest.bytes().position(|b| b == quote)?;
+    Some(rest[..end].to_string())
 }
 
 /// Minimal `source_roots = ["a", "b"]` extractor. Not a general TOML parser.

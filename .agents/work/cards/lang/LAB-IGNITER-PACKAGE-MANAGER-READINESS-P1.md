@@ -1,7 +1,7 @@
 # LAB-IGNITER-PACKAGE-MANAGER-READINESS-P1 — package and package-manager research
 
-Status: OPEN  
-Lane: standard / research-readiness  
+Status: CLOSED
+Lane: standard / research-readiness
 Opened: 2026-06-18  
 Delegate label: GEMINI-IGNITER-PACKAGES-OVERNIGHT-A  
 Skill: idd-agent-protocol  
@@ -239,3 +239,34 @@ Six background reports were received and curated:
 Status remains research/readiness only. The round-1 direction is promising but not yet a package spec:
 local workspace packages + content-addressed lock/provenance + no install scripts + host-owned
 capabilities. Next recommended step is an Opus validation pass before implementation.
+
+## Round 2 — Opus validation pass (2026-06-21) — CLOSED
+
+**Deliverable:** `lab-docs/lang/lab-igniter-package-manager-readiness-p1-v0.md` (comparative packet +
+validation). No code; `git diff --check` clean.
+
+**Decisive validation finding (live-grounded):** Igniter **already has the substrate**, so a package
+manager is a *small deterministic extension*, not a greenfield build — verified: `project.rs` `igniter.toml
+source_roots` + **logical-module-path imports** + reserved `stdlib.*` + **deterministic multifile
+source-hash** (`compile_units`, sorted by module path); `igweb.toml` app manifest that names **no**
+secrets/capability-ids; `protocol.rs` `target`-vs-authority split (host binds capability/passport, app names
+a logical target); **blake3** digests already in the receipt path.
+
+**Round-1 signals validated — all 7 ACCEPTED**, two phased: lockfile granularity (#3 → v0 = dependency
+content digests only) and version solver (#7 → local path deps need **no** solver; defer MVS/SAT). No
+rejects.
+
+**Recommended v0 model:** **D — app-local workspace resolver** (source packages + two-layer identity:
+human name + blake3 digest-as-lock-anchor), growing toward dual+provenance (C); **reject** compiled-as-
+identity (B); **defer** registry (E)/solver.
+
+**Top-5 anti-patterns to avoid:** install scripts (npm postinstall / Cargo `build.rs`); semver-range
+solving; phantom transitive imports; global-namespace clashes; **silent host mutation** (Rails engines).
+
+**Comparative table + all 12 research questions + round-1's 8 open questions** answered in the packet
+(blake3 reuse; per-workspace lock; no install hooks; capabilities = declarations not credentials;
+`.igapp` = build cache not identity; dialects ship as source, generated `.ig` re-derivable/inspectable).
+
+**Next card:** `LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2` — extend `igniter.toml` with `[dependencies]`
+**path** entries, add their roots to `compile_units`, **validate no duplicate module ownership**; no
+registry/solver/lock/hooks/`.igapp`. Then `…-PACKAGE-LOCK-PROVENANCE-P3` (blake3 per-workspace lock).
