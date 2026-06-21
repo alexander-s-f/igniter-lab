@@ -234,54 +234,10 @@ pub fn resolve_entry_with_overlays(
     let resolved = validate_overlays(root, &config, overlays)?;
     let index = build_module_index(root, &config, &resolved)?;
 
-    // Duplicate module declarations are a project-assembly fault: the index is
-    // ambiguous. Surface deterministically (OOF-IMP4) with all source paths.
-    if let Some((module, paths)) = index.duplicates.iter().next() {
-        let mut diag = ProjectDiagnostic::new(
-            "OOF-IMP4",
-            format!("duplicate module declaration '{}'", module),
-            format!("module:{}", module),
-        );
-        diag.module_path = Some(module.clone());
-        diag.source_paths = paths.clone();
-        return Err(ProjectError::Diagnostic(diag));
-    }
-
-    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: reject phantom imports. A file may import only modules whose
-    // owning PACKAGE is in scope — its own package, or a dependency the workspace root directly declared.
-    // A dependency reaching a sibling dependency (present in the index only because the root also depends
-    // on it) is an out-of-scope import: it would break when that dependency is reused in another workspace.
-    // Only RESOLVED imports are checked; a dangling import is left to compile_units (OOF-IMP2).
-    let root_deps: BTreeSet<String> = config.dependencies.iter().map(|d| d.name.clone()).collect();
-    let mut violations: Vec<(String, String)> = Vec::new();
-    for (module, file) in &index.by_module {
-        for imp in &file.non_stdlib_imports {
-            let Some(target) = index.by_module.get(imp) else {
-                continue;
-            };
-            if !package_in_scope(&file.package, &target.package, &root_deps) {
-                violations.push((module.clone(), imp.clone()));
-            }
-        }
-    }
-    violations.sort();
-    violations.dedup();
-    if let Some((importer, imported)) = violations.first() {
-        let importer_file = &index.by_module[importer];
-        let target_file = &index.by_module[imported];
-        let mut diag = ProjectDiagnostic::new(
-            "OOF-IMP6",
-            format!(
-                "out-of-scope import: module '{}' (package {}) imports '{}' (package {}), which it does not declare as a dependency",
-                importer,
-                importer_file.package.label(),
-                imported,
-                target_file.package.label()
-            ),
-            format!("import:{}->{}", importer, imported),
-        );
-        diag.module_path = Some(importer.clone());
-        diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
+    // Project-assembly integrity: duplicate module declarations (OOF-IMP4) and out-of-scope/phantom imports
+    // (OOF-IMP6). Shared with `check_workspace_integrity` so the compile path and the CI gate enforce
+    // exactly the same rules.
+    if let Some(diag) = index_integrity(&index, &config) {
         return Err(ProjectError::Diagnostic(diag));
     }
 
@@ -327,6 +283,76 @@ pub fn resolve_entry_with_overlays(
     let mut paths: Vec<PathBuf> = selected.into_values().collect();
     paths.sort();
     Ok(paths)
+}
+
+/// Project-assembly integrity over an already-built index: the first (deterministic) of a duplicate module
+/// declaration (OOF-IMP4) or an out-of-scope/phantom import (OOF-IMP6), or `None` if the workspace is clean.
+/// Entry-independent — these are faults of the *assembled workspace*, not of any one entry module.
+fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<ProjectDiagnostic> {
+    // Duplicate module declarations: the index is ambiguous. Surface deterministically with all source paths.
+    if let Some((module, paths)) = index.duplicates.iter().next() {
+        let mut diag = ProjectDiagnostic::new(
+            "OOF-IMP4",
+            format!("duplicate module declaration '{}'", module),
+            format!("module:{}", module),
+        );
+        diag.module_path = Some(module.clone());
+        diag.source_paths = paths.clone();
+        return Some(diag);
+    }
+
+    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: reject phantom imports. A file may import only modules whose
+    // owning PACKAGE is in scope — its own package, or a dependency the workspace root directly declared.
+    // A dependency reaching a sibling dependency (present in the index only because the root also depends
+    // on it) is an out-of-scope import: it would break when that dependency is reused in another workspace.
+    // Only RESOLVED imports are checked; a dangling import is left to compile_units (OOF-IMP2).
+    let root_deps: BTreeSet<String> = config.dependencies.iter().map(|d| d.name.clone()).collect();
+    let mut violations: Vec<(String, String)> = Vec::new();
+    for (module, file) in &index.by_module {
+        for imp in &file.non_stdlib_imports {
+            let Some(target) = index.by_module.get(imp) else {
+                continue;
+            };
+            if !package_in_scope(&file.package, &target.package, &root_deps) {
+                violations.push((module.clone(), imp.clone()));
+            }
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    if let Some((importer, imported)) = violations.first() {
+        let importer_file = &index.by_module[importer];
+        let target_file = &index.by_module[imported];
+        let mut diag = ProjectDiagnostic::new(
+            "OOF-IMP6",
+            format!(
+                "out-of-scope import: module '{}' (package {}) imports '{}' (package {}), which it does not declare as a dependency",
+                importer,
+                importer_file.package.label(),
+                imported,
+                target_file.package.label()
+            ),
+            format!("import:{}->{}", importer, imported),
+        );
+        diag.module_path = Some(importer.clone());
+        diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
+        return Some(diag);
+    }
+
+    None
+}
+
+/// LAB-IGNITER-PACKAGE-LOCKFILE-FROZEN-CI-P8
+/// Assert the assembled workspace has integrity — no duplicate modules (OOF-IMP4), no phantom imports
+/// (OOF-IMP6) — without requiring an entry module. The CI gate (`igc verify --strict`) uses this so a
+/// trusted workspace is one that both matches its lock AND assembles cleanly.
+pub fn check_workspace_integrity(root: &Path) -> Result<(), ProjectError> {
+    let config = ProjectConfig::load(root);
+    let index = build_module_index(root, &config, &[])?;
+    match index_integrity(&index, &config) {
+        Some(diag) => Err(ProjectError::Diagnostic(diag)),
+        None => Ok(()),
+    }
 }
 
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3: per-workspace dependency lock ────────────────────────────

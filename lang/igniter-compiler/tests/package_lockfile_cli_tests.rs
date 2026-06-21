@@ -12,8 +12,6 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_igniter_compiler")
 }
 
-const FIX_WORKSPACE: &str = "tests/fixtures/project_mode/workspace";
-
 /// Recursively copy a directory tree.
 fn copy_tree(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).unwrap();
@@ -31,16 +29,29 @@ fn copy_tree(src: &Path, dst: &Path) {
 
 /// Copy the `workspace` fixture (app + lib) into a unique tempdir; return the app root to run against.
 fn temp_workspace(tag: &str) -> PathBuf {
+    temp_fixture("workspace", tag)
+}
+
+/// Copy an arbitrary `project_mode/<fixture>` tree into a unique tempdir; return its `app` root.
+fn temp_fixture(fixture: &str, tag: &str) -> PathBuf {
     let base = std::env::temp_dir().join(format!("igc_lock_{}_{}", tag, std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
-    copy_tree(Path::new(FIX_WORKSPACE), &base);
+    copy_tree(
+        Path::new(&format!("tests/fixtures/project_mode/{fixture}")),
+        &base,
+    );
     base.join("app")
 }
 
 /// Run `igc <cmd> --project-root <root>`; return (success, parsed-stdout-json).
 fn run(cmd: &str, root: &Path) -> (bool, Value) {
+    run_args(&[cmd, "--project-root", root.to_str().unwrap()])
+}
+
+/// Run `igc` with explicit args; return (success, parsed-stdout-json).
+fn run_args(args: &[&str]) -> (bool, Value) {
     let output = Command::new(bin())
-        .args([cmd, "--project-root", root.to_str().unwrap()])
+        .args(args)
         .output()
         .expect("run igniter_compiler");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -147,4 +158,84 @@ fn cli_lock_writes_stdlib_and_verify_detects_stdlib_drift() {
         .find(|d| d["kind"] == serde_json::json!("toolchain") && d["field"] == serde_json::json!("stdlib"))
         .unwrap_or_else(|| panic!("expected a stdlib toolchain drift: {out}"));
     assert_eq!(tc["locked"], serde_json::json!("0.0.0-bogus-stdlib"));
+}
+
+// ── LAB-IGNITER-PACKAGE-LOCKFILE-FROZEN-CI-P8 ───────────────────────────────────────────────────────
+
+fn root_arg(root: &Path) -> String {
+    root.to_str().unwrap().to_string()
+}
+
+/// `igc lock --frozen` passes (exit 0, ok:true) when the committed lock is current, without rewriting it.
+#[test]
+fn cli_lock_frozen_passes_when_current() {
+    let root = temp_workspace("frozen_ok");
+    run("lock", &root);
+    let before = std::fs::read(root.join("igniter.lock")).unwrap();
+    let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
+    assert!(ok, "frozen passes when current: {v}");
+    assert_eq!(v["ok"], Value::Bool(true));
+    assert_eq!(v["reason"], serde_json::json!("up-to-date"));
+    assert_eq!(v["written"], Value::Bool(false));
+    let after = std::fs::read(root.join("igniter.lock")).unwrap();
+    assert_eq!(before, after, "frozen must not rewrite the lockfile");
+}
+
+/// `igc lock --frozen` fails (exit 1, reason missing) when there is no committed lock, and never writes one.
+#[test]
+fn cli_lock_frozen_fails_when_missing() {
+    let root = temp_workspace("frozen_missing");
+    let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
+    assert!(!ok, "frozen fails when no lockfile");
+    assert_eq!(v["reason"], serde_json::json!("missing"));
+    assert!(!root.join("igniter.lock").exists(), "frozen must not create a lockfile");
+}
+
+/// `igc lock --frozen` fails (reason out-of-date) when the workspace drifted, leaving the lock untouched.
+#[test]
+fn cli_lock_frozen_fails_when_stale() {
+    let root = temp_workspace("frozen_stale");
+    run("lock", &root);
+    let before = std::fs::read(root.join("igniter.lock")).unwrap();
+    // Drift a dependency source file.
+    let dep_file = root.join("../lib/src/util.ig");
+    let mut c = std::fs::read_to_string(&dep_file).unwrap();
+    c.push_str("\n-- drift\n");
+    std::fs::write(&dep_file, c).unwrap();
+
+    let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
+    assert!(!ok, "frozen fails when stale");
+    assert_eq!(v["reason"], serde_json::json!("out-of-date"));
+    let after = std::fs::read(root.join("igniter.lock")).unwrap();
+    assert_eq!(before, after, "frozen must not rewrite a stale lockfile");
+}
+
+/// `igc verify --strict` catches a phantom import that plain `verify` (drift-only) does not — the strict
+/// gate adds workspace-assembly integrity (OOF-IMP6) on top of lock drift.
+#[test]
+fn cli_verify_strict_catches_phantom() {
+    let root = temp_fixture("workspace_phantom", "strict_phantom");
+    run("lock", &root); // lock only digests deps; the phantom does not affect digests, so this succeeds
+
+    // Plain verify: no drift → passes (it does NOT assemble the workspace).
+    let (ok_plain, _) = run("verify", &root);
+    assert!(ok_plain, "plain verify is drift-only and passes despite the phantom import");
+
+    // Strict verify: integrity fails on OOF-IMP6.
+    let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok_strict, "strict verify fails on phantom import: {v}");
+    assert_eq!(v["ok"], Value::Bool(false));
+    assert_eq!(v["integrity"]["ok"], Value::Bool(false));
+    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP6"));
+}
+
+/// `igc verify --strict` passes on a clean, current workspace (drift-clean + integrity-clean).
+#[test]
+fn cli_verify_strict_passes_clean() {
+    let root = temp_workspace("strict_clean");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(ok, "strict verify passes on a clean workspace: {v}");
+    assert_eq!(v["ok"], Value::Bool(true));
+    assert_eq!(v["integrity"]["ok"], Value::Bool(true));
 }

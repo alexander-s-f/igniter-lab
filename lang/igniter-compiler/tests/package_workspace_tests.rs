@@ -168,6 +168,24 @@ fn declared_cross_package_import_is_allowed() {
     assert!(res.is_ok(), "declared cross-package import must be in scope: {res:?}");
 }
 
+// ── LAB-IGNITER-PACKAGE-LOCKFILE-FROZEN-CI-P8 (entry-free integrity gate) ────────────────────────────
+
+/// `check_workspace_integrity` flags a phantom import (entry-independent) with the same OOF-IMP6 diagnostic.
+#[test]
+fn check_workspace_integrity_flags_phantom() {
+    let err = project::check_workspace_integrity(&app("workspace_phantom")).unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP6", "{d:?}"),
+        other => panic!("expected OOF-IMP6, got {other:?}"),
+    }
+}
+
+/// `check_workspace_integrity` returns Ok for a clean workspace.
+#[test]
+fn check_workspace_integrity_ok_on_clean() {
+    assert!(project::check_workspace_integrity(&app("workspace")).is_ok());
+}
+
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────
 
 fn app(fixture: &str) -> PathBuf {

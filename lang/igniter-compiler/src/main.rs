@@ -128,12 +128,14 @@ fn drift_to_json(d: &LockDrift) -> Value {
     }
 }
 
-/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4
-/// `igc lock [--project-root ROOT]` — compute the per-workspace dependency lock (P3 `workspace_lock`) and
-/// write a deterministic `igniter.lock` at the project root. Idempotent: re-running yields an identical
-/// file. No network, no registry, no version solver — local path dependencies only.
+/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4 / FROZEN-CI-P8
+/// `igc lock [--project-root ROOT] [--frozen]` — compute the per-workspace dependency lock (P3
+/// `workspace_lock`) and write a deterministic `igniter.lock`. Idempotent. With `--frozen` (CI mode) it
+/// NEVER writes: it asserts the committed lock exists and is byte-identical to what `lock` would produce,
+/// exiting non-zero (reason `missing` / `out-of-date`) otherwise.
 fn run_lock(args: &[String]) {
     let root = project_root_arg(args);
+    let frozen = args.iter().any(|a| a == "--frozen");
     let lock = match project::workspace_lock(Path::new(&root)) {
         Ok(l) => l,
         Err(_) => {
@@ -145,6 +147,31 @@ fn run_lock(args: &[String]) {
     // Deterministic JSON + trailing newline; re-running `lock` produces a byte-identical file.
     let mut text = serde_json::to_string_pretty(&lock.to_value()).unwrap_or_default();
     text.push('\n');
+
+    if frozen {
+        // CI mode: assert currency without mutating the workspace.
+        let (ok, reason) = match fs::read_to_string(&lock_path) {
+            Err(_) => (false, "missing"),
+            Ok(on_disk) if on_disk == text => (true, "up-to-date"),
+            Ok(_) => (false, "out-of-date"),
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "kind": "igniter_lock_frozen_result",
+                "lockfile": lock_path.to_string_lossy(),
+                "ok": ok,
+                "reason": reason,
+                "written": false,
+            }))
+            .unwrap_or_default()
+        );
+        if !ok {
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Err(e) = fs::write(&lock_path, text.as_bytes()) {
         eprintln!("lock: could not write {}: {}", lock_path.display(), e);
         std::process::exit(1);
@@ -161,11 +188,14 @@ fn run_lock(args: &[String]) {
     );
 }
 
-/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4
-/// `igc verify [--project-root ROOT]` — read `igniter.lock`, recompute the workspace lock, and report
-/// drift. Exit 0 when reproducible (no drift); exit 1 on drift, a missing lockfile, or a malformed lock.
+/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4 / FROZEN-CI-P8
+/// `igc verify [--project-root ROOT] [--strict]` — read `igniter.lock`, recompute the workspace lock, and
+/// report drift. Exit 0 when reproducible; exit 1 on drift / missing / malformed lock. With `--strict` (CI
+/// mode) it ALSO asserts the workspace assembles cleanly (no duplicate modules / phantom imports), so a
+/// trusted workspace both matches its lock AND has import integrity.
 fn run_verify(args: &[String]) {
     let root = project_root_arg(args);
+    let strict = args.iter().any(|a| a == "--strict");
     let lock_path = Path::new(&root).join("igniter.lock");
     let Ok(text) = fs::read_to_string(&lock_path) else {
         eprintln!(
@@ -188,16 +218,37 @@ fn run_verify(args: &[String]) {
             std::process::exit(1);
         }
     };
-    let ok = drift.is_empty();
+
+    // --strict (CI): also require workspace assembly integrity (OOF-IMP4 / OOF-IMP6).
+    let integrity_diag: Option<Value> = if strict {
+        match project::check_workspace_integrity(Path::new(&root)) {
+            Ok(()) => None,
+            Err(project::ProjectError::Diagnostic(d)) => Some(json!({
+                "rule": d.rule,
+                "message": d.message,
+            })),
+            Err(_) => Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble workspace" })),
+        }
+    } else {
+        None
+    };
+
+    let ok = drift.is_empty() && integrity_diag.is_none();
+    let mut result = json!({
+        "kind": "igniter_verify_result",
+        "lockfile": lock_path.to_string_lossy(),
+        "ok": ok,
+        "drift": drift.iter().map(drift_to_json).collect::<Vec<_>>(),
+    });
+    if strict {
+        result["integrity"] = json!({
+            "ok": integrity_diag.is_none(),
+            "diagnostic": integrity_diag,
+        });
+    }
     println!(
         "{}",
-        serde_json::to_string_pretty(&json!({
-            "kind": "igniter_verify_result",
-            "lockfile": lock_path.to_string_lossy(),
-            "ok": ok,
-            "drift": drift.iter().map(drift_to_json).collect::<Vec<_>>(),
-        }))
-        .unwrap_or_default()
+        serde_json::to_string_pretty(&result).unwrap_or_default()
     );
     if !ok {
         std::process::exit(1);
