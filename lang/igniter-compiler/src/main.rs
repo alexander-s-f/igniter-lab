@@ -301,11 +301,14 @@ fn run_package(args: &[String]) {
         // LAB-IGNITER-PACKAGE-ARCHIVE-PACK-VERIFY-P22
         "pack" => run_package_pack(args),
         "verify" => run_package_verify(args),
+        // LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23
+        "admit" => run_package_admit(args),
         _ => {
             eprintln!(
                 "Usage: igc package graph --project-root ROOT\n       \
                  igc package pack --project-root ROOT --out FILE.igpkg\n       \
-                 igc package verify FILE.igpkg"
+                 igc package verify FILE.igpkg\n       \
+                 igc package admit FILE.igpkg [--require-lock] [--match-toolchain]"
             );
             std::process::exit(1);
         }
@@ -405,6 +408,43 @@ fn run_package_verify(args: &[String]) {
         }
         Err(_) => {
             eprintln!("verify: could not read archive {}", file);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23
+/// `igc package admit FILE.igpkg [--require-lock] [--match-toolchain]` — the local node-admission gate:
+/// "would this node accept this artifact for execution?". Exit 0 if accepted, exit 1 if refused/malformed.
+fn run_package_admit(args: &[String]) {
+    let Some(file) = args.get(3).filter(|a| !a.starts_with("--")) else {
+        eprintln!("Usage: igc package admit FILE.igpkg [--require-lock] [--match-toolchain]");
+        std::process::exit(1);
+    };
+    let require_lock = args.iter().any(|a| a == "--require-lock");
+    let match_toolchain = args.iter().any(|a| a == "--match-toolchain");
+    match project::admit_archive(Path::new(file), require_lock, match_toolchain) {
+        Ok(v) => {
+            let accepted = v["accepted"].as_bool().unwrap_or(false);
+            println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            if !accepted {
+                std::process::exit(1);
+            }
+        }
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_package_admission",
+                    "accepted": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("admit: could not read archive {}", file);
             std::process::exit(1);
         }
     }

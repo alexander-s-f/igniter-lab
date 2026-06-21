@@ -468,6 +468,141 @@ fn cli_pack_allowlist_excludes_nonsource() {
     assert!(!archive.contains("build.sh"), "script not packed");
 }
 
+// ── LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23 (node admission) ───────────────────────────────────────────
+
+/// Pack a temp copy of a fixture (optionally `lock` it first) and return the `.igpkg` path.
+fn pack_temp(fixture: &str, tag: &str, with_lock: bool) -> PathBuf {
+    let app = temp_fixture(fixture, tag);
+    if with_lock {
+        run("lock", &app);
+    }
+    let out = igpkg_path(tag);
+    run_args(&["package", "pack", "--project-root", &root_arg(&app), "--out", out.to_str().unwrap()]);
+    out
+}
+
+fn admit(pkg: &Path, flags: &[&str]) -> (bool, Value) {
+    let mut a = vec!["package", "admit", pkg.to_str().unwrap()];
+    a.extend_from_slice(flags);
+    run_args(&a)
+}
+
+/// Rewrite a top-level `manifest` field in a packed `.igpkg` (the header is NOT part of the tree digest, so
+/// this models lying provenance — used to exercise toolchain-match without a second toolchain).
+fn rewrite_manifest_field(pkg: &Path, field: &str, value: &str) {
+    let data = std::fs::read(pkg).unwrap();
+    let after_magic = &data[6..]; // skip "IGPKG\n"
+    let nl1 = after_magic.iter().position(|&b| b == b'\n').unwrap(); // end of version line
+    let after_v = &after_magic[nl1 + 1..];
+    let nl2 = after_v.iter().position(|&b| b == b'\n').unwrap(); // end of header line
+    let mut header: Value = serde_json::from_slice(&after_v[..nl2]).unwrap();
+    header["manifest"][field] = serde_json::json!(value);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"IGPKG\nv0\n");
+    out.extend_from_slice(serde_json::to_string(&header).unwrap().as_bytes());
+    out.push(b'\n');
+    out.extend_from_slice(&after_v[nl2 + 1..]); // original blob
+    std::fs::write(pkg, out).unwrap();
+}
+
+/// A clean, locked, toolchain-matching archive is admitted; the receipt carries artifact identity.
+#[test]
+fn cli_admit_clean_accepted() {
+    let pkg = pack_temp("workspace_transitive_ok", "p23_clean", true);
+    let (ok, v) = admit(&pkg, &["--require-lock", "--match-toolchain"]);
+    assert!(ok, "clean archive admitted: {v}");
+    assert_eq!(v["accepted"], Value::Bool(true));
+    assert!(v["artifact_digest"].as_str().unwrap().starts_with("sha256:"));
+    assert!(v["lock_digest"].as_str().unwrap().starts_with("sha256:"), "lock identity present");
+    assert!(v["compiler_version"].as_str().is_some());
+    assert!(v["stdlib_version"].as_str().is_some());
+    assert!(v["refusals"].as_array().unwrap().is_empty());
+}
+
+/// Admission is deterministic — the same archive yields the same receipt.
+#[test]
+fn cli_admit_is_deterministic() {
+    let pkg = pack_temp("workspace_transitive_ok", "p23_det", true);
+    let (_, a) = admit(&pkg, &["--require-lock", "--match-toolchain"]);
+    let (_, b) = admit(&pkg, &["--require-lock", "--match-toolchain"]);
+    assert_eq!(a, b, "admission receipt must be deterministic");
+}
+
+/// A tampered archive is refused before execution with `digest_mismatch`.
+#[test]
+fn cli_admit_tampered_digest_mismatch() {
+    let pkg = pack_temp("workspace_transitive_ok", "p23_tamper", false);
+    let mut bytes = std::fs::read(&pkg).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&pkg, &bytes).unwrap();
+    let (ok, v) = admit(&pkg, &[]);
+    assert!(!ok, "tampered archive refused: {v}");
+    assert!(refusal_reasons(&v).contains(&"digest_mismatch".to_string()), "{v}");
+}
+
+/// An integrity fault (phantom import) is refused as `integrity`, exposing the `OOF-IMP*`.
+#[test]
+fn cli_admit_integrity_refused() {
+    let pkg = pack_temp("workspace_phantom", "p23_integ", false);
+    let (ok, v) = admit(&pkg, &[]);
+    assert!(!ok, "phantom archive refused: {v}");
+    let integrity = v["refusals"].as_array().unwrap().iter().find(|r| r["reason"] == serde_json::json!("integrity"));
+    let integrity = integrity.unwrap_or_else(|| panic!("expected integrity refusal: {v}"));
+    assert_eq!(integrity["diagnostic"]["rule"], serde_json::json!("OOF-IMP6"));
+}
+
+/// A stale lock (sources edited after locking, before packing) is refused as `stale_lock`.
+#[test]
+fn cli_admit_stale_lock_refused() {
+    let app = temp_fixture("workspace_transitive_ok", "p23_stale");
+    run("lock", &app);
+    // edit a transitive source AFTER locking, then pack → packed lock is stale vs packed sources
+    let leaf = app.join("../leaf/src/public.ig");
+    let mut c = std::fs::read_to_string(&leaf).unwrap();
+    c.push_str("\n-- stale\n");
+    std::fs::write(&leaf, c).unwrap();
+    let pkg = igpkg_path("p23_stale");
+    run_args(&["package", "pack", "--project-root", &root_arg(&app), "--out", pkg.to_str().unwrap()]);
+
+    let (ok, v) = admit(&pkg, &["--require-lock"]);
+    assert!(!ok, "stale lock refused: {v}");
+    assert!(refusal_reasons(&v).contains(&"stale_lock".to_string()), "{v}");
+}
+
+/// A missing lock under `--require-lock` is refused as `missing_lock`.
+#[test]
+fn cli_admit_missing_lock_refused() {
+    let pkg = pack_temp("workspace_transitive_ok", "p23_nolock", false); // no `igc lock` run
+    let (ok, v) = admit(&pkg, &["--require-lock"]);
+    assert!(!ok, "missing lock refused under --require-lock: {v}");
+    assert!(refusal_reasons(&v).contains(&"missing_lock".to_string()), "{v}");
+    // without --require-lock it is NOT a refusal
+    let (ok2, _) = admit(&pkg, &[]);
+    assert!(ok2, "missing lock is fine without --require-lock");
+}
+
+/// Toolchain drift (manifest compiler/stdlib ≠ this node's) under `--match-toolchain` is refused.
+#[test]
+fn cli_admit_toolchain_drift_refused() {
+    let pkg = pack_temp("workspace_transitive_ok", "p23_tc", false);
+    rewrite_manifest_field(&pkg, "compiler_version", "9.9.9-other-node");
+    let (ok, v) = admit(&pkg, &["--match-toolchain"]);
+    assert!(!ok, "toolchain drift refused: {v}");
+    let tc = v["refusals"].as_array().unwrap().iter().find(|r| r["reason"] == serde_json::json!("toolchain_drift"));
+    let tc = tc.unwrap_or_else(|| panic!("expected toolchain_drift: {v}"));
+    assert_eq!(tc["actual"]["compiler"], serde_json::json!("9.9.9-other-node"));
+    // editing the manifest header does NOT change the tree digest → digest still matches
+    assert!(!refusal_reasons(&v).contains(&"digest_mismatch".to_string()), "manifest edit is outside the tree digest: {v}");
+}
+
+fn refusal_reasons(v: &Value) -> Vec<String> {
+    v["refusals"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|r| r["reason"].as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
 // ── LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19 ──────────────────────────────────────────────────────
 
 /// `verify --strict` surfaces the OOF-IMP7 `details` block (import-explain enrichment) under

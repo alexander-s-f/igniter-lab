@@ -1183,6 +1183,15 @@ pub fn pack_archive(root: &Path) -> Result<(Vec<u8>, Value), ProjectError> {
     }
     let lock_path = graph.root.join("igniter.lock");
     let lock_present = lock_path.is_file();
+    // LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23: surface the packed lock's own digest as a top-level provenance
+    // field (it is also inside the tree digest, but a node wants it explicitly for receipts/lineage).
+    let lock_digest = if lock_present {
+        let mut h = Sha256::new();
+        h.update(fs::read(&lock_path)?);
+        Value::String(format!("sha256:{:x}", h.finalize()))
+    } else {
+        Value::Null
+    };
     if lock_present {
         files.push(lock_path);
     }
@@ -1229,7 +1238,11 @@ pub fn pack_archive(root: &Path) -> Result<(Vec<u8>, Value), ProjectError> {
         "compiler_version": env!("CARGO_PKG_VERSION"),
         "stdlib_version": crate::STDLIB_VERSION,
         "entry": entry,
+        // P23: the entry *package* is known; an entry *contract* needs an app model the compiler does not
+        // track at pack time, so it stays null (documented), not invented.
+        "entry_contract": Value::Null,
         "lockfile": if lock_present { json!("igniter.lock") } else { Value::Null },
+        "lock_digest": lock_digest,
         "digest": digest,
         "closed_surfaces": ["no_install_hooks", "no_secrets", "no_capability_grants"],
         "signature": Value::Null,
@@ -1284,10 +1297,20 @@ fn is_safe_archive_entry_path(path: &str) -> bool {
     path.is_empty() || is_safe_archive_path(path)
 }
 
-/// Verify a `.igpkg`: recompute per-file + whole-tree digests against the manifest, unpack to a temp dir, and
-/// run `check_workspace_integrity` on the entry package. Returns a result `Value`; `ok` is false on any digest
-/// mismatch or integrity fault. A malformed archive → Err.
-pub fn verify_archive(path: &Path) -> Result<Value, ProjectError> {
+/// Monotonic per-process counter so concurrent unpacks (parallel tests) get unique temp dirs.
+static UNPACK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The result of unpacking an `.igpkg` into a temp dir: the manifest, the temp root, the whole-tree digest,
+/// and whether every per-file + tree digest matched the manifest. Shared by `verify_archive` + `admit_archive`.
+struct UnpackedArchive {
+    manifest: Value,
+    tmp: PathBuf,
+    tree_digest: String,
+    digest_ok: bool,
+}
+
+/// Parse + digest-check + extract an `.igpkg` to a unique temp dir. Caller is responsible for removing `tmp`.
+fn unpack_archive(path: &Path) -> Result<UnpackedArchive, ProjectError> {
     let data = fs::read(path)?;
     let (header, blob) = parse_archive(&data).ok_or_else(|| {
         ProjectError::Diagnostic(ProjectDiagnostic::new(
@@ -1296,10 +1319,11 @@ pub fn verify_archive(path: &Path) -> Result<Value, ProjectError> {
             "archive:format".to_string(),
         ))
     })?;
-    let manifest = &header["manifest"];
+    let manifest = header["manifest"].clone();
     let files = header["files"].as_array().cloned().unwrap_or_default();
 
-    let tmp = std::env::temp_dir().join(format!("igpkg_verify_{}", std::process::id()));
+    let seq = UNPACK_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!("igpkg_{}_{}", std::process::id(), seq));
     let _ = fs::remove_dir_all(&tmp);
 
     let mut hasher = Sha256::new();
@@ -1336,31 +1360,129 @@ pub fn verify_archive(path: &Path) -> Result<Value, ProjectError> {
     if tree_digest != manifest["digest"].as_str().unwrap_or("") {
         digest_ok = false;
     }
+    Ok(UnpackedArchive {
+        manifest,
+        tmp,
+        tree_digest,
+        digest_ok,
+    })
+}
 
-    let entry = manifest["entry"].as_str().unwrap_or(".");
-    let integrity_diag: Option<Value> = if !is_safe_archive_entry_path(entry) {
-        Some(json!({
-            "rule": "OOF-PKG-FORMAT",
-            "message": "archive entry path must be forward-only"
-        }))
-    } else {
-        match check_workspace_integrity(&tmp.join(entry)) {
-            Ok(()) => None,
-            Err(ProjectError::Diagnostic(d)) => Some(d.to_value()),
-            Err(_) => Some(
-                json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble unpacked archive" }),
-            ),
-        }
-    };
-    let _ = fs::remove_dir_all(&tmp);
+/// Run `check_workspace_integrity` on the unpacked entry package; `None` = clean, `Some(diag)` = fault.
+fn unpacked_integrity(u: &UnpackedArchive) -> Option<Value> {
+    let entry = u.manifest["entry"].as_str().unwrap_or(".");
+    if !is_safe_archive_entry_path(entry) {
+        return Some(json!({ "rule": "OOF-PKG-FORMAT", "message": "archive entry path must be forward-only" }));
+    }
+    match check_workspace_integrity(&u.tmp.join(entry)) {
+        Ok(()) => None,
+        Err(ProjectError::Diagnostic(d)) => Some(d.to_value()),
+        Err(_) => Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble unpacked archive" })),
+    }
+}
 
-    let ok = digest_ok && integrity_diag.is_none();
+/// Verify a `.igpkg`: recompute per-file + whole-tree digests against the manifest, unpack to a temp dir, and
+/// run `check_workspace_integrity` on the entry package. Returns a result `Value`; `ok` is false on any digest
+/// mismatch or integrity fault. A malformed archive → Err.
+pub fn verify_archive(path: &Path) -> Result<Value, ProjectError> {
+    let u = unpack_archive(path)?;
+    let integrity_diag = unpacked_integrity(&u);
+    let _ = fs::remove_dir_all(&u.tmp);
+
+    let ok = u.digest_ok && integrity_diag.is_none();
     Ok(json!({
         "kind": "igniter_package_verify_result",
         "ok": ok,
-        "digest": tree_digest,
-        "digest_ok": digest_ok,
+        "digest": u.tree_digest,
+        "digest_ok": u.digest_ok,
         "integrity": { "ok": integrity_diag.is_none(), "diagnostic": integrity_diag },
+    }))
+}
+
+/// LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23: the local node-admission gate. Would this node accept this `.igpkg`
+/// for execution? Reuses `verify_archive`'s primitives (digest + integrity), then optionally checks **lock
+/// parity** (`require_lock` — the packed lock must exist and match the packed sources) and **toolchain match**
+/// (`match_toolchain` — the manifest's compiler/stdlib versions must equal this node's). Emits a deterministic
+/// receipt-like result with a structured `refusals` list. No networking, no execution.
+pub fn admit_archive(
+    path: &Path,
+    require_lock: bool,
+    match_toolchain: bool,
+) -> Result<Value, ProjectError> {
+    let u = unpack_archive(path)?;
+    let entry = u.manifest["entry"].as_str().unwrap_or(".").to_string();
+    let mut refusals: Vec<Value> = Vec::new();
+
+    if !u.digest_ok {
+        refusals.push(json!({ "reason": "digest_mismatch" }));
+    }
+
+    let integrity_diag = unpacked_integrity(&u);
+    let integrity_ok = integrity_diag.is_none();
+    if let Some(diag) = &integrity_diag {
+        refusals.push(json!({ "reason": "integrity", "diagnostic": diag }));
+    }
+
+    // Lock parity (only meaningful when the tree assembles).
+    if require_lock {
+        if u.manifest["lockfile"].is_null() {
+            refusals.push(json!({ "reason": "missing_lock" }));
+        } else if integrity_ok {
+            let entry_root = u.tmp.join(&entry);
+            let packed = fs::read_to_string(entry_root.join("igniter.lock"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .and_then(|v| WorkspaceLock::from_value(&v));
+            match packed {
+                None => refusals.push(json!({ "reason": "missing_lock" })),
+                Some(packed_lock) => {
+                    if let Ok(drift) = verify_lock(&entry_root, &packed_lock) {
+                        // stale = CONTENT drift (Changed/New/Missing); toolchain drift is a separate refusal.
+                        let stale: Vec<String> = drift
+                            .iter()
+                            .filter_map(|d| match d {
+                                LockDrift::Changed { name, .. }
+                                | LockDrift::New { name }
+                                | LockDrift::Missing { name } => Some(name.clone()),
+                                LockDrift::Toolchain { .. } => None,
+                            })
+                            .collect();
+                        if !stale.is_empty() {
+                            refusals.push(json!({ "reason": "stale_lock", "packages": stale }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Toolchain match: the manifest's recorded toolchain must equal this node's.
+    if match_toolchain {
+        let local_compiler = env!("CARGO_PKG_VERSION");
+        let local_stdlib = crate::STDLIB_VERSION;
+        let m_compiler = u.manifest["compiler_version"].as_str().unwrap_or("");
+        let m_stdlib = u.manifest["stdlib_version"].as_str().unwrap_or("");
+        if m_compiler != local_compiler || m_stdlib != local_stdlib {
+            refusals.push(json!({
+                "reason": "toolchain_drift",
+                "expected": { "compiler": local_compiler, "stdlib": local_stdlib },
+                "actual": { "compiler": m_compiler, "stdlib": m_stdlib },
+            }));
+        }
+    }
+
+    let _ = fs::remove_dir_all(&u.tmp);
+
+    Ok(json!({
+        "kind": "igniter_package_admission",
+        "accepted": refusals.is_empty(),
+        "artifact_digest": u.tree_digest,
+        "lock_digest": u.manifest["lock_digest"].clone(),
+        "compiler_version": u.manifest["compiler_version"].clone(),
+        "stdlib_version": u.manifest["stdlib_version"].clone(),
+        "entry": u.manifest["entry"].clone(),
+        "entry_contract": u.manifest["entry_contract"].clone(),
+        "refusals": refusals,
     }))
 }
 

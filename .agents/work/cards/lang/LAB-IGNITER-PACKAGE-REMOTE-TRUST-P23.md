@@ -1,6 +1,6 @@
 # LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23 — local node-admission proof
 
-Status: OPEN
+Status: CLOSED
 Lane: package / remote substrate / trust
 Type: implementation proof
 Delegation code: OPUS-IGNITER-PACKAGE-REMOTE-TRUST-P23
@@ -165,20 +165,50 @@ Required cases:
 
 ## Acceptance
 
-- [ ] Clean archive -> `accepted: true`.
-- [ ] Admission result carries `artifact_digest`, `compiler_version`, `stdlib_version`, and lock identity when present.
-- [ ] Same archive yields deterministic admission result.
-- [ ] Tampered archive refuses before execution (`digest_mismatch`).
-- [ ] Integrity fault refuses with structured `integrity` reason and visible `OOF-IMP*`.
-- [ ] Stale lock refuses with `stale_lock`.
-- [ ] Missing lock under `--require-lock` refuses with `missing_lock`.
-- [ ] Toolchain drift under `--match-toolchain` refuses with `toolchain_drift`.
-- [ ] Existing `igc package verify` behavior remains compatible.
-- [ ] No network, registry, semver, signing, deploy, Docker, systemd, or home-lab host changes.
-- [ ] Proof doc written: `lab-docs/lang/lab-igniter-package-remote-trust-p23-v0.md`.
-- [ ] Targeted package tests pass.
-- [ ] Full compiler suite or a justified package-focused suite passes.
-- [ ] `git diff --check` clean.
+- [x] Clean archive -> `accepted: true`.
+- [x] Admission result carries `artifact_digest`, `compiler_version`, `stdlib_version`, and lock identity when present.
+- [x] Same archive yields deterministic admission result.
+- [x] Tampered archive refuses before execution (`digest_mismatch`).
+- [x] Integrity fault refuses with structured `integrity` reason and visible `OOF-IMP*`.
+- [x] Stale lock refuses with `stale_lock`.
+- [x] Missing lock under `--require-lock` refuses with `missing_lock`.
+- [x] Toolchain drift under `--match-toolchain` refuses with `toolchain_drift`.
+- [x] Existing `igc package verify` behavior remains compatible.
+- [x] No network, registry, semver, signing, deploy, Docker, systemd, or home-lab host changes.
+- [x] Proof doc written: `lab-docs/lang/lab-igniter-package-remote-trust-p23-v0.md`.
+- [x] Targeted package tests pass.
+- [x] Full compiler suite or a justified package-focused suite passes.
+- [x] `git diff --check` clean.
+
+---
+
+## Closing Report (2026-06-21)
+
+**Implementation (`project.rs` + `main.rs` + tests):** `igc package admit FILE.igpkg [--require-lock]
+[--match-toolchain]` over `pub fn admit_archive(path, require_lock, match_toolchain) -> Result<Value,
+ProjectError>` (chosen over `verify --admission` — names the node-runtime case, leaves `verify` untouched).
+Extracted `unpack_archive`/`unpacked_integrity` (behavior-preserving refactor of `verify_archive`; atomic
+per-call temp dir fixes a latent parallel-test race). Manifest +`lock_digest` (sha256 of packed lock) +
+`entry_contract:null` (documented — no app entry-contract model at pack time). Admission = digest + integrity
++ lock-parity (recompute lock vs packed, content drift → `stale_lock`) + toolchain-match (manifest vs local →
+`toolchain_drift`) → `{accepted, artifact_digest, lock_digest, compiler/stdlib_version, entry, entry_contract,
+refusals[]}`. Proof doc: `lab-docs/lang/lab-igniter-package-remote-trust-p23-v0.md`.
+
+**Refusal taxonomy:** `digest_mismatch` / `integrity`(+OOF-IMP*) / `missing_lock` / `stale_lock`(+packages) /
+`toolchain_drift`(+expected/actual). **Honest boundary:** toolchain fields are manifest-header (outside the
+tree digest) → `toolchain_drift` is *compatibility*, not security; the security gate is digest + integrity +
+local compile.
+
+**Live smoke (all ✓):** clean→accepted/exit0; tamper→digest_mismatch/exit1; phantom→integrity{OOF-IMP6}/exit1;
+edit-after-lock→stale_lock/exit1; no-lock+require→missing_lock (accepted without flag); lied-compiler+match→
+toolchain_drift (digest still ok).
+
+**Proof — all green:** `package_lockfile_cli_tests` **44** (37 + 7 P23), `verify` tests intact (refactor
+behavior-preserving), full `igniter-compiler` suite green (0 failed), `git diff --check` clean. No
+network/registry/signing/deploy; package not executed.
+
+**Next:** `LAB-IGNITER-REMOTE-NODE-MOCK-TRANSPORT-P*` (no real network) or `…-EMERGENCE-LOCAL-MULTINODE-SIM-P*`
+(every sim node admits + runs the same `NodeTick`); later signed-package / registry waves.
 
 ## Proof doc requirements
 
