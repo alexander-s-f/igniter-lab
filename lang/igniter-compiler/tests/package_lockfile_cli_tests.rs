@@ -283,6 +283,99 @@ fn cli_verify_strict_integrity_is_structured() {
     assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
 }
 
+// ── LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-CI-P15 (regression-locking P14's CI guarantees) ─────────────
+
+/// A transitive leaf's MANIFEST change (its `igniter.toml`, folded into the digest) is lock drift.
+#[test]
+fn cli_leaf_manifest_change_is_drift() {
+    let root = temp_fixture("workspace_transitive_ok", "p15_leaf_manifest");
+    run("lock", &root);
+    let leaf_manifest = root.join("../leaf/igniter.toml");
+    let edited = std::fs::read_to_string(&leaf_manifest)
+        .unwrap()
+        .replace("\"Leaf.Public\"", "\"Leaf.Public\", \"Leaf.Extra\"");
+    std::fs::write(&leaf_manifest, edited).unwrap();
+    let (ok, v) = run("verify", &root);
+    assert!(!ok, "leaf manifest change must be drift: {v}");
+    assert!(
+        v["drift"].as_array().unwrap().iter().any(|d| d["kind"] == serde_json::json!("changed")
+            && d["name"] == serde_json::json!("leaf")),
+        "changed drift for the transitive leaf: {v}"
+    );
+}
+
+/// `lock --frozen` catches a transitive leaf `.ig` edit without writing the lockfile.
+#[test]
+fn cli_frozen_catches_leaf_drift() {
+    let root = temp_fixture("workspace_transitive_ok", "p15_frozen_leaf");
+    run("lock", &root);
+    let before = std::fs::read(root.join("igniter.lock")).unwrap();
+    let leaf = root.join("../leaf/src/public.ig");
+    let mut c = std::fs::read_to_string(&leaf).unwrap();
+    c.push_str("\n-- drift\n");
+    std::fs::write(&leaf, c).unwrap();
+    let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
+    assert!(!ok, "frozen catches transitive leaf drift: {v}");
+    assert_eq!(v["reason"], serde_json::json!("out-of-date"));
+    assert_eq!(std::fs::read(root.join("igniter.lock")).unwrap(), before, "frozen must not rewrite");
+}
+
+/// `verify --strict` reports a transitive `OOF-IMP6` with structured fields (root imports an undeclared
+/// transitive package).
+#[test]
+fn cli_verify_strict_catches_transitive_phantom() {
+    let root = temp_fixture("workspace_transitive_root_phantom", "p15_tphantom");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "strict catches transitive phantom: {v}");
+    let d = &v["integrity"]["diagnostic"];
+    assert_eq!(d["rule"], serde_json::json!("OOF-IMP6"));
+    assert_eq!(d["module_path"], serde_json::json!("App.Main"), "structured importer: {d}");
+    assert!(d["source_paths"].as_array().is_some_and(|a| a.len() == 1), "structured path: {d}");
+}
+
+/// `verify --strict` reports a transitive `OOF-IMP7` (a dependency imports a non-exported module of its own
+/// declared dependency).
+#[test]
+fn cli_verify_strict_catches_transitive_non_export() {
+    let root = temp_fixture("workspace_transitive_non_export", "p15_tnonexport");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "strict catches transitive non-export: {v}");
+    let d = &v["integrity"]["diagnostic"];
+    assert_eq!(d["rule"], serde_json::json!("OOF-IMP7"));
+    assert_eq!(d["module_path"], serde_json::json!("Mid.M"), "structured importer: {d}");
+}
+
+/// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: `verify --strict` catches a package-graph cycle (OOF-IMP8).
+#[test]
+fn cli_verify_strict_catches_cycle() {
+    let root = temp_fixture("workspace_transitive_cycle", "strict_cycle");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "strict verify fails on a graph cycle: {v}");
+    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP8"));
+}
+
+/// A transitive dependency's content drift is caught: after `lock` on `workspace_transitive_ok`, editing the
+/// leaf (transitive) package's source makes `verify` report a `changed` drift for that package.
+#[test]
+fn cli_transitive_content_drift_detected() {
+    let root = temp_fixture("workspace_transitive_ok", "tdrift");
+    run("lock", &root);
+    let leaf = root.join("../leaf/src/public.ig");
+    let mut c = std::fs::read_to_string(&leaf).unwrap();
+    c.push_str("\n-- drift\n");
+    std::fs::write(&leaf, c).unwrap();
+
+    let (ok, v) = run("verify", &root);
+    assert!(!ok, "transitive content change must be drift: {v}");
+    assert!(
+        v["drift"].as_array().unwrap().iter().any(|d| d["kind"] == serde_json::json!("changed")),
+        "changed drift for the transitive leaf: {v}"
+    );
+}
+
 /// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12: `verify --strict` under a root `[package] exports =
 /// "closed"` policy fails (OOF-IMP7) when a dependency declares no exports; plain `verify` is drift-only.
 #[test]

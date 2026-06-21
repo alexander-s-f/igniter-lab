@@ -196,20 +196,55 @@ struct ResolvedOverlay {
     overlay_path: PathBuf,
 }
 
-/// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7
-/// Which workspace package a scanned file belongs to: the workspace root, or a named local dependency.
-/// Import scope is enforced per package — see `package_in_scope`.
+/// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7 / TRANSITIVE-GRAPH-P14
+/// Which workspace package a scanned file belongs to: the workspace root, or a local package identified by
+/// its **canonical root path** (P14 — names are not unique across a transitive graph, so the path is the
+/// identity; a diamond resolves to one node by path equality). Import scope follows declared graph edges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PackageId {
     Root,
-    Dependency(String),
+    Package(PathBuf),
 }
 
 impl PackageId {
-    fn label(&self) -> String {
+    /// The canonical root path of this package (the root's is supplied separately).
+    fn canonical<'a>(&'a self, root: &'a Path) -> &'a Path {
         match self {
+            PackageId::Root => root,
+            PackageId::Package(p) => p,
+        }
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14. One node in the local package graph.
+#[derive(Debug, Clone)]
+struct PackageNode {
+    /// Display name for diagnostics (`<root>`, or the lexicographically smallest declaring edge name).
+    display: String,
+    /// Canonical root paths of this package's **direct** declared dependencies (graph edges).
+    deps: BTreeSet<PathBuf>,
+    /// This package's `[exports]` surface (`None` = open; `Some(set)` = allowlist; `Some(empty)` = sealed).
+    exports: Option<BTreeSet<String>>,
+    /// Source roots to scan for this package.
+    source_roots: Vec<PathBuf>,
+}
+
+/// The assembled local package graph: every reachable node keyed by canonical root path (includes the root).
+#[derive(Debug)]
+struct PackageGraph {
+    root: PathBuf,
+    nodes: BTreeMap<PathBuf, PackageNode>,
+}
+
+impl PackageGraph {
+    fn label(&self, pkg: &PackageId) -> String {
+        match pkg {
             PackageId::Root => "<root>".to_string(),
-            PackageId::Dependency(name) => name.clone(),
+            PackageId::Package(p) => self
+                .nodes
+                .get(p)
+                .map(|n| n.display.clone())
+                .unwrap_or_else(|| "<unknown>".to_string()),
         }
     }
 }
@@ -235,9 +270,11 @@ pub struct ModuleIndex {
     by_module: BTreeMap<String, ScannedFile>,
     /// module_path -> all source paths that declared it (only modules with >1).
     duplicates: BTreeMap<String, Vec<String>>,
-    /// LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: dependency name -> its export surface.
-    /// `None` = open (no `[exports]`); `Some(set)` = cross-package imports restricted to these modules.
-    dep_exports: BTreeMap<String, Option<BTreeSet<String>>>,
+    /// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: the assembled local package graph (edges + per-node
+    /// exports), used by `index_integrity` for scope (OOF-IMP6), exports (OOF-IMP7) and cycles (OOF-IMP8).
+    graph: PackageGraph,
+    /// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12: the root's closed-default policy (global for the graph).
+    exports_default: ExportsDefault,
 }
 
 /// Resolve the transitive, non-stdlib import closure for `entry_module`.
@@ -266,7 +303,7 @@ pub fn resolve_entry_with_overlays(
     // Project-assembly integrity: duplicate module declarations (OOF-IMP4) and out-of-scope/phantom imports
     // (OOF-IMP6). Shared with `check_workspace_integrity` so the compile path and the CI gate enforce
     // exactly the same rules.
-    if let Some(diag) = index_integrity(&index, &config) {
+    if let Some(diag) = index_integrity(&index) {
         return Err(ProjectError::Diagnostic(diag));
     }
 
@@ -315,9 +352,14 @@ pub fn resolve_entry_with_overlays(
 }
 
 /// Project-assembly integrity over an already-built index: the first (deterministic) of a duplicate module
-/// declaration (OOF-IMP4) or an out-of-scope/phantom import (OOF-IMP6), or `None` if the workspace is clean.
-/// Entry-independent — these are faults of the *assembled workspace*, not of any one entry module.
-fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<ProjectDiagnostic> {
+/// declaration (OOF-IMP4), a package-graph cycle (OOF-IMP8), an out-of-scope/phantom import (OOF-IMP6), or a
+/// non-exported import (OOF-IMP7); `None` if the workspace is clean. Entry-independent — faults of the
+/// *assembled workspace*. LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: scope and exports follow declared graph
+/// edges (a package may import a provider iff it declares it; same-package always allowed); exports are
+/// checked on every consumer→provider edge.
+fn index_integrity(index: &ModuleIndex) -> Option<ProjectDiagnostic> {
+    let graph = &index.graph;
+
     // Duplicate module declarations: the index is ambiguous. Surface deterministically with all source paths.
     if let Some((module, paths)) = index.duplicates.iter().next() {
         let mut diag = ProjectDiagnostic::new(
@@ -330,19 +372,31 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
         return Some(diag);
     }
 
-    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: reject phantom imports. A file may import only modules whose
-    // owning PACKAGE is in scope — its own package, or a dependency the workspace root directly declared.
-    // A dependency reaching a sibling dependency (present in the index only because the root also depends
-    // on it) is an out-of-scope import: it would break when that dependency is reused in another workspace.
-    // Only RESOLVED imports are checked; a dangling import is left to compile_units (OOF-IMP2).
-    let root_deps: BTreeSet<String> = config.dependencies.iter().map(|d| d.name.clone()).collect();
+    // OOF-IMP8: a cycle in the local package graph is an assembly fault.
+    if let Some(diag) = detect_cycle(graph) {
+        return Some(diag);
+    }
+
+    // OOF-IMP6: a file may import a module only when the importer's PACKAGE declares the provider's package as
+    // a direct dependency (or it is the same package). A package reaching one it never declared — a sibling,
+    // a transitive package, or the root — is an out-of-scope import. Resolved imports only (dangling →
+    // compile_units OOF-IMP2).
     let mut violations: Vec<(String, String)> = Vec::new();
     for (module, file) in &index.by_module {
+        let importer = file.package.canonical(&graph.root);
         for imp in &file.non_stdlib_imports {
             let Some(target) = index.by_module.get(imp) else {
                 continue;
             };
-            if !package_in_scope(&file.package, &target.package, &root_deps) {
+            let provider = target.package.canonical(&graph.root);
+            if importer == provider {
+                continue; // same package
+            }
+            let declared = graph
+                .nodes
+                .get(importer)
+                .is_some_and(|n| n.deps.contains(provider));
+            if !declared {
                 violations.push((module.clone(), imp.clone()));
             }
         }
@@ -357,9 +411,9 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
             format!(
                 "out-of-scope import: module '{}' (package {}) imports '{}' (package {}), which it does not declare as a dependency",
                 importer,
-                importer_file.package.label(),
+                graph.label(&importer_file.package),
                 imported,
-                target_file.package.label()
+                graph.label(&target_file.package)
             ),
             format!("import:{}->{}", importer, imported),
         );
@@ -368,30 +422,30 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
         return Some(diag);
     }
 
-    // LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10 (+ CLOSED-DEFAULT-P12): among in-scope edges, reject imports of
-    // a dependency module that the dependency does not export. Only root→dependency edges are export-gated:
-    // same-package imports are unrestricted, and dependency→sibling/root edges already fell to OOF-IMP6 above.
-    // A dependency that declares `[exports]` is held to its allowlist. A dependency with NO `[exports]` block
-    // is open by default, OR sealed when the root opts in via `[package] exports = "closed"` (P12).
-    // Deterministic first violation. The bool marks "sealed by the closed-default policy" for the message.
-    let closed = config.exports_default == ExportsDefault::Closed;
+    // OOF-IMP7: on every (now declared) consumer→provider edge, reject a module the provider does not export.
+    // Same-package imports bypass exports. A provider that declares `[exports]` is held to its allowlist; a
+    // provider with no `[exports]` is open by default, OR sealed when the root opts into `[package] exports =
+    // "closed"` (P12 policy, global across the graph). The bool marks the sealed-by-policy case.
+    let closed = index.exports_default == ExportsDefault::Closed;
     let mut export_violations: Vec<(String, String, bool)> = Vec::new();
     for (module, file) in &index.by_module {
-        if file.package != PackageId::Root {
-            continue; // exports gate only the root's imports of its dependencies
-        }
+        let importer = file.package.canonical(&graph.root);
         for imp in &file.non_stdlib_imports {
             let Some(target) = index.by_module.get(imp) else {
                 continue;
             };
-            let PackageId::Dependency(dep_name) = &target.package else {
-                continue; // root→root (own modules) is never export-gated
+            let provider = target.package.canonical(&graph.root);
+            if importer == provider {
+                continue; // same-package bypasses exports
+            }
+            let Some(node) = graph.nodes.get(provider) else {
+                continue;
             };
-            match index.dep_exports.get(dep_name) {
-                Some(Some(allow)) if !allow.contains(imp) => {
+            match &node.exports {
+                Some(allow) if !allow.contains(imp) => {
                     export_violations.push((module.clone(), imp.clone(), false));
                 }
-                Some(None) if closed => {
+                None if closed => {
                     export_violations.push((module.clone(), imp.clone(), true));
                 }
                 _ => {}
@@ -403,7 +457,7 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
     if let Some((importer, imported, sealed_by_policy)) = export_violations.first() {
         let importer_file = &index.by_module[importer];
         let target_file = &index.by_module[imported];
-        let dep_label = target_file.package.label();
+        let dep_label = graph.label(&target_file.package);
         let message = if *sealed_by_policy {
             format!(
                 "non-exported import: module '{}' imports '{}' (package {}), which declares no exports ([package] exports = \"closed\")",
@@ -435,7 +489,7 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
 pub fn check_workspace_integrity(root: &Path) -> Result<(), ProjectError> {
     let config = ProjectConfig::load(root);
     let index = build_module_index(root, &config, &[])?;
-    match index_integrity(&index, &config) {
+    match index_integrity(&index) {
         Some(diag) => Err(ProjectError::Diagnostic(diag)),
         None => Ok(()),
     }
@@ -550,21 +604,24 @@ impl WorkspaceLock {
     }
 }
 
-/// Compute the per-workspace lock: one `sha256` content digest per declared dependency, name-sorted for
-/// determinism. Direct dependencies only (a dependency's own `[dependencies]` are not digested here).
+/// Compute the per-workspace lock: one `sha256` content digest per package in the **full reachable graph**
+/// (LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14), excluding the root itself. Each entry is keyed by a
+/// root-relative canonical path (stable across machines); sorted by path for determinism. Each package's
+/// digest is its own content (manifest + `.ig` files) — transitive child digests are NOT nested.
 pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
-    let config = ProjectConfig::load(root);
-    let mut deps: Vec<&Dependency> = config.dependencies.iter().collect();
-    deps.sort_by(|a, b| a.name.cmp(&b.name));
-    let mut locked = Vec::with_capacity(deps.len());
-    for dep in deps {
-        let dep_root = root.join(&dep.path);
+    let graph = collect_package_graph(root)?;
+    let mut locked = Vec::new();
+    for (canon, node) in &graph.nodes {
+        if *canon == graph.root {
+            continue; // the root workspace is not a dependency entry
+        }
         locked.push(LockedDependency {
-            name: dep.name.clone(),
-            path: dep.path.to_string_lossy().to_string(),
-            digest: dependency_digest(&dep_root)?,
+            name: node.display.clone(),
+            path: relative_to(&graph.root, canon).to_string_lossy().to_string(),
+            digest: dependency_digest(canon)?,
         });
     }
+    locked.sort_by(|a, b| (a.path.as_str(), a.name.as_str()).cmp(&(b.path.as_str(), b.name.as_str())));
     Ok(WorkspaceLock {
         toolchain: current_toolchain(),
         dependencies: locked,
@@ -594,8 +651,10 @@ pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, 
             });
         }
     }
+    // LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: match packages by `path` (the stable per-node identity) —
+    // display names can collide across a transitive graph, paths cannot.
     for cur in &current.dependencies {
-        match lock.dependencies.iter().find(|d| d.name == cur.name) {
+        match lock.dependencies.iter().find(|d| d.path == cur.path) {
             Some(locked) if locked.digest != cur.digest => drifts.push(LockDrift::Changed {
                 name: cur.name.clone(),
                 locked: locked.digest.clone(),
@@ -608,7 +667,7 @@ pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, 
         }
     }
     for locked in &lock.dependencies {
-        if !current.dependencies.iter().any(|c| c.name == locked.name) {
+        if !current.dependencies.iter().any(|c| c.path == locked.path) {
             drifts.push(LockDrift::Missing {
                 name: locked.name.clone(),
             });
@@ -664,55 +723,28 @@ fn build_module_index(
     config: &ProjectConfig,
     overlays: &[ResolvedOverlay],
 ) -> Result<ModuleIndex, ProjectError> {
-    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: tag every scanned file with its owning package so import
-    // scope can be enforced. Root source roots → PackageId::Root; each declared dependency's source roots
-    // → PackageId::Dependency(name).
+    // LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: assemble the full local package graph (root + transitive
+    // closure), then scan every node's source roots, tagging each file with its owning package. The root
+    // node → PackageId::Root; every other node → PackageId::Package(canonical). Each node is scanned once
+    // (diamonds dedup by canonical path).
+    let graph = collect_package_graph(root)?;
     let mut files: Vec<(PathBuf, PackageId)> = Vec::new();
-    {
-        let mut root_files: Vec<PathBuf> = Vec::new();
-        for source_root in &config.source_roots {
-            // Avoid a spurious "./" segment when the source root is the project root.
+    for (canon, node) in &graph.nodes {
+        let pkg = if *canon == graph.root {
+            PackageId::Root
+        } else {
+            PackageId::Package(canon.clone())
+        };
+        for source_root in &node.source_roots {
             let scan_root = if source_root == Path::new(".") {
-                root.to_path_buf()
+                canon.clone()
             } else {
-                root.join(source_root)
+                canon.join(source_root)
             };
-            collect_ig_files(&scan_root, &mut root_files)?;
+            let mut pkg_files: Vec<PathBuf> = Vec::new();
+            collect_ig_files(&scan_root, &mut pkg_files)?;
+            files.extend(pkg_files.into_iter().map(|p| (p, pkg.clone())));
         }
-        files.extend(root_files.into_iter().map(|p| (p, PackageId::Root)));
-    }
-
-    // LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2: fold each declared LOCAL path dependency's source roots
-    // into the SAME file set, so cross-package `import Foo.Bar` resolves and duplicate module ownership
-    // across packages is caught by the existing OOF-IMP4 check below. Direct dependencies only — a
-    // dependency's own `[dependencies]` are NOT traversed in v0 (no transitive package graph).
-    // LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: record each dependency's export surface (by name) for the
-    // integrity pass. `None` = open; `Some(set)` = cross-package imports restricted to these modules.
-    let mut dep_exports: BTreeMap<String, Option<BTreeSet<String>>> = BTreeMap::new();
-    for dep in &config.dependencies {
-        let dep_root = root.join(&dep.path);
-        let dep_config = ProjectConfig::load(&dep_root);
-        dep_exports.insert(
-            dep.name.clone(),
-            dep_config
-                .exports
-                .clone()
-                .map(|v| v.into_iter().collect::<BTreeSet<String>>()),
-        );
-        let mut dep_files: Vec<PathBuf> = Vec::new();
-        for source_root in &dep_config.source_roots {
-            let scan_root = if source_root == Path::new(".") {
-                dep_root.clone()
-            } else {
-                dep_root.join(source_root)
-            };
-            collect_ig_files(&scan_root, &mut dep_files)?;
-        }
-        files.extend(
-            dep_files
-                .into_iter()
-                .map(|p| (p, PackageId::Dependency(dep.name.clone()))),
-        );
     }
 
     // Inject overlay originals that are not present on disk (new unsaved files). Overlays are root buffers.
@@ -770,23 +802,146 @@ fn build_module_index(
     Ok(ModuleIndex {
         by_module,
         duplicates: dup_acc,
-        dep_exports,
+        graph,
+        exports_default: config.exports_default,
     })
 }
 
-/// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7
-/// Whether `importer` may import a module owned by `target`. Same package is always allowed; the workspace
-/// root may import any directly-declared dependency; a dependency may import only its own modules (its own
-/// `[dependencies]` are not folded into this workspace, so nothing else is legitimately in its scope — and
-/// it must not depend on a sibling it never declared, nor on the root application).
-fn package_in_scope(importer: &PackageId, target: &PackageId, root_deps: &BTreeSet<String>) -> bool {
-    if importer == target {
-        return true;
+/// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14
+/// Assemble the local package graph: from the workspace root, recursively load each package's
+/// `[dependencies]`, canonicalizing every path relative to the **declaring** package. Nodes are keyed by
+/// canonical root path (a diamond resolves to one node; traversal is `visited`-bounded so a cycle cannot
+/// loop here — it is reported later by `detect_cycle`). Display names are deterministic: the smallest
+/// declaring edge name.
+fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
+    let root_canon = normalize_abs(root);
+    let mut nodes: BTreeMap<PathBuf, PackageNode> = BTreeMap::new();
+    let mut names: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
+    let mut queue: Vec<PathBuf> = vec![root_canon.clone()];
+    while let Some(canon) = queue.pop() {
+        if nodes.contains_key(&canon) {
+            continue;
+        }
+        let config = ProjectConfig::load(&canon);
+        let mut deps = BTreeSet::new();
+        for dep in &config.dependencies {
+            let dep_canon = normalize_abs(&canon.join(&dep.path));
+            deps.insert(dep_canon.clone());
+            names.entry(dep_canon.clone()).or_default().insert(dep.name.clone());
+            queue.push(dep_canon);
+        }
+        nodes.insert(
+            canon.clone(),
+            PackageNode {
+                display: String::new(), // assigned below
+                deps,
+                exports: config.exports.clone().map(|v| v.into_iter().collect()),
+                source_roots: config.source_roots.clone(),
+            },
+        );
     }
-    match importer {
-        PackageId::Root => matches!(target, PackageId::Dependency(name) if root_deps.contains(name)),
-        PackageId::Dependency(_) => false,
+    for (canon, node) in nodes.iter_mut() {
+        node.display = if *canon == root_canon {
+            "<root>".to_string()
+        } else {
+            names
+                .get(canon)
+                .and_then(|s| s.iter().next().cloned())
+                .or_else(|| canon.file_name().map(|f| f.to_string_lossy().to_string()))
+                .unwrap_or_default()
+        };
     }
+    Ok(PackageGraph {
+        root: root_canon,
+        nodes,
+    })
+}
+
+/// DFS back-edge detection. Returns the cycle (as a node path) if `node` reaches a gray ancestor.
+fn cycle_dfs<'a>(
+    node: &'a PathBuf,
+    graph: &'a PackageGraph,
+    color: &mut BTreeMap<&'a PathBuf, u8>, // 0 white, 1 gray, 2 black
+    stack: &mut Vec<&'a PathBuf>,
+) -> Option<Vec<PathBuf>> {
+    color.insert(node, 1);
+    stack.push(node);
+    if let Some(n) = graph.nodes.get(node) {
+        for dep in &n.deps {
+            let Some((dep_key, _)) = graph.nodes.get_key_value(dep) else {
+                continue; // dep path not a known node (missing dir) — left to OOF-IMP2 on import
+            };
+            match color.get(dep_key).copied().unwrap_or(0) {
+                1 => {
+                    let pos = stack.iter().position(|s| *s == dep_key).unwrap_or(0);
+                    let mut cyc: Vec<PathBuf> = stack[pos..].iter().map(|p| (*p).clone()).collect();
+                    cyc.push((*dep_key).clone());
+                    return Some(cyc);
+                }
+                0 => {
+                    if let Some(c) = cycle_dfs(dep_key, graph, color, stack) {
+                        return Some(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    stack.pop();
+    color.insert(node, 2);
+    None
+}
+
+/// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: a cycle in the local package graph (`OOF-IMP8`).
+fn detect_cycle(graph: &PackageGraph) -> Option<ProjectDiagnostic> {
+    let mut color: BTreeMap<&PathBuf, u8> = graph.nodes.keys().map(|k| (k, 0u8)).collect();
+    for key in graph.nodes.keys() {
+        if color.get(key).copied() == Some(0) {
+            let mut stack = Vec::new();
+            if let Some(cyc) = cycle_dfs(key, graph, &mut color, &mut stack) {
+                let names: Vec<String> = cyc
+                    .iter()
+                    .map(|p| {
+                        graph
+                            .nodes
+                            .get(p)
+                            .map(|n| n.display.clone())
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                let mut diag = ProjectDiagnostic::new(
+                    "OOF-IMP8",
+                    format!("dependency cycle in the local package graph: {}", names.join(" -> ")),
+                    format!("cycle:{}", names.join("->")),
+                );
+                diag.source_paths = cyc.iter().map(|p| p.to_string_lossy().to_string()).collect();
+                return Some(diag);
+            }
+        }
+    }
+    None
+}
+
+/// A relative path from `base` to `target` (both absolute + normalized), using `..` as needed. Stable across
+/// machines (depends only on the workspace layout), so lock paths are reproducible.
+fn relative_to(base: &Path, target: &Path) -> PathBuf {
+    let b: Vec<Component> = base.components().collect();
+    let t: Vec<Component> = target.components().collect();
+    let mut i = 0;
+    while i < b.len() && i < t.len() && b[i] == t[i] {
+        i += 1;
+    }
+    let mut out = PathBuf::new();
+    for _ in i..b.len() {
+        out.push("..");
+    }
+    for c in &t[i..] {
+        out.push(c.as_os_str());
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
 }
 
 fn collect_ig_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {

@@ -1,5 +1,2 @@
 module Mid.X
-
-type MidThing {
-  v : Integer
-}
+import Deep.D

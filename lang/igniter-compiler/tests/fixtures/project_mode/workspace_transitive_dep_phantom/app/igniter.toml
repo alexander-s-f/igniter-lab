@@ -1,0 +1,5 @@
+source_roots = ["src"]
+
+[dependencies]
+mid = { path = "../mid" }
+leaf = { path = "../leaf" }

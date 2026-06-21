@@ -1,0 +1,5 @@
+source_roots = ["src"]
+
+[dependencies]
+a = { path = "../a" }
+b = { path = "../b" }

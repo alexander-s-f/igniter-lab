@@ -101,10 +101,11 @@ fn duplicate_module_across_packages_is_oof_imp4() {
     }
 }
 
-/// Direct dependencies only: `app` depends on `mid`; `mid` declares its own dependency on `deep`, which is
-/// NOT traversed in v0. The resolved closure includes app + mid, never deep.
+/// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14 (migrated from `direct_dependencies_only`): `app → mid → deep`.
+/// `mid` declares `deep` and imports `Deep.D`; the transitive graph now assembles `deep`, so the closure
+/// reaches it through the declared `mid → deep` edge (app + mid + deep).
 #[test]
-fn direct_dependencies_only() {
+fn transitive_dependency_is_assembled() {
     let paths =
         project::resolve_entry(Path::new(&format!("{FIX}/workspace_direct/app")), "App.Main")
             .unwrap();
@@ -112,8 +113,8 @@ fn direct_dependencies_only() {
     assert!(names.contains(&"main.ig".to_string()), "app present: {names:?}");
     assert!(names.contains(&"x.ig".to_string()), "direct dep `mid` present: {names:?}");
     assert!(
-        !names.contains(&"d.ig".to_string()),
-        "transitive dep `deep` must NOT be pulled (direct-only v0): {names:?}"
+        names.contains(&"d.ig".to_string()),
+        "transitive dep `deep` is now assembled through the declared mid->deep edge: {names:?}"
     );
 }
 
@@ -312,6 +313,120 @@ fn check_workspace_integrity_flags_closed_default() {
         ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP7", "{d:?}"),
         other => panic!("expected OOF-IMP7, got {other:?}"),
     }
+}
+
+// ── LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14 ────────────────────────────────────────────────────────
+
+/// A package may import its own declared dependency transitively: `app→mid→leaf`, `Mid.Public` imports the
+/// exported `Leaf.Public`. The closure assembles all three packages.
+#[test]
+fn transitive_declared_edge_resolves() {
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_ok/app")),
+        "App.Main",
+    )
+    .unwrap();
+    let names = module_files(&paths);
+    assert!(
+        names.contains(&"main.ig".to_string()) && names.contains(&"public.ig".to_string()),
+        "app + mid present: {names:?}"
+    );
+    // leaf's public.ig is the third file (two files named public.ig → assert ≥2 distinct package files)
+    assert!(paths.len() >= 3, "transitive leaf folded too: {names:?}");
+}
+
+/// The root may NOT import a transitive package it did not declare directly → `OOF-IMP6`.
+#[test]
+fn root_cannot_import_transitive_dep() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_root_phantom/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP6", "{d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("App.Main"));
+        }
+        other => panic!("expected OOF-IMP6, got {other:?}"),
+    }
+}
+
+/// A dependency may not import a sibling it did not declare (even though the root folded it) → `OOF-IMP6`.
+#[test]
+fn dependency_cannot_import_undeclared_sibling() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_dep_phantom/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP6", "{d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("Mid.M"));
+        }
+        other => panic!("expected OOF-IMP6, got {other:?}"),
+    }
+}
+
+/// Exports are enforced on a transitive consumer→provider edge: `mid` declares `leaf` but imports the
+/// non-exported `Leaf.Private` → `OOF-IMP7`.
+#[test]
+fn transitive_non_exported_import_is_oof_imp7() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_non_export/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP7", "{d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("Mid.M"));
+            assert!(d.message.contains("Leaf.Private"), "{}", d.message);
+        }
+        other => panic!("expected OOF-IMP7, got {other:?}"),
+    }
+}
+
+/// A cycle in the local package graph is a deterministic `OOF-IMP8`.
+#[test]
+fn package_graph_cycle_is_oof_imp8() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_cycle/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP8", "{d:?}");
+            assert!(d.message.contains("cycle"), "{}", d.message);
+        }
+        other => panic!("expected OOF-IMP8, got {other:?}"),
+    }
+}
+
+/// A diamond (`app→a,b`; `a→c`, `b→c`) resolves to ONE `c` node — no duplicate-module fault, c folded once.
+#[test]
+fn diamond_same_package_dedups() {
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_transitive_diamond/app")),
+        "App.Main",
+    )
+    .unwrap();
+    let names = module_files(&paths);
+    let c_count = names.iter().filter(|n| *n == "c.ig").count();
+    assert_eq!(c_count, 1, "shared package `c` folded exactly once: {names:?}");
+    assert!(names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()), "{names:?}");
+}
+
+/// The lock records the FULL reachable graph: `workspace_transitive_ok` locks `mid` AND `leaf`.
+#[test]
+fn lock_records_full_transitive_graph() {
+    let lock = project::workspace_lock(&app("workspace_transitive_ok")).unwrap();
+    let paths: Vec<&str> = lock.dependencies.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(lock.dependencies.len(), 2, "mid + leaf locked: {paths:?}");
+    assert!(paths.iter().any(|p| p.contains("mid")), "mid in lock: {paths:?}");
+    assert!(paths.iter().any(|p| p.contains("leaf")), "leaf (transitive) in lock: {paths:?}");
 }
 
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────

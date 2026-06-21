@@ -1,4 +1,5 @@
-# mid declares its own dependency on `deep` — v0 does NOT traverse it (direct-only).
+# mid declares its own dependency on `deep`; under the P14 transitive graph it IS assembled
+# (and here imported), so `Deep.D` is reachable from the app through the declared mid->deep edge.
 source_roots = ["src"]
 
 [dependencies]
