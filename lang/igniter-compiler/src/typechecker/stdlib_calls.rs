@@ -7,12 +7,12 @@ use super::*;
 // only a still-unsupported collection op *inside* a HOF lambda body.
 
 /// Collection ops STILL unsupported inside a HOF lambda body. NARROWED by
-/// LAB-VM-NESTED-HOF-EVAL-AST-RECOVERY-P3: `map`/`filter`/`sum` now execute nested (eval_ast gained those
-/// arms + qualified-name normalization), so they are no longer rejected. `fold` is still rejected because
-/// the emitter lowers it to a `map_reduce_aggregate` SIR node that eval_ast cannot run nested;
-/// `filter_map`/`reduce` have no eval_ast arm. These keep the early guided diagnostic instead of a late VM
-/// failure.
-const NESTED_COLLECTION_OPS: &[&str] = &["fold", "filter_map", "reduce"];
+/// LAB-VM-NESTED-HOF-EVAL-AST-RECOVERY-P3: `map`/`filter`/`sum` execute nested (eval_ast arms +
+/// qualified-name normalization). LAB-VM-NESTED-FOLD-MAP-REDUCE-AGGREGATE-P4: `fold` now executes nested too
+/// — eval_ast gained a `map_reduce_aggregate` arm running the `fold`/`reduce` pipeline stage with `local_env`
+/// capture — so it is dropped from this guard. `filter_map`/`reduce` still have no eval_ast arm, so they keep
+/// the early guided diagnostic (`OOF-COL-NESTED`) instead of a late VM failure.
+const NESTED_COLLECTION_OPS: &[&str] = &["filter_map", "reduce"];
 
 /// Collection HOFs that take a lambda — whose lambda body is scanned for a (still-unsupported) nested op.
 const LAMBDA_HOF_NAMES: &[&str] = &["map", "filter", "filter_map", "fold", "reduce"];
@@ -120,7 +120,7 @@ impl TypeChecker {
                             rule: "OOF-COL-NESTED".to_string(),
                             message: format!(
                                 "nested collection operation inside a `{base}` lambda is not executable (v0): a \
-                                 still-unsupported collection op (fold/filter_map/reduce) appears inside a \
+                                 still-unsupported collection op (filter_map/reduce) appears inside a \
                                  higher-order lambda. Extract the inner operation into a named contract and call it via \
                                  call_contract — e.g. `{base}(xs, x -> call_contract(\"Inner\", x, ...))`. See \
                                  LAB-NESTED-COLLECTION-OPS-PRESSURE-KURAMOTO-P1."

@@ -108,3 +108,34 @@ fn nested_scalar_sum_executes() {
         "per-row sum: {out}"
     );
 }
+
+// ── LAB-VM-NESTED-FOLD-MAP-REDUCE-AGGREGATE-P4: nested `fold` (map_reduce_aggregate) now executes ───────
+
+/// Nested `fold` (the SIR `map_reduce_aggregate` node) inside a `map` lambda: `map(rows, row ->
+/// fold(row, 0.0, (acc, x) -> acc + x))` → per-row sums. Before P4 this typechecked then died at VM eval
+/// with "Unsupported AST kind in VM evaluator: map_reduce_aggregate".
+#[test]
+fn nested_fold_per_row_executes() {
+    let src = "pure contract C {\n  input xss : Collection[Collection[Float]]\n  compute d : Collection[Float] = map(xss, row -> fold(row, 0.0, (acc, x) -> acc + x))\n  output d : Collection[Float]\n}\n";
+    let Some(out) = compile_and_run(src, "C", "{\"xss\":[[1.0,2.0,3.0],[10.0,20.0]]}", "foldrow") else {
+        eprintln!("skip: ../igniter-compiler not built");
+        return;
+    };
+    assert!(out.contains("6.0") && out.contains("30.0"), "per-row fold sum [6.0, 30.0]: {out}");
+    assert!(!out.contains("Unsupported"), "no late VM failure: {out}");
+}
+
+/// Kuramoto all-N coupling via nested `fold` (the parallel `nbody_*` authoring style, fold instead of
+/// sum(map)): `map(phases, p -> fold(phases, 0.0, (acc, q) -> acc + sin(q - p)))` executes all-to-all.
+#[test]
+fn kuramoto_coupling_via_nested_fold_executes() {
+    let src = "pure contract Coupling {\n  input phases : Collection[Float]\n  compute c : Collection[Float] = map(phases, p -> fold(phases, 0.0, (acc, q) -> acc + sin(q - p)))\n  output c : Collection[Float]\n}\n";
+    // phases = [0, π/2, π]; coupling_i = Σ_j sin(θ_j − θ_i). For i=0: sin0+sin(π/2)+sin(π) ≈ 1.0.
+    let inputs = "{\"phases\":[0.0,1.5707963267948966,3.141592653589793]}";
+    let Some(out) = compile_and_run(src, "Coupling", inputs, "kfold") else {
+        eprintln!("skip: ../igniter-compiler not built");
+        return;
+    };
+    assert!(out.contains("1.0") || out.contains("0.9999"), "i=0 coupling ≈ 1.0: {out}");
+    assert!(!out.contains("Unsupported"), "no late VM failure: {out}");
+}

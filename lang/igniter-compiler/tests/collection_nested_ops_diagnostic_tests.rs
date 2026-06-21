@@ -61,20 +61,21 @@ fn map_with_sum_of_map_now_compiles() {
 }
 
 #[test]
-fn map_with_fold_is_still_rejected() {
-    // `fold` lowers to a `map_reduce_aggregate` SIR node eval_ast can't run nested, so it stays guarded.
+fn map_with_fold_now_compiles() {
+    // LAB-VM-NESTED-FOLD-MAP-REDUCE-AGGREGATE-P4: eval_ast gained a `map_reduce_aggregate` arm, so `fold`
+    // nested in a HOF lambda now compiles AND executes — dropped from the NESTED_COLLECTION_OPS guard.
     let src = "pure contract C {\n  input phases : Collection[Float]\n  compute d : Collection[Float] = map(phases, p -> fold(phases, 0.0, (a, q) -> a + sin(q - p)))\n  output d : Collection[Float]\n}\n";
     let o = compile(src, "foldinmap");
     assert!(
-        has_nested_diag(&o),
-        "map(x -> fold(...)) still emits OOF-COL-NESTED (fold unsupported nested): {o}"
+        is_ok(&o) && !has_nested_diag(&o),
+        "map(x -> fold(...)) now compiles, no OOF-COL-NESTED: {o}"
     );
 }
 
 #[test]
 fn nested_diag_message_names_the_call_contract_workaround() {
-    // Uses a still-guarded shape (fold-in-map) to exercise the message.
-    let src = "pure contract C {\n  input phases : Collection[Float]\n  compute d : Collection[Float] = map(phases, p -> fold(phases, 0.0, (a, q) -> a + q))\n  output d : Collection[Float]\n}\n";
+    // Uses a STILL-guarded shape (filter_map-in-map; filter_map has no eval_ast arm yet) to exercise the message.
+    let src = "pure contract C {\n  input phases : Collection[Float]\n  compute d : Collection[Float] = map(phases, p -> filter_map(phases, q -> some(q)))\n  output d : Collection[Float]\n}\n";
     let o = compile(src, "msg");
     assert!(
         has_nested_diag(&o) && o.contains("call_contract"),

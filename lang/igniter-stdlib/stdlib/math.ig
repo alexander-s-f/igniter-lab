@@ -34,3 +34,13 @@ def min(a: T, b: T) -> T
 def max(a: T, b: T) -> T
 def clamp(x: T, lo: T, hi: T) -> T
 def sign(x: T) -> Integer
+
+-- LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only roots/powers/modulo. Integer args + Integer
+-- result; NO Float/Decimal overload, NO implicit coercion. Deterministic by construction (pure integer
+-- arithmetic, bit-identical cross-arch — no det_* variant needed). Arity → OOF-MATH1, non-Integer →
+-- OOF-MATH2. Runtime domain errors (deterministic): isqrt(x<0), ipow(exp<0), ipow overflow, mod(_,0).
+-- `isqrt` = floor integer square root. `ipow` = exponentiation by squaring (checked, never wraps).
+-- `mod` = Euclidean remainder (non-negative result for a positive modulus).
+def isqrt(x: Integer) -> Integer
+def ipow(base: Integer, exp: Integer) -> Integer
+def mod(a: Integer, b: Integer) -> Integer

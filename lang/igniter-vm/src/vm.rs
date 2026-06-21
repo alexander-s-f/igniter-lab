@@ -2069,6 +2069,9 @@ impl VM {
                         | "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign"
                         | "stdlib.math.min" | "min" | "stdlib.math.max" | "max"
                         | "stdlib.math.clamp" | "clamp"
+                        // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer roots/powers/modulo, same source.
+                        | "stdlib.math.isqrt" | "isqrt" | "stdlib.math.ipow" | "ipow"
+                        | "stdlib.math.mod" | "mod"
                         // LAB-STDLIB-NUMERIC-TO-FLOAT-P8: explicit Integer→Float via the same single source.
                         | "stdlib.math.to_float" | "to_float"
                         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
@@ -5872,6 +5875,71 @@ fn eval_ast<'a>(
                             _ => Err(format!("Unsupported operator: {}", op)),
                         }
                     }
+                }
+            }
+            // LAB-VM-NESTED-FOLD-MAP-REDUCE-AGGREGATE-P4: a `fold` nested in a HOF lambda body is lowered to
+            // a `map_reduce_aggregate` SIR node, which the bytecode path runs but `eval_ast` did not — so
+            // `map(xs, x -> fold(...))` typechecked but crashed here ("Unsupported AST kind"). Mirror the
+            // bytecode fold semantics (vm.rs map_reduce_aggregate / terminal "fold"): eval `source`, seed
+            // `acc = eval(init)`, then per item bind param_acc/param_val into a cloned `local_env` (capture
+            // flows through, same as P3's map/filter arms) and `acc = eval(body)`. Scoped to a single
+            // `fold`/`reduce` stage — the nested case the emitter produces; `map`/`sum` pipeline stages are
+            // deferred (a clear error, not a silent wrong answer).
+            "map_reduce_aggregate" => {
+                let source = node
+                    .get("source")
+                    .ok_or("Missing source in map_reduce_aggregate")?;
+                let source_val =
+                    eval_ast(source, inputs, temporal_context, local_env, backend, vm).await?;
+                let array = match &source_val {
+                    Value::Array(a) => a.clone(),
+                    Value::Nil => Arc::new(Vec::new()),
+                    other => {
+                        return Err(format!(
+                            "map_reduce_aggregate source must be a collection, got {:?}",
+                            other
+                        ))
+                    }
+                };
+                let pipeline = node
+                    .get("pipeline")
+                    .and_then(|p| p.as_array())
+                    .ok_or("Missing pipeline in map_reduce_aggregate")?;
+                if pipeline.len() != 1 {
+                    return Err(format!(
+                        "nested map_reduce_aggregate supports a single pipeline stage in eval_ast, got {}",
+                        pipeline.len()
+                    ));
+                }
+                let stage = &pipeline[0];
+                let stage_kind = stage.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+                match stage_kind {
+                    "fold" | "reduce" => {
+                        let param_acc = stage
+                            .get("param_acc")
+                            .and_then(|s| s.as_str())
+                            .ok_or("Missing param_acc in fold")?;
+                        let param_val = stage
+                            .get("param_val")
+                            .and_then(|s| s.as_str())
+                            .ok_or("Missing param_val in fold")?;
+                        let init = stage.get("init").ok_or("Missing init in fold")?;
+                        let body = stage.get("body").ok_or("Missing body in fold")?;
+                        let mut acc =
+                            eval_ast(init, inputs, temporal_context, local_env, backend, vm).await?;
+                        for item in array.iter() {
+                            let mut inner_env = local_env.clone();
+                            inner_env.insert(param_acc.to_string(), acc.clone());
+                            inner_env.insert(param_val.to_string(), item.clone());
+                            acc = eval_ast(body, inputs, temporal_context, &inner_env, backend, vm)
+                                .await?;
+                        }
+                        Ok(acc)
+                    }
+                    other => Err(format!(
+                        "nested map_reduce_aggregate stage '{}' is not yet supported in eval_ast (fold/reduce only)",
+                        other
+                    )),
                 }
             }
             _ => Err(format!("Unsupported AST kind in VM evaluator: {}", kind)),
