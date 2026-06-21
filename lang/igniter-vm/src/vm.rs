@@ -127,7 +127,10 @@ fn cached_regex(pattern: &str) -> Result<regex::Regex, regex::Error> {
         return Ok(re.clone());
     }
     let re = regex::Regex::new(pattern)?;
-    cache.lock().unwrap().insert(pattern.to_string(), re.clone());
+    cache
+        .lock()
+        .unwrap()
+        .insert(pattern.to_string(), re.clone());
     Ok(re)
 }
 
@@ -2066,6 +2069,8 @@ impl VM {
                         | "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign"
                         | "stdlib.math.min" | "min" | "stdlib.math.max" | "max"
                         | "stdlib.math.clamp" | "clamp"
+                        // LAB-STDLIB-NUMERIC-TO-FLOAT-P8: explicit Integer→Float via the same single source.
+                        | "stdlib.math.to_float" | "to_float"
                         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
                         | "stdlib.random.rng_seed" | "rng_seed" | "stdlib.random.rng_next" | "rng_next"
                         | "stdlib.random.rng_value" | "rng_value"
@@ -3484,6 +3489,84 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
             ),
         }
     }
+    // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only, deterministic-by-construction (pure i64
+    // arithmetic, no f64). Domain errors are deterministic runtime errors; `ipow` is checked (never wraps).
+    fn num_isqrt(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "isqrt expects exactly 1 argument, got {}",
+                args.len()
+            ));
+        }
+        match &args[0] {
+            Value::Integer(x) => {
+                if *x < 0 {
+                    return Err("isqrt: domain error (negative input)".to_string());
+                }
+                // Floor integer square root via integer Newton — no f64, exact, deterministic.
+                let n = *x as u64;
+                let mut r = n;
+                if n >= 2 {
+                    let mut y = (r + 1) / 2;
+                    while y < r {
+                        r = y;
+                        y = (r + n / r) / 2;
+                    }
+                }
+                Ok(Value::Integer(r as i64))
+            }
+            _ => Err("isqrt expects an Integer argument".to_string()),
+        }
+    }
+    fn num_ipow(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 2 {
+            return Err(format!(
+                "ipow expects exactly 2 arguments, got {}",
+                args.len()
+            ));
+        }
+        match (&args[0], &args[1]) {
+            (Value::Integer(base), Value::Integer(exp)) => {
+                if *exp < 0 {
+                    return Err("ipow: domain error (negative exponent)".to_string());
+                }
+                let mut result: i64 = 1;
+                let mut b = *base;
+                let mut e = *exp;
+                while e > 0 {
+                    if e & 1 == 1 {
+                        result = result
+                            .checked_mul(b)
+                            .ok_or_else(|| "ipow: Integer overflow".to_string())?;
+                    }
+                    e >>= 1;
+                    if e > 0 {
+                        b = b
+                            .checked_mul(b)
+                            .ok_or_else(|| "ipow: Integer overflow".to_string())?;
+                    }
+                }
+                Ok(Value::Integer(result))
+            }
+            _ => Err("ipow expects two Integer arguments".to_string()),
+        }
+    }
+    fn num_mod(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 2 {
+            return Err(format!(
+                "mod expects exactly 2 arguments, got {}",
+                args.len()
+            ));
+        }
+        match (&args[0], &args[1]) {
+            (Value::Integer(a), Value::Integer(b)) => match a.checked_rem_euclid(*b) {
+                Some(r) => Ok(Value::Integer(r)),
+                None if *b == 0 => Err("mod: domain error (division by zero)".to_string()),
+                None => Err("mod: Integer overflow".to_string()),
+            },
+            _ => Err("mod expects two Integer arguments".to_string()),
+        }
+    }
     let result = match fn_name {
         // fast, platform f64 (P2)
         "stdlib.math.sin" | "sin" => unary("sin", args, |x| Ok(x.sin())),
@@ -3526,6 +3609,25 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
         "stdlib.math.min" | "min" => num_min_max(args, true),
         "stdlib.math.max" | "max" => num_min_max(args, false),
         "stdlib.math.clamp" | "clamp" => num_clamp(args),
+        // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only roots/powers/modulo.
+        "stdlib.math.isqrt" | "isqrt" => num_isqrt(args),
+        "stdlib.math.ipow" | "ipow" => num_ipow(args),
+        "stdlib.math.mod" | "mod" => num_mod(args),
+        // LAB-STDLIB-NUMERIC-TO-FLOAT-P8: explicit Integer→Float (Rust `as f64`; large i64 may round per
+        // IEEE-754 53-bit mantissa — acceptable for counts/normalization, documented). NO implicit coercion.
+        "stdlib.math.to_float" | "to_float" => {
+            if args.len() != 1 {
+                Err(format!(
+                    "to_float expects exactly 1 argument, got {}",
+                    args.len()
+                ))
+            } else {
+                match &args[0] {
+                    Value::Integer(i) => Ok(Value::Float(*i as f64)),
+                    _ => Err("to_float expects an Integer argument".to_string()),
+                }
+            }
+        }
         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: pure deterministic SplitMix64, scalar surface, explicit
         // state threading. The `Integer` state carries u64 bits (bit-reinterpreted; opaque to the user).
         // SplitMix64 splits cleanly into an additive state step (`rng_next`) and a stateless finalizer
@@ -4332,7 +4434,58 @@ fn eval_ast<'a>(
                         .await;
                 }
 
+                // LAB-VM-NESTED-HOF-EVAL-AST-RECOVERY-P3: normalize qualified collection names so a nested
+                // `stdlib.collection.map` (emitted qualified inside lambda bodies) routes to the bare arm.
+                let op = op.strip_prefix("stdlib.collection.").unwrap_or(op);
                 match op {
+                    // LAB-VM-NESTED-HOF-EVAL-AST-RECOVERY-P3: scalar `sum(Collection[T]) -> T` inside a
+                    // lambda. Qualified collection calls allowed by the typechecker reach the existing bare
+                    // arms below through the `stdlib.collection.*` normalization above.
+                    "sum" if evaluated_operands.len() == 1 => {
+                        let array = match &evaluated_operands[0] {
+                            Value::Array(a) => a.clone(),
+                            Value::Nil => Arc::new(Vec::new()),
+                            _ => return Err("sum first argument must be an array".to_string()),
+                        };
+                        let mut sum_integer = 0i64;
+                        let mut sum_float = 0.0f64;
+                        let mut sum_decimal = Decimal::new(0, 0);
+                        let mut has_float = false;
+                        let mut has_decimal = false;
+                        for item in array.iter() {
+                            match item {
+                                Value::Integer(i) => sum_integer += *i,
+                                Value::Float(f) => {
+                                    sum_float += *f;
+                                    has_float = true;
+                                }
+                                Value::Decimal { value: v, scale: s } => {
+                                    if !has_decimal {
+                                        sum_decimal = Decimal::new(0, *s);
+                                        has_decimal = true;
+                                    }
+                                    sum_decimal = sum_decimal.add(&Decimal::new(*v, *s))?;
+                                }
+                                Value::Nil => {}
+                                _ => {
+                                    return Err(format!(
+                                        "Unsupported type for scalar sum: {:?}",
+                                        item
+                                    ))
+                                }
+                            }
+                        }
+                        if has_decimal {
+                            Ok(Value::Decimal {
+                                value: sum_decimal.value,
+                                scale: sum_decimal.scale,
+                            })
+                        } else if has_float {
+                            Ok(Value::Float(sum_float + sum_integer as f64))
+                        } else {
+                            Ok(Value::Integer(sum_integer))
+                        }
+                    }
                     "count" => {
                         if evaluated_operands.len() != 1 {
                             return Err(format!(

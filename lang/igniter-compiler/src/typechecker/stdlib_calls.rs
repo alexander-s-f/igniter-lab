@@ -1,5 +1,86 @@
 use super::*;
 
+// LAB-COLLECTION-NESTED-OPS-DIAGNOSTIC-P2
+// Some collection ops inside a higher-order collection lambda remain non-executable in v0. These helpers
+// detect that shape so the typechecker can reject it early (OOF-COL-NESTED) and name the `call_contract`
+// workaround. Single-level HOFs (`map(xs, x -> sin(x))`) and top-level `sum(map(...))` are NOT caught —
+// only a still-unsupported collection op *inside* a HOF lambda body.
+
+/// Collection ops STILL unsupported inside a HOF lambda body. NARROWED by
+/// LAB-VM-NESTED-HOF-EVAL-AST-RECOVERY-P3: `map`/`filter`/`sum` now execute nested (eval_ast gained those
+/// arms + qualified-name normalization), so they are no longer rejected. `fold` is still rejected because
+/// the emitter lowers it to a `map_reduce_aggregate` SIR node that eval_ast cannot run nested;
+/// `filter_map`/`reduce` have no eval_ast arm. These keep the early guided diagnostic instead of a late VM
+/// failure.
+const NESTED_COLLECTION_OPS: &[&str] = &["fold", "filter_map", "reduce"];
+
+/// Collection HOFs that take a lambda — whose lambda body is scanned for a (still-unsupported) nested op.
+const LAMBDA_HOF_NAMES: &[&str] = &["map", "filter", "filter_map", "fold", "reduce"];
+
+fn nested_op_base(name: &str) -> &str {
+    name.rsplit('.').next().unwrap_or(name)
+}
+
+fn expr_has_nested_collection_op(e: &Expr) -> bool {
+    match e {
+        Expr::Call { fn_name, args } => {
+            NESTED_COLLECTION_OPS.contains(&nested_op_base(fn_name))
+                || args.iter().any(expr_has_nested_collection_op)
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_has_nested_collection_op(left) || expr_has_nested_collection_op(right)
+        }
+        Expr::UnaryOp { operand, .. } => expr_has_nested_collection_op(operand),
+        Expr::FieldAccess { object, .. } => expr_has_nested_collection_op(object),
+        Expr::IndexAccess { object, index } => {
+            expr_has_nested_collection_op(object) || expr_has_nested_collection_op(index)
+        }
+        Expr::Lambda { body, .. } => expr_or_block_has_nested_collection_op(body),
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
+            expr_has_nested_collection_op(cond)
+                || block_has_nested_collection_op(then)
+                || else_block
+                    .as_ref()
+                    .is_some_and(block_has_nested_collection_op)
+        }
+        Expr::MatchExpr { subject, arms } => {
+            expr_has_nested_collection_op(subject)
+                || arms.iter().any(|a| expr_has_nested_collection_op(&a.body))
+        }
+        Expr::Block(b) => block_has_nested_collection_op(b),
+        Expr::ArrayLiteral { items } => items.iter().any(expr_has_nested_collection_op),
+        Expr::RecordLiteral { fields } | Expr::SliceRecord { fields } => {
+            fields.values().any(expr_has_nested_collection_op)
+        }
+        Expr::RecordSpread { spread, fields } => {
+            expr_has_nested_collection_op(spread)
+                || fields.values().any(expr_has_nested_collection_op)
+        }
+        Expr::VariantConstruct { fields, .. } => fields.values().any(expr_has_nested_collection_op),
+        Expr::Try { expr } => expr_has_nested_collection_op(expr),
+        _ => false, // Literal, Ref, Symbol, Error
+    }
+}
+
+fn block_has_nested_collection_op(b: &crate::parser::BlockBody) -> bool {
+    // v0: only the block's return expression is scanned (lambda bodies in the workload are expressions;
+    // a nested collection op bound in a block `let` is an accepted v0 limitation).
+    b.return_expr
+        .as_ref()
+        .is_some_and(|e| expr_has_nested_collection_op(e))
+}
+
+fn expr_or_block_has_nested_collection_op(b: &ExprOrBlock) -> bool {
+    match b {
+        ExprOrBlock::Expr(e) => expr_has_nested_collection_op(e),
+        ExprOrBlock::Block(b) => block_has_nested_collection_op(b),
+    }
+}
+
 impl TypeChecker {
     pub(super) fn infer_stdlib_call(
         &self,
@@ -24,6 +105,33 @@ impl TypeChecker {
             .unwrap_or(false);
         let is_legacy_minmax_aggregate =
             matches!(fn_name, "min" | "max") && is_collection_first_arg;
+
+        // LAB-COLLECTION-NESTED-OPS-DIAGNOSTIC-P2: reject a collection op nested inside a HOF lambda body at
+        // typecheck time (it would otherwise typecheck and fail late at VM eval as "Unsupported operator").
+        {
+            let base = nested_op_base(fn_name);
+            if LAMBDA_HOF_NAMES.contains(&base) {
+                if let Some(lambda_body) = args.iter().find_map(|a| match a {
+                    Expr::Lambda { body, .. } => Some(body.as_ref()),
+                    _ => None,
+                }) {
+                    if expr_or_block_has_nested_collection_op(lambda_body) {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-COL-NESTED".to_string(),
+                            message: format!(
+                                "nested collection operation inside a `{base}` lambda is not executable (v0): a \
+                                 still-unsupported collection op (fold/filter_map/reduce) appears inside a \
+                                 higher-order lambda. Extract the inner operation into a named contract and call it via \
+                                 call_contract — e.g. `{base}(xs, x -> call_contract(\"Inner\", x, ...))`. See \
+                                 LAB-NESTED-COLLECTION-OPS-PRESSURE-KURAMOTO-P1."
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+        }
 
         match fn_name {
             "mul" => {
@@ -207,6 +315,67 @@ impl TypeChecker {
                         node: node_name.to_string(),
                         line: None,
                     });
+                }
+            }
+            // LAB-STDLIB-NUMERIC-TO-FLOAT-P8: the explicit Integer→Float boundary (NO implicit coercion;
+            // `+ - * / min/max/clamp` stay same-type). to_float : (Integer)->Float. OOF-MATH1 arity,
+            // OOF-MATH2 non-Integer. Unblocks `sum / to_float(count)`-style normalization.
+            "stdlib.math.to_float" | "to_float" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
+                if args.len() != 1 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH1".to_string(),
+                        message: format!("to_float: expected 1 argument, got {}", args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else if let Some(first) = typed_args.first() {
+                    let arg_name = self.type_name(&first.resolved_type);
+                    if arg_name != "Integer" && arg_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-MATH2".to_string(),
+                            message: format!(
+                                "to_float: argument must be Integer, got {}",
+                                arg_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+            // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only roots/powers/modulo. Integer args,
+            // Integer result. OOF-MATH1 arity, OOF-MATH2 non-Integer. Domain errors are runtime (VM), not here.
+            "stdlib.math.isqrt" | "isqrt" | "stdlib.math.ipow" | "ipow" | "stdlib.math.mod"
+            | "mod" => {
+                is_resolved = true;
+                let base = fn_name.rsplit('.').next().unwrap_or(fn_name);
+                let want = if base == "isqrt" { 1 } else { 2 };
+                resolved_type = self.type_ir(&serde_json::Value::String("Integer".to_string()));
+                if args.len() != want {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH1".to_string(),
+                        message: format!(
+                            "{}: expected {} argument(s), got {}",
+                            base,
+                            want,
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                for t in typed_args.iter() {
+                    let n = self.type_name(&t.resolved_type);
+                    if n != "Integer" && n != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-MATH2".to_string(),
+                            message: format!("{}: argument must be Integer, got {}", base, n),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
                 }
             }
             // LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 basics — polymorphic over {Integer, Float}, same-type-in/out
