@@ -138,6 +138,21 @@ fn run_lock(args: &[String]) {
     let frozen = args.iter().any(|a| a == "--frozen");
     let lock = match project::workspace_lock(Path::new(&root)) {
         Ok(l) => l,
+        // LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16: surface a graph-assembly diagnostic (e.g. OOF-IMP9
+        // missing dependency path) structurally instead of a generic "could not assemble".
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_lock_result",
+                    "ok": false,
+                    "written": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
         Err(_) => {
             eprintln!("lock: could not assemble workspace at {}", root);
             std::process::exit(1);
@@ -213,6 +228,20 @@ fn run_verify(args: &[String]) {
     };
     let drift = match project::verify_lock(Path::new(&root), &lock) {
         Ok(d) => d,
+        // LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16: surface a graph-assembly diagnostic (e.g. OOF-IMP9)
+        // structurally — the current workspace cannot be assembled to compute drift.
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_verify_result",
+                    "ok": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
         Err(_) => {
             eprintln!("verify: could not assemble workspace at {}", root);
             std::process::exit(1);

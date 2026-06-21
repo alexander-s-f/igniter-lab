@@ -429,6 +429,89 @@ fn lock_records_full_transitive_graph() {
     assert!(paths.iter().any(|p| p.contains("leaf")), "leaf (transitive) in lock: {paths:?}");
 }
 
+// ── LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16 ──────────────────────────────────────────────────
+
+/// A root-declared dependency whose path does not exist is `OOF-IMP9` at assembly time (not a delayed
+/// `OOF-IMP2`), naming the declaring package, the dependency edge, and the missing path.
+#[test]
+fn missing_root_dependency_is_oof_imp9() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_missing_root_dep/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP9", "{d:?}");
+            assert_eq!(d.module_path, None, "graph fault, not a module fault");
+            assert_eq!(d.node, "dependency:<root>->ghost", "stable edge node: {}", d.node);
+            assert!(
+                d.message.contains("ghost") && d.message.contains("does not exist"),
+                "names dep + missing path: {}",
+                d.message
+            );
+            assert_eq!(d.source_paths.len(), 2, "declaring root + missing path");
+        }
+        other => panic!("expected OOF-IMP9, got {other:?}"),
+    }
+}
+
+/// A TRANSITIVE package declaring a missing dependency path is `OOF-IMP9` naming that package's edge.
+#[test]
+fn missing_transitive_dependency_is_oof_imp9() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_missing_transitive_dep/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP9", "{d:?}");
+            assert_eq!(d.node, "dependency:mid->ghost", "declaring package is `mid`: {}", d.node);
+        }
+        other => panic!("expected OOF-IMP9, got {other:?}"),
+    }
+}
+
+/// `check_workspace_integrity` (the `verify --strict` path) also fails with `OOF-IMP9` — graph assembly
+/// itself returns the diagnostic, before integrity checks run.
+#[test]
+fn check_workspace_integrity_reports_missing_dep() {
+    let err = project::check_workspace_integrity(&app("workspace_missing_root_dep")).unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP9", "{d:?}"),
+        other => panic!("expected OOF-IMP9, got {other:?}"),
+    }
+}
+
+/// `workspace_lock` fails with `OOF-IMP9` even though no module imports the missing package — a lock over a
+/// broken graph is meaningless.
+#[test]
+fn workspace_lock_fails_on_missing_dep() {
+    let err = project::workspace_lock(&app("workspace_missing_root_dep")).unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP9", "{d:?}"),
+        other => panic!("expected OOF-IMP9, got {other:?}"),
+    }
+}
+
+/// A directory dependency WITHOUT an `igniter.toml` is ALLOWED — it loads as a package with defaults
+/// (`source_roots = ["."]`), not `OOF-IMP9`. "Missing" is gated on directory existence, not manifest
+/// presence. `workspace_dep_no_manifest/lib` has no manifest yet resolves through the declared edge.
+#[test]
+fn existing_dir_without_manifest_is_not_missing() {
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_dep_no_manifest/app")),
+        "App.Main",
+    )
+    .unwrap();
+    let names = module_files(&paths);
+    assert!(
+        names.contains(&"main.ig".to_string()) && names.contains(&"x.ig".to_string()),
+        "manifest-less dependency dir loads with defaults: {names:?}"
+    );
+}
+
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────
 
 fn app(fixture: &str) -> PathBuf {

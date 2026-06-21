@@ -283,6 +283,38 @@ fn cli_verify_strict_integrity_is_structured() {
     assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
 }
 
+// ── LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16 ──────────────────────────────────────────────────
+
+/// `igc lock` fails with a structured `OOF-IMP9` when a declared dependency path is missing (the graph
+/// cannot be assembled, so no lock is written).
+#[test]
+fn cli_lock_reports_missing_dep_structurally() {
+    let root = temp_fixture("workspace_missing_root_dep", "p16_lock_missing");
+    let (ok, v) = run("lock", &root);
+    assert!(!ok, "lock fails on a missing dependency: {v}");
+    assert_eq!(v["ok"], Value::Bool(false));
+    assert_eq!(v["written"], Value::Bool(false));
+    assert_eq!(v["error"]["rule"], serde_json::json!("OOF-IMP9"));
+    assert!(!root.join("igniter.lock").exists(), "no lockfile written on assembly failure");
+}
+
+/// `igc verify --strict` surfaces a structured `OOF-IMP9` (graph assembly fails before drift/integrity).
+#[test]
+fn cli_verify_strict_reports_missing_dep_structurally() {
+    let root = temp_fixture("workspace_missing_transitive_dep", "p16_verify_missing");
+    // No prior lock can be produced; verify reads no lockfile → still must fail clearly. Write a stub lock so
+    // verify reaches the assemble step, then assert the structured OOF-IMP9 error.
+    std::fs::write(
+        root.join("igniter.lock"),
+        "{\"version\":1,\"toolchain\":{\"compiler\":\"\",\"stdlib\":\"\"},\"dependencies\":[]}\n",
+    )
+    .unwrap();
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "verify fails on a missing transitive dependency: {v}");
+    assert_eq!(v["error"]["rule"], serde_json::json!("OOF-IMP9"));
+    assert_eq!(v["error"]["node"], serde_json::json!("dependency:mid->ghost"));
+}
+
 // ── LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-CI-P15 (regression-locking P14's CI guarantees) ─────────────
 
 /// A transitive leaf's MANIFEST change (its `igniter.toml`, folded into the digest) is lock drift.

@@ -818,6 +818,10 @@ fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
     let mut nodes: BTreeMap<PathBuf, PackageNode> = BTreeMap::new();
     let mut names: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
     let mut queue: Vec<PathBuf> = vec![root_canon.clone()];
+    // LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16: a declared local dependency edge whose resolved path is
+    // not a directory (nonexistent, or a file). A directory WITHOUT an `igniter.toml` is allowed — it loads
+    // as a package with defaults (existing `ProjectConfig::load` semantics) — so "missing" = "not a dir".
+    let mut missing: Vec<(PathBuf, String, PathBuf)> = Vec::new(); // (declaring, dep name, missing canon)
     while let Some(canon) = queue.pop() {
         if nodes.contains_key(&canon) {
             continue;
@@ -826,6 +830,10 @@ fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
         let mut deps = BTreeSet::new();
         for dep in &config.dependencies {
             let dep_canon = normalize_abs(&canon.join(&dep.path));
+            if !dep_canon.is_dir() {
+                missing.push((canon.clone(), dep.name.clone(), dep_canon));
+                continue; // do not fold a phantom node for a path that does not exist
+            }
             deps.insert(dep_canon.clone());
             names.entry(dep_canon.clone()).or_default().insert(dep.name.clone());
             queue.push(dep_canon);
@@ -851,6 +859,39 @@ fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
                 .unwrap_or_default()
         };
     }
+
+    // OOF-IMP9: a missing declared dependency path is an assembly fault — surfaced here (before module
+    // scanning / import resolution), so the user sees the broken edge, not a downstream OOF-IMP2. Report the
+    // deterministic-first (sorted) missing edge.
+    if !missing.is_empty() {
+        missing.sort();
+        let (declaring, dep_name, missing_canon) = &missing[0];
+        let declaring_label = if *declaring == root_canon {
+            "<root>".to_string()
+        } else {
+            names
+                .get(declaring)
+                .and_then(|s| s.iter().next().cloned())
+                .unwrap_or_else(|| declaring.to_string_lossy().to_string())
+        };
+        let rel_missing = relative_to(&root_canon, missing_canon);
+        let mut diag = ProjectDiagnostic::new(
+            "OOF-IMP9",
+            format!(
+                "missing dependency: package '{}' declares dependency '{}' at '{}', which does not exist",
+                declaring_label,
+                dep_name,
+                rel_missing.to_string_lossy()
+            ),
+            format!("dependency:{}->{}", declaring_label, dep_name),
+        );
+        diag.source_paths = vec![
+            declaring.to_string_lossy().to_string(),
+            missing_canon.to_string_lossy().to_string(),
+        ];
+        return Err(ProjectError::Diagnostic(diag));
+    }
+
     Ok(PackageGraph {
         root: root_canon,
         nodes,
