@@ -149,6 +149,47 @@ impl TypeChecker {
                     resolved_type = self.type_ir(&serde_json::Value::String("Integer".to_string()));
                 }
             }
+            // LAB-STDLIB-MATH-TRANSCENDENTALS-P2: Tier-1 Float transcendentals (fast f64 path).
+            // sin/cos/sqrt : (Float) -> Float ; no implicit Integer/Decimal coercion (P2 bias).
+            // OOF-MATH1 = arity; OOF-MATH2 = non-Float argument. Float returned on all paths.
+            "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos" | "stdlib.math.sqrt" | "sqrt" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
+                if args.len() != 1 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH1".to_string(),
+                        message: format!("{}: expected 1 argument, got {}", fn_name, args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else if !typed_args.is_empty() {
+                    let arg_name = self.type_name(&typed_args[0].resolved_type);
+                    if arg_name != "Float" && arg_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-MATH2".to_string(),
+                            message: format!(
+                                "{}: argument must be Float, got {}",
+                                fn_name, arg_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+            // pi() -> Float : zero-arg constant surface.
+            "stdlib.math.pi" | "pi" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
+                if !args.is_empty() {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH1".to_string(),
+                        message: format!("pi: expected 0 arguments, got {}", args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+            }
             "stdlib.option.wrap" => {
                 is_resolved = true;
                 let mut opt = serde_json::Map::new();

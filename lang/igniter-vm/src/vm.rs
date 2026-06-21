@@ -2054,6 +2054,42 @@ impl VM {
                             list.push(args[1].clone());
                             Value::Array(Arc::new(list))
                         }
+                        // LAB-STDLIB-MATH-TRANSCENDENTALS-P2: Tier-1 Float transcendentals (fast f64 path).
+                        // Float-only, no implicit Integer/Decimal coercion. Deterministic cross-arch
+                        // variants are a separate card. Accepts bare and `stdlib.math.*` qualified names.
+                        "stdlib.math.sin" | "sin" => {
+                            if args.len() != 1 {
+                                return Err(format!("sin expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) => Value::Float(x.sin()),
+                                _ => return Err("sin expects a Float argument".to_string()),
+                            }
+                        }
+                        "stdlib.math.cos" | "cos" => {
+                            if args.len() != 1 {
+                                return Err(format!("cos expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) => Value::Float(x.cos()),
+                                _ => return Err("cos expects a Float argument".to_string()),
+                            }
+                        }
+                        "stdlib.math.sqrt" | "sqrt" => {
+                            if args.len() != 1 {
+                                return Err(format!("sqrt expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) => Value::Float(x.sqrt()),
+                                _ => return Err("sqrt expects a Float argument".to_string()),
+                            }
+                        }
+                        "stdlib.math.pi" | "pi" => {
+                            if !args.is_empty() {
+                                return Err(format!("pi expects 0 arguments, got {}", args.len()));
+                            }
+                            Value::Float(std::f64::consts::PI)
+                        }
                         "filter" => {
                             if args.len() != 2 {
                                 return Err(format!(
