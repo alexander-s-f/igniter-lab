@@ -17,9 +17,17 @@ igniter_machine = { path = "../../runtime/igniter-machine" }
 igniter_render_html = { path = "../../frame-ui/igniter-render-html" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
+# Opt-in local-Postgres integration harness only (LAB-TODOAPP-API-LOCAL-POSTGRES-P8). Optional — the
+# default build never links it; pulled in only by the `postgres` feature for the gated e2e test's
+# test-owned DDL/seed/cleanup.
+tokio-postgres = { version = "0.7", optional = true, features = ["with-serde_json-1"] }
 
 [features]
 # Opt-in machine-backed effect execution for proof harnesses (LAB-IGNITER-WEB-EFFECT-HOST-WRITE-P4).
 # Passes through to igniter-server's `machine` feature (exposes `effect_host` + `serve_*_effect`). The
 # DEFAULT build is unchanged — `igweb-serve` and the app builder stay observed/machine-free.
 machine = ["igniter_server/machine"]
+# Opt-in LOCAL-Postgres e2e (LAB-TODOAPP-API-LOCAL-POSTGRES-P8). Forwards to igniter-machine's real
+# adapters and pulls in tokio-postgres for the test-owned DDL/seed/cleanup. Used ONLY by
+# `tests/todo_postgres_local_e2e_tests.rs`, which SKIPS cleanly when `IGNITER_TODO_PG_DSN` is unset.
+postgres = ["machine", "igniter_machine/postgres", "dep:tokio-postgres"]

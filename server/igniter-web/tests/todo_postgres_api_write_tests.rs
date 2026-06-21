@@ -34,7 +34,12 @@ fn rt() -> tokio::runtime::Runtime {
 
 /// Load the prelude + the PRODUCT app's `todo_handlers.ig` (its own authored contracts).
 fn load_app_contracts() -> IgniterMachine {
-    let dir = std::env::temp_dir().join(format!("igweb_api_write_p4_{}", std::process::id()));
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("igweb_api_write_p4_{}_{}", std::process::id(), stamp));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     std::fs::write(&pl, igniter_compiler::igweb::PRELUDE_SOURCE).unwrap();

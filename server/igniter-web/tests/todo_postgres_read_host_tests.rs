@@ -31,7 +31,12 @@ fn rt() -> tokio::runtime::Runtime {
 
 /// Load the prelude + the authored read fixture into a fresh machine (every contract registered).
 fn load_machine() -> IgniterMachine {
-    let dir = std::env::temp_dir().join(format!("igweb_read_p6_{}", std::process::id()));
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("igweb_read_p6_{}_{}", std::process::id(), stamp));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     let fx = dir.join("read_harness.ig");
