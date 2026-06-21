@@ -283,6 +283,22 @@ fn cli_verify_strict_integrity_is_structured() {
     assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
 }
 
+// ── LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19 ──────────────────────────────────────────────────────
+
+/// `verify --strict` surfaces the OOF-IMP7 `details` block (import-explain enrichment) under
+/// `integrity.diagnostic.details`.
+#[test]
+fn cli_verify_strict_integrity_carries_details() {
+    let root = temp_fixture("workspace_exports_private", "p19_details");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "strict fails on non-exported import: {v}");
+    let det = &v["integrity"]["diagnostic"]["details"];
+    assert_eq!(det["kind"], serde_json::json!("import_export"));
+    assert_eq!(det["provider"]["package"], serde_json::json!("lib"));
+    assert!(det["fix"].as_str().is_some_and(|f| f.contains("[exports]")), "fix present: {det}");
+}
+
 // ── LAB-IGNITER-PACKAGE-GRAPH-CLI-P18 (read-only `igc package graph`; runs on fixtures in place) ──────
 
 const FIX_DIR: &str = "tests/fixtures/project_mode";

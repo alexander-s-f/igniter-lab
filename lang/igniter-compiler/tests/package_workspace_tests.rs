@@ -512,6 +512,76 @@ fn existing_dir_without_manifest_is_not_missing() {
     );
 }
 
+// ── LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19 ──────────────────────────────────────────────────────
+
+fn diagnostic_for(fixture: &str) -> project::ProjectDiagnostic {
+    match project::resolve_entry(Path::new(&format!("{FIX}/{fixture}/app")), "App.Main").unwrap_err() {
+        ProjectError::Diagnostic(d) => d,
+        other => panic!("expected a diagnostic, got {other:?}"),
+    }
+}
+
+/// `OOF-IMP6` carries machine-actionable `details.kind = "import_scope"` with importer/provider {module,
+/// package,path}, `declared_edge: false`, and a `[dependencies]` fix.
+#[test]
+fn oof_imp6_has_import_scope_details() {
+    let d = diagnostic_for("workspace_phantom");
+    assert_eq!(d.rule, "OOF-IMP6");
+    let det = d.details.expect("OOF-IMP6 has details");
+    assert_eq!(det["kind"], serde_json::json!("import_scope"));
+    assert_eq!(det["declared_edge"], serde_json::json!(false));
+    assert_eq!(det["importer"]["module"], serde_json::json!("Lib1.A"));
+    assert_eq!(det["importer"]["package"], serde_json::json!("lib1"));
+    assert_eq!(det["provider"]["module"], serde_json::json!("Lib2.B"));
+    assert_eq!(det["provider"]["package"], serde_json::json!("lib2"));
+    assert!(det["importer"]["path"].as_str().is_some(), "importer path present");
+    assert!(
+        det["fix"].as_str().is_some_and(|f| f.contains("[dependencies]") && f.contains("lib2")),
+        "fix advises declaring the provider: {det}"
+    );
+}
+
+/// `OOF-IMP7` allowlist miss carries `details.kind = "import_export"`, `declared_edge: true`,
+/// `provider_exports.modules`, `exports_default: "open"`, and an `[exports]` fix.
+#[test]
+fn oof_imp7_allowlist_has_import_export_details() {
+    let d = diagnostic_for("workspace_exports_private");
+    assert_eq!(d.rule, "OOF-IMP7");
+    let det = d.details.expect("OOF-IMP7 has details");
+    assert_eq!(det["kind"], serde_json::json!("import_export"));
+    assert_eq!(det["declared_edge"], serde_json::json!(true));
+    assert_eq!(det["exports_default"], serde_json::json!("open"));
+    assert_eq!(det["provider_exports"]["mode"], serde_json::json!("allowlist"));
+    assert_eq!(det["provider_exports"]["modules"][0], serde_json::json!("Lib.Public"));
+    assert!(
+        det["fix"].as_str().is_some_and(|f| f.contains("[exports]")),
+        "fix advises [exports]: {det}"
+    );
+}
+
+/// `OOF-IMP7` closed-default seal distinguishes the policy: `exports_default: "closed"`, `provider_exports`
+/// mode `open` (no declared `[exports]`), and a seal-specific fix.
+#[test]
+fn oof_imp7_closed_seal_details_distinguish_policy() {
+    let d = diagnostic_for("workspace_closed_default");
+    assert_eq!(d.rule, "OOF-IMP7");
+    let det = d.details.expect("OOF-IMP7 seal has details");
+    assert_eq!(det["exports_default"], serde_json::json!("closed"));
+    assert_eq!(det["provider_exports"]["mode"], serde_json::json!("open"));
+    assert!(
+        det["fix"].as_str().is_some_and(|f| f.contains("closed")),
+        "seal fix mentions the closed policy: {det}"
+    );
+}
+
+/// Non-package diagnostics (here the `OOF-IMP8` cycle) carry NO `details` — byte-shape unchanged.
+#[test]
+fn non_package_diagnostic_has_no_details() {
+    let d = diagnostic_for("workspace_transitive_cycle");
+    assert_eq!(d.rule, "OOF-IMP8");
+    assert!(d.details.is_none(), "OOF-IMP8 must not carry details");
+}
+
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────
 
 fn app(fixture: &str) -> PathBuf {

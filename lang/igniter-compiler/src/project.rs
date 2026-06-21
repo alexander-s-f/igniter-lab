@@ -126,6 +126,10 @@ pub struct ProjectDiagnostic {
     pub source_paths: Vec<String>,
     pub original_path: Option<String>,
     pub overlay_path: Option<String>,
+    /// LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19: a generic structured-payload escape hatch (evidence, not
+    /// authority). `None` for all diagnostics by default — populated only by rules that have machine-actionable
+    /// detail (currently OOF-IMP6/OOF-IMP7 import explanations). Generic field, NOT package-specific (P11).
+    pub details: Option<Value>,
 }
 
 impl ProjectDiagnostic {
@@ -140,6 +144,7 @@ impl ProjectDiagnostic {
             source_paths: Vec::new(),
             original_path: None,
             overlay_path: None,
+            details: None,
         }
     }
 
@@ -163,6 +168,9 @@ impl ProjectDiagnostic {
         }
         if let Some(op) = &self.overlay_path {
             obj.insert("overlay_path".to_string(), json!(op));
+        }
+        if let Some(d) = &self.details {
+            obj.insert("details".to_string(), d.clone());
         }
         Value::Object(obj)
     }
@@ -419,6 +427,25 @@ fn index_integrity(index: &ModuleIndex) -> Option<ProjectDiagnostic> {
         );
         diag.module_path = Some(importer.clone());
         diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
+        // LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19: machine-actionable explanation (evidence only).
+        let importer_canon = importer_file.package.canonical(&graph.root);
+        let provider_canon = target_file.package.canonical(&graph.root);
+        let importer_label = graph.label(&importer_file.package);
+        let provider_label = graph.label(&target_file.package);
+        let rel = |c: &Path| relative_to(&graph.root, c).to_string_lossy().to_string();
+        let rel_from_importer = relative_to(importer_canon, provider_canon)
+            .to_string_lossy()
+            .to_string();
+        diag.details = Some(json!({
+            "kind": "import_scope",
+            "importer": { "module": importer, "package": importer_label, "path": rel(importer_canon) },
+            "provider": { "module": imported, "package": provider_label, "path": rel(provider_canon) },
+            "declared_edge": false,
+            "fix": format!(
+                "declare '{}' in the [dependencies] of package '{}' (e.g. {} = {{ path = \"{}\" }})",
+                provider_label, importer_label, provider_label, rel_from_importer
+            ),
+        }));
         return Some(diag);
     }
 
@@ -476,6 +503,37 @@ fn index_integrity(index: &ModuleIndex) -> Option<ProjectDiagnostic> {
         );
         diag.module_path = Some(importer.clone());
         diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
+        // LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19: machine-actionable explanation (evidence only). The
+        // closed-default seal (`sealed_by_policy`) is distinguished from an explicit allowlist miss.
+        let importer_canon = importer_file.package.canonical(&graph.root);
+        let provider_canon = target_file.package.canonical(&graph.root);
+        let importer_label = graph.label(&importer_file.package);
+        let rel = |c: &Path| relative_to(&graph.root, c).to_string_lossy().to_string();
+        let provider_exports = graph
+            .nodes
+            .get(provider_canon)
+            .map(|n| exports_mode_value(&n.exports))
+            .unwrap_or_else(|| json!({ "mode": "open" }));
+        let fix = if *sealed_by_policy {
+            format!(
+                "package '{}' declares no [exports] and the root policy is [package] exports = \"closed\"; add [exports] modules to '{}' (exporting '{}'), or set the root [package] exports = \"open\"",
+                dep_label, dep_label, imported
+            )
+        } else {
+            format!(
+                "add '{}' to [exports] modules in package '{}', or import a module that '{}' already exports",
+                imported, dep_label, dep_label
+            )
+        };
+        diag.details = Some(json!({
+            "kind": "import_export",
+            "importer": { "module": importer, "package": importer_label, "path": rel(importer_canon) },
+            "provider": { "module": imported, "package": dep_label, "path": rel(provider_canon) },
+            "declared_edge": true,
+            "provider_exports": provider_exports,
+            "exports_default": if closed { "closed" } else { "open" },
+            "fix": fix,
+        }));
         return Some(diag);
     }
 
