@@ -22,7 +22,7 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -170,7 +170,25 @@ struct ResolvedOverlay {
     overlay_path: PathBuf,
 }
 
-/// One scanned source file: its logical module path and its non-stdlib imports.
+/// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7
+/// Which workspace package a scanned file belongs to: the workspace root, or a named local dependency.
+/// Import scope is enforced per package — see `package_in_scope`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PackageId {
+    Root,
+    Dependency(String),
+}
+
+impl PackageId {
+    fn label(&self) -> String {
+        match self {
+            PackageId::Root => "<root>".to_string(),
+            PackageId::Dependency(name) => name.clone(),
+        }
+    }
+}
+
+/// One scanned source file: its logical module path, its non-stdlib imports, and its owning package.
 #[derive(Debug, Clone)]
 struct ScannedFile {
     source_path: PathBuf,
@@ -178,6 +196,8 @@ struct ScannedFile {
     /// Non-stdlib imported module paths (logical). stdlib imports are dropped
     /// here because they are not file dependencies.
     non_stdlib_imports: Vec<String>,
+    /// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: the package this file was scanned from.
+    package: PackageId,
 }
 
 /// Module index: logical module path -> source file.
@@ -224,6 +244,44 @@ pub fn resolve_entry_with_overlays(
         );
         diag.module_path = Some(module.clone());
         diag.source_paths = paths.clone();
+        return Err(ProjectError::Diagnostic(diag));
+    }
+
+    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: reject phantom imports. A file may import only modules whose
+    // owning PACKAGE is in scope — its own package, or a dependency the workspace root directly declared.
+    // A dependency reaching a sibling dependency (present in the index only because the root also depends
+    // on it) is an out-of-scope import: it would break when that dependency is reused in another workspace.
+    // Only RESOLVED imports are checked; a dangling import is left to compile_units (OOF-IMP2).
+    let root_deps: BTreeSet<String> = config.dependencies.iter().map(|d| d.name.clone()).collect();
+    let mut violations: Vec<(String, String)> = Vec::new();
+    for (module, file) in &index.by_module {
+        for imp in &file.non_stdlib_imports {
+            let Some(target) = index.by_module.get(imp) else {
+                continue;
+            };
+            if !package_in_scope(&file.package, &target.package, &root_deps) {
+                violations.push((module.clone(), imp.clone()));
+            }
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    if let Some((importer, imported)) = violations.first() {
+        let importer_file = &index.by_module[importer];
+        let target_file = &index.by_module[imported];
+        let mut diag = ProjectDiagnostic::new(
+            "OOF-IMP6",
+            format!(
+                "out-of-scope import: module '{}' (package {}) imports '{}' (package {}), which it does not declare as a dependency",
+                importer,
+                importer_file.package.label(),
+                imported,
+                target_file.package.label()
+            ),
+            format!("import:{}->{}", importer, imported),
+        );
+        diag.module_path = Some(importer.clone());
+        diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
         return Err(ProjectError::Diagnostic(diag));
     }
 
@@ -485,15 +543,22 @@ fn build_module_index(
     config: &ProjectConfig,
     overlays: &[ResolvedOverlay],
 ) -> Result<ModuleIndex, ProjectError> {
-    let mut files: Vec<PathBuf> = Vec::new();
-    for source_root in &config.source_roots {
-        // Avoid a spurious "./" segment when the source root is the project root.
-        let scan_root = if source_root == Path::new(".") {
-            root.to_path_buf()
-        } else {
-            root.join(source_root)
-        };
-        collect_ig_files(&scan_root, &mut files)?;
+    // LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7: tag every scanned file with its owning package so import
+    // scope can be enforced. Root source roots → PackageId::Root; each declared dependency's source roots
+    // → PackageId::Dependency(name).
+    let mut files: Vec<(PathBuf, PackageId)> = Vec::new();
+    {
+        let mut root_files: Vec<PathBuf> = Vec::new();
+        for source_root in &config.source_roots {
+            // Avoid a spurious "./" segment when the source root is the project root.
+            let scan_root = if source_root == Path::new(".") {
+                root.to_path_buf()
+            } else {
+                root.join(source_root)
+            };
+            collect_ig_files(&scan_root, &mut root_files)?;
+        }
+        files.extend(root_files.into_iter().map(|p| (p, PackageId::Root)));
     }
 
     // LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2: fold each declared LOCAL path dependency's source roots
@@ -503,33 +568,39 @@ fn build_module_index(
     for dep in &config.dependencies {
         let dep_root = root.join(&dep.path);
         let dep_config = ProjectConfig::load(&dep_root);
+        let mut dep_files: Vec<PathBuf> = Vec::new();
         for source_root in &dep_config.source_roots {
             let scan_root = if source_root == Path::new(".") {
                 dep_root.clone()
             } else {
                 dep_root.join(source_root)
             };
-            collect_ig_files(&scan_root, &mut files)?;
+            collect_ig_files(&scan_root, &mut dep_files)?;
         }
+        files.extend(
+            dep_files
+                .into_iter()
+                .map(|p| (p, PackageId::Dependency(dep.name.clone()))),
+        );
     }
 
-    // Inject overlay originals that are not present on disk (new unsaved files).
+    // Inject overlay originals that are not present on disk (new unsaved files). Overlays are root buffers.
     let scanned_norms: std::collections::HashSet<PathBuf> =
-        files.iter().map(|p| normalize_abs(p)).collect();
+        files.iter().map(|(p, _)| normalize_abs(p)).collect();
     for ov in overlays {
         if !scanned_norms.contains(&ov.norm_original) {
-            files.push(ov.norm_original.clone());
+            files.push((ov.norm_original.clone(), PackageId::Root));
         }
     }
 
-    // Deterministic scan order independent of filesystem enumeration.
-    files.sort();
-    files.dedup();
+    // Deterministic scan order independent of filesystem enumeration; dedup by path (first package wins).
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    files.dedup_by(|a, b| a.0 == b.0);
 
     let mut by_module: BTreeMap<String, ScannedFile> = BTreeMap::new();
     let mut dup_acc: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
-    for path in files {
+    for (path, package) in files {
         // If this file is overlaid, read the overlay buffer instead of disk.
         // The overlay path also becomes the effective source path handed to
         // compile_units, so source evidence honestly carries the temp path.
@@ -540,7 +611,8 @@ fn build_module_index(
             .map(|ov| ov.overlay_path.clone())
             .unwrap_or_else(|| path.clone());
 
-        let scanned = scan_file(&read_path)?;
+        let mut scanned = scan_file(&read_path)?;
+        scanned.package = package;
         // Files without a module declaration are not addressable by entry/import
         // resolution. compile_units will reject them (OOF-IMP5) if they are ever
         // passed in; here we simply cannot index them, so skip.
@@ -568,6 +640,21 @@ fn build_module_index(
         by_module,
         duplicates: dup_acc,
     })
+}
+
+/// LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7
+/// Whether `importer` may import a module owned by `target`. Same package is always allowed; the workspace
+/// root may import any directly-declared dependency; a dependency may import only its own modules (its own
+/// `[dependencies]` are not folded into this workspace, so nothing else is legitimately in its scope — and
+/// it must not depend on a sibling it never declared, nor on the root application).
+fn package_in_scope(importer: &PackageId, target: &PackageId, root_deps: &BTreeSet<String>) -> bool {
+    if importer == target {
+        return true;
+    }
+    match importer {
+        PackageId::Root => matches!(target, PackageId::Dependency(name) if root_deps.contains(name)),
+        PackageId::Dependency(_) => false,
+    }
 }
 
 fn collect_ig_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -613,6 +700,7 @@ fn scan_file(path: &Path) -> std::io::Result<ScannedFile> {
         source_path: path.to_path_buf(),
         module_path,
         non_stdlib_imports,
+        package: PackageId::Root, // caller overwrites with the scanning package
     })
 }
 

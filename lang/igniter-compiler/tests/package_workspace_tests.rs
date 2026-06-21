@@ -126,6 +126,48 @@ fn no_dependencies_parity() {
     assert!(names.contains(&"a.ig".to_string()) && names.contains(&"c.ig".to_string()), "{names:?}");
 }
 
+// ── LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7 ───────────────────────────────────────────────────────────
+
+/// Phantom import: `lib1` imports `Lib2.B`, but `lib1` never declared `lib2` (it is folded only because the
+/// root app also depends on it). Out-of-scope → `OOF-IMP6`.
+#[test]
+fn phantom_sibling_import_is_oof_imp6() {
+    let err = project::resolve_entry(Path::new(&format!("{FIX}/workspace_phantom/app")), "App.Main")
+        .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP6", "phantom import → OOF-IMP6: {d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("Lib1.A"), "importer module");
+            assert!(
+                d.message.contains("Lib2.B") && d.message.contains("lib1") && d.message.contains("lib2"),
+                "message names importer/imported + packages: {}",
+                d.message
+            );
+            assert_eq!(d.source_paths.len(), 1, "importer source path reported");
+        }
+        other => panic!("expected OOF-IMP6 diagnostic, got {other:?}"),
+    }
+}
+
+/// Intra-package: a dependency's `Lib.A` imports its own `Lib.B` (both package `lib`) — same package, in
+/// scope. Resolves clean (no OOF-IMP6); the closure contains all three files.
+#[test]
+fn intra_package_import_is_allowed() {
+    let paths = project::resolve_entry(Path::new(&format!("{FIX}/workspace_intra/app")), "App.Main")
+        .unwrap();
+    let names = module_files(&paths);
+    assert!(names.contains(&"main.ig".to_string()), "{names:?}");
+    assert!(names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()), "{names:?}");
+}
+
+/// A declared root→dependency import (`app` imports `Lib.Util`, lib is declared) is in scope — no OOF-IMP6.
+#[test]
+fn declared_cross_package_import_is_allowed() {
+    // Reuses the P2 `workspace` fixture; resolving it must NOT raise a scope diagnostic.
+    let res = project::resolve_entry(Path::new(&format!("{FIX}/workspace/app")), "App.Main");
+    assert!(res.is_ok(), "declared cross-package import must be in scope: {res:?}");
+}
+
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────
 
 fn app(fixture: &str) -> PathBuf {
