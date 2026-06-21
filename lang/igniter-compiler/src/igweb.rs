@@ -1144,14 +1144,39 @@ fn parse_route(rest: &str, line: usize, prefix: &str) -> Result<Route, IgwebErro
 }
 
 /// Distinct patterns in first-seen order.
-fn patterns_in_order(routes: &[Route]) -> Vec<String> {
-    let mut seen = Vec::new();
+/// Distinct patterns in first-seen (authored) order, each paired with its anchored regex and the
+/// source-order routes (method group) for that pattern. This is the leaf list the route tree is built
+/// over — one leaf per distinct path pattern, exactly as the old linear chain grouped them.
+fn route_entries(routes: &[Route]) -> Vec<(String, Vec<&Route>)> {
+    let mut order: Vec<&str> = Vec::new();
     for r in routes {
-        if !seen.iter().any(|p: &String| p == &r.pattern) {
-            seen.push(r.pattern.clone());
+        if !order.iter().any(|p| *p == r.pattern.as_str()) {
+            order.push(r.pattern.as_str());
         }
     }
-    seen
+    order
+        .iter()
+        .map(|pat| {
+            let group: Vec<&Route> = routes.iter().filter(|r| r.pattern == *pat).collect();
+            (group[0].regex.clone(), group)
+        })
+        .collect()
+}
+
+/// An anchored alternation matching iff ANY entry's pattern matches — `^(inner0|inner1|…)$`, where each
+/// inner is that entry's regex with its `^`/`$` anchors stripped. Used ONLY as a boolean prune at internal
+/// tree nodes (the union is exact, so "left-combined matched" ⟺ "some authored-earlier route matches");
+/// captures are never taken from it — leaves re-test their own single pattern.
+fn combined_regex(entries: &[(String, Vec<&Route>)]) -> String {
+    let inners: Vec<&str> = entries
+        .iter()
+        .map(|(re, _)| {
+            re.strip_prefix('^')
+                .and_then(|x| x.strip_suffix('$'))
+                .unwrap_or(re.as_str())
+        })
+        .collect();
+    format!("^({})$", inners.join("|"))
 }
 
 fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route], let_computes: &[String]) -> String {
@@ -1169,7 +1194,7 @@ fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route], let_compute
         out.push_str(&format!("  {}\n", c));
     }
     out.push_str("  compute decision : Decision =\n");
-    out.push_str(&route_chain(routes, &patterns_in_order(routes), 4));
+    out.push_str(&route_tree(&route_entries(routes), 4));
     out.push_str("\n  output decision : Decision\n");
     out.push_str("}\n");
     out
@@ -1179,28 +1204,46 @@ fn pad(n: usize) -> String {
     " ".repeat(n)
 }
 
-/// Chain of `if matches(path, "<re>") { <methods> } else { <next> }`, terminating in `Respond 404`.
-fn route_chain(routes: &[Route], patterns: &[String], indent: usize) -> String {
-    if patterns.is_empty() {
-        return format!(
-            "{}Respond {{ status: 404, body: \"not found\" }}",
-            pad(indent)
-        );
+/// Emit the route dispatch as a BALANCED BINARY TREE over the distinct-pattern leaves (in authored
+/// order), instead of a route-linear nested chain. Nesting depth is therefore `O(log N)` — bounded for
+/// thousands of routes — removing the ~116-route serde/typechecker depth wall (LAB-...-P2/P3), while
+/// behavior is identical:
+///   - LEAF (one pattern): `if matches(req.path, "<exact regex>") { <method-chain> } else { Respond 404 }`.
+///     The exact re-test is the source of truth (so correctness never depends on the prune regex), keeps
+///     captures + same-path 405 grouping unchanged, and is where a global no-match path returns 404.
+///   - INTERNAL: `if matches(req.path, "<left-combined>") { <left> } else { <right> }`, where `left` is the
+///     authored-EARLIER half. Since the combined union is exact, descending left whenever a left pattern
+///     matches reproduces "first authored match wins" — including P18 static-vs-param shadowing. No
+///     most-specific-wins reordering; only static `call_contract` leaves; no new `.ig` node.
+fn route_tree(entries: &[(String, Vec<&Route>)], indent: usize) -> String {
+    if entries.is_empty() {
+        return format!("{}Respond {{ status: 404, body: \"not found\" }}", pad(indent));
     }
-    let pat = &patterns[0];
-    // routes for this pattern keep source order.
-    let group: Vec<&Route> = routes.iter().filter(|r| &r.pattern == pat).collect();
-    let regex = &group[0].regex;
-    let mut s = String::new();
-    s.push_str(&format!(
+    if entries.len() == 1 {
+        let (regex, group) = &entries[0];
+        let mut s = format!("{}if matches(req.path, \"{}\") {{\n", pad(indent), regex);
+        s.push_str(&method_chain(group, indent + 2));
+        s.push('\n');
+        s.push_str(&format!(
+            "{}}} else {{\n{}Respond {{ status: 404, body: \"not found\" }}\n{}}}",
+            pad(indent),
+            pad(indent + 2),
+            pad(indent)
+        ));
+        return s;
+    }
+    // split into authored-earlier (left) and authored-later (right) halves; left is tried first.
+    let mid = entries.len() / 2;
+    let (left, right) = entries.split_at(mid);
+    let mut s = format!(
         "{}if matches(req.path, \"{}\") {{\n",
         pad(indent),
-        regex
-    ));
-    s.push_str(&method_chain(&group, indent + 2));
+        combined_regex(left)
+    );
+    s.push_str(&route_tree(left, indent + 2));
     s.push('\n');
     s.push_str(&format!("{}}} else {{\n", pad(indent)));
-    s.push_str(&route_chain(routes, &patterns[1..], indent + 2));
+    s.push_str(&route_tree(right, indent + 2));
     s.push('\n');
     s.push_str(&format!("{}}}", pad(indent)));
     s
@@ -1903,5 +1946,60 @@ mod tests {
     #[test]
     fn accum_is_deterministic() {
         assert_eq!(lower_igweb(ACCUM).unwrap(), lower_igweb(ACCUM).unwrap());
+    }
+
+    // ---- LAB-IGNITER-WEB-PREFIX-GROUPED-LOWERING-P4: the route-depth wall is removed ----
+
+    fn synth_routes(n: usize) -> String {
+        let mut s = String::from("app X entry Serve {\n  handlers H\n");
+        for i in 0..n {
+            s.push_str(&format!("  route GET \"/r{i}/:id\" -> Handler{i}\n"));
+        }
+        s.push_str("}\n");
+        s
+    }
+
+    /// The balanced route tree nests `O(log N)` deep, not `O(N)`. The old linear chain made the generated
+    /// `.ig` ~N levels deep, which overflowed serde's recursion limit at machine LOAD (~116 routes, P2).
+    /// Here 1000 routes lower to a shallow tree — measured by max leading-space indent (2 spaces/level).
+    #[test]
+    fn route_tree_depth_is_bounded_for_1000_routes() {
+        let ig = lower_igweb(&synth_routes(1000)).expect("1000 routes must lower");
+        let max_indent = ig
+            .lines()
+            .map(|l| l.len() - l.trim_start().len())
+            .max()
+            .unwrap_or(0);
+        // O(log2(1000)) ≈ 10 levels ⇒ ~20–40 spaces; a linear chain would be ~2000. Bound well under the
+        // ~128 serde recursion limit that caused the old wall.
+        assert!(
+            max_indent < 120,
+            "route-tree nesting must be O(log N); got max indent {max_indent} spaces (≈{} levels)",
+            max_indent / 2
+        );
+        // leaves still call the right static handlers (first, middle, last).
+        assert!(ig.contains("call_contract(\"Handler0\", req, capture(req.path, \"^/r0/([^/]+)$\", 1))"));
+        assert!(ig.contains("call_contract(\"Handler999\", req, capture(req.path, \"^/r999/([^/]+)$\", 1))"));
+        // exactly one 405-bearing method chain per pattern is preserved.
+        assert!(ig.contains("status: 405"));
+    }
+
+    /// Behavior-equivalence: authored-order shadowing (P18) survives the tree restructure. A static
+    /// `/r/overdue` authored BEFORE the param `/r/:id` still wins for path `/r/overdue`; reversed order
+    /// flips it — exactly as the old linear chain (the tree's left = authored-earlier is the tiebreaker).
+    #[test]
+    fn route_tree_preserves_authored_order_shadowing() {
+        let static_first = "app X entry Serve {\n  handlers H\n  route GET \"/r/overdue\" -> Overdue\n  route GET \"/r/:id\" -> Show\n}\n";
+        let ig = lower_igweb(static_first).unwrap();
+        // the static-leaf prune (`^/r/overdue$`) is tested before the param leaf in output order.
+        let i_overdue = ig.find("^/r/overdue$").expect("overdue leaf");
+        let i_show = ig.find("^/r/([^/]+)$").expect("show leaf");
+        assert!(i_overdue < i_show, "static authored first must appear/branch first");
+
+        let param_first = "app X entry Serve {\n  handlers H\n  route GET \"/r/:id\" -> Show\n  route GET \"/r/overdue\" -> Overdue\n}\n";
+        let ig2 = lower_igweb(param_first).unwrap();
+        let j_show = ig2.find("^/r/([^/]+)$").expect("show leaf");
+        let j_overdue = ig2.find("^/r/overdue$").expect("overdue leaf");
+        assert!(j_show < j_overdue, "param authored first must appear/branch first");
     }
 }
