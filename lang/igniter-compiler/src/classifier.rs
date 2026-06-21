@@ -1761,6 +1761,7 @@ impl Classifier {
             Expr::ArrayLiteral { .. } => "array_literal".to_string(),
             Expr::RecordLiteral { .. } => "record_literal".to_string(),
             Expr::RecordSpread { .. } => "record_spread".to_string(),
+            Expr::Try { .. } => "try".to_string(),
             Expr::Symbol { .. } => "symbol".to_string(),
             Expr::Error { .. } => "error".to_string(),
             Expr::VariantConstruct { .. } => "variant_construct".to_string(),

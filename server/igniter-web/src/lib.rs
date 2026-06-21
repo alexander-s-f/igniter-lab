@@ -177,9 +177,14 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
                 fields.get("view").cloned().unwrap_or(Value::Null),
             ),
         },
+        // LAB-IGNITER-WEB-STRUCTURED-EFFECT-INPUT-P7: `input` is a typed `.ig` record (prelude field
+        // `input : Unknown`, the open structured-payload position). The VM serialized it to a clean JSON
+        // object; pass it through verbatim as `serde_json::Value` — no string wrap, no double-parse — the
+        // SAME record-pass-through the `RespondView` arm uses for `view`. Plain records carry no
+        // `__arm`/`__variant` discriminants, so the host receives the structured write intent directly.
         "InvokeEffect" => ServerDecision::InvokeEffect {
             target: get_str("target"),
-            input: json!({ "input": get_str("input") }),
+            input: fields.get("input").cloned().unwrap_or(Value::Null),
             correlation_id,
             idempotency_key: {
                 let k = get_str("idempotency_key");

@@ -65,7 +65,7 @@ type ViewArtifact {
 
 variant Decision {
   Respond      { status : Integer, body : String }
-  InvokeEffect { target : String, input : String, idempotency_key : String }
+  InvokeEffect { target : String, input : Unknown, idempotency_key : String }
   RespondView  { status : Integer, view : View }
   Render       { status : Integer, artifact_json : String }
   RenderView   { status : Integer, view : ViewArtifact }

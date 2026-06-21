@@ -217,17 +217,17 @@ pure contract AccountTodoShow {
 }
 
 -- The mutating handlers build a structured WriteIntent via the command contract (the product source of
--- write meaning), then emit a logical observed/executed InvokeEffect. The effect's `idempotency_key` and
--- string `input` are derived FROM the intent (intent.key / intent.operation) — so the command contract is
--- on the path. `target` stays the logical route-level effect name (host binds it to a machine route); the
--- app names NO capability id, scope, DSN, or SQL. (InvokeEffect.input is a String today, so the intent's
--- structured `values` are not yet carried — a future structured-effect-input seam.)
+-- write meaning), then emit a logical observed/executed InvokeEffect. The effect carries the WHOLE
+-- structured `intent` as `input` (operation/target/key/values/correlation_id) — so the typed `values`
+-- cross the seam as a JSON object (P7), and `idempotency_key` stays its own field (intent.key). `target`
+-- stays the logical route-level effect name (host binds it to a machine route); the app names NO
+-- capability id, scope, DSN, or SQL.
 pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx
   compute intent : WriteIntent =
     call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.idempotency_key)
-  compute d : Decision = InvokeEffect { target: "todo-create", input: intent.operation, idempotency_key: intent.key }
+  compute d : Decision = InvokeEffect { target: "todo-create", input: intent, idempotency_key: intent.key }
   output d : Decision
 }
 
@@ -236,6 +236,6 @@ pure contract AccountTodoDone {
   input ctx : TodoCtx
   compute intent : WriteIntent =
     call_contract("BuildMarkTodoDoneIntent", or_else(ctx.todo_id, "none"), req.idempotency_key)
-  compute d : Decision = InvokeEffect { target: "todo-done", input: intent.operation, idempotency_key: intent.key }
+  compute d : Decision = InvokeEffect { target: "todo-done", input: intent, idempotency_key: intent.key }
   output d : Decision
 }

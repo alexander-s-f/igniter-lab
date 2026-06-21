@@ -4945,6 +4945,34 @@ impl TypeChecker {
                     annotated_expr: None,
                 }
             }
+            // LAB-LANG-FALLIBLE-BINDING-P2: a `Try` only reaches the typechecker if `?` was used outside a
+            // `let` RHS inside an output-producing block (valid uses are desugared away in the parser).
+            Expr::Try { expr: inner } => {
+                let _ = self.infer_expr(
+                    inner,
+                    symbol_types,
+                    olap_env,
+                    type_shapes,
+                    type_errors,
+                    type_warnings,
+                    node_name,
+                    functions,
+                    contract_registry,
+                    current_contract_name,
+                );
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-Q3".to_string(),
+                    message: "? is only allowed as a `let` binding right-hand side inside an output-producing block"
+                        .to_string(),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+                TypedExpression {
+                    resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                    deps: Vec::new(),
+                    annotated_expr: None,
+                }
+            }
             _ => {
                 type_errors.push(ClassifierDiagnostic {
                     rule: "OOF-TY0".to_string(),
@@ -4980,6 +5008,7 @@ impl TypeChecker {
             Expr::MatchExpr { .. } => "match_expr".to_string(),
             Expr::Block(_) => "block".to_string(),
             Expr::RecordSpread { .. } => "record_spread".to_string(),
+            Expr::Try { .. } => "try".to_string(),
             Expr::Error { .. } => "error".to_string(),
         }
     }
@@ -5593,7 +5622,14 @@ impl TypeChecker {
             if let Some(expected) = arm_field_shapes.get(fname) {
                 let actual_name = self.type_name(field_type);
                 let expected_name = self.type_name(expected);
-                if actual_name != expected_name && actual_name != "Unknown" {
+                // LAB-IGNITER-WEB-STRUCTURED-EFFECT-INPUT-P7: a variant field declared `Unknown` is an OPEN
+                // structured-payload position (e.g. `Decision::InvokeEffect.input`) — it accepts any
+                // record/value, validated downstream at the host, never here. Mirrors the D3 rule in
+                // `structurally_assignable` ("expected Unknown accepts any").
+                if actual_name != expected_name
+                    && actual_name != "Unknown"
+                    && expected_name != "Unknown"
+                {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-KIND2".to_string(),
                         message: format!(
@@ -5692,14 +5728,45 @@ impl TypeChecker {
         );
         let subject_type_name = self.type_name(&subject_typed.resolved_type);
 
+        // LAB-LANG-FALLIBLE-BINDING-P2: a match with exactly `Ok`/`Err` arms over a non-Result subject can
+        // only come from the `?` desugar (a hand-written match over Option would use Some/None). Brand the
+        // error as a `?` misuse (OOF-Q1) so the user sees "use `?` on Result", not a raw match diagnostic.
+        let try_shape = arms.len() == 2
+            && arms.iter().any(|a| a.pattern.arm == "Ok")
+            && arms
+                .iter()
+                .all(|a| a.pattern.arm == "Ok" || a.pattern.arm == "Err");
+
         // OOF-KIND4: non-variant subject (suppress if Unknown — prior error already explains it)
         if subject_type_name != "Unknown" && !self.variant_type_exists(&subject_type_name) {
             type_errors.push(ClassifierDiagnostic {
-                rule: "OOF-KIND4".to_string(),
-                message: format!(
-                    "match subject has type '{}' which is not a variant type",
-                    subject_type_name
-                ),
+                rule: if try_shape { "OOF-Q1" } else { "OOF-KIND4" }.to_string(),
+                message: if try_shape {
+                    format!(
+                        "? applies only to Result[T, E], got '{}'",
+                        subject_type_name
+                    )
+                } else {
+                    format!(
+                        "match subject has type '{}' which is not a variant type",
+                        subject_type_name
+                    )
+                },
+                node: node_name.to_string(),
+                line: None,
+            });
+            return TypedExpression {
+                resolved_type: self.type_ir(&serde_json::Value::String("Unknown".to_string())),
+                deps: subject_typed.deps,
+                annotated_expr: None,
+            };
+        }
+
+        // LAB-LANG-FALLIBLE-BINDING-P2: `?` on an Option (Result-only in v0).
+        if try_shape && subject_type_name == "Option" {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-Q1".to_string(),
+                message: "? is not supported on Option in v0 (Result only)".to_string(),
                 node: node_name.to_string(),
                 line: None,
             });

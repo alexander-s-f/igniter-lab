@@ -379,3 +379,28 @@ fn app_decision_carries_no_capability_identity() {
         other => panic!("expected InvokeEffect, got {other:?}"),
     }
 }
+
+// ── 6 (P7): the app's decision carries STRUCTURED `input` — a clean JSON object, not a string wrapper ─
+
+#[test]
+fn structured_input_crosses_as_clean_object() {
+    let app = build_app();
+    let req = app_request("POST", "/accounts/7/todos", Some("evt-1"));
+    match app.call(req) {
+        ServerDecision::InvokeEffect { input, idempotency_key, .. } => {
+            // P7: `input` is the WHOLE structured WriteIntent — a JSON object, NOT `{"input": "<string>"}`.
+            assert!(input.is_object(), "input crosses as a structured object: {input}");
+            assert!(input.get("input").is_none(), "no legacy string wrapper");
+            assert_eq!(input["operation"], json!("insert"));
+            assert_eq!(input["target"], json!("todos"));
+            // nested record preserved + tag-free (plain records carry no variant discriminants).
+            assert!(input["values"].is_object(), "nested `values` preserved");
+            assert_eq!(input["values"]["done"], json!("false"));
+            let s = input.to_string();
+            assert!(!s.contains("__arm") && !s.contains("__variant"), "tag-free: {s}");
+            // idempotency stays its OWN field, never folded into `input`.
+            assert_eq!(idempotency_key.as_deref(), Some("evt-1"));
+        }
+        other => panic!("expected InvokeEffect, got {other:?}"),
+    }
+}

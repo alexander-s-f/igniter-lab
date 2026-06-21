@@ -590,6 +590,13 @@ pub enum Expr {
     /// block-local. Lowers like an if-branch `BlockBody` — no new SIR node kind, no ordered effects.
     #[serde(rename = "block")]
     Block(BlockBody),
+    /// LAB-LANG-FALLIBLE-BINDING-P2: postfix `expr?` — fallible-propagation marker over `Result[T, E]`.
+    /// Valid only as a `let` RHS inside an output-producing block; `parse()` desugars such blocks into
+    /// nested `match` (Ok binds the value and continues, Err short-circuits to the contract output) before
+    /// classification. Any `Try` that survives desugar (a `?` in a non-binding position) is rejected by the
+    /// typechecker (OOF-Q3). Pure sugar — no new SIR node kind, no effect semantics.
+    #[serde(rename = "try")]
+    Try { expr: Box<Expr> },
     #[serde(rename = "error")]
     Error { token: String },
 }
@@ -818,6 +825,10 @@ impl Parser {
                 }
             }
         }
+
+        // LAB-LANG-FALLIBLE-BINDING-P2: desugar postfix `?` in compute blocks into nested `match`.
+        // Pure AST→AST; only `?`-bearing compute exprs are rewritten (others are byte-identical).
+        desugar_try_in_contracts(&mut contracts);
 
         let grammar_version =
             self.determine_grammar_version(&contracts, &pipelines, &olap_points, &assumptions);
@@ -3393,6 +3404,13 @@ impl Parser {
                 } else {
                     break;
                 }
+            } else if self.peek_type(TokenType::Question) {
+                // LAB-LANG-FALLIBLE-BINDING-P2: postfix `expr?` (expression position only; the
+                // type-position `?` for optional fields is parsed separately in field decls).
+                self.advance();
+                expr = Expr::Try {
+                    expr: Box::new(expr),
+                };
             } else {
                 break;
             }
@@ -3684,7 +3702,73 @@ impl Parser {
         let brk_line = self.current().map(|t| t.line).unwrap_or(0);
         let brk_col = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBracket)?;
-        let mut items = Vec::new();
+
+        // Empty array literal.
+        if self.peek_type(TokenType::RBracket) {
+            self.advance();
+            return Ok(Expr::ArrayLiteral { items: Vec::new() });
+        }
+
+        // Parse the first element expression. This decides between an ordinary array literal and a
+        // LAB-LANG-COLLECTION-COMPREHENSION-P2 comprehension `[ E for x in C (if P)? ]`.
+        let first = self.parse_expr()?;
+
+        // `for` is a contextual identifier here (it is not a reserved keyword token — the FiniteLoop
+        // body-decl matches it by value), so detect it by value. `in`/`if` are keyword tokens.
+        let is_comprehension = self.current().map_or(false, |t| t.value == "for");
+        if is_comprehension {
+            self.advance(); // consume `for`
+            let item = self.name_token()?;
+            self.expect_value("in")?;
+            let source = self.parse_expr()?;
+            let predicate = if self.current().map_or(false, |t| t.value == "if") {
+                self.advance(); // consume `if`
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+            self.expect_type(TokenType::RBracket)?;
+            // LAB-SRCMAP-P1: anchor the comprehension to its `[` for diagnostics/time-travel.
+            if !self.current_contract.is_empty() && !self.current_decl.is_empty() {
+                let id = format!(
+                    "comprehension:{}.{}@L{}",
+                    self.current_contract, self.current_decl, brk_line
+                );
+                self.record_span(id, "comprehension", brk_line, brk_col);
+            }
+            // Pure parse-time desugar to the proven map/filter substrate — no new node kind.
+            //   [ E for x in C ]      → map(C, x -> E)
+            //   [ E for x in C if P ] → map(filter(C, x -> P), x -> E)
+            let mapped_source = match predicate {
+                Some(p) => Expr::Call {
+                    fn_name: "filter".to_string(),
+                    args: vec![
+                        source,
+                        Expr::Lambda {
+                            params: vec![item.clone()],
+                            body: Box::new(ExprOrBlock::Expr(p)),
+                        },
+                    ],
+                },
+                None => source,
+            };
+            return Ok(Expr::Call {
+                fn_name: "map".to_string(),
+                args: vec![
+                    mapped_source,
+                    Expr::Lambda {
+                        params: vec![item],
+                        body: Box::new(ExprOrBlock::Expr(first)),
+                    },
+                ],
+            });
+        }
+
+        // Ordinary array literal: first element + the rest (comma optional, as before).
+        let mut items = vec![first];
+        if self.peek_type(TokenType::Comma) {
+            self.advance();
+        }
         while !self.peek_type(TokenType::RBracket) && !self.peek_type(TokenType::Eof) {
             items.push(self.parse_expr()?);
             if self.peek_type(TokenType::Comma) {
@@ -3704,6 +3788,17 @@ impl Parser {
     }
 
     fn parse_record_or_block(&mut self) -> Result<Expr, String> {
+        // LAB-LANG-FALLIBLE-BINDING-P2: a `{` whose first token is `let` is a block expression, not a
+        // record literal (`{ let … }` was never valid record syntax). This lets a compute body use the
+        // block form `compute d = { let x = …  value }` — the home of `?` bindings. Match-arm blocks
+        // (MATCH-ARM-BINDINGS-P2) already parse via parse_block_body; this extends it to expression
+        // position. A `{` starting with anything else stays a record literal / spread.
+        if self
+            .peek(1)
+            .map_or(false, |t| t.token_type == TokenType::Keyword && t.value == "let")
+        {
+            return Ok(Expr::Block(self.parse_block_body()?));
+        }
         let brace_line = self.current().map(|t| t.line).unwrap_or(0);
         let brace_col = self.current().map(|t| t.col).unwrap_or(0);
         self.expect_type(TokenType::LBrace)?;
@@ -3923,4 +4018,161 @@ pub enum TopDecl {
     SizeRelation(SizeRelationDecl),
     /// PROP-044 P3: module-level `variant Name { Arms }`
     Variant(VariantDecl),
+}
+
+// ── LAB-LANG-FALLIBLE-BINDING-P2: postfix `?` desugar ─────────────────────────────────────────────
+//
+// `?` is pure sugar over `Result[T, E]`. A `let name = expr?` inside an output-producing block desugars
+// to a `match expr { Ok { value } => { let name = value  <rest…> }  Err { error } => error }`, so the
+// `Err` payload becomes the contract output (the existing match arm-type unification then enforces
+// `E == O`). Multiple `?` nest left-to-right. This is a pure AST→AST rewrite reusing MATCH-ARM-BINDINGS-P2
+// (`Expr::Block` + `Expr::MatchExpr`); no new SIR node kind. Only `?`-bearing compute exprs are touched —
+// every other tree is returned unchanged, so non-`?` programs are byte-identical.
+
+fn desugar_try_in_contracts(contracts: &mut [ContractDecl]) {
+    for c in contracts.iter_mut() {
+        for d in c.body.iter_mut() {
+            if let BodyDecl::Compute { expr, .. } = d {
+                if expr_contains_try(expr) {
+                    let rewritten = desugar_try_expr(expr.clone());
+                    *expr = rewritten;
+                }
+            }
+        }
+    }
+}
+
+fn expr_contains_try(e: &Expr) -> bool {
+    match e {
+        Expr::Try { .. } => true,
+        Expr::Block(b) => block_contains_try(b),
+        Expr::IfExpr { cond, then, else_block } => {
+            expr_contains_try(cond)
+                || block_contains_try(then)
+                || else_block.as_ref().map_or(false, block_contains_try)
+        }
+        Expr::MatchExpr { subject, arms } => {
+            expr_contains_try(subject) || arms.iter().any(|a| expr_contains_try(&a.body))
+        }
+        _ => false,
+    }
+}
+
+fn block_contains_try(b: &BlockBody) -> bool {
+    b.stmts.iter().any(|s| match s {
+        Stmt::Let { expr, .. } | Stmt::ExprStmt { expr } => expr_contains_try(expr),
+    }) || b.return_expr.as_ref().map_or(false, |r| expr_contains_try(r))
+}
+
+/// Desugar `?` within an expression, returning an equivalent `?`-free expression.
+fn desugar_try_expr(e: Expr) -> Expr {
+    if !expr_contains_try(&e) {
+        return e;
+    }
+    match e {
+        Expr::Block(b) => desugar_try_block(&b.stmts, b.return_expr),
+        Expr::IfExpr { cond, then, else_block } => Expr::IfExpr {
+            cond: Box::new(desugar_try_expr(*cond)),
+            then: desugar_try_branch(then),
+            else_block: else_block.map(desugar_try_branch),
+        },
+        Expr::MatchExpr { subject, arms } => Expr::MatchExpr {
+            subject: Box::new(desugar_try_expr(*subject)),
+            arms: arms
+                .into_iter()
+                .map(|a| MatchArm {
+                    pattern: a.pattern,
+                    body: Box::new(desugar_try_expr(*a.body)),
+                })
+                .collect(),
+        },
+        // A `Try` here is in a non-binding position (e.g. `compute d = e?`); leave it so the typechecker
+        // rejects it with OOF-Q3. All other variants without a Try are returned by the guard above.
+        other => other,
+    }
+}
+
+/// Desugar an if/else branch body, keeping it a `BlockBody` (its value is the desugared expression).
+fn desugar_try_branch(b: BlockBody) -> BlockBody {
+    let value = desugar_try_block(&b.stmts, b.return_expr);
+    BlockBody {
+        stmts: Vec::new(),
+        return_expr: Some(Box::new(value)),
+    }
+}
+
+/// Core CPS rewrite: turn a block's statements + return expr into a single value expression, expanding
+/// the first `let name = expr?` into a `match` whose Ok arm binds `name` and continues with the rest.
+fn desugar_try_block(stmts: &[Stmt], ret: Option<Box<Expr>>) -> Expr {
+    let mut prefix: Vec<Stmt> = Vec::new();
+    for (i, s) in stmts.iter().enumerate() {
+        if let Stmt::Let { name, expr } = s {
+            if let Expr::Try { expr: inner } = expr {
+                let ok_continuation = desugar_try_block(&stmts[i + 1..], ret);
+                let ok_body = Expr::Block(BlockBody {
+                    stmts: vec![Stmt::Let {
+                        name: name.clone(),
+                        expr: Expr::Ref {
+                            name: "value".to_string(),
+                        },
+                    }],
+                    return_expr: Some(Box::new(ok_continuation)),
+                });
+                let match_expr = Expr::MatchExpr {
+                    subject: Box::new(desugar_try_expr((**inner).clone())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: MatchPattern {
+                                wildcard: false,
+                                arm: "Ok".to_string(),
+                                bindings: vec!["value".to_string()],
+                            },
+                            body: Box::new(ok_body),
+                        },
+                        MatchArm {
+                            pattern: MatchPattern {
+                                wildcard: false,
+                                arm: "Err".to_string(),
+                                bindings: vec!["error".to_string()],
+                            },
+                            body: Box::new(Expr::Ref {
+                                name: "error".to_string(),
+                            }),
+                        },
+                    ],
+                };
+                if prefix.is_empty() {
+                    return match_expr;
+                }
+                return Expr::Block(BlockBody {
+                    stmts: prefix,
+                    return_expr: Some(Box::new(match_expr)),
+                });
+            }
+        }
+        prefix.push(desugar_try_stmt(s.clone()));
+    }
+    // No `?`-let found. Avoid wrapping a bare value in an empty block — when there are no statements the
+    // block's value IS its return expression (keeps the desugar's SIR identical to a hand-written match).
+    if prefix.is_empty() {
+        if let Some(r) = ret {
+            return desugar_try_expr(*r);
+        }
+    }
+    Expr::Block(BlockBody {
+        stmts: prefix,
+        return_expr: ret.map(|r| Box::new(desugar_try_expr(*r))),
+    })
+}
+
+fn desugar_try_stmt(s: Stmt) -> Stmt {
+    match s {
+        Stmt::Let { name, expr } => Stmt::Let {
+            name,
+            expr: desugar_try_expr(expr),
+        },
+        Stmt::ExprStmt { expr } => Stmt::ExprStmt {
+            expr: desugar_try_expr(expr),
+        },
+    }
 }

@@ -444,7 +444,8 @@ impl FormResolver {
             | Expr::Error { .. }
             | Expr::VariantConstruct { .. }
             | Expr::MatchExpr { .. }
-            | Expr::Block(_) => {}
+            | Expr::Block(_)
+            | Expr::Try { .. } => {}
         }
     }
 
