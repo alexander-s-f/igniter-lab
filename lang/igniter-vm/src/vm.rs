@@ -2090,6 +2090,52 @@ impl VM {
                             }
                             Value::Float(std::f64::consts::PI)
                         }
+                        // LAB-STDLIB-MATH-DET-TIER1-P5: DETERMINISTIC Float transcendentals (replay-safe).
+                        // Surface = flat `det_sin/det_cos/det_sqrt` (dotted `det.sin` is a parse error OOF-P0).
+                        // det_sin/det_cos: vendored pure-Rust `libm` (MUSL port) — one fixed algorithm;
+                        // exact golden bits are locked locally, while cross-arch confirmation is qemu-CI follow-up.
+                        // det_sqrt: std `f64::sqrt` (IEEE-754 correctly-rounded = already deterministic).
+                        // NEVER emits NaN/Inf (non-finite → JSON null in the observation stream): a non-finite
+                        // input, or a negative sqrt, is a deterministic ERROR, not a silent NaN.
+                        "stdlib.math.det_sin" | "det_sin" => {
+                            if args.len() != 1 {
+                                return Err(format!("det_sin expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) if x.is_finite() => Value::Float(libm::sin(*x)),
+                                Value::Float(_) => {
+                                    return Err("det_sin: non-finite input is not permitted".to_string())
+                                }
+                                _ => return Err("det_sin expects a Float argument".to_string()),
+                            }
+                        }
+                        "stdlib.math.det_cos" | "det_cos" => {
+                            if args.len() != 1 {
+                                return Err(format!("det_cos expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) if x.is_finite() => Value::Float(libm::cos(*x)),
+                                Value::Float(_) => {
+                                    return Err("det_cos: non-finite input is not permitted".to_string())
+                                }
+                                _ => return Err("det_cos expects a Float argument".to_string()),
+                            }
+                        }
+                        "stdlib.math.det_sqrt" | "det_sqrt" => {
+                            if args.len() != 1 {
+                                return Err(format!("det_sqrt expects exactly 1 argument, got {}", args.len()));
+                            }
+                            match &args[0] {
+                                Value::Float(x) if x.is_finite() && *x >= 0.0 => Value::Float(x.sqrt()),
+                                Value::Float(x) if !x.is_finite() => {
+                                    return Err("det_sqrt: non-finite input is not permitted".to_string())
+                                }
+                                Value::Float(_) => {
+                                    return Err("det_sqrt: domain error (negative input)".to_string())
+                                }
+                                _ => return Err("det_sqrt expects a Float argument".to_string()),
+                            }
+                        }
                         "filter" => {
                             if args.len() != 2 {
                                 return Err(format!(

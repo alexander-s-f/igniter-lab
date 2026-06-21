@@ -70,6 +70,31 @@ fn non_float_argument_is_oof_math2() {
     assert!(has_rule(&errors, "OOF-MATH2"), "sqrt(Integer) → OOF-MATH2: {errors:?}");
 }
 
+/// LAB-STDLIB-MATH-DET-TIER1-P5: the deterministic `det_*` surface typechecks identically to the fast
+/// surface — `(Float)->Float`, compiles clean, wrong arity/type rejected (OOF-MATH1/OOF-MATH2). Flat spelling
+/// (`det_sin`); the dotted `det.sin` is a parse error (OOF-P0), so flat is the live-grammar surface.
+#[test]
+fn deterministic_surface_compiles_and_typechecks() {
+    let (status, errors) = compile(
+        "det_valid",
+        "module M.Det\n\npure contract C {\n  input x : Float\n  compute a : Float = det_sin(x)\n  compute b : Float = det_cos(x)\n  compute c : Float = det_sqrt(x)\n  output a : Float\n}\n",
+    );
+    assert_eq!(status, "ok", "det_* must compile; errors: {errors:?}");
+    assert!(errors.is_empty(), "no error diagnostics: {errors:?}");
+
+    let (_s, e_arity) = compile(
+        "det_arity",
+        "module M.DA\n\npure contract C {\n  input x : Float\n  compute s : Float = det_sin(x, x)\n  output s : Float\n}\n",
+    );
+    assert!(has_rule(&e_arity, "OOF-MATH1"), "det_sin/2 → OOF-MATH1: {e_arity:?}");
+
+    let (_s, e_type) = compile(
+        "det_type",
+        "module M.DT\n\npure contract C {\n  input n : Integer\n  compute r : Float = det_sqrt(n)\n  output r : Float\n}\n",
+    );
+    assert!(has_rule(&e_type, "OOF-MATH2"), "det_sqrt(Integer) → OOF-MATH2: {e_type:?}");
+}
+
 /// LAB-STDLIB-MATH-KURAMOTO-PROOF-P4: the N=2 Kuramoto order-parameter slice
 /// `r = (1/2)·sqrt((cos ti + cos tj)² + (sin ti + sin tj)²)` compiles clean on the P2 Tier-1 surface —
 /// native `cos`/`sin`/`sqrt`, all-Float, no collections, NO hand-rolled Taylor. Numeric behavior

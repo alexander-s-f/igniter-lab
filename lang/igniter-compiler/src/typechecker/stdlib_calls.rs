@@ -150,9 +150,13 @@ impl TypeChecker {
                 }
             }
             // LAB-STDLIB-MATH-TRANSCENDENTALS-P2: Tier-1 Float transcendentals (fast f64 path).
+            // LAB-STDLIB-MATH-DET-TIER1-P5: `det_*` = the DETERMINISTIC surface — identical signature
+            // ((Float)->Float, OOF-MATH1/2), distinguished at runtime (VM) by the reproducible algorithm.
             // sin/cos/sqrt : (Float) -> Float ; no implicit Integer/Decimal coercion (P2 bias).
             // OOF-MATH1 = arity; OOF-MATH2 = non-Float argument. Float returned on all paths.
-            "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos" | "stdlib.math.sqrt" | "sqrt" => {
+            "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos" | "stdlib.math.sqrt" | "sqrt"
+            | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
+            | "stdlib.math.det_sqrt" | "det_sqrt" => {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
                 if args.len() != 1 {

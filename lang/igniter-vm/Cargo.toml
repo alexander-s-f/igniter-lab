@@ -27,3 +27,4 @@ unicode-segmentation = "1.11"
 # LAB-STDLIB-REGEXP-P3: linear-time text pattern engine for stdlib.regexp.{matches,capture}.
 # Rust `regex` (no backtracking, Unicode default, no lookaround/backrefs) — the narrow, real engine.
 regex = "1"
+libm = "0.2.16"
