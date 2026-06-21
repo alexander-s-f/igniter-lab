@@ -18,6 +18,12 @@ impl TypeChecker {
     ) -> Option<serde_json::Value> {
         let mut is_resolved = false;
         let mut resolved_type = self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+        let is_collection_first_arg = typed_args
+            .first()
+            .map(|t| self.type_name(&t.resolved_type) == "Collection")
+            .unwrap_or(false);
+        let is_legacy_minmax_aggregate =
+            matches!(fn_name, "min" | "max") && is_collection_first_arg;
 
         match fn_name {
             "mul" => {
@@ -154,9 +160,18 @@ impl TypeChecker {
             // ((Float)->Float, OOF-MATH1/2), distinguished at runtime (VM) by the reproducible algorithm.
             // sin/cos/sqrt : (Float) -> Float ; no implicit Integer/Decimal coercion (P2 bias).
             // OOF-MATH1 = arity; OOF-MATH2 = non-Float argument. Float returned on all paths.
-            "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos" | "stdlib.math.sqrt" | "sqrt"
-            | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
-            | "stdlib.math.det_sqrt" | "det_sqrt" => {
+            "stdlib.math.sin"
+            | "sin"
+            | "stdlib.math.cos"
+            | "cos"
+            | "stdlib.math.sqrt"
+            | "sqrt"
+            | "stdlib.math.det_sin"
+            | "det_sin"
+            | "stdlib.math.det_cos"
+            | "det_cos"
+            | "stdlib.math.det_sqrt"
+            | "det_sqrt" => {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
                 if args.len() != 1 {
@@ -192,6 +207,116 @@ impl TypeChecker {
                         node: node_name.to_string(),
                         line: None,
                     });
+                }
+            }
+            // LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 basics — polymorphic over {Integer, Float}, same-type-in/out
+            // (no implicit coercion; Decimal deferred). `abs/min/max/clamp` return the input type T;
+            // `sign` -> Integer. OOF-MATH1 arity, OOF-MATH2 non-numeric (incl. deferred Decimal), OOF-MATH3 mixed.
+            "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign" | "stdlib.math.min"
+            | "stdlib.math.max" | "stdlib.math.clamp" | "clamp" | "min" | "max"
+                if !is_legacy_minmax_aggregate =>
+            {
+                is_resolved = true;
+                let base = fn_name.rsplit('.').next().unwrap_or(fn_name);
+                let want = match base {
+                    "abs" | "sign" => 1,
+                    "min" | "max" => 2,
+                    _ => 3, // clamp
+                };
+                // Return type: `sign` is always Integer; the others mirror the first argument's type.
+                resolved_type = if base == "sign" {
+                    self.type_ir(&serde_json::Value::String("Integer".to_string()))
+                } else if let Some(first) = typed_args.first() {
+                    first.resolved_type.clone()
+                } else {
+                    self.type_ir(&serde_json::Value::String("Float".to_string()))
+                };
+                if args.len() != want {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH1".to_string(),
+                        message: format!(
+                            "{}: expected {} argument(s), got {}",
+                            base,
+                            want,
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+                let names: Vec<String> = typed_args
+                    .iter()
+                    .map(|t| self.type_name(&t.resolved_type))
+                    .collect();
+                let is_num = |n: &str| n == "Integer" || n == "Float" || n == "Unknown";
+                if let Some(bad) = names.iter().find(|n| !is_num(n)) {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-MATH2".to_string(),
+                        message: format!(
+                            "{}: argument must be Integer or Float (Decimal support deferred), got {}",
+                            base, bad
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    // Same-type required among the known (non-Unknown) arguments — no implicit coercion.
+                    let known: Vec<&String> =
+                        names.iter().filter(|n| n.as_str() != "Unknown").collect();
+                    if known.windows(2).any(|w| w[0] != w[1]) {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-MATH3".to_string(),
+                            message: format!(
+                                "{}: mixed numeric types {:?} (no implicit coercion)",
+                                base, known
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
+            // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: pure deterministic PRNG (native SplitMix64), explicit
+            // state threading, scalar surface (no record returns, no language bitops). `Rng` state is a plain
+            // Integer (opaque). rng_seed/rng_next/rng_value : (Integer)->Integer ; rng_uniform01 :
+            // (Integer)->Float. OOF-RAND1 = arity, OOF-RAND2 = non-Integer argument. No ambient/crypto/entropy.
+            "stdlib.random.rng_seed"
+            | "rng_seed"
+            | "stdlib.random.rng_next"
+            | "rng_next"
+            | "stdlib.random.rng_value"
+            | "rng_value"
+            | "stdlib.random.rng_uniform01"
+            | "rng_uniform01" => {
+                is_resolved = true;
+                let base = fn_name.rsplit('.').next().unwrap_or(fn_name);
+                // rng_uniform01 maps to a Float in [0,1); the rest keep the Integer state/sample domain.
+                let ret = if base == "rng_uniform01" {
+                    "Float"
+                } else {
+                    "Integer"
+                };
+                resolved_type = self.type_ir(&serde_json::Value::String(ret.to_string()));
+                if args.len() != 1 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-RAND1".to_string(),
+                        message: format!("{}: expected 1 argument, got {}", base, args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else if let Some(first) = typed_args.first() {
+                    let arg_name = self.type_name(&first.resolved_type);
+                    if arg_name != "Integer" && arg_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-RAND2".to_string(),
+                            message: format!(
+                                "{}: argument must be Integer, got {}",
+                                base, arg_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
                 }
             }
             "stdlib.option.wrap" => {
@@ -1859,7 +1984,7 @@ impl TypeChecker {
                     }
                 }
             }
-            "avg" | "min" | "max" => {
+            "avg" | "min" | "max" if fn_name == "avg" || is_legacy_minmax_aggregate => {
                 is_resolved = true;
                 let mut resolved = self.type_ir(&serde_json::Value::String("Decimal".to_string()));
                 if args.len() >= 2 {

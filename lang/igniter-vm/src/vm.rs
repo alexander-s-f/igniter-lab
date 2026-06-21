@@ -1727,7 +1727,7 @@ impl VM {
                                 }
                             }
                         }
-                        "min" | "max" => {
+                        "min" | "max" if matches!(args.first(), Some(Value::Array(_))) => {
                             if args.len() != 2 {
                                 return Err(format!(
                                     "min/max expects exactly 2 arguments, got {}",
@@ -2062,7 +2062,14 @@ impl VM {
                         "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos"
                         | "stdlib.math.sqrt" | "sqrt" | "stdlib.math.pi" | "pi"
                         | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
-                        | "stdlib.math.det_sqrt" | "det_sqrt" => match eval_math_call(fn_name, &args) {
+                        | "stdlib.math.det_sqrt" | "det_sqrt"
+                        | "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign"
+                        | "stdlib.math.min" | "min" | "stdlib.math.max" | "max"
+                        | "stdlib.math.clamp" | "clamp"
+                        // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
+                        | "stdlib.random.rng_seed" | "rng_seed" | "stdlib.random.rng_next" | "rng_next"
+                        | "stdlib.random.rng_value" | "rng_value"
+                        | "stdlib.random.rng_uniform01" | "rng_uniform01" => match eval_math_call(fn_name, &args) {
                             Some(r) => r?,
                             None => unreachable!("OP_CALL math arm names mirror eval_math_call"),
                         },
@@ -3360,11 +3367,121 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
         f: impl Fn(f64) -> Result<f64, String>,
     ) -> Result<Value, String> {
         if args.len() != 1 {
-            return Err(format!("{} expects exactly 1 argument, got {}", name, args.len()));
+            return Err(format!(
+                "{} expects exactly 1 argument, got {}",
+                name,
+                args.len()
+            ));
         }
         match &args[0] {
             Value::Float(x) => f(*x).map(Value::Float),
             _ => Err(format!("{} expects a Float argument", name)),
+        }
+    }
+    // LAB-STDLIB-MATH-NUMERIC-BASICS-P7: total, deterministic-by-construction N0 basics over {Integer, Float}
+    // (Decimal deferred). Same-type, no implicit coercion. Non-finite Float input → error (lineage hygiene,
+    // matching the det_* discipline); Integer is always total. `sign` returns Integer (-1/0/1).
+    fn finite(name: &str, x: f64) -> Result<f64, String> {
+        if x.is_finite() {
+            Ok(x)
+        } else {
+            Err(format!("{}: non-finite Float input is not permitted", name))
+        }
+    }
+    fn num_abs(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "abs expects exactly 1 argument, got {}",
+                args.len()
+            ));
+        }
+        match &args[0] {
+            Value::Integer(i) => i
+                .checked_abs()
+                .map(Value::Integer)
+                .ok_or_else(|| "abs: Integer overflow (i64::MIN)".to_string()),
+            Value::Float(x) => finite("abs", *x).map(|x| Value::Float(x.abs())),
+            _ => Err("abs expects an Integer or Float argument".to_string()),
+        }
+    }
+    fn num_sign(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!(
+                "sign expects exactly 1 argument, got {}",
+                args.len()
+            ));
+        }
+        let s = match &args[0] {
+            Value::Integer(i) => i.signum(),
+            Value::Float(x) => {
+                let x = finite("sign", *x)?;
+                if x > 0.0 {
+                    1
+                } else if x < 0.0 {
+                    -1
+                } else {
+                    0
+                }
+            }
+            _ => return Err("sign expects an Integer or Float argument".to_string()),
+        };
+        Ok(Value::Integer(s))
+    }
+    fn num_min_max(args: &[Value], is_min: bool) -> Result<Value, String> {
+        let name = if is_min { "min" } else { "max" };
+        if args.len() != 2 {
+            return Err(format!(
+                "{} expects exactly 2 arguments, got {}",
+                name,
+                args.len()
+            ));
+        }
+        match (&args[0], &args[1]) {
+            (Value::Integer(a), Value::Integer(b)) => {
+                let pick = if is_min { a <= b } else { a >= b };
+                Ok(Value::Integer(if pick { *a } else { *b }))
+            }
+            (Value::Float(a), Value::Float(b)) => {
+                let a = finite(name, *a)?;
+                let b = finite(name, *b)?;
+                let pick = if is_min { a <= b } else { a >= b };
+                Ok(Value::Float(if pick { a } else { b }))
+            }
+            (Value::Integer(_), Value::Float(_)) | (Value::Float(_), Value::Integer(_)) => Err(
+                format!("{}: mixed numeric types (no implicit coercion)", name),
+            ),
+            _ => Err(format!(
+                "{} expects two Integer or two Float arguments",
+                name
+            )),
+        }
+    }
+    fn num_clamp(args: &[Value]) -> Result<Value, String> {
+        if args.len() != 3 {
+            return Err(format!(
+                "clamp expects exactly 3 arguments, got {}",
+                args.len()
+            ));
+        }
+        match (&args[0], &args[1], &args[2]) {
+            (Value::Integer(x), Value::Integer(lo), Value::Integer(hi)) => {
+                if lo > hi {
+                    return Err("clamp: invalid bounds (lo > hi)".to_string());
+                }
+                Ok(Value::Integer((*x).max(*lo).min(*hi)))
+            }
+            (Value::Float(x), Value::Float(lo), Value::Float(hi)) => {
+                let x = finite("clamp", *x)?;
+                let lo = finite("clamp", *lo)?;
+                let hi = finite("clamp", *hi)?;
+                if lo > hi {
+                    return Err("clamp: invalid bounds (lo > hi)".to_string());
+                }
+                Ok(Value::Float(x.max(lo).min(hi)))
+            }
+            _ => Err(
+                "clamp expects three Integer or three Float arguments (no mixed types)".to_string(),
+            ),
         }
     }
     let result = match fn_name {
@@ -3403,9 +3520,68 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                 Ok(x.sqrt())
             }
         }),
+        // LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 basics (Integer/Float, same-type, total).
+        "stdlib.math.abs" | "abs" => num_abs(args),
+        "stdlib.math.sign" | "sign" => num_sign(args),
+        "stdlib.math.min" | "min" => num_min_max(args, true),
+        "stdlib.math.max" | "max" => num_min_max(args, false),
+        "stdlib.math.clamp" | "clamp" => num_clamp(args),
+        // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: pure deterministic SplitMix64, scalar surface, explicit
+        // state threading. The `Integer` state carries u64 bits (bit-reinterpreted; opaque to the user).
+        // SplitMix64 splits cleanly into an additive state step (`rng_next`) and a stateless finalizer
+        // (`rng_value`), so no record return / no language bitops are needed. No crypto/entropy claim.
+        "stdlib.random.rng_seed" | "rng_seed" => rng_unary_int("rng_seed", args, |s| s),
+        "stdlib.random.rng_next" | "rng_next" => rng_unary_int("rng_next", args, |s| {
+            (s as u64).wrapping_add(0x9E37_79B9_7F4A_7C15) as i64
+        }),
+        "stdlib.random.rng_value" | "rng_value" => {
+            rng_unary_int("rng_value", args, |s| splitmix64_mix(s as u64) as i64)
+        }
+        "stdlib.random.rng_uniform01" | "rng_uniform01" => rng_uniform01(args),
         _ => return None,
     };
     Some(result)
+}
+
+/// SplitMix64 stateless finalizer (the output mix applied to a state word). Wrapping arithmetic is explicit;
+/// no platform UB. Same constants on every target ⇒ identical bits cross-arch (integer-only).
+fn splitmix64_mix(state: u64) -> u64 {
+    let mut z = state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+fn rng_unary_int(name: &str, args: &[Value], f: impl Fn(i64) -> i64) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "{} expects exactly 1 argument, got {}",
+            name,
+            args.len()
+        ));
+    }
+    match &args[0] {
+        Value::Integer(i) => Ok(Value::Integer(f(*i))),
+        _ => Err(format!("{} expects an Integer argument", name)),
+    }
+}
+
+/// `rng_uniform01(state)` → Float in `[0,1)`: top 53 bits of the SplitMix64 finalizer, scaled by 2^-53.
+/// Always finite (never NaN/Inf), so it never trips the non-finite→null lineage hazard.
+fn rng_uniform01(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "rng_uniform01 expects exactly 1 argument, got {}",
+            args.len()
+        ));
+    }
+    match &args[0] {
+        Value::Integer(i) => {
+            let bits = splitmix64_mix(*i as u64) >> 11; // top 53 bits
+            Ok(Value::Float(bits as f64 * (1.0 / ((1u64 << 53) as f64))))
+        }
+        _ => Err("rng_uniform01 expects an Integer argument".to_string()),
+    }
 }
 
 fn eval_ast<'a>(
@@ -4694,7 +4870,9 @@ fn eval_ast<'a>(
                             }
                         }
                     }
-                    "min" | "max" => {
+                    "min" | "max"
+                        if matches!(evaluated_operands.first(), Some(Value::Array(_))) =>
+                    {
                         if evaluated_operands.len() != 2 {
                             return Err(format!(
                                 "min/max expects exactly 2 arguments, got {}",

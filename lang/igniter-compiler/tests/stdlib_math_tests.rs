@@ -108,3 +108,33 @@ fn kuramoto_order_parameter_slice_compiles_clean() {
     assert!(errors.is_empty(), "no error diagnostics: {errors:?}");
     assert!(!src.contains("5040"), "fixture must NOT contain a hand-rolled Taylor series");
 }
+
+/// LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 basics typecheck — polymorphic Integer/Float, same-type-in/out,
+/// `sign`→Integer; OOF-MATH1 arity, OOF-MATH2 non-numeric, OOF-MATH3 mixed numeric types.
+#[test]
+fn numeric_basics_typecheck() {
+    let (status, errors) = compile(
+        "n0_valid",
+        "module M.N0\n\npure contract C {\n  input x : Float\n  input n : Integer\n  compute a : Float = abs(x)\n  compute mn : Integer = min(n, n)\n  compute mx : Float = max(x, x)\n  compute c : Float = clamp(x, x, x)\n  compute s : Integer = sign(x)\n  output c : Float\n}\n",
+    );
+    assert_eq!(status, "ok", "N0 basics must compile; errors: {errors:?}");
+    assert!(errors.is_empty(), "no error diagnostics: {errors:?}");
+
+    let (_s, e_arity) = compile(
+        "n0_arity",
+        "module M.NA\n\npure contract C {\n  input x : Float\n  compute m : Float = min(x)\n  output m : Float\n}\n",
+    );
+    assert!(has_rule(&e_arity, "OOF-MATH1"), "min/1 → OOF-MATH1: {e_arity:?}");
+
+    let (_s, e_num) = compile(
+        "n0_nonnum",
+        "module M.NN\n\npure contract C {\n  input s : String\n  compute a : String = abs(s)\n  output a : String\n}\n",
+    );
+    assert!(has_rule(&e_num, "OOF-MATH2"), "abs(String) → OOF-MATH2: {e_num:?}");
+
+    let (_s, e_mixed) = compile(
+        "n0_mixed",
+        "module M.NM\n\npure contract C {\n  input x : Float\n  input n : Integer\n  compute m : Float = min(x, n)\n  output m : Float\n}\n",
+    );
+    assert!(has_rule(&e_mixed, "OOF-MATH3"), "min(Float, Integer) → OOF-MATH3: {e_mixed:?}");
+}

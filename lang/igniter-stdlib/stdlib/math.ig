@@ -24,3 +24,13 @@ def pi() -> Float
 def det_sin(x: Float) -> Float
 def det_cos(x: Float) -> Float
 def det_sqrt(x: Float) -> Float
+
+-- LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 scalar basics. Polymorphic over {Integer, Float} (Decimal deferred),
+-- same-type-in/out, NO implicit coercion (mixed numeric types = OOF-MATH3). Deterministic by construction
+-- (comparisons / sign flips are bit-identical across targets). Total over finite values: a non-finite Float
+-- input, or `clamp` with lo > hi, is a deterministic runtime error. `sign` returns Integer (-1, 0, 1).
+def abs(x: T) -> T
+def min(a: T, b: T) -> T
+def max(a: T, b: T) -> T
+def clamp(x: T, lo: T, hi: T) -> T
+def sign(x: T) -> Integer
