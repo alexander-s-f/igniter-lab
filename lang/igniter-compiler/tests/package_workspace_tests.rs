@@ -4,7 +4,9 @@
 // folded into the SAME project module index, so cross-package `import Foo.Bar` resolves and duplicate
 // module ownership across packages is caught by the existing OOF-IMP4 check. Direct dependencies only.
 
-use igniter_compiler::project::{self, LockDrift, LockedDependency, ProjectError, WorkspaceLock};
+use igniter_compiler::project::{
+    self, LockDrift, LockedDependency, ProjectError, Toolchain, WorkspaceLock,
+};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -197,6 +199,9 @@ fn no_dependencies_empty_lock() {
 #[test]
 fn lock_json_roundtrips() {
     let lock = WorkspaceLock {
+        toolchain: Toolchain {
+            compiler: "9.9.9".to_string(),
+        },
         dependencies: vec![LockedDependency {
             name: "lib".to_string(),
             path: "../lib".to_string(),
@@ -205,4 +210,66 @@ fn lock_json_roundtrips() {
     };
     let parsed = WorkspaceLock::from_value(&lock.to_value()).unwrap();
     assert_eq!(lock, parsed);
+}
+
+// ── LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5 ───────────────────────────────────────────────────────
+
+/// The lock stamps the producing compiler version (`env!("CARGO_PKG_VERSION")`).
+#[test]
+fn lock_stamps_compiler_version() {
+    let lock = project::workspace_lock(&app("workspace")).unwrap();
+    assert_eq!(lock.toolchain.compiler, env!("CARGO_PKG_VERSION"));
+    assert!(!lock.toolchain.compiler.is_empty(), "compiler version stamped");
+}
+
+/// A lock pinned to a different compiler version verifies as `Toolchain` drift.
+#[test]
+fn toolchain_drift_detected() {
+    let root = app("workspace");
+    let mut lock = project::workspace_lock(&root).unwrap();
+    lock.toolchain.compiler = "0.0.0-old".to_string();
+    let drift = project::verify_lock(&root, &lock).unwrap();
+    let tc: Vec<&LockDrift> = drift
+        .iter()
+        .filter(|d| matches!(d, LockDrift::Toolchain { .. }))
+        .collect();
+    assert_eq!(tc.len(), 1, "one toolchain drift: {drift:?}");
+    match tc[0] {
+        LockDrift::Toolchain {
+            field,
+            locked,
+            actual,
+        } => {
+            assert_eq!(field, "compiler");
+            assert_eq!(locked, "0.0.0-old");
+            assert_eq!(actual, env!("CARGO_PKG_VERSION"));
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Backward-compat: an unpinned (pre-P5) lock — `toolchain.compiler` empty — yields **no** toolchain drift,
+/// so old locks still verify clean on dependency digests.
+#[test]
+fn unpinned_lock_has_no_toolchain_drift() {
+    let root = app("workspace");
+    let mut lock = project::workspace_lock(&root).unwrap();
+    lock.toolchain.compiler = String::new(); // simulate a pre-P5 lock with no toolchain block
+    let drift = project::verify_lock(&root, &lock).unwrap();
+    assert!(
+        !drift.iter().any(|d| matches!(d, LockDrift::Toolchain { .. })),
+        "unpinned lock must not report toolchain drift: {drift:?}"
+    );
+}
+
+/// A pre-P5 lock JSON literally has no `toolchain` block; `from_value` parses it as unpinned.
+#[test]
+fn pre_p5_lock_json_parses_unpinned() {
+    let json = serde_json::json!({
+        "version": 1,
+        "dependencies": [{ "name": "lib", "path": "../lib", "digest": "sha256:abc" }],
+    });
+    let lock = WorkspaceLock::from_value(&json).unwrap();
+    assert_eq!(lock.toolchain.compiler, "", "no toolchain block → unpinned");
+    assert_eq!(lock.dependencies.len(), 1);
 }

@@ -6,6 +6,7 @@ use igniter_compiler::form_resolver::FormResolver;
 use igniter_compiler::lexer::Lexer;
 use igniter_compiler::multifile;
 use igniter_compiler::parser::Parser;
+use igniter_compiler::project::{self, LockDrift, WorkspaceLock};
 use igniter_compiler::typechecker::TypeChecker;
 
 use serde_json::{json, Map, Value};
@@ -22,9 +23,21 @@ fn main() {
     }
 
     let command = &args[1];
-    if command != "compile" {
-        eprintln!("Unsupported command: {}", command);
-        std::process::exit(1);
+    match command.as_str() {
+        "compile" => {} // handled below
+        // LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4: workspace dependency lock/verify over the P3 API.
+        "lock" => {
+            run_lock(&args);
+            return;
+        }
+        "verify" => {
+            run_verify(&args);
+            return;
+        }
+        other => {
+            eprintln!("Unsupported command: {}", other);
+            std::process::exit(1);
+        }
     }
 
     // LAB-COMPILER-PROJECT-MODE-COMPILE-P1: canonical project-root compile mode.
@@ -86,6 +99,108 @@ fn main() {
             eprintln!("Internal compiler error: {}", err);
             std::process::exit(1);
         }
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4
+/// `--project-root ROOT` (default `.`).
+fn project_root_arg(args: &[String]) -> String {
+    args.iter()
+        .position(|a| a == "--project-root")
+        .and_then(|i| args.get(i + 1).cloned())
+        .unwrap_or_else(|| ".".to_string())
+}
+
+fn drift_to_json(d: &LockDrift) -> Value {
+    match d {
+        LockDrift::Changed {
+            name,
+            locked,
+            actual,
+        } => json!({ "kind": "changed", "name": name, "locked": locked, "actual": actual }),
+        LockDrift::Missing { name } => json!({ "kind": "missing", "name": name }),
+        LockDrift::New { name } => json!({ "kind": "new", "name": name }),
+        LockDrift::Toolchain {
+            field,
+            locked,
+            actual,
+        } => json!({ "kind": "toolchain", "field": field, "locked": locked, "actual": actual }),
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4
+/// `igc lock [--project-root ROOT]` — compute the per-workspace dependency lock (P3 `workspace_lock`) and
+/// write a deterministic `igniter.lock` at the project root. Idempotent: re-running yields an identical
+/// file. No network, no registry, no version solver — local path dependencies only.
+fn run_lock(args: &[String]) {
+    let root = project_root_arg(args);
+    let lock = match project::workspace_lock(Path::new(&root)) {
+        Ok(l) => l,
+        Err(_) => {
+            eprintln!("lock: could not assemble workspace at {}", root);
+            std::process::exit(1);
+        }
+    };
+    let lock_path = Path::new(&root).join("igniter.lock");
+    // Deterministic JSON + trailing newline; re-running `lock` produces a byte-identical file.
+    let mut text = serde_json::to_string_pretty(&lock.to_value()).unwrap_or_default();
+    text.push('\n');
+    if let Err(e) = fs::write(&lock_path, text.as_bytes()) {
+        eprintln!("lock: could not write {}: {}", lock_path.display(), e);
+        std::process::exit(1);
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "kind": "igniter_lock_result",
+            "lockfile": lock_path.to_string_lossy(),
+            "dependencies": lock.dependencies.len(),
+            "written": true,
+        }))
+        .unwrap_or_default()
+    );
+}
+
+/// LAB-IGNITER-PACKAGE-LOCKFILE-CLI-P4
+/// `igc verify [--project-root ROOT]` — read `igniter.lock`, recompute the workspace lock, and report
+/// drift. Exit 0 when reproducible (no drift); exit 1 on drift, a missing lockfile, or a malformed lock.
+fn run_verify(args: &[String]) {
+    let root = project_root_arg(args);
+    let lock_path = Path::new(&root).join("igniter.lock");
+    let Ok(text) = fs::read_to_string(&lock_path) else {
+        eprintln!(
+            "verify: no lockfile at {} (run `igc lock` first)",
+            lock_path.display()
+        );
+        std::process::exit(1);
+    };
+    let Some(lock) = serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|v| WorkspaceLock::from_value(&v))
+    else {
+        eprintln!("verify: malformed lockfile at {}", lock_path.display());
+        std::process::exit(1);
+    };
+    let drift = match project::verify_lock(Path::new(&root), &lock) {
+        Ok(d) => d,
+        Err(_) => {
+            eprintln!("verify: could not assemble workspace at {}", root);
+            std::process::exit(1);
+        }
+    };
+    let ok = drift.is_empty();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "kind": "igniter_verify_result",
+            "lockfile": lock_path.to_string_lossy(),
+            "ok": ok,
+            "drift": drift.iter().map(drift_to_json).collect::<Vec<_>>(),
+        }))
+        .unwrap_or_default()
+    );
+    if !ok {
+        std::process::exit(1);
     }
 }
 

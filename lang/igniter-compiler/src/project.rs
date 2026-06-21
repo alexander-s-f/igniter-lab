@@ -283,12 +283,22 @@ pub struct LockedDependency {
     pub digest: String,
 }
 
-/// A per-workspace lock: a deterministic, name-sorted list of dependency digests. Pins package content
-/// for reproducible offline rebuilds. v0 is **digest-only** — compiler/stdlib/lowerer-version fields are
-/// deferred. The digest algorithm is **sha256**, matching the live compiler source-hash convention
-/// (`main.rs` / `multifile.rs`), not blake3 (P1's suggestion); aligning algorithms is a separate concern.
+/// LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5.
+/// The toolchain that produced a lock. v0 pins the compiler version (`env!("CARGO_PKG_VERSION")`).
+/// `stdlib` and lowerer versions are deferred because the compiler has no authoritative constants for them yet.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Toolchain {
+    /// `igniter_compiler` crate version at lock time. Empty = unpinned (a pre-P5 lock).
+    pub compiler: String,
+}
+
+/// A per-workspace lock: the producing **toolchain** + a deterministic, name-sorted list of dependency
+/// digests. Pins package content (and now the compiler version) for reproducible offline rebuilds. The
+/// digest algorithm is **sha256**, matching the live compiler source-hash convention (`main.rs` /
+/// `multifile.rs`), not blake3 (P1's suggestion); aligning algorithms is a separate concern.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceLock {
+    pub toolchain: Toolchain,
     pub dependencies: Vec<LockedDependency>,
 }
 
@@ -305,6 +315,20 @@ pub enum LockDrift {
     Missing { name: String },
     /// a workspace dependency absent from the lock.
     New { name: String },
+    /// a pinned toolchain field differs from the current toolchain.
+    Toolchain {
+        field: String,
+        locked: String,
+        actual: String,
+    },
+}
+
+/// The current toolchain identity (build-time). `env!("CARGO_PKG_VERSION")` resolves to the
+/// `igniter_compiler` crate version that built this binary.
+pub fn current_toolchain() -> Toolchain {
+    Toolchain {
+        compiler: env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 impl WorkspaceLock {
@@ -312,6 +336,7 @@ impl WorkspaceLock {
     pub fn to_value(&self) -> Value {
         json!({
             "version": 1,
+            "toolchain": { "compiler": self.toolchain.compiler },
             "dependencies": self
                 .dependencies
                 .iter()
@@ -320,8 +345,17 @@ impl WorkspaceLock {
         })
     }
 
-    /// Parse a lock back from its JSON value (`None` if malformed).
+    /// Parse a lock back from its JSON value (`None` if malformed). The `toolchain` block is optional: a
+    /// pre-P5 lock without one parses as **unpinned** (empty compiler) → no toolchain drift.
     pub fn from_value(v: &Value) -> Option<WorkspaceLock> {
+        let toolchain = Toolchain {
+            compiler: v
+                .get("toolchain")
+                .and_then(|t| t.get("compiler"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string(),
+        };
         let arr = v.get("dependencies")?.as_array()?;
         let mut dependencies = Vec::with_capacity(arr.len());
         for e in arr {
@@ -331,7 +365,10 @@ impl WorkspaceLock {
                 digest: e.get("digest")?.as_str()?.to_string(),
             });
         }
-        Some(WorkspaceLock { dependencies })
+        Some(WorkspaceLock {
+            toolchain,
+            dependencies,
+        })
     }
 }
 
@@ -351,6 +388,7 @@ pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
         });
     }
     Ok(WorkspaceLock {
+        toolchain: current_toolchain(),
         dependencies: locked,
     })
 }
@@ -360,6 +398,15 @@ pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
 pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, ProjectError> {
     let current = workspace_lock(root)?;
     let mut drifts = Vec::new();
+    // Toolchain drift first — only when the lock actually pinned the compiler (empty compiler is an
+    // unpinned pre-P5 lock = "no claim", so it never reports drift).
+    if !lock.toolchain.compiler.is_empty() && lock.toolchain.compiler != current.toolchain.compiler {
+        drifts.push(LockDrift::Toolchain {
+            field: "compiler".to_string(),
+            locked: lock.toolchain.compiler.clone(),
+            actual: current.toolchain.compiler.clone(),
+        });
+    }
     for cur in &current.dependencies {
         match lock.dependencies.iter().find(|d| d.name == cur.name) {
             Some(locked) if locked.digest != cur.digest => drifts.push(LockDrift::Changed {
