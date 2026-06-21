@@ -963,6 +963,76 @@ fn detect_cycle(graph: &PackageGraph) -> Option<ProjectDiagnostic> {
     None
 }
 
+/// LAB-IGNITER-PACKAGE-GRAPH-CLI-P18: render a package's `[exports]` surface as `{ mode, modules? }`.
+fn exports_mode_value(exports: &Option<BTreeSet<String>>) -> Value {
+    match exports {
+        None => json!({ "mode": "open" }),
+        Some(s) if s.is_empty() => json!({ "mode": "sealed" }),
+        Some(s) => json!({ "mode": "allowlist", "modules": s.iter().cloned().collect::<Vec<_>>() }),
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-GRAPH-CLI-P18: a stable JSON projection of the assembled local package graph (the P14
+/// truth — nodes, edges, source roots, exports surface, root policy). Structural view only: **no digests**
+/// (the lock owns provenance) and **no health gate** (`verify --strict` remains that). `PackageGraph`/
+/// `PackageNode`/`PackageId` stay private; this is the public, stable contract.
+///
+/// A missing dependency path (`OOF-IMP9`) propagates as `Err` (assembly cannot proceed). A **cycle** is
+/// reported in `faults` while the full graph is still emitted (the caller exits 0); `verify --strict` is the
+/// failing gate. Deterministic: packages sorted by root-relative path, edges by path, exports/modules sorted.
+pub fn workspace_graph_value(root: &Path) -> Result<Value, ProjectError> {
+    let graph = collect_package_graph(root)?;
+    let exports_default = match ProjectConfig::load(root).exports_default {
+        ExportsDefault::Open => "open",
+        ExportsDefault::Closed => "closed",
+    };
+    let rel = |canon: &Path| relative_to(&graph.root, canon).to_string_lossy().to_string();
+
+    let mut packages: Vec<(String, Value)> = Vec::new();
+    for (canon, node) in &graph.nodes {
+        let mut deps: Vec<(String, String)> = node
+            .deps
+            .iter()
+            .map(|d| {
+                let label = graph.nodes.get(d).map(|n| n.display.clone()).unwrap_or_default();
+                (label, rel(d))
+            })
+            .collect();
+        deps.sort_by(|a, b| (a.1.as_str(), a.0.as_str()).cmp(&(b.1.as_str(), b.0.as_str())));
+        let path = rel(canon);
+        let pkg = json!({
+            "label": node.display,
+            "path": path,
+            "source_roots": node
+                .source_roots
+                .iter()
+                .map(|s| s.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+            "exports": exports_mode_value(&node.exports),
+            "dependencies": deps
+                .iter()
+                .map(|(label, p)| json!({ "label": label, "path": p }))
+                .collect::<Vec<_>>(),
+        });
+        packages.push((path, pkg));
+    }
+    packages.sort_by(|a, b| a.0.cmp(&b.0));
+    let packages: Vec<Value> = packages.into_iter().map(|(_, v)| v).collect();
+
+    let mut faults: Vec<Value> = Vec::new();
+    if let Some(diag) = detect_cycle(&graph) {
+        faults.push(diag.to_value());
+    }
+
+    Ok(json!({
+        "kind": "igniter_package_graph",
+        "root": ".",
+        "exports_default": exports_default,
+        "packages": packages,
+        "faults": faults,
+    }))
+}
+
 /// A relative path from `base` to `target` (both absolute + normalized), using `..` as needed. Stable across
 /// machines (depends only on the workspace layout), so lock paths are reproducible.
 fn relative_to(base: &Path, target: &Path) -> PathBuf {

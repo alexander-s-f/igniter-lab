@@ -34,6 +34,11 @@ fn main() {
             run_verify(&args);
             return;
         }
+        // LAB-IGNITER-PACKAGE-GRAPH-CLI-P18: local package graph introspection.
+        "package" => {
+            run_package(&args);
+            return;
+        }
         other => {
             eprintln!("Unsupported command: {}", other);
             std::process::exit(1);
@@ -281,6 +286,38 @@ fn run_verify(args: &[String]) {
     );
     if !ok {
         std::process::exit(1);
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-GRAPH-CLI-P18
+/// `igc package graph [--project-root ROOT]` — emit the assembled local package graph as JSON (P14 truth:
+/// nodes, edges, source roots, exports surface, root policy). Structural view, not a health gate. A missing
+/// dependency path (`OOF-IMP9`) → structured error JSON, exit 1; a cycle → full graph + `faults`, exit 0.
+fn run_package(args: &[String]) {
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
+    if sub != "graph" {
+        eprintln!("Usage: igc package graph --project-root ROOT");
+        std::process::exit(1);
+    }
+    let root = project_root_arg(args);
+    match project::workspace_graph_value(Path::new(&root)) {
+        Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_package_graph",
+                    "ok": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("package graph: could not assemble workspace at {}", root);
+            std::process::exit(1);
+        }
     }
 }
 

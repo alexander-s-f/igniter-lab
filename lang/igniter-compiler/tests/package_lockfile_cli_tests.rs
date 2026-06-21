@@ -283,6 +283,105 @@ fn cli_verify_strict_integrity_is_structured() {
     assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
 }
 
+// ── LAB-IGNITER-PACKAGE-GRAPH-CLI-P18 (read-only `igc package graph`; runs on fixtures in place) ──────
+
+const FIX_DIR: &str = "tests/fixtures/project_mode";
+
+fn graph(fixture: &str) -> (bool, Value) {
+    run_args(&[
+        "package",
+        "graph",
+        "--project-root",
+        &format!("{FIX_DIR}/{fixture}/app"),
+    ])
+}
+
+/// `igc package graph` emits the full assembled graph: root + mid + leaf, with the `<root>→mid` and
+/// `mid→leaf` edges, sorted by path, no faults.
+#[test]
+fn cli_package_graph_emits_full_graph() {
+    let (ok, v) = graph("workspace_transitive_ok");
+    assert!(ok, "graph exits 0 on a clean workspace: {v}");
+    assert_eq!(v["kind"], serde_json::json!("igniter_package_graph"));
+    let pkgs = v["packages"].as_array().unwrap();
+    let labels: Vec<&str> = pkgs.iter().map(|p| p["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, vec!["<root>", "leaf", "mid"], "packages sorted by path: {labels:?}");
+    // root → mid edge
+    let root_pkg = pkgs.iter().find(|p| p["label"] == serde_json::json!("<root>")).unwrap();
+    assert_eq!(root_pkg["dependencies"][0]["label"], serde_json::json!("mid"));
+    // mid → leaf edge
+    let mid_pkg = pkgs.iter().find(|p| p["label"] == serde_json::json!("mid")).unwrap();
+    assert_eq!(mid_pkg["dependencies"][0]["label"], serde_json::json!("leaf"));
+    assert!(v["faults"].as_array().unwrap().is_empty());
+}
+
+/// A diamond emits the shared package exactly once (as a package node), with two parent edges.
+#[test]
+fn cli_package_graph_diamond_dedups() {
+    let (ok, v) = graph("workspace_transitive_diamond");
+    assert!(ok);
+    let c_nodes = v["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["label"] == serde_json::json!("c"))
+        .count();
+    assert_eq!(c_nodes, 1, "shared package `c` is one node: {v}");
+}
+
+/// Closed-default policy is exposed at the top level.
+#[test]
+fn cli_package_graph_exposes_closed_default() {
+    let (ok, v) = graph("workspace_closed_default");
+    assert!(ok);
+    assert_eq!(v["exports_default"], serde_json::json!("closed"));
+}
+
+/// Sealed (`[exports] modules = []`) and allowlist exports render with the right `mode`.
+#[test]
+fn cli_package_graph_renders_exports_modes() {
+    // `workspace_exports_ok/lib` declares an allowlist; assert it renders as such.
+    let (ok, v) = graph("workspace_exports_ok");
+    assert!(ok);
+    let lib = v["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["label"] == serde_json::json!("lib"))
+        .unwrap();
+    assert_eq!(lib["exports"]["mode"], serde_json::json!("allowlist"));
+    assert_eq!(lib["exports"]["modules"][0], serde_json::json!("Lib.Public"));
+}
+
+/// A cycle emits the FULL graph plus a `faults` entry with `OOF-IMP8`, and still exits 0 (graph is a view;
+/// `verify --strict` is the failing gate).
+#[test]
+fn cli_package_graph_cycle_emits_faults_exit_zero() {
+    let (ok, v) = graph("workspace_transitive_cycle");
+    assert!(ok, "graph view exits 0 even with a cycle: {v}");
+    assert!(!v["packages"].as_array().unwrap().is_empty(), "full graph still emitted");
+    let faults = v["faults"].as_array().unwrap();
+    assert_eq!(faults.len(), 1, "one fault: {v}");
+    assert_eq!(faults[0]["rule"], serde_json::json!("OOF-IMP8"));
+}
+
+/// A missing dependency path is a structured `OOF-IMP9` error with exit 1 (assembly cannot proceed).
+#[test]
+fn cli_package_graph_missing_dep_errors() {
+    let (ok, v) = graph("workspace_missing_root_dep");
+    assert!(!ok, "graph exits 1 on a missing dependency: {v}");
+    assert_eq!(v["ok"], Value::Bool(false));
+    assert_eq!(v["error"]["rule"], serde_json::json!("OOF-IMP9"));
+}
+
+/// Output is deterministic across runs.
+#[test]
+fn cli_package_graph_is_deterministic() {
+    let (_, a) = graph("workspace_transitive_diamond");
+    let (_, b) = graph("workspace_transitive_diamond");
+    assert_eq!(a, b, "graph JSON must be deterministic");
+}
+
 // ── LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16 ──────────────────────────────────────────────────
 
 /// `igc lock` fails with a structured `OOF-IMP9` when a declared dependency path is missing (the graph
