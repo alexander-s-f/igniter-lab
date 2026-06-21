@@ -675,11 +675,15 @@ pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
         }
         locked.push(LockedDependency {
             name: node.display.clone(),
-            path: relative_to(&graph.root, canon).to_string_lossy().to_string(),
+            path: relative_to(&graph.root, canon)
+                .to_string_lossy()
+                .to_string(),
             digest: dependency_digest(canon)?,
         });
     }
-    locked.sort_by(|a, b| (a.path.as_str(), a.name.as_str()).cmp(&(b.path.as_str(), b.name.as_str())));
+    locked.sort_by(|a, b| {
+        (a.path.as_str(), a.name.as_str()).cmp(&(b.path.as_str(), b.name.as_str()))
+    });
     Ok(WorkspaceLock {
         toolchain: current_toolchain(),
         dependencies: locked,
@@ -893,7 +897,10 @@ fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
                 continue; // do not fold a phantom node for a path that does not exist
             }
             deps.insert(dep_canon.clone());
-            names.entry(dep_canon.clone()).or_default().insert(dep.name.clone());
+            names
+                .entry(dep_canon.clone())
+                .or_default()
+                .insert(dep.name.clone());
             queue.push(dep_canon);
         }
         nodes.insert(
@@ -1010,10 +1017,16 @@ fn detect_cycle(graph: &PackageGraph) -> Option<ProjectDiagnostic> {
                     .collect();
                 let mut diag = ProjectDiagnostic::new(
                     "OOF-IMP8",
-                    format!("dependency cycle in the local package graph: {}", names.join(" -> ")),
+                    format!(
+                        "dependency cycle in the local package graph: {}",
+                        names.join(" -> ")
+                    ),
                     format!("cycle:{}", names.join("->")),
                 );
-                diag.source_paths = cyc.iter().map(|p| p.to_string_lossy().to_string()).collect();
+                diag.source_paths = cyc
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
                 return Some(diag);
             }
         }
@@ -1044,7 +1057,11 @@ pub fn workspace_graph_value(root: &Path) -> Result<Value, ProjectError> {
         ExportsDefault::Open => "open",
         ExportsDefault::Closed => "closed",
     };
-    let rel = |canon: &Path| relative_to(&graph.root, canon).to_string_lossy().to_string();
+    let rel = |canon: &Path| {
+        relative_to(&graph.root, canon)
+            .to_string_lossy()
+            .to_string()
+    };
 
     let mut packages: Vec<(String, Value)> = Vec::new();
     for (canon, node) in &graph.nodes {
@@ -1052,7 +1069,11 @@ pub fn workspace_graph_value(root: &Path) -> Result<Value, ProjectError> {
             .deps
             .iter()
             .map(|d| {
-                let label = graph.nodes.get(d).map(|n| n.display.clone()).unwrap_or_default();
+                let label = graph
+                    .nodes
+                    .get(d)
+                    .map(|n| n.display.clone())
+                    .unwrap_or_default();
                 (label, rel(d))
             })
             .collect();
@@ -1088,6 +1109,258 @@ pub fn workspace_graph_value(root: &Path) -> Result<Value, ProjectError> {
         "exports_default": exports_default,
         "packages": packages,
         "faults": faults,
+    }))
+}
+
+// ── LAB-IGNITER-PACKAGE-ARCHIVE-PACK-VERIFY-P22: portable `.igpkg` source package ────────────────────
+
+const ARCHIVE_VERSION: &str = "v0";
+
+/// The allowlist of file kinds a `.igpkg` may contain — source + metadata only. Secrets, binaries, compiled
+/// `.igapp`, and scripts cannot enter because the packer includes only these (forbidden by construction).
+fn is_archive_file(path: &Path) -> bool {
+    if path.file_name().and_then(|n| n.to_str()) == Some("igniter.toml") {
+        return true;
+    }
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("ig") | Some("igweb")
+    )
+}
+
+/// Recursively collect archive-allowlisted files under `dir` (skips VCS/build/hidden dirs, as `collect_ig_files`).
+fn collect_archive_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if file_type.is_dir() {
+            if IGNORED_DIRS.contains(&name.as_ref()) || name.starts_with('.') {
+                continue;
+            }
+            collect_archive_files(&path, out)?;
+        } else if file_type.is_file() && is_archive_file(&path) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// The deepest directory that is an ancestor of every path in `paths` (lexical, on normalized absolutes).
+fn common_ancestor(paths: &[PathBuf]) -> PathBuf {
+    let Some(first) = paths.first() else {
+        return PathBuf::from("/");
+    };
+    let mut prefix: Vec<Component> = first.components().collect();
+    for p in &paths[1..] {
+        let comps: Vec<Component> = p.components().collect();
+        let mut i = 0;
+        while i < prefix.len() && i < comps.len() && prefix[i] == comps[i] {
+            i += 1;
+        }
+        prefix.truncate(i);
+    }
+    prefix.iter().map(|c| c.as_os_str()).collect()
+}
+
+/// Build a portable, content-addressed `.igpkg` for the workspace at `root`. Returns `(container bytes,
+/// summary value)`. Source-only: each reachable package's `igniter.toml` + `*.ig`/`*.igweb`, plus the root
+/// `igniter.lock`. The archive is re-rooted at the common ancestor of all packages so paths are forward-only,
+/// and is deterministic (sorted entries, no mtimes/perms, no compression). Assembly faults (`OOF-IMP9`) → Err.
+pub fn pack_archive(root: &Path) -> Result<(Vec<u8>, Value), ProjectError> {
+    let graph = collect_package_graph(root)?;
+    let pkg_roots: Vec<PathBuf> = graph.nodes.keys().cloned().collect();
+    let arch_root = common_ancestor(&pkg_roots);
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    for canon in graph.nodes.keys() {
+        collect_archive_files(canon, &mut files)?;
+    }
+    let lock_path = graph.root.join("igniter.lock");
+    let lock_present = lock_path.is_file();
+    if lock_present {
+        files.push(lock_path);
+    }
+    files.sort();
+    files.dedup();
+
+    // (archive_path, bytes), sorted by archive path → deterministic order for the digest, files.json, and blob.
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for f in &files {
+        let ap = relative_to(&arch_root, f).to_string_lossy().to_string();
+        entries.push((ap, fs::read(f)?));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut hasher = Sha256::new();
+    let mut files_json: Vec<Value> = Vec::new();
+    for (ap, bytes) in &entries {
+        hasher.update(ap.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(bytes);
+        hasher.update([0u8]);
+        let mut fh = Sha256::new();
+        fh.update(bytes);
+        files_json.push(json!({
+            "path": ap,
+            "size": bytes.len(),
+            "sha256": format!("sha256:{:x}", fh.finalize()),
+        }));
+    }
+    let digest = format!("sha256:{:x}", hasher.finalize());
+    let entry = relative_to(&arch_root, &graph.root)
+        .to_string_lossy()
+        .to_string();
+    let name = graph
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let manifest = json!({
+        "format": "igniter.package.archive.v0",
+        "kind": "source-package",
+        "name": name,
+        "compiler_version": env!("CARGO_PKG_VERSION"),
+        "stdlib_version": crate::STDLIB_VERSION,
+        "entry": entry,
+        "lockfile": if lock_present { json!("igniter.lock") } else { Value::Null },
+        "digest": digest,
+        "closed_surfaces": ["no_install_hooks", "no_secrets", "no_capability_grants"],
+        "signature": Value::Null,
+    });
+    let header = json!({ "manifest": manifest, "files": files_json });
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"IGPKG\n");
+    bytes.extend_from_slice(ARCHIVE_VERSION.as_bytes());
+    bytes.push(b'\n');
+    bytes.extend_from_slice(
+        serde_json::to_string(&header)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    bytes.push(b'\n');
+    for (_, b) in &entries {
+        bytes.extend_from_slice(b);
+    }
+
+    let summary = json!({
+        "kind": "igniter_package_pack_result",
+        "ok": true,
+        "digest": digest,
+        "entry": entry,
+        "files": entries.len(),
+    });
+    Ok((bytes, summary))
+}
+
+/// Parse an `.igpkg` container into its `{manifest, files}` header and the trailing file-bytes blob.
+fn parse_archive(data: &[u8]) -> Option<(Value, &[u8])> {
+    let rest = data.strip_prefix(b"IGPKG\n")?;
+    let nl = rest.iter().position(|&b| b == b'\n')?;
+    if &rest[..nl] != ARCHIVE_VERSION.as_bytes() {
+        return None;
+    }
+    let rest = &rest[nl + 1..];
+    let nl2 = rest.iter().position(|&b| b == b'\n')?;
+    let header: Value = serde_json::from_slice(&rest[..nl2]).ok()?;
+    Some((header, &rest[nl2 + 1..]))
+}
+
+fn is_safe_archive_path(path: &str) -> bool {
+    let path = Path::new(path);
+    !path.as_os_str().is_empty()
+        && !path.is_absolute()
+        && path.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+fn is_safe_archive_entry_path(path: &str) -> bool {
+    path.is_empty() || is_safe_archive_path(path)
+}
+
+/// Verify a `.igpkg`: recompute per-file + whole-tree digests against the manifest, unpack to a temp dir, and
+/// run `check_workspace_integrity` on the entry package. Returns a result `Value`; `ok` is false on any digest
+/// mismatch or integrity fault. A malformed archive → Err.
+pub fn verify_archive(path: &Path) -> Result<Value, ProjectError> {
+    let data = fs::read(path)?;
+    let (header, blob) = parse_archive(&data).ok_or_else(|| {
+        ProjectError::Diagnostic(ProjectDiagnostic::new(
+            "OOF-PKG-FORMAT",
+            "malformed .igpkg archive".to_string(),
+            "archive:format".to_string(),
+        ))
+    })?;
+    let manifest = &header["manifest"];
+    let files = header["files"].as_array().cloned().unwrap_or_default();
+
+    let tmp = std::env::temp_dir().join(format!("igpkg_verify_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+
+    let mut hasher = Sha256::new();
+    let mut offset = 0usize;
+    let mut digest_ok = true;
+    for f in &files {
+        let ap = f["path"].as_str().unwrap_or("");
+        let size = f["size"].as_u64().unwrap_or(0) as usize;
+        if !is_safe_archive_path(ap) || offset + size > blob.len() {
+            digest_ok = false;
+            break;
+        }
+        let bytes = &blob[offset..offset + size];
+        offset += size;
+        let mut fh = Sha256::new();
+        fh.update(bytes);
+        if format!("sha256:{:x}", fh.finalize()) != f["sha256"].as_str().unwrap_or("") {
+            digest_ok = false;
+        }
+        hasher.update(ap.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(bytes);
+        hasher.update([0u8]);
+        let dest = tmp.join(ap);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&dest, bytes)?;
+    }
+    if offset != blob.len() {
+        digest_ok = false;
+    }
+    let tree_digest = format!("sha256:{:x}", hasher.finalize());
+    if tree_digest != manifest["digest"].as_str().unwrap_or("") {
+        digest_ok = false;
+    }
+
+    let entry = manifest["entry"].as_str().unwrap_or(".");
+    let integrity_diag: Option<Value> = if !is_safe_archive_entry_path(entry) {
+        Some(json!({
+            "rule": "OOF-PKG-FORMAT",
+            "message": "archive entry path must be forward-only"
+        }))
+    } else {
+        match check_workspace_integrity(&tmp.join(entry)) {
+            Ok(()) => None,
+            Err(ProjectError::Diagnostic(d)) => Some(d.to_value()),
+            Err(_) => Some(
+                json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble unpacked archive" }),
+            ),
+        }
+    };
+    let _ = fs::remove_dir_all(&tmp);
+
+    let ok = digest_ok && integrity_diag.is_none();
+    Ok(json!({
+        "kind": "igniter_package_verify_result",
+        "ok": ok,
+        "digest": tree_digest,
+        "digest_ok": digest_ok,
+        "integrity": { "ok": integrity_diag.is_none(), "diagnostic": integrity_diag },
     }))
 }
 
@@ -1284,9 +1557,7 @@ fn parse_dependencies_toml(content: &str) -> Vec<(String, String)> {
             first_quoted(value)
         } else if let Some(pos) = value.find("path") {
             let after_key = &value[pos + "path".len()..];
-            after_key
-                .split_once('=')
-                .and_then(|(_, v)| first_quoted(v))
+            after_key.split_once('=').and_then(|(_, v)| first_quoted(v))
         } else {
             None
         };

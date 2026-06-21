@@ -261,7 +261,9 @@ fn run_verify(args: &[String]) {
         match project::check_workspace_integrity(Path::new(&root)) {
             Ok(()) => None,
             Err(project::ProjectError::Diagnostic(d)) => Some(d.to_value()),
-            Err(_) => Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble workspace" })),
+            Err(_) => {
+                Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble workspace" }))
+            }
         }
     } else {
         None
@@ -294,11 +296,23 @@ fn run_verify(args: &[String]) {
 /// nodes, edges, source roots, exports surface, root policy). Structural view, not a health gate. A missing
 /// dependency path (`OOF-IMP9`) → structured error JSON, exit 1; a cycle → full graph + `faults`, exit 0.
 fn run_package(args: &[String]) {
-    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
-    if sub != "graph" {
-        eprintln!("Usage: igc package graph --project-root ROOT");
-        std::process::exit(1);
+    match args.get(2).map(|s| s.as_str()).unwrap_or("") {
+        "graph" => run_package_graph(args),
+        // LAB-IGNITER-PACKAGE-ARCHIVE-PACK-VERIFY-P22
+        "pack" => run_package_pack(args),
+        "verify" => run_package_verify(args),
+        _ => {
+            eprintln!(
+                "Usage: igc package graph --project-root ROOT\n       \
+                 igc package pack --project-root ROOT --out FILE.igpkg\n       \
+                 igc package verify FILE.igpkg"
+            );
+            std::process::exit(1);
+        }
     }
+}
+
+fn run_package_graph(args: &[String]) {
     let root = project_root_arg(args);
     match project::workspace_graph_value(Path::new(&root)) {
         Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
@@ -316,6 +330,81 @@ fn run_package(args: &[String]) {
         }
         Err(_) => {
             eprintln!("package graph: could not assemble workspace at {}", root);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `igc package pack --project-root ROOT --out FILE.igpkg` — write a deterministic source-only `.igpkg`.
+fn run_package_pack(args: &[String]) {
+    let root = project_root_arg(args);
+    let Some(out) = args
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+    else {
+        eprintln!("Usage: igc package pack --project-root ROOT --out FILE.igpkg");
+        std::process::exit(1);
+    };
+    match project::pack_archive(Path::new(&root)) {
+        Ok((bytes, mut summary)) => {
+            if let Err(e) = fs::write(out, &bytes) {
+                eprintln!("pack: could not write {}: {}", out, e);
+                std::process::exit(1);
+            }
+            summary["out"] = json!(out);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).unwrap_or_default()
+            );
+        }
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_package_pack_result",
+                    "ok": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("pack: could not assemble workspace at {}", root);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `igc package verify FILE.igpkg` — recompute digests + assemble-integrity the unpacked tree.
+fn run_package_verify(args: &[String]) {
+    let Some(file) = args.get(3).filter(|a| !a.starts_with("--")) else {
+        eprintln!("Usage: igc package verify FILE.igpkg");
+        std::process::exit(1);
+    };
+    match project::verify_archive(Path::new(file)) {
+        Ok(v) => {
+            let ok = v["ok"].as_bool().unwrap_or(false);
+            println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        Err(project::ProjectError::Diagnostic(d)) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "igniter_package_verify_result",
+                    "ok": false,
+                    "error": d.to_value(),
+                }))
+                .unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("verify: could not read archive {}", file);
             std::process::exit(1);
         }
     }

@@ -81,7 +81,10 @@ fn cli_lock_is_idempotent() {
     let a = std::fs::read(root.join("igniter.lock")).unwrap();
     run("lock", &root);
     let b = std::fs::read(root.join("igniter.lock")).unwrap();
-    assert_eq!(a, b, "re-running `lock` produces a byte-identical igniter.lock");
+    assert_eq!(
+        a, b,
+        "re-running `lock` produces a byte-identical igniter.lock"
+    );
 }
 
 #[test]
@@ -111,7 +114,10 @@ fn cli_verify_missing_lockfile_fails() {
         .args(["verify", "--project-root", root.to_str().unwrap()])
         .output()
         .expect("run igniter_compiler");
-    assert!(!output.status.success(), "verify without a lockfile exits non-zero");
+    assert!(
+        !output.status.success(),
+        "verify without a lockfile exits non-zero"
+    );
 }
 
 /// LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5: tampering the lock's pinned compiler version on disk makes
@@ -129,7 +135,9 @@ fn cli_verify_detects_toolchain_drift() {
     let (ok, out) = run("verify", &root);
     assert!(!ok, "verify exits non-zero on toolchain drift");
     let drift = out["drift"].as_array().unwrap();
-    let tc = drift.iter().find(|d| d["kind"] == serde_json::json!("toolchain"));
+    let tc = drift
+        .iter()
+        .find(|d| d["kind"] == serde_json::json!("toolchain"));
     let tc = tc.unwrap_or_else(|| panic!("expected a toolchain drift: {out}"));
     assert_eq!(tc["field"], serde_json::json!("compiler"));
     assert_eq!(tc["locked"], serde_json::json!("0.0.0-bogus"));
@@ -144,7 +152,9 @@ fn cli_lock_writes_stdlib_and_verify_detects_stdlib_drift() {
     let lock_path = root.join("igniter.lock");
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&lock_path).unwrap()).unwrap();
     assert!(
-        v["toolchain"]["stdlib"].as_str().is_some_and(|s| !s.is_empty()),
+        v["toolchain"]["stdlib"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
         "lock writes a non-empty toolchain.stdlib: {v}"
     );
     v["toolchain"]["stdlib"] = Value::String("0.0.0-bogus-stdlib".to_string());
@@ -155,7 +165,9 @@ fn cli_lock_writes_stdlib_and_verify_detects_stdlib_drift() {
     let drift = out["drift"].as_array().unwrap();
     let tc = drift
         .iter()
-        .find(|d| d["kind"] == serde_json::json!("toolchain") && d["field"] == serde_json::json!("stdlib"))
+        .find(|d| {
+            d["kind"] == serde_json::json!("toolchain") && d["field"] == serde_json::json!("stdlib")
+        })
         .unwrap_or_else(|| panic!("expected a stdlib toolchain drift: {out}"));
     assert_eq!(tc["locked"], serde_json::json!("0.0.0-bogus-stdlib"));
 }
@@ -188,7 +200,10 @@ fn cli_lock_frozen_fails_when_missing() {
     let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
     assert!(!ok, "frozen fails when no lockfile");
     assert_eq!(v["reason"], serde_json::json!("missing"));
-    assert!(!root.join("igniter.lock").exists(), "frozen must not create a lockfile");
+    assert!(
+        !root.join("igniter.lock").exists(),
+        "frozen must not create a lockfile"
+    );
 }
 
 /// `igc lock --frozen` fails (reason out-of-date) when the workspace drifted, leaving the lock untouched.
@@ -219,14 +234,20 @@ fn cli_verify_strict_catches_phantom() {
 
     // Plain verify: no drift → passes (it does NOT assemble the workspace).
     let (ok_plain, _) = run("verify", &root);
-    assert!(ok_plain, "plain verify is drift-only and passes despite the phantom import");
+    assert!(
+        ok_plain,
+        "plain verify is drift-only and passes despite the phantom import"
+    );
 
     // Strict verify: integrity fails on OOF-IMP6.
     let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
     assert!(!ok_strict, "strict verify fails on phantom import: {v}");
     assert_eq!(v["ok"], Value::Bool(false));
     assert_eq!(v["integrity"]["ok"], Value::Bool(false));
-    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP6"));
+    assert_eq!(
+        v["integrity"]["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP6")
+    );
 }
 
 /// `igc verify --strict` passes on a clean, current workspace (drift-clean + integrity-clean).
@@ -250,12 +271,21 @@ fn cli_verify_strict_catches_non_export() {
     run("lock", &root);
 
     let (ok_plain, _) = run("verify", &root);
-    assert!(ok_plain, "plain verify is drift-only and passes despite the non-exported import");
+    assert!(
+        ok_plain,
+        "plain verify is drift-only and passes despite the non-exported import"
+    );
 
     let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
-    assert!(!ok_strict, "strict verify fails on non-exported import: {v}");
+    assert!(
+        !ok_strict,
+        "strict verify fails on non-exported import: {v}"
+    );
     assert_eq!(v["integrity"]["ok"], Value::Bool(false));
-    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP7"));
+    assert_eq!(
+        v["integrity"]["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP7")
+    );
 }
 
 /// LAB-IGNITER-PACKAGE-EXPORTS-CI-P11: the strict integrity diagnostic is **structured** — CI/agents read
@@ -269,7 +299,11 @@ fn cli_verify_strict_integrity_is_structured() {
     assert!(!ok, "non-exported import fails strict verify: {v}");
     let d = &v["integrity"]["diagnostic"];
     assert_eq!(d["rule"], serde_json::json!("OOF-IMP7"));
-    assert_eq!(d["module_path"], serde_json::json!("App.Main"), "importer module as a field");
+    assert_eq!(
+        d["module_path"],
+        serde_json::json!("App.Main"),
+        "importer module as a field"
+    );
     assert_eq!(
         d["node"],
         serde_json::json!("export:App.Main->Lib.Private"),
@@ -280,7 +314,158 @@ fn cli_verify_strict_integrity_is_structured() {
         "importer source path as a field: {d}"
     );
     // The human message is still present alongside the structured fields.
-    assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
+    assert!(
+        d["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Lib.Private")),
+        "{d}"
+    );
+}
+
+// ── LAB-IGNITER-PACKAGE-ARCHIVE-PACK-VERIFY-P22 ─────────────────────────────────────────────────────
+
+fn igpkg_path(tag: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("igc_p22_{}_{}.igpkg", tag, std::process::id()))
+}
+
+/// `pack` a clean workspace then `verify` it: source-only archive, digests match, integrity clean.
+#[test]
+fn cli_pack_then_verify_clean() {
+    let out = igpkg_path("clean");
+    let (ok, p) = run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &format!("{FIX_DIR}/workspace_transitive_ok/app"),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(ok, "pack ok: {p}");
+    assert!(
+        p["files"].as_u64().unwrap() >= 6,
+        "all reachable packages packed: {p}"
+    );
+    assert!(p["digest"].as_str().unwrap().starts_with("sha256:"));
+
+    let (vok, v) = run_args(&["package", "verify", out.to_str().unwrap()]);
+    assert!(vok, "verify clean: {v}");
+    assert_eq!(v["ok"], Value::Bool(true));
+    assert_eq!(v["digest_ok"], Value::Bool(true));
+    assert_eq!(v["integrity"]["ok"], Value::Bool(true));
+    assert_eq!(
+        v["digest"], p["digest"],
+        "verify recomputes the same tree digest"
+    );
+}
+
+/// `pack` is deterministic — two runs produce a byte-identical archive.
+#[test]
+fn cli_pack_is_deterministic() {
+    let a = igpkg_path("det_a");
+    let b = igpkg_path("det_b");
+    let args = |o: &str| {
+        run_args(&[
+            "package",
+            "pack",
+            "--project-root",
+            &format!("{FIX_DIR}/workspace_transitive_diamond/app"),
+            "--out",
+            o,
+        ])
+    };
+    args(a.to_str().unwrap());
+    args(b.to_str().unwrap());
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        std::fs::read(&b).unwrap(),
+        "the .igpkg must be byte-identical across runs"
+    );
+}
+
+/// `verify` detects a tampered archive (a flipped content byte) — digest mismatch, exit 1.
+#[test]
+fn cli_verify_detects_tampered_archive() {
+    let out = igpkg_path("tamper");
+    run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &format!("{FIX_DIR}/workspace_transitive_ok/app"),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    let mut bytes = std::fs::read(&out).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&out, &bytes).unwrap();
+
+    let (ok, v) = run_args(&["package", "verify", out.to_str().unwrap()]);
+    assert!(!ok, "tampered archive must fail verify: {v}");
+    assert_eq!(v["digest_ok"], Value::Bool(false));
+}
+
+/// `verify` runs workspace integrity on the unpacked tree — a phantom-import archive fails with `OOF-IMP6`.
+#[test]
+fn cli_verify_detects_integrity_fault() {
+    let out = igpkg_path("integ");
+    run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &format!("{FIX_DIR}/workspace_phantom/app"),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    let (ok, v) = run_args(&["package", "verify", out.to_str().unwrap()]);
+    assert!(!ok, "phantom archive fails verify: {v}");
+    assert_eq!(v["integrity"]["ok"], Value::Bool(false));
+    assert_eq!(
+        v["integrity"]["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP6")
+    );
+}
+
+/// `pack` on a workspace with a missing dependency is a structured `OOF-IMP9` error, exit 1.
+#[test]
+fn cli_pack_missing_dep_errors() {
+    let out = igpkg_path("missing");
+    let (ok, p) = run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &format!("{FIX_DIR}/workspace_missing_root_dep/app"),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(!ok, "pack fails on a missing dependency: {p}");
+    assert_eq!(p["error"]["rule"], serde_json::json!("OOF-IMP9"));
+    assert!(!out.exists(), "no archive written on assembly failure");
+}
+
+/// The allowlist holds: stray non-source files (a secret, a compiled `.igapp`, a shell script) are NOT packed.
+#[test]
+fn cli_pack_allowlist_excludes_nonsource() {
+    let root = temp_fixture("workspace_transitive_ok", "p22_allow");
+    std::fs::write(root.join("secret.env"), "SECRET=topsecret\n").unwrap();
+    std::fs::write(root.join("app.igapp"), "compiled-binary\n").unwrap();
+    std::fs::write(root.join("build.sh"), "#!/bin/sh\nrm -rf /\n").unwrap();
+    let out = igpkg_path("allow");
+    let (ok, _) = run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &root_arg(&root),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(ok, "pack succeeds");
+    let archive = String::from_utf8_lossy(&std::fs::read(&out).unwrap()).to_string();
+    assert!(!archive.contains("SECRET=topsecret"), "secret not packed");
+    assert!(
+        !archive.contains("app.igapp"),
+        "compiled artifact not packed"
+    );
+    assert!(!archive.contains("build.sh"), "script not packed");
 }
 
 // ── LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19 ──────────────────────────────────────────────────────
@@ -296,7 +481,10 @@ fn cli_verify_strict_integrity_carries_details() {
     let det = &v["integrity"]["diagnostic"]["details"];
     assert_eq!(det["kind"], serde_json::json!("import_export"));
     assert_eq!(det["provider"]["package"], serde_json::json!("lib"));
-    assert!(det["fix"].as_str().is_some_and(|f| f.contains("[exports]")), "fix present: {det}");
+    assert!(
+        det["fix"].as_str().is_some_and(|f| f.contains("[exports]")),
+        "fix present: {det}"
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-GRAPH-CLI-P18 (read-only `igc package graph`; runs on fixtures in place) ──────
@@ -321,13 +509,29 @@ fn cli_package_graph_emits_full_graph() {
     assert_eq!(v["kind"], serde_json::json!("igniter_package_graph"));
     let pkgs = v["packages"].as_array().unwrap();
     let labels: Vec<&str> = pkgs.iter().map(|p| p["label"].as_str().unwrap()).collect();
-    assert_eq!(labels, vec!["<root>", "leaf", "mid"], "packages sorted by path: {labels:?}");
+    assert_eq!(
+        labels,
+        vec!["<root>", "leaf", "mid"],
+        "packages sorted by path: {labels:?}"
+    );
     // root → mid edge
-    let root_pkg = pkgs.iter().find(|p| p["label"] == serde_json::json!("<root>")).unwrap();
-    assert_eq!(root_pkg["dependencies"][0]["label"], serde_json::json!("mid"));
+    let root_pkg = pkgs
+        .iter()
+        .find(|p| p["label"] == serde_json::json!("<root>"))
+        .unwrap();
+    assert_eq!(
+        root_pkg["dependencies"][0]["label"],
+        serde_json::json!("mid")
+    );
     // mid → leaf edge
-    let mid_pkg = pkgs.iter().find(|p| p["label"] == serde_json::json!("mid")).unwrap();
-    assert_eq!(mid_pkg["dependencies"][0]["label"], serde_json::json!("leaf"));
+    let mid_pkg = pkgs
+        .iter()
+        .find(|p| p["label"] == serde_json::json!("mid"))
+        .unwrap();
+    assert_eq!(
+        mid_pkg["dependencies"][0]["label"],
+        serde_json::json!("leaf")
+    );
     assert!(v["faults"].as_array().unwrap().is_empty());
 }
 
@@ -366,7 +570,10 @@ fn cli_package_graph_renders_exports_modes() {
         .find(|p| p["label"] == serde_json::json!("lib"))
         .unwrap();
     assert_eq!(lib["exports"]["mode"], serde_json::json!("allowlist"));
-    assert_eq!(lib["exports"]["modules"][0], serde_json::json!("Lib.Public"));
+    assert_eq!(
+        lib["exports"]["modules"][0],
+        serde_json::json!("Lib.Public")
+    );
 }
 
 /// A cycle emits the FULL graph plus a `faults` entry with `OOF-IMP8`, and still exits 0 (graph is a view;
@@ -375,7 +582,10 @@ fn cli_package_graph_renders_exports_modes() {
 fn cli_package_graph_cycle_emits_faults_exit_zero() {
     let (ok, v) = graph("workspace_transitive_cycle");
     assert!(ok, "graph view exits 0 even with a cycle: {v}");
-    assert!(!v["packages"].as_array().unwrap().is_empty(), "full graph still emitted");
+    assert!(
+        !v["packages"].as_array().unwrap().is_empty(),
+        "full graph still emitted"
+    );
     let faults = v["faults"].as_array().unwrap();
     assert_eq!(faults.len(), 1, "one fault: {v}");
     assert_eq!(faults[0]["rule"], serde_json::json!("OOF-IMP8"));
@@ -410,7 +620,10 @@ fn cli_lock_reports_missing_dep_structurally() {
     assert_eq!(v["ok"], Value::Bool(false));
     assert_eq!(v["written"], Value::Bool(false));
     assert_eq!(v["error"]["rule"], serde_json::json!("OOF-IMP9"));
-    assert!(!root.join("igniter.lock").exists(), "no lockfile written on assembly failure");
+    assert!(
+        !root.join("igniter.lock").exists(),
+        "no lockfile written on assembly failure"
+    );
 }
 
 /// `igc verify --strict` surfaces a structured `OOF-IMP9` (graph assembly fails before drift/integrity).
@@ -427,7 +640,10 @@ fn cli_verify_strict_reports_missing_dep_structurally() {
     let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
     assert!(!ok, "verify fails on a missing transitive dependency: {v}");
     assert_eq!(v["error"]["rule"], serde_json::json!("OOF-IMP9"));
-    assert_eq!(v["error"]["node"], serde_json::json!("dependency:mid->ghost"));
+    assert_eq!(
+        v["error"]["node"],
+        serde_json::json!("dependency:mid->ghost")
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-CI-P15 (regression-locking P14's CI guarantees) ─────────────
@@ -445,8 +661,12 @@ fn cli_leaf_manifest_change_is_drift() {
     let (ok, v) = run("verify", &root);
     assert!(!ok, "leaf manifest change must be drift: {v}");
     assert!(
-        v["drift"].as_array().unwrap().iter().any(|d| d["kind"] == serde_json::json!("changed")
-            && d["name"] == serde_json::json!("leaf")),
+        v["drift"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["kind"] == serde_json::json!("changed")
+                && d["name"] == serde_json::json!("leaf")),
         "changed drift for the transitive leaf: {v}"
     );
 }
@@ -464,7 +684,11 @@ fn cli_frozen_catches_leaf_drift() {
     let (ok, v) = run_args(&["lock", "--project-root", &root_arg(&root), "--frozen"]);
     assert!(!ok, "frozen catches transitive leaf drift: {v}");
     assert_eq!(v["reason"], serde_json::json!("out-of-date"));
-    assert_eq!(std::fs::read(root.join("igniter.lock")).unwrap(), before, "frozen must not rewrite");
+    assert_eq!(
+        std::fs::read(root.join("igniter.lock")).unwrap(),
+        before,
+        "frozen must not rewrite"
+    );
 }
 
 /// `verify --strict` reports a transitive `OOF-IMP6` with structured fields (root imports an undeclared
@@ -477,8 +701,15 @@ fn cli_verify_strict_catches_transitive_phantom() {
     assert!(!ok, "strict catches transitive phantom: {v}");
     let d = &v["integrity"]["diagnostic"];
     assert_eq!(d["rule"], serde_json::json!("OOF-IMP6"));
-    assert_eq!(d["module_path"], serde_json::json!("App.Main"), "structured importer: {d}");
-    assert!(d["source_paths"].as_array().is_some_and(|a| a.len() == 1), "structured path: {d}");
+    assert_eq!(
+        d["module_path"],
+        serde_json::json!("App.Main"),
+        "structured importer: {d}"
+    );
+    assert!(
+        d["source_paths"].as_array().is_some_and(|a| a.len() == 1),
+        "structured path: {d}"
+    );
 }
 
 /// `verify --strict` reports a transitive `OOF-IMP7` (a dependency imports a non-exported module of its own
@@ -491,7 +722,11 @@ fn cli_verify_strict_catches_transitive_non_export() {
     assert!(!ok, "strict catches transitive non-export: {v}");
     let d = &v["integrity"]["diagnostic"];
     assert_eq!(d["rule"], serde_json::json!("OOF-IMP7"));
-    assert_eq!(d["module_path"], serde_json::json!("Mid.M"), "structured importer: {d}");
+    assert_eq!(
+        d["module_path"],
+        serde_json::json!("Mid.M"),
+        "structured importer: {d}"
+    );
 }
 
 /// LAB-IGNITER-PACKAGE-TRANSITIVE-GRAPH-P14: `verify --strict` catches a package-graph cycle (OOF-IMP8).
@@ -501,7 +736,10 @@ fn cli_verify_strict_catches_cycle() {
     run("lock", &root);
     let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
     assert!(!ok, "strict verify fails on a graph cycle: {v}");
-    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP8"));
+    assert_eq!(
+        v["integrity"]["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP8")
+    );
 }
 
 /// A transitive dependency's content drift is caught: after `lock` on `workspace_transitive_ok`, editing the
@@ -518,7 +756,11 @@ fn cli_transitive_content_drift_detected() {
     let (ok, v) = run("verify", &root);
     assert!(!ok, "transitive content change must be drift: {v}");
     assert!(
-        v["drift"].as_array().unwrap().iter().any(|d| d["kind"] == serde_json::json!("changed")),
+        v["drift"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["kind"] == serde_json::json!("changed")),
         "changed drift for the transitive leaf: {v}"
     );
 }
@@ -531,13 +773,24 @@ fn cli_verify_strict_closed_default_seals() {
     run("lock", &root);
 
     let (ok_plain, _) = run("verify", &root);
-    assert!(ok_plain, "plain verify is drift-only and passes under closed policy");
+    assert!(
+        ok_plain,
+        "plain verify is drift-only and passes under closed policy"
+    );
 
     let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
-    assert!(!ok_strict, "strict verify seals an undeclared dependency under closed policy: {v}");
-    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP7"));
     assert!(
-        v["integrity"]["diagnostic"]["message"].as_str().is_some_and(|m| m.contains("closed")),
+        !ok_strict,
+        "strict verify seals an undeclared dependency under closed policy: {v}"
+    );
+    assert_eq!(
+        v["integrity"]["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP7")
+    );
+    assert!(
+        v["integrity"]["diagnostic"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("closed")),
         "closed-policy message: {v}"
     );
 }
@@ -556,10 +809,16 @@ fn cli_export_change_is_lock_drift() {
     std::fs::write(&dep_manifest, edited).unwrap();
 
     let (ok, v) = run("verify", &root);
-    assert!(!ok, "exports change must be drift (manifest folded into digest): {v}");
+    assert!(
+        !ok,
+        "exports change must be drift (manifest folded into digest): {v}"
+    );
     let drift = v["drift"].as_array().unwrap();
     assert!(
-        drift.iter().any(|d| d["kind"] == serde_json::json!("changed") && d["name"] == serde_json::json!("lib")),
+        drift
+            .iter()
+            .any(|d| d["kind"] == serde_json::json!("changed")
+                && d["name"] == serde_json::json!("lib")),
         "changed drift for lib after exports edit: {v}"
     );
 }
