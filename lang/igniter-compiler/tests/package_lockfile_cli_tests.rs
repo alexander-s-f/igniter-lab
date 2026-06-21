@@ -123,3 +123,28 @@ fn cli_verify_detects_toolchain_drift() {
     assert_eq!(tc["field"], serde_json::json!("compiler"));
     assert_eq!(tc["locked"], serde_json::json!("0.0.0-bogus"));
 }
+
+/// LAB-IGNITER-PACKAGE-STDLIB-VERSION-CONSTANT-P6: `igc lock` writes `toolchain.stdlib`; tampering it on
+/// disk makes `igc verify` report a `toolchain` drift with `field:"stdlib"` and exit non-zero.
+#[test]
+fn cli_lock_writes_stdlib_and_verify_detects_stdlib_drift() {
+    let root = temp_workspace("stdlib");
+    run("lock", &root);
+    let lock_path = root.join("igniter.lock");
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&lock_path).unwrap()).unwrap();
+    assert!(
+        v["toolchain"]["stdlib"].as_str().is_some_and(|s| !s.is_empty()),
+        "lock writes a non-empty toolchain.stdlib: {v}"
+    );
+    v["toolchain"]["stdlib"] = Value::String("0.0.0-bogus-stdlib".to_string());
+    std::fs::write(&lock_path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+
+    let (ok, out) = run("verify", &root);
+    assert!(!ok, "verify exits non-zero on stdlib drift");
+    let drift = out["drift"].as_array().unwrap();
+    let tc = drift
+        .iter()
+        .find(|d| d["kind"] == serde_json::json!("toolchain") && d["field"] == serde_json::json!("stdlib"))
+        .unwrap_or_else(|| panic!("expected a stdlib toolchain drift: {out}"));
+    assert_eq!(tc["locked"], serde_json::json!("0.0.0-bogus-stdlib"));
+}

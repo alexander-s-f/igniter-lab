@@ -14,3 +14,11 @@ pub mod igweb;
 pub mod project;
 // LAB-COMPILER-LIVENESS-P2: non-fatal instrumentation counters
 pub mod liveness;
+
+/// LAB-IGNITER-PACKAGE-STDLIB-VERSION-CONSTANT-P6
+/// The version of the stdlib **contract surface this compiler implements** (the baked-in `stdlib.*`
+/// signatures in `typechecker::stdlib_calls`). `igniter-stdlib` is not a Cargo dependency of the compiler,
+/// so this constant is the authoritative, compiler-owned stdlib version — mirrored from
+/// `igniter-stdlib/Cargo.toml` and guarded by a test (`stdlib_version_mirrors_crate`) against silent
+/// divergence. Bump this when the baked-in stdlib surface changes.
+pub const STDLIB_VERSION: &str = "0.1.0";

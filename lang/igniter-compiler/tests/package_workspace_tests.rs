@@ -201,6 +201,7 @@ fn lock_json_roundtrips() {
     let lock = WorkspaceLock {
         toolchain: Toolchain {
             compiler: "9.9.9".to_string(),
+            stdlib: "8.8.8".to_string(),
         },
         dependencies: vec![LockedDependency {
             name: "lib".to_string(),
@@ -210,6 +211,84 @@ fn lock_json_roundtrips() {
     };
     let parsed = WorkspaceLock::from_value(&lock.to_value()).unwrap();
     assert_eq!(lock, parsed);
+}
+
+// ── LAB-IGNITER-PACKAGE-STDLIB-VERSION-CONSTANT-P6 ──────────────────────────────────────────────────
+
+/// The lock stamps the stdlib surface version (`STDLIB_VERSION`).
+#[test]
+fn lock_stamps_stdlib_version() {
+    let lock = project::workspace_lock(&app("workspace")).unwrap();
+    assert_eq!(lock.toolchain.stdlib, igniter_compiler::STDLIB_VERSION);
+    assert!(!lock.toolchain.stdlib.is_empty(), "stdlib version stamped");
+}
+
+/// A lock pinned to a different stdlib version verifies as a `Toolchain{field:"stdlib"}` drift.
+#[test]
+fn stdlib_drift_detected() {
+    let root = app("workspace");
+    let mut lock = project::workspace_lock(&root).unwrap();
+    lock.toolchain.stdlib = "0.0.0-old-stdlib".to_string();
+    let drift = project::verify_lock(&root, &lock).unwrap();
+    let tc: Vec<&LockDrift> = drift
+        .iter()
+        .filter(|d| matches!(d, LockDrift::Toolchain { field, .. } if field == "stdlib"))
+        .collect();
+    assert_eq!(tc.len(), 1, "one stdlib drift: {drift:?}");
+    match tc[0] {
+        LockDrift::Toolchain {
+            field,
+            locked,
+            actual,
+        } => {
+            assert_eq!(field, "stdlib");
+            assert_eq!(locked, "0.0.0-old-stdlib");
+            assert_eq!(actual, igniter_compiler::STDLIB_VERSION);
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Backward-compat: a P5-style lock with an empty stdlib field yields no stdlib drift (the compiler field
+/// is still checked independently).
+#[test]
+fn unpinned_stdlib_has_no_stdlib_drift() {
+    let root = app("workspace");
+    let mut lock = project::workspace_lock(&root).unwrap();
+    lock.toolchain.stdlib = String::new(); // pre-P6 lock: no stdlib pin
+    let drift = project::verify_lock(&root, &lock).unwrap();
+    assert!(
+        !drift
+            .iter()
+            .any(|d| matches!(d, LockDrift::Toolchain { field, .. } if field == "stdlib")),
+        "unpinned stdlib must not drift: {drift:?}"
+    );
+}
+
+/// Guard: the compiler-owned `STDLIB_VERSION` mirrors `igniter-stdlib/Cargo.toml`. If the sibling crate is
+/// reachable, the versions must match (catches silent divergence); otherwise the check is skipped so the
+/// test is isolation-safe.
+#[test]
+fn stdlib_version_mirrors_crate() {
+    let manifest = Path::new("../igniter-stdlib/Cargo.toml");
+    let Ok(content) = std::fs::read_to_string(manifest) else {
+        eprintln!("skip: ../igniter-stdlib/Cargo.toml not reachable");
+        return;
+    };
+    // Read the `[package]` version (first `version = "..."` line).
+    let crate_version = content
+        .lines()
+        .find_map(|l| {
+            let l = l.trim();
+            l.strip_prefix("version")
+                .and_then(|r| r.trim_start().strip_prefix('='))
+                .map(|r| r.trim().trim_matches('"').to_string())
+        })
+        .expect("igniter-stdlib version line");
+    assert_eq!(
+        igniter_compiler::STDLIB_VERSION, crate_version,
+        "STDLIB_VERSION must mirror igniter-stdlib/Cargo.toml (bump the constant when stdlib changes)"
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5 ───────────────────────────────────────────────────────

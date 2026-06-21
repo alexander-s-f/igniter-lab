@@ -283,13 +283,17 @@ pub struct LockedDependency {
     pub digest: String,
 }
 
-/// LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5.
-/// The toolchain that produced a lock. v0 pins the compiler version (`env!("CARGO_PKG_VERSION")`).
-/// `stdlib` and lowerer versions are deferred because the compiler has no authoritative constants for them yet.
+/// LAB-IGNITER-PACKAGE-VERSION-PROVENANCE-P5 / STDLIB-VERSION-CONSTANT-P6.
+/// The toolchain that produced a lock. Two build-time constants the compiler crate authoritatively stamps:
+/// the **compiler version** (`env!("CARGO_PKG_VERSION")`) and the **stdlib surface version**
+/// (`crate::STDLIB_VERSION`). `grammar_version` is per-program (dynamic) and a dedicated lowerer version
+/// has no constant yet — both deferred. Each field empty = unpinned for that field (a pre-P5 / pre-P6 lock).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Toolchain {
     /// `igniter_compiler` crate version at lock time. Empty = unpinned (a pre-P5 lock).
     pub compiler: String,
+    /// stdlib contract-surface version (`crate::STDLIB_VERSION`). Empty = unpinned (a pre-P6 lock).
+    pub stdlib: String,
 }
 
 /// A per-workspace lock: the producing **toolchain** + a deterministic, name-sorted list of dependency
@@ -328,6 +332,7 @@ pub enum LockDrift {
 pub fn current_toolchain() -> Toolchain {
     Toolchain {
         compiler: env!("CARGO_PKG_VERSION").to_string(),
+        stdlib: crate::STDLIB_VERSION.to_string(),
     }
 }
 
@@ -336,7 +341,7 @@ impl WorkspaceLock {
     pub fn to_value(&self) -> Value {
         json!({
             "version": 1,
-            "toolchain": { "compiler": self.toolchain.compiler },
+            "toolchain": { "compiler": self.toolchain.compiler, "stdlib": self.toolchain.stdlib },
             "dependencies": self
                 .dependencies
                 .iter()
@@ -348,13 +353,16 @@ impl WorkspaceLock {
     /// Parse a lock back from its JSON value (`None` if malformed). The `toolchain` block is optional: a
     /// pre-P5 lock without one parses as **unpinned** (empty compiler) → no toolchain drift.
     pub fn from_value(v: &Value) -> Option<WorkspaceLock> {
-        let toolchain = Toolchain {
-            compiler: v
-                .get("toolchain")
-                .and_then(|t| t.get("compiler"))
+        let tc_field = |field: &str| -> String {
+            v.get("toolchain")
+                .and_then(|t| t.get(field))
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
-                .to_string(),
+                .to_string()
+        };
+        let toolchain = Toolchain {
+            compiler: tc_field("compiler"),
+            stdlib: tc_field("stdlib"),
         };
         let arr = v.get("dependencies")?.as_array()?;
         let mut dependencies = Vec::with_capacity(arr.len());
@@ -398,14 +406,23 @@ pub fn workspace_lock(root: &Path) -> Result<WorkspaceLock, ProjectError> {
 pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, ProjectError> {
     let current = workspace_lock(root)?;
     let mut drifts = Vec::new();
-    // Toolchain drift first — only when the lock actually pinned the compiler (empty compiler is an
-    // unpinned pre-P5 lock = "no claim", so it never reports drift).
-    if !lock.toolchain.compiler.is_empty() && lock.toolchain.compiler != current.toolchain.compiler {
-        drifts.push(LockDrift::Toolchain {
-            field: "compiler".to_string(),
-            locked: lock.toolchain.compiler.clone(),
-            actual: current.toolchain.compiler.clone(),
-        });
+    // Toolchain drift first — per field, only when the lock actually pinned that field (an empty field is
+    // an unpinned pre-P5/pre-P6 lock = "no claim", so it never reports drift).
+    for (field, locked, actual) in [
+        (
+            "compiler",
+            &lock.toolchain.compiler,
+            &current.toolchain.compiler,
+        ),
+        ("stdlib", &lock.toolchain.stdlib, &current.toolchain.stdlib),
+    ] {
+        if !locked.is_empty() && locked != actual {
+            drifts.push(LockDrift::Toolchain {
+                field: field.to_string(),
+                locked: locked.clone(),
+                actual: actual.clone(),
+            });
+        }
     }
     for cur in &current.dependencies {
         match lock.dependencies.iter().find(|d| d.name == cur.name) {
