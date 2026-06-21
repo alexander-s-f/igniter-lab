@@ -2054,88 +2054,18 @@ impl VM {
                             list.push(args[1].clone());
                             Value::Array(Arc::new(list))
                         }
-                        // LAB-STDLIB-MATH-TRANSCENDENTALS-P2: Tier-1 Float transcendentals (fast f64 path).
-                        // Float-only, no implicit Integer/Decimal coercion. Deterministic cross-arch
-                        // variants are a separate card. Accepts bare and `stdlib.math.*` qualified names.
-                        "stdlib.math.sin" | "sin" => {
-                            if args.len() != 1 {
-                                return Err(format!("sin expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) => Value::Float(x.sin()),
-                                _ => return Err("sin expects a Float argument".to_string()),
-                            }
-                        }
-                        "stdlib.math.cos" | "cos" => {
-                            if args.len() != 1 {
-                                return Err(format!("cos expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) => Value::Float(x.cos()),
-                                _ => return Err("cos expects a Float argument".to_string()),
-                            }
-                        }
-                        "stdlib.math.sqrt" | "sqrt" => {
-                            if args.len() != 1 {
-                                return Err(format!("sqrt expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) => Value::Float(x.sqrt()),
-                                _ => return Err("sqrt expects a Float argument".to_string()),
-                            }
-                        }
-                        "stdlib.math.pi" | "pi" => {
-                            if !args.is_empty() {
-                                return Err(format!("pi expects 0 arguments, got {}", args.len()));
-                            }
-                            Value::Float(std::f64::consts::PI)
-                        }
-                        // LAB-STDLIB-MATH-DET-TIER1-P5: DETERMINISTIC Float transcendentals (replay-safe).
-                        // Surface = flat `det_sin/det_cos/det_sqrt` (dotted `det.sin` is a parse error OOF-P0).
-                        // det_sin/det_cos: vendored pure-Rust `libm` (MUSL port) — one fixed algorithm;
-                        // exact golden bits are locked locally, while cross-arch confirmation is qemu-CI follow-up.
-                        // det_sqrt: std `f64::sqrt` (IEEE-754 correctly-rounded = already deterministic).
-                        // NEVER emits NaN/Inf (non-finite → JSON null in the observation stream): a non-finite
-                        // input, or a negative sqrt, is a deterministic ERROR, not a silent NaN.
-                        "stdlib.math.det_sin" | "det_sin" => {
-                            if args.len() != 1 {
-                                return Err(format!("det_sin expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) if x.is_finite() => Value::Float(libm::sin(*x)),
-                                Value::Float(_) => {
-                                    return Err("det_sin: non-finite input is not permitted".to_string())
-                                }
-                                _ => return Err("det_sin expects a Float argument".to_string()),
-                            }
-                        }
-                        "stdlib.math.det_cos" | "det_cos" => {
-                            if args.len() != 1 {
-                                return Err(format!("det_cos expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) if x.is_finite() => Value::Float(libm::cos(*x)),
-                                Value::Float(_) => {
-                                    return Err("det_cos: non-finite input is not permitted".to_string())
-                                }
-                                _ => return Err("det_cos expects a Float argument".to_string()),
-                            }
-                        }
-                        "stdlib.math.det_sqrt" | "det_sqrt" => {
-                            if args.len() != 1 {
-                                return Err(format!("det_sqrt expects exactly 1 argument, got {}", args.len()));
-                            }
-                            match &args[0] {
-                                Value::Float(x) if x.is_finite() && *x >= 0.0 => Value::Float(x.sqrt()),
-                                Value::Float(x) if !x.is_finite() => {
-                                    return Err("det_sqrt: non-finite input is not permitted".to_string())
-                                }
-                                Value::Float(_) => {
-                                    return Err("det_sqrt: domain error (negative input)".to_string())
-                                }
-                                _ => return Err("det_sqrt expects a Float argument".to_string()),
-                            }
-                        }
+                        // LAB-STDLIB-MATH-TRANSCENDENTALS-P2 / DET-TIER1-P5 / EVAL-AST-PARITY-P10:
+                        // Tier-1 math (fast `sin/cos/sqrt/pi` + deterministic `det_*`) now resolves through a
+                        // SINGLE semantic source, `eval_math_call`, shared with the eval_ast HOF/lambda path —
+                        // so these compose inside map/fold/filter lambdas (P9 blocker) with identical
+                        // semantics/messages on both paths. Float-only, no coercion; det_* finite-guaranteed.
+                        "stdlib.math.sin" | "sin" | "stdlib.math.cos" | "cos"
+                        | "stdlib.math.sqrt" | "sqrt" | "stdlib.math.pi" | "pi"
+                        | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
+                        | "stdlib.math.det_sqrt" | "det_sqrt" => match eval_math_call(fn_name, &args) {
+                            Some(r) => r?,
+                            None => unreachable!("OP_CALL math arm names mirror eval_math_call"),
+                        },
                         "filter" => {
                             if args.len() != 2 {
                                 return Err(format!(
@@ -3413,6 +3343,69 @@ impl VM {
 
         Err("Evaluation halted without explicit RET instruction".to_string())
     }
+}
+
+/// LAB-STDLIB-MATH-EVAL-AST-PARITY-P10
+/// Single semantic source for Tier-1 stdlib math — fast P2 (`sin/cos/sqrt/pi`, platform `f64`) and
+/// deterministic P5 (`det_sin/det_cos/det_sqrt`: `libm` for sin/cos, IEEE `f64::sqrt` for sqrt). Used by
+/// BOTH the bytecode `OP_CALL` dispatch and the `eval_ast` HOF/lambda path, so math composes inside
+/// `map`/`fold`/`filter` lambda bodies. Returns `None` when `fn_name` is not a math function (the caller
+/// falls through to its own dispatch); `Some(_)` carries the value or a deterministic error. Float-only (no
+/// implicit coercion); `det_*` never yield NaN/Inf — non-finite input and negative `det_sqrt` are errors.
+pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    // Arity + Float-type check, message-identical to the original bytecode arms.
+    fn unary(
+        name: &str,
+        args: &[Value],
+        f: impl Fn(f64) -> Result<f64, String>,
+    ) -> Result<Value, String> {
+        if args.len() != 1 {
+            return Err(format!("{} expects exactly 1 argument, got {}", name, args.len()));
+        }
+        match &args[0] {
+            Value::Float(x) => f(*x).map(Value::Float),
+            _ => Err(format!("{} expects a Float argument", name)),
+        }
+    }
+    let result = match fn_name {
+        // fast, platform f64 (P2)
+        "stdlib.math.sin" | "sin" => unary("sin", args, |x| Ok(x.sin())),
+        "stdlib.math.cos" | "cos" => unary("cos", args, |x| Ok(x.cos())),
+        "stdlib.math.sqrt" | "sqrt" => unary("sqrt", args, |x| Ok(x.sqrt())),
+        "stdlib.math.pi" | "pi" => {
+            if args.is_empty() {
+                Ok(Value::Float(std::f64::consts::PI))
+            } else {
+                Err(format!("pi expects 0 arguments, got {}", args.len()))
+            }
+        }
+        // deterministic, replay-safe (P5): libm for sin/cos, IEEE f64::sqrt; never NaN/Inf.
+        "stdlib.math.det_sin" | "det_sin" => unary("det_sin", args, |x| {
+            if x.is_finite() {
+                Ok(libm::sin(x))
+            } else {
+                Err("det_sin: non-finite input is not permitted".to_string())
+            }
+        }),
+        "stdlib.math.det_cos" | "det_cos" => unary("det_cos", args, |x| {
+            if x.is_finite() {
+                Ok(libm::cos(x))
+            } else {
+                Err("det_cos: non-finite input is not permitted".to_string())
+            }
+        }),
+        "stdlib.math.det_sqrt" | "det_sqrt" => unary("det_sqrt", args, |x| {
+            if !x.is_finite() {
+                Err("det_sqrt: non-finite input is not permitted".to_string())
+            } else if x < 0.0 {
+                Err("det_sqrt: domain error (negative input)".to_string())
+            } else {
+                Ok(x.sqrt())
+            }
+        }),
+        _ => return None,
+    };
+    Some(result)
 }
 
 fn eval_ast<'a>(
@@ -5269,6 +5262,13 @@ fn eval_ast<'a>(
                         .await
                     }
                     _ => {
+                        // LAB-STDLIB-MATH-EVAL-AST-PARITY-P10: Tier-1 stdlib math (fast + det) inside
+                        // HOF/lambda bodies, dispatched BEFORE the binary-operator assumption — otherwise a
+                        // 1-arg `sin` here would wrongly error "expects exactly 2 operands" (the P9 blocker).
+                        // Same `eval_math_call` source as the bytecode OP_CALL path → identical semantics.
+                        if let Some(math) = eval_math_call(op, &evaluated_operands) {
+                            return math;
+                        }
                         if evaluated_operands.len() != 2 {
                             return Err(format!(
                                 "Operator {} expects exactly 2 operands; got {}",
