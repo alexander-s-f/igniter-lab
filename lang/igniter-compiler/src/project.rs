@@ -43,6 +43,26 @@ pub struct ProjectConfig {
     /// dependencies only — a dependency's own `[dependencies]` are not pulled in
     /// v0 (no transitive package graph, no registry, no version solver).
     pub dependencies: Vec<Dependency>,
+    /// LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: a dependency's exported module surface (`[exports] modules`).
+    /// `None` = no `[exports]` block ⇒ the package is **open** (every module importable, backward-compatible).
+    /// `Some(list)` = restrict cross-package imports to exactly these modules; `Some([])` = a sealed package.
+    /// Only meaningful for a package consumed as a dependency; a root's own exports are ignored.
+    pub exports: Option<Vec<String>>,
+    /// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12: the **root** consumer policy for dependencies that
+    /// declare no `[exports]` block (`[package] exports = "open" | "closed"`). `Open` (default) = P10
+    /// behavior (absence = open); `Closed` = absence is treated as sealed. Only the root's policy is read.
+    pub exports_default: ExportsDefault,
+}
+
+/// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12. How the workspace root interprets a dependency that
+/// declares no `[exports]` block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExportsDefault {
+    /// Absence of `[exports]` ⇒ the dependency is open (every module importable). Backward-compatible.
+    #[default]
+    Open,
+    /// Absence of `[exports]` ⇒ the dependency is sealed; importing any of its modules is `OOF-IMP7`.
+    Closed,
 }
 
 /// LAB-IGNITER-PACKAGE-WORKSPACE-RESOLVER-P2 / LOCK-PROVENANCE-P3.
@@ -65,6 +85,8 @@ impl ProjectConfig {
     pub fn load(root: &Path) -> Self {
         let mut source_roots = vec![PathBuf::from(".")];
         let mut dependencies = Vec::new();
+        let mut exports = None;
+        let mut exports_default = ExportsDefault::Open;
         let toml_path = root.join("igniter.toml");
         if let Ok(content) = fs::read_to_string(&toml_path) {
             if let Some(roots) = parse_source_roots_toml(&content) {
@@ -79,10 +101,14 @@ impl ProjectConfig {
                     path: PathBuf::from(path),
                 })
                 .collect();
+            exports = parse_exports_toml(&content);
+            exports_default = parse_package_exports_default(&content);
         }
         ProjectConfig {
             source_roots,
             dependencies,
+            exports,
+            exports_default,
         }
     }
 }
@@ -209,6 +235,9 @@ pub struct ModuleIndex {
     by_module: BTreeMap<String, ScannedFile>,
     /// module_path -> all source paths that declared it (only modules with >1).
     duplicates: BTreeMap<String, Vec<String>>,
+    /// LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: dependency name -> its export surface.
+    /// `None` = open (no `[exports]`); `Some(set)` = cross-package imports restricted to these modules.
+    dep_exports: BTreeMap<String, Option<BTreeSet<String>>>,
 }
 
 /// Resolve the transitive, non-stdlib import closure for `entry_module`.
@@ -333,6 +362,63 @@ fn index_integrity(index: &ModuleIndex, config: &ProjectConfig) -> Option<Projec
                 target_file.package.label()
             ),
             format!("import:{}->{}", importer, imported),
+        );
+        diag.module_path = Some(importer.clone());
+        diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
+        return Some(diag);
+    }
+
+    // LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10 (+ CLOSED-DEFAULT-P12): among in-scope edges, reject imports of
+    // a dependency module that the dependency does not export. Only root→dependency edges are export-gated:
+    // same-package imports are unrestricted, and dependency→sibling/root edges already fell to OOF-IMP6 above.
+    // A dependency that declares `[exports]` is held to its allowlist. A dependency with NO `[exports]` block
+    // is open by default, OR sealed when the root opts in via `[package] exports = "closed"` (P12).
+    // Deterministic first violation. The bool marks "sealed by the closed-default policy" for the message.
+    let closed = config.exports_default == ExportsDefault::Closed;
+    let mut export_violations: Vec<(String, String, bool)> = Vec::new();
+    for (module, file) in &index.by_module {
+        if file.package != PackageId::Root {
+            continue; // exports gate only the root's imports of its dependencies
+        }
+        for imp in &file.non_stdlib_imports {
+            let Some(target) = index.by_module.get(imp) else {
+                continue;
+            };
+            let PackageId::Dependency(dep_name) = &target.package else {
+                continue; // root→root (own modules) is never export-gated
+            };
+            match index.dep_exports.get(dep_name) {
+                Some(Some(allow)) if !allow.contains(imp) => {
+                    export_violations.push((module.clone(), imp.clone(), false));
+                }
+                Some(None) if closed => {
+                    export_violations.push((module.clone(), imp.clone(), true));
+                }
+                _ => {}
+            }
+        }
+    }
+    export_violations.sort();
+    export_violations.dedup();
+    if let Some((importer, imported, sealed_by_policy)) = export_violations.first() {
+        let importer_file = &index.by_module[importer];
+        let target_file = &index.by_module[imported];
+        let dep_label = target_file.package.label();
+        let message = if *sealed_by_policy {
+            format!(
+                "non-exported import: module '{}' imports '{}' (package {}), which declares no exports ([package] exports = \"closed\")",
+                importer, imported, dep_label
+            )
+        } else {
+            format!(
+                "non-exported import: module '{}' imports '{}' (package {}), which package '{}' does not export",
+                importer, imported, dep_label, dep_label
+            )
+        };
+        let mut diag = ProjectDiagnostic::new(
+            "OOF-IMP7",
+            message,
+            format!("export:{}->{}", importer, imported),
         );
         diag.module_path = Some(importer.clone());
         diag.source_paths = vec![importer_file.source_path.to_string_lossy().to_string()];
@@ -533,9 +619,18 @@ pub fn verify_lock(root: &Path, lock: &WorkspaceLock) -> Result<Vec<LockDrift>, 
 
 /// `sha256` over a dependency's sorted source files. Each file contributes its **relative** path
 /// (location-independent) followed by its raw content; files are sorted so the digest is deterministic.
+///
+/// LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: the dependency's `igniter.toml` (if present) is folded in as
+/// well, so a manifest change — `[exports]`, `source_roots`, or `[dependencies]` — moves the digest and is
+/// therefore caught by `verify` / `lock --frozen`. Without this, the digest hashed only `.ig` files and an
+/// exports change would be invisible to the lock.
 fn dependency_digest(dep_root: &Path) -> Result<String, ProjectError> {
     let dep_config = ProjectConfig::load(dep_root);
     let mut files: Vec<PathBuf> = Vec::new();
+    let manifest = dep_root.join("igniter.toml");
+    if manifest.is_file() {
+        files.push(manifest);
+    }
     for source_root in &dep_config.source_roots {
         let scan_root = if source_root == Path::new(".") {
             dep_root.to_path_buf()
@@ -591,9 +686,19 @@ fn build_module_index(
     // into the SAME file set, so cross-package `import Foo.Bar` resolves and duplicate module ownership
     // across packages is caught by the existing OOF-IMP4 check below. Direct dependencies only — a
     // dependency's own `[dependencies]` are NOT traversed in v0 (no transitive package graph).
+    // LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10: record each dependency's export surface (by name) for the
+    // integrity pass. `None` = open; `Some(set)` = cross-package imports restricted to these modules.
+    let mut dep_exports: BTreeMap<String, Option<BTreeSet<String>>> = BTreeMap::new();
     for dep in &config.dependencies {
         let dep_root = root.join(&dep.path);
         let dep_config = ProjectConfig::load(&dep_root);
+        dep_exports.insert(
+            dep.name.clone(),
+            dep_config
+                .exports
+                .clone()
+                .map(|v| v.into_iter().collect::<BTreeSet<String>>()),
+        );
         let mut dep_files: Vec<PathBuf> = Vec::new();
         for source_root in &dep_config.source_roots {
             let scan_root = if source_root == Path::new(".") {
@@ -665,6 +770,7 @@ fn build_module_index(
     Ok(ModuleIndex {
         by_module,
         duplicates: dup_acc,
+        dep_exports,
     })
 }
 
@@ -877,6 +983,83 @@ fn first_quoted(s: &str) -> Option<String> {
     let rest = &s[start + 1..];
     let end = rest.bytes().position(|b| b == quote)?;
     Some(rest[..end].to_string())
+}
+
+/// LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10
+/// Parse a dependency's `[exports] modules = ["A", "B"]` allowlist. Section-scoped, hand-rolled (no toml
+/// crate), mirroring `parse_dependencies_toml`. Returns:
+/// - `None` if there is **no** `[exports]` section (package is open / backward-compatible);
+/// - `Some(list)` if the section is present (possibly empty `modules`, or no `modules` key ⇒ `Some([])`,
+///   a deliberately sealed package). Exact module paths only — no globs.
+fn parse_exports_toml(content: &str) -> Option<Vec<String>> {
+    let mut in_exports = false;
+    let mut seen_section = false;
+    let mut modules = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_exports = line == "[exports]";
+            if in_exports {
+                seen_section = true;
+            }
+            continue;
+        }
+        if !in_exports {
+            continue;
+        }
+        // `modules = ["A", "B"]` — same array shape as source_roots.
+        let Some(rest) = line.strip_prefix("modules") else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let inner = rest.trim().trim_start_matches('[').trim_end_matches(']');
+        modules = inner
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    if seen_section {
+        Some(modules)
+    } else {
+        None
+    }
+}
+
+/// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12
+/// Parse the root consumer policy `[package] exports = "open" | "closed"`. Section-scoped, hand-rolled.
+/// Defaults to `Open` (absent section / key / unrecognized value), so existing manifests are unchanged.
+fn parse_package_exports_default(content: &str) -> ExportsDefault {
+    let mut in_package = false;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("exports") else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let value = rest.trim().trim_matches('"').trim_matches('\'');
+        if value == "closed" {
+            return ExportsDefault::Closed;
+        }
+    }
+    ExportsDefault::Open
 }
 
 /// Minimal `source_roots = ["a", "b"]` extractor. Not a general TOML parser.

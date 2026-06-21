@@ -186,6 +186,134 @@ fn check_workspace_integrity_ok_on_clean() {
     assert!(project::check_workspace_integrity(&app("workspace")).is_ok());
 }
 
+// ── LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10 ──────────────────────────────────────────────────────────
+
+/// An exported dependency module is importable; an intra-package import of a private module (inside the
+/// dependency) is unrestricted. `workspace_exports_ok` resolves clean with all three files.
+#[test]
+fn exported_module_import_is_allowed() {
+    let paths =
+        project::resolve_entry(Path::new(&format!("{FIX}/workspace_exports_ok/app")), "App.Main")
+            .unwrap();
+    let names = module_files(&paths);
+    assert!(names.contains(&"main.ig".to_string()), "{names:?}");
+    assert!(
+        names.contains(&"public.ig".to_string()) && names.contains(&"private.ig".to_string()),
+        "intra-package import of the private module is allowed: {names:?}"
+    );
+}
+
+/// Importing a NON-exported dependency module is `OOF-IMP7`.
+#[test]
+fn non_exported_module_import_is_oof_imp7() {
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_exports_private/app")),
+        "App.Main",
+    )
+    .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP7", "non-exported import → OOF-IMP7: {d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("App.Main"), "importer module");
+            assert!(
+                d.message.contains("Lib.Private") && d.message.contains("lib"),
+                "message names imported module + package: {}",
+                d.message
+            );
+            assert_eq!(d.source_paths.len(), 1, "importer source path reported");
+        }
+        other => panic!("expected OOF-IMP7, got {other:?}"),
+    }
+}
+
+/// A dependency with NO `[exports]` block stays open (the P2 `workspace` fixture's `lib` declares none).
+#[test]
+fn no_exports_block_is_open() {
+    let res = project::resolve_entry(Path::new(&format!("{FIX}/workspace/app")), "App.Main");
+    assert!(res.is_ok(), "no [exports] block ⇒ open: {res:?}");
+}
+
+/// P7 phantom sibling edge is still `OOF-IMP6`, not reclassified by the export pass (OOF-IMP6 runs first).
+#[test]
+fn phantom_sibling_still_oof_imp6_after_exports() {
+    let err = project::resolve_entry(Path::new(&format!("{FIX}/workspace_phantom/app")), "App.Main")
+        .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP6", "{d:?}"),
+        other => panic!("expected OOF-IMP6, got {other:?}"),
+    }
+}
+
+/// `check_workspace_integrity` reports `OOF-IMP7` entry-free (so `verify --strict` catches it).
+#[test]
+fn check_workspace_integrity_flags_non_export() {
+    let err = project::check_workspace_integrity(&app("workspace_exports_private")).unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP7", "{d:?}"),
+        other => panic!("expected OOF-IMP7, got {other:?}"),
+    }
+}
+
+// ── LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12 ──────────────────────────────────────────────────
+
+/// Under the root `[package] exports = "closed"` policy, a dependency that declares NO `[exports]` block is
+/// sealed: importing any of its modules is `OOF-IMP7` (message names the closed-default policy).
+#[test]
+fn closed_default_seals_undeclared_dependency() {
+    let err =
+        project::resolve_entry(Path::new(&format!("{FIX}/workspace_closed_default/app")), "App.Main")
+            .unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP7", "{d:?}");
+            assert_eq!(d.module_path.as_deref(), Some("App.Main"));
+            assert!(
+                d.message.contains("Lib.A") && d.message.contains("closed"),
+                "message names the import + closed policy: {}",
+                d.message
+            );
+        }
+        other => panic!("expected OOF-IMP7, got {other:?}"),
+    }
+}
+
+/// Under closed policy, a dependency that DOES declare `[exports]` is honored: the exported module imports,
+/// and its same-package private import is unrestricted. Resolves clean.
+#[test]
+fn closed_default_honors_declared_exports_and_same_package() {
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_closed_declared/app")),
+        "App.Main",
+    )
+    .unwrap();
+    let names = module_files(&paths);
+    assert!(names.contains(&"main.ig".to_string()), "{names:?}");
+    assert!(
+        names.contains(&"public.ig".to_string()) && names.contains(&"private.ig".to_string()),
+        "declared export + same-package private import both allowed under closed: {names:?}"
+    );
+}
+
+/// The default policy stays Open: an undeclared dependency (no `[package]`/`[exports]`) remains importable
+/// (the existing `workspace` fixture; backward-compatible).
+#[test]
+fn open_default_leaves_undeclared_open() {
+    assert!(
+        project::resolve_entry(Path::new(&format!("{FIX}/workspace/app")), "App.Main").is_ok(),
+        "open default unchanged"
+    );
+}
+
+/// `check_workspace_integrity` reports the closed-default `OOF-IMP7` entry-free (so `verify --strict` sees it).
+#[test]
+fn check_workspace_integrity_flags_closed_default() {
+    let err = project::check_workspace_integrity(&app("workspace_closed_default")).unwrap_err();
+    match err {
+        ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP7", "{d:?}"),
+        other => panic!("expected OOF-IMP7, got {other:?}"),
+    }
+}
+
 // ── LAB-IGNITER-PACKAGE-LOCK-PROVENANCE-P3 ──────────────────────────────────────────────────────────
 
 fn app(fixture: &str) -> PathBuf {

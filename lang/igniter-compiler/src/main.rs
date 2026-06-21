@@ -219,14 +219,14 @@ fn run_verify(args: &[String]) {
         }
     };
 
-    // --strict (CI): also require workspace assembly integrity (OOF-IMP4 / OOF-IMP6).
+    // --strict (CI): also require workspace assembly integrity (OOF-IMP4 / OOF-IMP6 / OOF-IMP7).
+    // LAB-IGNITER-PACKAGE-EXPORTS-CI-P11: emit the diagnostic's full structured form (`d.to_value()` —
+    // rule/node/module_path/source_paths) so CI and agents read importer/imported/package/path as fields,
+    // not by parsing `message`. No new metadata is added to ProjectDiagnostic; the fields already exist.
     let integrity_diag: Option<Value> = if strict {
         match project::check_workspace_integrity(Path::new(&root)) {
             Ok(()) => None,
-            Err(project::ProjectError::Diagnostic(d)) => Some(json!({
-                "rule": d.rule,
-                "message": d.message,
-            })),
+            Err(project::ProjectError::Diagnostic(d)) => Some(d.to_value()),
             Err(_) => Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble workspace" })),
         }
     } else {

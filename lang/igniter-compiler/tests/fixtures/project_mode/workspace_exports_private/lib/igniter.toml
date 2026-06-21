@@ -1,0 +1,4 @@
+source_roots = ["src"]
+
+[exports]
+modules = ["Lib.Public"]

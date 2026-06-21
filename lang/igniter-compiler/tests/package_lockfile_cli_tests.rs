@@ -239,3 +239,87 @@ fn cli_verify_strict_passes_clean() {
     assert_eq!(v["ok"], Value::Bool(true));
     assert_eq!(v["integrity"]["ok"], Value::Bool(true));
 }
+
+// ── LAB-IGNITER-PACKAGE-MODULE-EXPORTS-P10 ──────────────────────────────────────────────────────────
+
+/// `igc verify --strict` catches a non-exported dependency-module import (OOF-IMP7); plain `verify` is
+/// drift-only and passes.
+#[test]
+fn cli_verify_strict_catches_non_export() {
+    let root = temp_fixture("workspace_exports_private", "strict_export");
+    run("lock", &root);
+
+    let (ok_plain, _) = run("verify", &root);
+    assert!(ok_plain, "plain verify is drift-only and passes despite the non-exported import");
+
+    let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok_strict, "strict verify fails on non-exported import: {v}");
+    assert_eq!(v["integrity"]["ok"], Value::Bool(false));
+    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP7"));
+}
+
+/// LAB-IGNITER-PACKAGE-EXPORTS-CI-P11: the strict integrity diagnostic is **structured** — CI/agents read
+/// importer/imported/package/path as fields (`rule`, `node`, `module_path`, `source_paths`), not by parsing
+/// `message`.
+#[test]
+fn cli_verify_strict_integrity_is_structured() {
+    let root = temp_fixture("workspace_exports_private", "strict_structured");
+    run("lock", &root);
+    let (ok, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok, "non-exported import fails strict verify: {v}");
+    let d = &v["integrity"]["diagnostic"];
+    assert_eq!(d["rule"], serde_json::json!("OOF-IMP7"));
+    assert_eq!(d["module_path"], serde_json::json!("App.Main"), "importer module as a field");
+    assert_eq!(
+        d["node"],
+        serde_json::json!("export:App.Main->Lib.Private"),
+        "importer→imported edge as a field"
+    );
+    assert!(
+        d["source_paths"].as_array().is_some_and(|a| a.len() == 1),
+        "importer source path as a field: {d}"
+    );
+    // The human message is still present alongside the structured fields.
+    assert!(d["message"].as_str().is_some_and(|m| m.contains("Lib.Private")), "{d}");
+}
+
+/// LAB-IGNITER-PACKAGE-EXPORTS-CLOSED-DEFAULT-P12: `verify --strict` under a root `[package] exports =
+/// "closed"` policy fails (OOF-IMP7) when a dependency declares no exports; plain `verify` is drift-only.
+#[test]
+fn cli_verify_strict_closed_default_seals() {
+    let root = temp_fixture("workspace_closed_default", "strict_closed");
+    run("lock", &root);
+
+    let (ok_plain, _) = run("verify", &root);
+    assert!(ok_plain, "plain verify is drift-only and passes under closed policy");
+
+    let (ok_strict, v) = run_args(&["verify", "--project-root", &root_arg(&root), "--strict"]);
+    assert!(!ok_strict, "strict verify seals an undeclared dependency under closed policy: {v}");
+    assert_eq!(v["integrity"]["diagnostic"]["rule"], serde_json::json!("OOF-IMP7"));
+    assert!(
+        v["integrity"]["diagnostic"]["message"].as_str().is_some_and(|m| m.contains("closed")),
+        "closed-policy message: {v}"
+    );
+}
+
+/// The dependency digest folds in `igniter.toml`, so editing a dependency's `[exports]` is drift: after
+/// `lock`, changing `lib/igniter.toml` makes `verify` report a `changed` drift for that dependency.
+#[test]
+fn cli_export_change_is_lock_drift() {
+    let root = temp_fixture("workspace_exports_ok", "export_drift");
+    run("lock", &root);
+    // Edit ONLY the dependency manifest's exports (no .ig change).
+    let dep_manifest = root.join("../lib/igniter.toml");
+    let edited = std::fs::read_to_string(&dep_manifest)
+        .unwrap()
+        .replace("\"Lib.Public\"", "\"Lib.Public\", \"Lib.Private\"");
+    std::fs::write(&dep_manifest, edited).unwrap();
+
+    let (ok, v) = run("verify", &root);
+    assert!(!ok, "exports change must be drift (manifest folded into digest): {v}");
+    let drift = v["drift"].as_array().unwrap();
+    assert!(
+        drift.iter().any(|d| d["kind"] == serde_json::json!("changed") && d["name"] == serde_json::json!("lib")),
+        "changed drift for lib after exports edit: {v}"
+    );
+}

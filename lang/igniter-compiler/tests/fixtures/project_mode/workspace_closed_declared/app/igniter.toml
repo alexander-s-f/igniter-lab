@@ -1,0 +1,7 @@
+source_roots = ["src"]
+
+[package]
+exports = "closed"
+
+[dependencies]
+lib = { path = "../lib" }
