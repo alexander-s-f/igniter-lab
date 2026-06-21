@@ -1,6 +1,6 @@
 # LAB-IGNITER-PACKAGE-REMOTE-TRUST-READINESS-P22 — verified artifact trust for future remote nodes
 
-Status: OPEN
+Status: CLOSED
 Lane: package / remote substrate / trust
 Type: readiness / design
 Delegation code: OPUS-IGNITER-PACKAGE-REMOTE-TRUST-READINESS-P22
@@ -101,19 +101,19 @@ Live code wins over this card. If an archive feature is only readiness and not i
 
 ## Acceptance
 
-- [ ] Packet maps current package primitives to remote-node trust.
-- [ ] Packet states whether `.igpkg` source archive is enough for v0.
-- [ ] Packet defines required provenance fields.
-- [ ] Packet defines node refusal conditions.
-- [ ] Packet explains how `verify --strict` is used by a remote node.
-- [ ] Packet separates package trust from transport/auth/control-plane.
-- [ ] Packet connects to network Kuramoto artifact lineage.
-- [ ] Packet names first implementation proof and acceptance matrix.
-- [ ] No code changes.
-- [ ] No registry/semver claim.
-- [ ] No remote/deploy changes.
-- [ ] Proof doc written under `lab-docs/lang/`.
-- [ ] `git diff --check` clean.
+- [x] Packet maps current package primitives to remote-node trust.
+- [x] Packet states whether `.igpkg` source archive is enough for v0.
+- [x] Packet defines required provenance fields.
+- [x] Packet defines node refusal conditions.
+- [x] Packet explains how `verify --strict` is used by a remote node.
+- [x] Packet separates package trust from transport/auth/control-plane.
+- [x] Packet connects to network Kuramoto artifact lineage.
+- [x] Packet names first implementation proof and acceptance matrix.
+- [x] No code changes.
+- [x] No registry/semver claim.
+- [x] No remote/deploy changes.
+- [x] Proof doc written under `lab-docs/lang/`.
+- [x] `git diff --check` clean.
 
 ## Suggested output
 
@@ -123,3 +123,29 @@ Live code wins over this card. If an archive feature is only readiness and not i
 
 `LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23` — local proof that a "node" process verifies a packed package/archive
 with `verify --strict`, records artifact identity in a receipt-like result, and refuses tampered/stale input.
+
+---
+
+## Closing Report (2026-06-21)
+
+**Deliverable:** `lab-docs/lang/lab-igniter-package-remote-trust-readiness-p22-v0.md` — readiness packet, no
+code (`git diff --check` clean).
+
+**Key finding:** the trust seam is **~90% already built** and the architecture is **already settled** by the
+home-lab archaeology (`docs/research/remote-node-substrate-readiness.md`): remoteness = substrate/runtime +
+host-capability + control-plane; package layer = content-addressed `.igpkg` + `verify --strict` + provenance;
+the contract stays pure + local. The live `.igpkg` (P22, **implemented** — research doc predates it) already
+carries digest + compiler/stdlib version + lockfile + closed_surfaces, and `verify_archive` already recomputes
+the digest + runs `check_workspace_integrity` **offline, no registry**.
+
+**Decisions:** **source `.igpkg` is enough for v0** (node verifies source, compiles locally, never trusts a
+foreign binary). Provenance carried; **two small gaps**: `lock_digest` + `entry_contract` in the manifest.
+**Refusal conditions:** digest-mismatch ✓ / integrity-fault ✓ (implemented); **stale-lock** (recompute lock vs
+packed) + **toolchain-drift** (manifest vs local) = **gaps → P23**; missing-lock (policy flag); unsigned
+(future). **Host/control-plane owned:** identity, authorization, transport, admission — never in package/`.ig`.
+**Kuramoto:** same `.igpkg` ⇒ same digest on every node; topology/seed = separate runtime config; receipt
+lineage carries the artifact digest.
+
+**Next:** `LAB-IGNITER-PACKAGE-REMOTE-TRUST-P23` — local node-admission proof (no networking): extend
+`verify_archive` with lock-parity + toolchain-match + a receipt-like `{accepted, artifact_digest, lock_digest,
+compiler/stdlib_version, refusals}`; 8-point acceptance matrix in §4. Registry/semver/signing far later.
