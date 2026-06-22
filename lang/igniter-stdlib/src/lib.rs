@@ -1,6 +1,8 @@
 // src/lib.rs
 // Entrypoint for the Igniter Standard Library (igniter-stdlib)
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod collections;
 pub mod decimal;
 pub mod io;

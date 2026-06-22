@@ -283,6 +283,7 @@ async fn run_kuramoto(args: ExperimentArgs) -> Result<(), String> {
         Err(e) => return fail_stage(&args.out_dir, &args.entry, "load_semantic_ir", e),
     };
     let sir_load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+    let compiler_version = extract_compiler_version(&sir_json);
     let loaded = match load_kernel(sir_json, &args.entry) {
         Ok(k) => k,
         Err(e) => return fail_stage(&args.out_dir, &args.entry, "compile_bytecode_once", e),
@@ -313,6 +314,9 @@ async fn run_kuramoto(args: ExperimentArgs) -> Result<(), String> {
             sir_load_ms,
             total_runtime_ms,
             cli_compare,
+            compiler_version,
+            stdlib_version: igniter_stdlib::VERSION.to_string(),
+            kernel_source: args.kernel.clone(),
         },
     )?;
 
@@ -897,6 +901,9 @@ struct BundleMeta {
     sir_load_ms: f64,
     total_runtime_ms: f64,
     cli_compare: JsonValue,
+    compiler_version: String,
+    stdlib_version: String,
+    kernel_source: PathBuf,
 }
 
 fn write_bundle(
@@ -951,6 +958,18 @@ fn write_bundle(
     write_json(args.out_dir.join("config.json"), &config_out)?;
     write_json(args.out_dir.join("topology.json"), &topology_out)?;
 
+    let provenance = build_provenance_json(
+        &config.kernel_mode,
+        &args.entry,
+        &meta.kernel_source,
+        &meta.kernel_hash,
+        &meta.config_hash,
+        &meta.compiler_version,
+        &meta.stdlib_version,
+        None,
+    );
+    write_json(args.out_dir.join("provenance.json"), &provenance)?;
+
     let mut series = String::from("topology,N,K,tick,global_r,local_r_mean\n");
     for row in &simulation.series_rows {
         series.push_str(&format!(
@@ -1004,7 +1023,7 @@ fn write_bundle(
         "cli_per_tick_comparison": meta.cli_compare,
     });
     write_json(args.out_dir.join("timings.json"), &timings)?;
-    write_report(args, config, &summary, &timings, speedup)?;
+    write_report(args, config, &summary, &timings, speedup, &provenance)?;
     Ok(())
 }
 
@@ -1014,6 +1033,7 @@ fn write_report(
     summary: &JsonValue,
     timings: &JsonValue,
     speedup: Option<f64>,
+    provenance: &JsonValue,
 ) -> Result<(), String> {
     let mut text = String::new();
     text.push_str("# In-process Kuramoto runner proof\n\n");
@@ -1058,9 +1078,71 @@ fn write_report(
     text.push_str("\n## Summary\n\n```json\n");
     text.push_str(&serde_json::to_string_pretty(summary).unwrap_or_default());
     text.push_str("\n```\n\n");
+    text.push_str("## Provenance\n\nSee `provenance.json` (schema: `");
+    text.push_str(
+        provenance
+            .get("schema")
+            .and_then(|v| v.as_str())
+            .unwrap_or("igniter.experiment.provenance.v1"),
+    );
+    text.push_str("`).\n\n");
+    text.push_str("| Field | Value |\n|---|---|\n");
+    for key in &[
+        "runner",
+        "runner_mode",
+        "entry",
+        "kernel_source",
+        "kernel_digest",
+        "config_digest",
+        "compiler_version",
+        "stdlib_version",
+    ] {
+        let val = provenance
+            .get(*key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        text.push_str(&format!("| {} | `{}` |\n", key, val));
+    }
+    text.push('\n');
     text.push_str("## Failure policy\n\nKernel compile/load errors and VM tick errors exit non-zero. Runtime tick failures write `failure.json` with contract/tick/error context before returning failure.\n");
     fs::write(args.out_dir.join("REPORT.md"), text)
         .map_err(|e| format!("failed to write REPORT.md: {}", e))
+}
+
+fn extract_compiler_version(sir_json: &JsonValue) -> String {
+    let fmt = sir_json
+        .get("format_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let grammar = sir_json
+        .get("grammar_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    format!("{}/{}", fmt, grammar)
+}
+
+fn build_provenance_json(
+    runner_mode: &str,
+    entry: &str,
+    kernel_source: &Path,
+    kernel_digest: &str,
+    config_digest: &str,
+    compiler_version: &str,
+    stdlib_version: &str,
+    artifact_digest: Option<&str>,
+) -> JsonValue {
+    json!({
+        "schema": "igniter.experiment.provenance.v1",
+        "runner": "igniter-vm experiment kuramoto",
+        "runner_mode": runner_mode,
+        "entry": entry,
+        "kernel_source": kernel_source.display().to_string(),
+        "kernel_digest": kernel_digest,
+        "config_digest": config_digest,
+        "compiler_version": compiler_version,
+        "stdlib_version": stdlib_version,
+        "artifact_digest": artifact_digest
+    })
 }
 
 fn write_failure(out_dir: &Path, contract: &str, stage: &str, error: &str) -> Result<(), String> {
@@ -1385,6 +1467,85 @@ mod tests {
     fn grid_topology_requires_square_n() {
         assert!(grid_topology(16).is_ok());
         assert!(grid_topology(18).is_err());
+    }
+
+    #[test]
+    fn provenance_json_shape_is_stable() {
+        let prov = build_provenance_json(
+            "node_tick",
+            "NodeTick",
+            Path::new("/lab/kernels/kuramoto_node.ig"),
+            "aabbccddeeff0011aabbccddeeff001122334455667788990011223344556677",
+            "11ffeeddccbbaa0011ffeeddccbbaa001122334455667788990011223344aabb",
+            "0.1.0/igniter-v0",
+            "0.1.4",
+            None,
+        );
+        assert_eq!(
+            prov["schema"].as_str().unwrap(),
+            "igniter.experiment.provenance.v1"
+        );
+        assert_eq!(
+            prov["runner"].as_str().unwrap(),
+            "igniter-vm experiment kuramoto"
+        );
+        assert_eq!(prov["runner_mode"].as_str().unwrap(), "node_tick");
+        assert_eq!(prov["entry"].as_str().unwrap(), "NodeTick");
+        assert_eq!(
+            prov["kernel_digest"].as_str().unwrap(),
+            "aabbccddeeff0011aabbccddeeff001122334455667788990011223344556677"
+        );
+        assert_eq!(
+            prov["compiler_version"].as_str().unwrap(),
+            "0.1.0/igniter-v0"
+        );
+        assert_eq!(prov["stdlib_version"].as_str().unwrap(), "0.1.4");
+        assert!(prov["artifact_digest"].is_null());
+    }
+
+    #[test]
+    fn provenance_json_shape_all_to_all_tick() {
+        let prov = build_provenance_json(
+            "all_to_all_tick",
+            "Tick",
+            Path::new("/lab/kernels/kuramoto.ig"),
+            "deadbeef",
+            "cafebabe",
+            "0.1.0/igniter-v0",
+            "0.1.4",
+            None,
+        );
+        assert_eq!(prov["runner_mode"].as_str().unwrap(), "all_to_all_tick");
+        assert_eq!(prov["entry"].as_str().unwrap(), "Tick");
+        assert_eq!(
+            prov["kernel_source"].as_str().unwrap(),
+            "/lab/kernels/kuramoto.ig"
+        );
+    }
+
+    #[test]
+    fn provenance_digests_are_deterministic() {
+        let input = "config:{seed:42,gamma:1.0}";
+        let h1 = sha256_text(input);
+        let h2 = sha256_text(input);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn extract_compiler_version_reads_format_and_grammar() {
+        let sir = serde_json::json!({
+            "format_version": "0.1.0",
+            "grammar_version": "igniter-v0",
+            "contracts": []
+        });
+        assert_eq!(extract_compiler_version(&sir), "0.1.0/igniter-v0");
+    }
+
+    #[test]
+    fn extract_compiler_version_fallback_on_missing_fields() {
+        let sir = serde_json::json!({ "contracts": [] });
+        assert_eq!(extract_compiler_version(&sir), "unknown/unknown");
     }
 
     #[test]
