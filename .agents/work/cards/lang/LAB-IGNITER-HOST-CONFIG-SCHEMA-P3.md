@@ -1,6 +1,6 @@
 # LAB-IGNITER-HOST-CONFIG-SCHEMA-P3 - operator-owned host.toml schema and secret hygiene
 
-Status: READY
+Status: CLOSED
 Lane: machine / host IO / config hygiene
 Type: implementation or readiness if P2 has not landed
 Delegation code: OPUS-HOST-CONFIG-SCHEMA-P3
@@ -89,14 +89,32 @@ Rules:
 
 ## Acceptance
 
-- [ ] Live source checked for existing host config surface.
-- [ ] Env-name-only v0 rule is either implemented or specified with exact parser errors.
-- [ ] Inline raw secret fields are rejected.
-- [ ] `igweb.toml` remains app-owned and cannot name DSN/passport/effect identity.
-- [ ] If implemented, tests cover allowed config, unknown keys, inline secret refusal, and missing env refusal.
-- [ ] If readiness-only, packet names the exact implementation file/test targets.
-- [ ] `git diff --check` clean.
+- [x] Live source checked for existing host config surface.
+- [x] Env-name-only v0 rule is either implemented or specified with exact parser errors.
+- [x] Inline raw secret fields are rejected.
+- [x] `igweb.toml` remains app-owned and cannot name DSN/passport/effect identity.
+- [x] If implemented, tests cover allowed config, unknown keys, inline secret refusal, and missing env refusal.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+**Date:** 2026-06-22
+**Packet:** `lab-docs/lang/lab-igniter-host-config-schema-p3-v0.md`
+**Implementation:** `server/igniter-web/src/host_config.rs`
+
+P2 had already landed with a parser skeleton (17 tests). P3 extended it with:
+
+1. **`TemplateEnvName`** — rejects `${VAR}`, `{VAR}` in any `*_env` value.
+2. **`InvalidRoute`** — rejects `route` that does not start with `/`.
+3. **`UnsupportedMode`** — rejects any `[host] mode` other than `"loopback"`.
+4. **`Io`** error variant + **`load_host_config(path)`** — IO wrapper for loading from file.
+5. **`ResolvedHostConfig` + `ResolvedEffectTarget`** — all `*_env` references resolved to values.
+6. **`resolve_host_config` + `resolve_with_env`** — runtime env-var resolution; testable via injected `get_env` closure.
+7. **`EnvVar`** error variant — missing or empty env var at runtime.
+
+**Test count: 33** (17 from P2 + 16 new in P3). All pass.
+
+`cargo test` (default) + `cargo test --features machine`: all suites green.
+`git diff --check` clean.
+
+`igweb.toml` unchanged — no new keys added.

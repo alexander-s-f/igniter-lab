@@ -153,7 +153,7 @@ pub async fn dispatch(
 
 // ── real loopback HTTP/1.1 (one connection), routed through ServerApp then the machine ───────────
 
-async fn read_server_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
+pub async fn read_server_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {

@@ -21,6 +21,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+pub mod host_config;
+#[cfg(feature = "machine")]
+pub mod machine_runner;
+#[cfg(feature = "machine")]
+pub mod read_dispatch;
+
 static NEXT_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Explicit package inputs (the P6 v0 shape — paths + entry, never a manifest).
@@ -29,6 +35,90 @@ pub struct IgWebBuildInput {
     pub sources: Vec<PathBuf>,
     /// the route-entry contract name (e.g. "Serve").
     pub entry: String,
+}
+
+/// Core async IgWeb dispatch (P2): holds a loaded `IgniterMachine` and dispatches async without
+/// any `block_on`. The sync compatibility adapter `IgWebServerApp` wraps this via `Arc`.
+pub struct IgWebLoadedApp {
+    machine: IgniterMachine,
+    entry: String,
+}
+
+impl IgWebLoadedApp {
+    /// Dispatch the entry contract through the loaded machine. Pure async — never calls `block_on`.
+    /// Safe to await inside a tokio runtime without nesting hazards.
+    pub async fn dispatch(&self, req: ServerRequest) -> ServerDecision {
+        let input = build_request_input(&req);
+        match self.machine.dispatch(&self.entry, input).await {
+            Ok(val) => map_decision(&val, req.correlation_id),
+            Err(e) => ServerDecision::Respond {
+                response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
+            },
+        }
+    }
+
+    /// Dispatch with staged-read support (LAB-IGNITER-WEB-READTHEN-DISPATCH-P11).
+    /// If the entry returns `ReadThen { plan, then }` the host executes the read through `read_host`,
+    /// then re-dispatches `then` with the rows result. The continuation returns any final Decision arm.
+    /// Never calls `block_on` — all awaits are explicit.
+    #[cfg(feature = "machine")]
+    pub async fn dispatch_with_read(
+        &self,
+        req: ServerRequest,
+        read_host: &read_dispatch::StagedReadHost,
+    ) -> ServerDecision {
+        let input = build_request_input(&req);
+        let raw = match self.machine.dispatch(&self.entry, input).await {
+            Ok(v) => v,
+            Err(e) => {
+                return ServerDecision::Respond {
+                    response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
+                }
+            }
+        };
+
+        // Intercept ReadThen before map_decision (which is synchronous).
+        if let Some((tag, fields)) = variant_of(&raw) {
+            if tag == "ReadThen" {
+                let plan = fields.get("plan").cloned().unwrap_or(Value::Null);
+                let then = fields
+                    .get("then")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                // Execute the staged read through the host.
+                let read_result = read_host.execute(&plan, &req).await;
+
+                return match read_result {
+                    read_dispatch::StagedReadResult::Rows(rows_json) => {
+                        // Dispatch the continuation: feeds original req + rows_json.
+                        let cont_input = json!({
+                            "req": build_request_input(&req)["req"],
+                            "rows_json": rows_json,
+                        });
+                        match self.machine.dispatch(&then, cont_input).await {
+                            Ok(cont_val) => map_decision(&cont_val, req.correlation_id),
+                            Err(e) => ServerDecision::Respond {
+                                response: ServerResponse::json(
+                                    500,
+                                    json!({ "error": format!("continuation dispatch: {e:?}") }),
+                                ),
+                            },
+                        }
+                    }
+                    read_dispatch::StagedReadResult::Denied(reason) => ServerDecision::Respond {
+                        response: ServerResponse::json(403, json!({ "error": reason })),
+                    },
+                    read_dispatch::StagedReadResult::HostError(msg) => ServerDecision::Respond {
+                        response: ServerResponse::json(503, json!({ "error": msg })),
+                    },
+                };
+            }
+        }
+
+        map_decision(&raw, req.correlation_id)
+    }
 }
 
 /// Structured, developer-facing build failure (never a panic).
@@ -44,11 +134,11 @@ pub enum IgWebBuildError {
     Load(String),
 }
 
-/// Build an IgWeb app from explicit authored paths. Lowers every `.igweb` to generated `.ig`, then
-/// `IgniterMachine::load_program` over the combined module set; returns an erased `ServerApp`.
-pub fn build_igweb_app(
+/// Lower and load an IgWeb app from explicit authored paths. Returns `IgWebLoadedApp` — the core
+/// async dispatch unit. Does NOT create a tokio runtime; safe to call before any runtime exists.
+pub fn build_igweb_loaded_app(
     input: IgWebBuildInput,
-) -> Result<Arc<dyn ServerApp + Send + Sync>, IgWebBuildError> {
+) -> Result<Arc<IgWebLoadedApp>, IgWebBuildError> {
     let build_id = NEXT_BUILD_ID.fetch_add(1, Ordering::Relaxed);
     let build_dir = std::env::temp_dir().join(format!(
         "igweb_build_{}_{}_{}",
@@ -88,41 +178,50 @@ pub fn build_igweb_app(
     machine
         .load_program(&ig_paths, &input.entry)
         .map_err(|e| IgWebBuildError::Load(format!("{e:?}")))?;
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| IgWebBuildError::Io(e.to_string()))?;
-    Ok(Arc::new(IgWebServerApp {
+
+    Ok(Arc::new(IgWebLoadedApp {
         machine,
-        rt,
         entry: input.entry,
     }))
 }
 
-/// The erased IgWeb app: dispatches the entry contract through the loaded machine and maps the
-/// returned `Decision` variant into a `ServerDecision`. `Send + Sync` (machine + runtime are).
+/// Build an IgWeb app from explicit authored paths. Returns an erased `ServerApp` (sync compat
+/// adapter wrapping `IgWebLoadedApp`). Use `build_igweb_loaded_app` when an async runner is needed.
+pub fn build_igweb_app(
+    input: IgWebBuildInput,
+) -> Result<Arc<dyn ServerApp + Send + Sync>, IgWebBuildError> {
+    let loaded = build_igweb_loaded_app(input)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| IgWebBuildError::Io(e.to_string()))?;
+    Ok(Arc::new(IgWebServerApp { inner: loaded, rt }))
+}
+
+/// Sync compatibility adapter wrapping `IgWebLoadedApp`. Implements `ServerApp` by running the
+/// async dispatch on a private current-thread runtime. Safe only when called from outside any
+/// tokio context — the async runner (`machine_runner`) calls `IgWebLoadedApp::dispatch` directly.
 struct IgWebServerApp {
-    machine: IgniterMachine,
+    inner: Arc<IgWebLoadedApp>,
     rt: tokio::runtime::Runtime,
-    entry: String,
 }
 
 impl ServerApp for IgWebServerApp {
     fn call(&self, req: ServerRequest) -> ServerDecision {
-        let input = json!({ "req": {
-            "method": req.method,
-            "path": req.path,
-            "body": if req.body.is_null() { Value::String(String::new()) } else { Value::String(req.body.to_string()) },
-            "correlation_id": req.correlation_id.clone().unwrap_or_default(),
-            "idempotency_key": req.idempotency_key.clone().unwrap_or_default(),
-        }});
-        match self.rt.block_on(self.machine.dispatch(&self.entry, input)) {
-            Ok(decision) => map_decision(&decision, req.correlation_id),
-            Err(e) => ServerDecision::Respond {
-                response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
-            },
-        }
+        self.rt.block_on(self.inner.dispatch(req))
     }
+}
+
+/// Build the `{ "req": { ... } }` input value from a `ServerRequest`. Shared between the async
+/// dispatch path and the sync compat adapter — one source of truth for the input shape.
+fn build_request_input(req: &ServerRequest) -> Value {
+    json!({ "req": {
+        "method": req.method,
+        "path": req.path,
+        "body": if req.body.is_null() { Value::String(String::new()) } else { Value::String(req.body.to_string()) },
+        "correlation_id": req.correlation_id.clone().unwrap_or_default(),
+        "idempotency_key": req.idempotency_key.clone().unwrap_or_default(),
+    }})
 }
 
 /// The VM encodes a variant value as an internally-tagged object:
@@ -595,6 +694,21 @@ pub mod runner {
         })
         .map_err(RunnerError::Build)?;
         Ok((compose(built, &manifest), manifest))
+    }
+
+    /// Async-runner variant: load and lower the app, return `IgWebLoadedApp` directly (no middleware,
+    /// no sync runtime). For use with `machine_runner::serve_once_loaded` / `serve_loop_loaded`.
+    pub fn build_loaded_app_from_dir(
+        app_dir: &Path,
+    ) -> Result<(Arc<crate::IgWebLoadedApp>, IgwebManifest), RunnerError> {
+        let manifest = load_manifest(app_dir)?;
+        let sources = resolve_sources(app_dir, &manifest)?;
+        let loaded = crate::build_igweb_loaded_app(IgWebBuildInput {
+            sources,
+            entry: manifest.entry.clone(),
+        })
+        .map_err(RunnerError::Build)?;
+        Ok((loaded, manifest))
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]

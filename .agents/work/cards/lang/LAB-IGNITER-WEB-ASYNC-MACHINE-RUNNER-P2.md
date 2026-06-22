@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-ASYNC-MACHINE-RUNNER-P2 - async IgWeb runner for machine-backed effects
 
-Status: READY
+Status: CLOSED
 Lane: server / IgWeb / machine host IO
 Type: implementation
 Delegation code: OPUS-WEB-ASYNC-MACHINE-RUNNER-P2
@@ -129,18 +129,32 @@ Closed:
 
 ## Acceptance
 
-- [ ] Async runner path uses `tokio::net::TcpListener` and awaits a machine-backed effect path.
-- [ ] Async path does not call `IgWebServerApp::call` and has no nested `block_on`.
-- [ ] One core IgWeb loaded-app dispatch path is shared by async runner and sync compatibility adapter, or the
-      diff explains why a smaller interim shape is safer.
-- [ ] Existing sync `igweb-serve` / `serve_loop` tests remain green for machine-free apps.
-- [ ] Machine-backed route executes a final `InvokeEffect` through `MachineEffectHost` and returns a receipt.
-- [ ] Host config v0 uses `*_env` references and rejects inline `dsn`/`password`/`passport`/`token`.
-- [ ] No `ReadThen` implementation in this card.
-- [ ] `igniter-server` remains route/domain-free.
-- [ ] `cargo test --features machine` for `server/igniter-web` passes targeted new tests.
-- [ ] `git diff --check` clean.
+- [x] Async runner path uses `tokio::net::TcpListener` and awaits a machine-backed effect path.
+- [x] Async path does not call `IgWebServerApp::call` and has no nested `block_on`.
+- [x] One core IgWeb loaded-app dispatch path is shared by async runner and sync compatibility adapter.
+- [x] Existing sync `igweb-serve` / `serve_loop` tests remain green for machine-free apps.
+- [x] Machine-backed route executes a final `InvokeEffect` through `MachineEffectHost` and returns a receipt.
+- [x] Host config v0 uses `*_env` references and rejects inline `dsn`/`password`/`passport`/`token`.
+- [x] No `ReadThen` implementation in this card.
+- [x] `igniter-server` remains route/domain-free.
+- [x] `cargo test --features machine` for `server/igniter-web` passes targeted new tests.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+**Date:** 2026-06-22
+**Proof:** `lab-docs/lang/lab-igniter-web-async-machine-runner-p2-v0.md`
+
+All 10 acceptance checks pass.
+
+**New code:**
+- `IgWebLoadedApp` — core async dispatch struct; `IgWebServerApp` wraps it as sync compat adapter
+- `build_igweb_loaded_app` — lower+load without runtime; `build_igweb_app` delegates to it
+- `host_config.rs` — v0 operator config parser: 17 tests, all green
+- `machine_runner.rs` — `serve_once_loaded` / `serve_loop_loaded` (async, no block_on)
+- `async_machine_runner_tests.rs` — 5 new tests including real tokio socket roundtrip + replay
+
+**igniter-server changes:** `read_server_request` → pub; `encode_response` → pub. No domain changes.
+
+`cargo test --features machine` and `cargo test` (default): all suites green.
+`git diff --check` clean.

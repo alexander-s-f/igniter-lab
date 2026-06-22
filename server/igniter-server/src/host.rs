@@ -228,7 +228,7 @@ pub(crate) fn status_text(status: u16) -> &'static str {
 
 /// Encode a `ServerResponse` to raw HTTP/1.1 bytes. Shared by the sync loopback writer and the
 /// (feature-gated) async machine-effect writer so both wire formats are identical.
-pub(crate) fn encode_response(resp: &ServerResponse) -> Vec<u8> {
+pub fn encode_response(resp: &ServerResponse) -> Vec<u8> {
     let mut head = format!("HTTP/1.1 {} {}\r\n", resp.status, status_text(resp.status));
     for (k, v) in &resp.headers {
         head.push_str(&format!("{}: {}\r\n", k, v));
