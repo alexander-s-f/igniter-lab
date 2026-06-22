@@ -1,6 +1,6 @@
 # LAB-IGNITER-MACHINE-HOST-IO-SUBSTRATE-READINESS-P1 - common IO/effect substrate beyond web
 
-Status: READY
+Status: CLOSED
 Lane: machine / host IO / architecture
 Type: readiness / architecture packet
 Delegation code: OPUS-MACHINE-HOST-IO-SUBSTRATE-P1
@@ -160,17 +160,42 @@ Update this card with a closing report and mark all acceptance checks.
 
 ## Acceptance
 
-- [ ] Packet is grounded in live source, not only prior docs.
-- [ ] IO taxonomy covers web, CLI, desktop, experiment/science, and remote-node cases.
-- [ ] Inline read vs deferred effect/mailbox distinction is explicit.
-- [ ] Existing machine capabilities are inventoried with file references.
-- [ ] `igweb-serve` async trap is explained as both socket-loop and nested `block_on`/sync app dispatch issue.
-- [ ] At least three architecture alternatives are compared.
-- [ ] Recommended next implementation slice is named with acceptance criteria.
-- [ ] Authority boundaries are explicit and do not leak IO authority into `.ig`.
-- [ ] No implementation/code/CLI changes.
-- [ ] `git diff --check` clean.
+- [x] Packet is grounded in live source, not only prior docs.
+- [x] IO taxonomy covers web, CLI, desktop, experiment/science, and remote-node cases.
+- [x] Inline read vs deferred effect/mailbox distinction is explicit.
+- [x] Existing machine capabilities are inventoried with file references.
+- [x] `igweb-serve` async trap is explained as both socket-loop and nested `block_on`/sync app dispatch issue.
+- [x] At least three architecture alternatives are compared.
+- [x] Recommended next implementation slice is named with acceptance criteria.
+- [x] Authority boundaries are explicit and do not leak IO authority into `.ig`.
+- [x] No implementation/code/CLI changes.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+**Date:** 2026-06-22
+**Packet:** `lab-docs/lang/lab-igniter-machine-host-io-substrate-readiness-p1-v0.md`
+
+All ten acceptance checks pass.
+
+**Key findings:**
+
+1. The host IO substrate already exists (`CapabilityExecutor` + `IngressRouter` + `MachineEffectHost` +
+   receipts). The missing pieces are runner wiring, operator config schema, and the `ReadThen` compiler arm.
+
+2. The `igweb-serve` async trap has two compounding causes: (a) sync `std::net::TcpListener` + `serve_loop`
+   cannot await async operations; (b) `IgWebServerApp::call` holds a per-instance current-thread
+   `tokio::runtime` and does `rt.block_on(machine.dispatch(...))` — nesting this inside an outer tokio
+   async task is not safe without `spawn_blocking`. The fix is an async host driver that bypasses `call()`
+   and calls `machine.dispatch().await` directly, paired with `serve_loop_effect` over a tokio socket.
+
+3. Seven IO classes identified: inline read, deferred effect/write, read-then-write, export, file/storage,
+   remote node, experiment artifact. Only the first three need machine receipt machinery.
+
+4. Three architecture alternatives compared (per-runner async driver / shared host substrate trait /
+   separate host process); Alternative A (per-runner driver with path to B) recommended for P2.
+
+5. Recommended next card: `LAB-IGNITER-WEB-ASYNC-MACHINE-RUNNER-P2` — async socket + `serve_loop_effect` +
+   `ReadThen` runner seam + `host.toml` operator config.
+
+No code, CLI, or test changes made in this card.
