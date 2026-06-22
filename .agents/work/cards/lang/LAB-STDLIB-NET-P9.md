@@ -32,8 +32,8 @@ capability denial as typed branch; no real sockets / name-resolution / accept-lo
 
 | Artifact | Path | Status |
 |----------|------|--------|
-| Fixture: domain transport table | `igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` | DONE |
-| Proof runner | `igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb` | DONE — 55/55 PASS |
+| Fixture: domain transport table | `frame-ui/igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` | DONE |
+| Proof runner | `frame-ui/igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb` | DONE — 55/55 PASS |
 | Lab doc | `lab-docs/lang/lab-network-http-upstream-call-contract-composition-proof-v0.md` | DONE |
 
 ---

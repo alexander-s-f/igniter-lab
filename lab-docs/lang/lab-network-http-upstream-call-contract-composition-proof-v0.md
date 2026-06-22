@@ -175,7 +175,7 @@ Headers from the builder are Map[String,String] — the same guarantee as P7/P8.
 
 | File | Description |
 |------|-------------|
-| `fixtures/network_http_client/mock_transport_table_domain.json` | 5 domain routes (GET /items/1 → 200, GET /items/99 → 404, GET /items/flaky → 503, GET /items/500error → 500, POST /items → 201) + fallback 404 |
+| `frame-ui/igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` | 5 domain routes (GET /items/1 → 200, GET /items/99 → 404, GET /items/flaky → 503, GET /items/500error → 500, POST /items → 201) + fallback 404 |
 | (from P6) `http_client_capability.json` | Capability for api.example.com:443, GET/POST, TLS required |
 
 ---

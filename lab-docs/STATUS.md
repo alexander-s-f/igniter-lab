@@ -1,6 +1,6 @@
 # igniter-lab: Current Status
 
-Last updated: 2026-06-19
+Last updated: 2026-06-22
 
 `igniter-lab` is the frontier lab repo for Igniter experiments. It contains
 working prototypes, proof runners, research reports, and agent handoffs that
@@ -40,12 +40,15 @@ Verified after the move:
 | `ide/igniter-ide/src-tauri cargo check` | green |
 | active-code stale-path scan | clean |
 
-Known older red tests, not attributed to the rehome:
+Stale known-red claims cleared by targeted recheck on 2026-06-22:
 
-| Surface | Known red |
+| Surface | Command | Result |
 | --- | --- |
-| `lang/igniter-compiler` | 4 `loop_conformance_tests` failures |
-| `lang/igniter-vm` | 1 `vm_candidate_proof_tests` failure |
+| `lang/igniter-compiler` | `cargo test --test loop_conformance_tests` | green: 14 passed, 0 failed |
+| `lang/igniter-vm` | `cargo test --test vm_candidate_proof_tests` | green: 9 passed, 0 failed |
+
+This is a targeted recheck only. It clears the stale known-red entries above; it
+does not claim whole-repo or whole-workspace green.
 
 ## Live Lab Lanes
 

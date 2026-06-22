@@ -12,7 +12,7 @@
 The following are the five most critical drift and alignment risks identified across the workspace:
 
 1. **Async/Sync Serving Loop Hazard**: The primary CLI runner `igweb-serve` executes a synchronous loop over a blocking `std::net::TcpListener`, making it impossible to run live async database effects (via `tokio-postgres` and `MachineEffectHost`) despite tests claiming end-to-end support by bypassing the CLI.
-2. **Stale Deliverable Paths in Closed Cards**: Cards like `LAB-STDLIB-NET-P9` are closed and have deliverables present, but the listed paths are pre-rehome paths and now resolve under `frame-ui/igniter-view-engine/...`.
+2. **Stale Deliverable Paths in Closed Cards**: `LAB-STDLIB-NET-P9` was resolved by `LAB-HYGIENE-NET-P9-PATHS-P5` on 2026-06-22; broader closed-card path drift remains a hygiene risk.
 3. **Stale Workaround in Emergence Kernels**: The public `igniter-emergence` Kuramoto kernel still contains a complex workaround (returning `Collection[Float]` instead of `Collection[Oscillator]`) due to a documented record-construction-in-lambdas limitation that was actually fixed and regression-tested.
 4. **Workspace-Level Directory Restructuring Out of Sync**: The root `README.md` and `igniter-lab-value-transfer.md` document flat subproject structures directly under `igniter-lab/` (e.g., `igniter-compiler/`), while in reality, they have been nested under domain umbrellas (`lang/`, `runtime/`, `server/`, `frame-ui/`).
 5. **Card ID Suffix Collisions (P9/P22)**: Suffixes like `P9` and `P22` are duplicated across completely different cards in the same folder, confusing agents and leading to tracking collisions.
@@ -88,8 +88,8 @@ These are status discrepancies between cards, status reports, and live files:
     *   *Discrepancy*: `igniter-lab/lab-docs/STATUS.md` (lines 47-49) states that `igniter-compiler` has 4 failing `loop_conformance_tests` and `igniter-vm` has 1 failing `vm_candidate_proof_tests`.
     *   *Live Truth*: Targeted rechecks pass: `cargo test --test loop_conformance_tests` in `lang/igniter-compiler` reports 14/14 passed, and `cargo test --test vm_candidate_proof_tests` in `lang/igniter-vm` reports 9/9 passed. The status file is stale.
 *   **Inconsistency 9: Stale Deliverable Paths for LAB-STDLIB-NET-P9**:
-    *   *Discrepancy*: Card `igniter-lab/.agents/work/cards/lang/LAB-STDLIB-NET-P9.md` (lines 33-38) lists pre-rehome paths `igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` and `igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb` as "DONE".
-    *   *Live Truth*: The files do exist after rehome at `igniter-lab/frame-ui/igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` and `igniter-lab/frame-ui/igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb`. This is path drift, not a missing deliverable.
+    *   *Resolved 2026-06-22 by `LAB-HYGIENE-NET-P9-PATHS-P5`*: Card `igniter-lab/.agents/work/cards/lang/LAB-STDLIB-NET-P9.md` now lists the post-rehome paths `frame-ui/igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` and `frame-ui/igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb` as "DONE".
+    *   *Live Truth*: The files exist at `igniter-lab/frame-ui/igniter-view-engine/fixtures/network_http_client/mock_transport_table_domain.json` and `igniter-lab/frame-ui/igniter-view-engine/proofs/network_http_upstream_call_contract_proof.rb`. This was path drift, not a missing deliverable.
 
 ---
 
@@ -148,7 +148,7 @@ The following are 7 concrete, small hygiene cards recommended for the next wave:
 2.  **`LAB-HYGIENE-STATUS-CLEAN-P2`**: Update `lab-docs/STATUS.md` to show that all compiler and VM tests are 100% green at HEAD.
 3.  **`LAB-HYGIENE-EMERGENCE-KERNEL-SIMPLIFY-P3`**: Update `igniter-emergence/kernels/kuramoto_per_omega_tick.ig` to return `Collection[Oscillator]` directly and delete the stale workaround comments now that parenthesized record literals in lambdas are verified.
 4.  **`LAB-HYGIENE-CARD-NAMES-P4`**: Rename duplicated card filenames in `.agents/work/cards/lang/` to include unique lane prefixes (e.g. `LAB-LANG-STDLIB-NET-P9.md` or `LAB-SERVER-TODOAPP-API-P9.md`) to avoid name collisions.
-5.  **`LAB-HYGIENE-NET-P9-PATHS-P5`**: Update `LAB-STDLIB-NET-P9` and any adjacent docs to point at the post-rehome `frame-ui/igniter-view-engine/...` deliverable paths.
+5.  **`LAB-HYGIENE-NET-P9-PATHS-P5`**: CLOSED 2026-06-22. `LAB-STDLIB-NET-P9` and adjacent docs now point at the post-rehome `frame-ui/igniter-view-engine/...` deliverable paths.
 6.  **`LAB-TODOAPP-API-RUNNER-CONFIG-P11`**: Migrate the `igweb-serve` CLI to an async loop under a Tokio runtime to resolve the async socket hazard for Postgres effects.
 7.  **`LAB-PROVENANCE-BRIDGE-P6`**: Wire the package admission `artifact_digest` into the experiment runner's `provenance.json` rather than passing `None`.
 
