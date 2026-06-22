@@ -16,7 +16,13 @@ We analyzed the current codebase of `server/igniter-web`, `server/igniter-server
    - The CLI runner (`igweb-serve`) has no database awareness or feature gating to connect to tokio-postgres.
 
 3. **ReadThen Concept**:
-   - `ReadThen` is currently a placeholder design concept. No parsing, typechecking, or VM execution logic exists in `igniter-compiler` or `igniter-vm` for this construct.
+   - **Status as of 2026-06-22:** `ReadThen` is `designed` and `harness-proven`, but not `implemented` and not `runner-integrated`.
+   - Live source inventory: `rg "ReadThen|read then|staged read"` over `lang/igniter-compiler/src`, `server/igniter-web/src`, `server/igniter-server/src`, and `lang/igniter-vm/src` returns no source matches. The injected IgWeb prelude `Decision` arms are `Respond`, `InvokeEffect`, `RespondView`, `Render`, and `RenderView`; `server/igniter-web/src/lib.rs::map_decision` maps those five final arms only; `server/igniter-server/src/protocol.rs::ServerDecision` has `Respond`, `Invoke`, and `InvokeEffect`.
+   - Category snapshot:
+     - `designed`: yes — P5/P10 describe `ReadThen { plan : Unknown, then : String }`.
+     - `harness-proven`: yes — read host tests hand-orchestrate `QueryPlan -> host_read -> rows_json -> continuation`.
+     - `implemented`: no — no prelude arm, compiler lowering, VM opcode/eval path, or `map_decision` arm exists.
+     - `runner-integrated`: no — `igweb-serve` does not drive staged reads.
 
 4. **Async/Sync Hazards**:
    - The current `igweb-serve` binary runs synchronously via `std::net::TcpListener` and `serving_loop::serve_loop`.

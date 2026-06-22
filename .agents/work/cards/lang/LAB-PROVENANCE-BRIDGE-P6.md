@@ -1,6 +1,6 @@
 # LAB-PROVENANCE-BRIDGE-P6 - wire admitted package artifact digest into experiment provenance
 
-Status: READY
+Status: CLOSED - readiness packet
 Lane: package trust / experiment runner / hygiene
 Type: implementation if small; otherwise readiness with exact blocker
 Delegation code: OPUS-PROVENANCE-BRIDGE-P6
@@ -64,12 +64,42 @@ Write a proof/readiness doc under `lab-docs/lang/` with:
 
 ## Acceptance
 
-- [ ] Current `None` / null path is verified live.
-- [ ] Either artifact digest is wired with tests, or an exact blocker packet is written.
-- [ ] Plain experiments remain backward compatible.
-- [ ] Package/admitted experiments do not fabricate a digest; digest must come from verified/admitted metadata.
-- [ ] `git diff --check` clean.
+- [x] Current `None` / null path is verified live.
+- [x] Either artifact digest is wired with tests, or an exact blocker packet is written.
+- [x] Plain experiments remain backward compatible.
+- [x] Package/admitted experiments do not fabricate a digest; digest must come from verified/admitted metadata.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+Closed as readiness, not implementation.
+
+Artifact:
+
+- `lab-docs/lang/lab-provenance-bridge-p6-v0.md`
+
+Decision:
+
+- The VM provenance schema already accepts optional `artifact_digest`.
+- The package admission receipt already emits `artifact_digest`.
+- The current experiment runner does not receive admitted package identity: it
+  only accepts plain `--kernel` source plus compiler/out/config/entry paths.
+- Wiring a raw digest flag would be fabricable and would violate the package
+  trust boundary. The next implementation must add an admitted-package runner
+  input that binds the executed kernel to verified/admitted metadata.
+
+Evidence:
+
+```text
+rg -n "artifact_digest|build_provenance_json|provenance" lang/igniter-vm/src lang/igniter-vm/tests lang/igniter-compiler/src
+rg -n "admit|verify_archive|igpkg|manifest.digest|artifact_digest" lang/igniter-compiler/src lang/igniter-compiler/tests
+cargo test provenance_json_shape_is_stable --lib
+cargo test --test package_lockfile_cli_tests cli_admit_clean_accepted -- --nocapture
+git diff --check
+```
+
+Results:
+
+- `cargo test provenance_json_shape_is_stable --lib`: 1 passed.
+- `cargo test --test package_lockfile_cli_tests cli_admit_clean_accepted -- --nocapture`: 1 passed.
+- `git diff --check`: clean.

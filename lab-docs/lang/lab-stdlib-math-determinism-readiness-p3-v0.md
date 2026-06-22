@@ -115,14 +115,14 @@ the readiness recommendation is the `det` grouping, exact spelling TBD by gramma
 3. **Differential vs platform libm** — assert `det.sin` may differ from `f64::sin` yet stays within tolerance;
    proves the det path is a distinct, canonical implementation (not a passthrough).
 4. **CI cross-compile + emulate** — run the golden-vector suite under `qemu`/`cross` for `aarch64` and
-   `riscv64`; assert identical bits across targets. This is a **real cross-arch proof with no physical
-   hardware**, and the strongest local evidence.
+   `riscv64`; assert identical bits across targets. When run, this is a **real cross-arch proof with no
+   physical hardware**, and the strongest local evidence.
 5. **True in-materio proof = the swarm** — bit-identity on actual ESP32 vs host is the emergence Stage-3 /
    swarm validation; stated as **future** verification, claimed conservatively until then.
 
-**Conservative claim wording (Q4 bias):** "deterministic by construction — a fixed pure-Rust algorithm with
-no FMA contraction, verified bit-identical under cross-compiled emulation; physical multi-arch identity to be
-confirmed on the swarm." Do **not** claim hardware cross-arch identity before #5.
+**Conservative claim wording (Q4 bias):** "Lab claim: fixed-algorithm/golden-vector deterministic surface;
+qemu cross-arch identity and physical multi-arch identity remain pending until those proof cards record them."
+Do **not** claim hardware cross-arch identity before #5.
 
 ## Interaction with source_hash / lock / provenance / replay (Q9)
 
@@ -132,8 +132,8 @@ confirmed on the swarm." Do **not** claim hardware cross-arch identity before #5
   lock-pinned**.
 - **det.* is the prerequisite that extends byte-identical VM replay from Integer/Decimal to transcendental
   `Float` sims.** Today exact replay holds for integer/Decimal; a sim using platform `sin` would diverge
-  across machines. `det.sin` closes that — the linchpin connecting this card to the emergence "exact replay"
-  thesis and the swarm.
+  across machines. `det.sin` closes the fixed-algorithm/golden-vector gap; qemu cross-arch and physical swarm
+  identity remain separate proof gates.
 - **Float serialization caveat (verified):** finite `f64` → JSON via ryū is deterministic + lossless; non-finite
   → `null`. Hence the finite-domain guards above. A separate hardening could give the value model an explicit
   non-finite policy, but for v0 the det surface simply stays finite.
@@ -165,7 +165,8 @@ it provides a scaled-integer `pi` constant for that domain.)
 - [x] ≥4 implementation strategies compared (6 in the table).
 - [x] Recommended deterministic surface (`det.*`) + return type (`Float`, finite-guarded) chosen.
 - [x] Error budget + test strategy (golden vectors + CI cross-emulation) proposed.
-- [x] Cross-arch/replay claim stated **conservatively** (by-construction + emulation now; hardware later).
+- [x] Cross-arch/replay claim stated **conservatively** (fixed algorithm + golden-vector plan; qemu and
+  hardware proof gates remain explicit).
 - [x] Interaction with `source_hash`/lock/`STDLIB_VERSION`/replay addressed.
 - [x] No production code changes (design-only).
 
@@ -184,6 +185,7 @@ consuming `lab-stdlib-numeric-fixed-point-readiness-v0`).
 
 *Lab readiness. 2026-06-21. Deterministic transcendentals decided: fast `f64` (P2) and a `det.*` surface that
 returns `Float` made reproducible by a fixed pure-Rust `libm` algorithm (`sin`/`cos`) plus IEEE-correct
-`sqrt`, finite-guarded against the verified NaN→`null` serialization hazard, lock-pinned via `STDLIB_VERSION`,
-proven by golden vectors + CI cross-emulation now and the physical swarm later. Fixed-point integer det math
-(existing scale-1000 app convention) is a named, deferred embedded track.*
+`sqrt`, finite-guarded against the verified NaN→`null` serialization hazard, lock-pinned via `STDLIB_VERSION`.
+The lab claim is fixed-algorithm/golden-vector determinism; qemu cross-emulation and physical swarm identity
+remain pending proof gates. Fixed-point integer det math (existing scale-1000 app convention) is a named,
+deferred embedded track.*

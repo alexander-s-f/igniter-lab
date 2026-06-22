@@ -92,8 +92,9 @@ lines:
 - **(A) `f64` native (`libm`):** simplest, fastest. But `f64`+`libm` are **not guaranteed bit-identical
   across architectures** → byte-identical replay holds only on the same arch; sim↔ESP32 agreement becomes
   statistical. Weakens the "exact reproducibility" thesis on hardware.
-- **(B) fixed-point / table-or-CORDIC `sin`, integer-domain:** deterministic and **bit-identical across
-  architectures** → preserves the replay guarantee on the physical swarm. Costs some speed/precision.
+- **(B) fixed-point / table-or-CORDIC `sin`, integer-domain:** designed for deterministic, bit-identical replay
+  across architectures; physical swarm identity still needs a hardware proof before it becomes a recorded
+  guarantee. Costs some speed/precision.
 
 Recommendation: offer **both**, explicitly — a default `f64` `stdlib.Math.sin` for convenience, and a
 deterministic `stdlib.Math.det.sin` (fixed-point/LUT) for reproducible/embedded use. The emergence research

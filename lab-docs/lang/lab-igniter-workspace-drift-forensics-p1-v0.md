@@ -63,7 +63,9 @@ These are blockers that are verified to still be active and unresolved in the li
         ```
         The admitted `.igpkg` artifact identity from package admission is completely unwired from the experiment runner's outputs.
 *   **Inconsistency 5: ReadThen VM/Compiler Support**:
-    *   *Blocker*: References in runner docs and card summaries imply `ReadThen` is active, but `igniter-lab/lab-docs/lang/lab-todoapp-api-runner-productization-p9-v0.md` (lines 18-20) confirms it remains a placeholder concept with zero implementation in either `igniter-compiler` or `igniter-vm`.
+    *   *Status as of 2026-06-22*: `ReadThen` is `designed` and `harness-proven`, but not `implemented` and not `runner-integrated`.
+    *   *Live source inventory*: `rg "ReadThen|read then|staged read"` over `lang/igniter-compiler/src`, `server/igniter-web/src`, `server/igniter-server/src`, and `lang/igniter-vm/src` returns no source matches. The IgWeb prelude currently has final `Decision` arms `Respond`, `InvokeEffect`, `RespondView`, `Render`, and `RenderView`; `map_decision` handles those final arms; `ServerDecision` has `Respond`, `Invoke`, and `InvokeEffect`.
+    *   *Implication*: P5/P10 design prose and P6/P7 read harnesses are evidence for the staged-read shape, not proof that a live `ReadThen` arm or runner exists. Agents should route implementation to a `ReadThen` dispatch/runner card, not assume it is active.
 
 ---
 
@@ -74,9 +76,10 @@ These are instances where documentation implies production-level, canonical, or 
 *   **Inconsistency 6: SparkCRM Route Shape Claims**:
     *   *Overclaim*: The document `igniter-lab/lab-docs/lang/lab-igniter-web-sparkcrm-route-shape-p5-v0.md` implies deep compatibility and scaling with SparkCRM's real route table.
     *   *Live Truth*: This is a static file characterization only. There is no active SparkCRM execution, no Ruby FFI integration, and no live database access. It is purely diagnostic data pressure.
+    *   *P8 hygiene verification (2026-06-22)*: The route-shape doc already carries this scope guard in its title/status, acceptance mapping, closed scope, and footer. No route-shape doc edit was needed.
 *   **Inconsistency 7: Float Determinism and PRNG Swarm Claims**:
     *   *Overclaim*: Docs in `igniter-lab/lab-docs/lang/lab-stdlib-math-determinism-readiness-p3-v0.md` discuss cross-architecture float determinism.
-    *   *Live Truth*: The claim is only "deterministic by construction" through vendored pure-Rust `libm` and tested locally via emulator. Physical multi-arch identity has not been validated on real hardware (e.g. ESP32).
+    *   *Live Truth*: The claim is a fixed-algorithm/golden-vector lab surface through vendored pure-Rust `libm`; qemu cross-arch and physical multi-arch identity remain pending proof gates.
 
 ---
 

@@ -38,9 +38,10 @@ runner gap; a `run`/`eval` that prints the output would help).
 - **Tier 1 (unblocks Kuramoto):** `sin`, `cos`, `sqrt`, `pi`.
 - **Tier 2:** `tan`, `pow`, `exp`, `ln`, `abs`, `floor`/`ceil`/`round`, `mod`.
 - **Determinism fork (load-bearing):** provide BOTH a default `f64` `stdlib.Math.sin` (fast, not
-  cross-arch-deterministic) and a deterministic `stdlib.Math.det.sin` (fixed-point/LUT/CORDIC, bit-identical
-  across architectures). The emergence line AND the embedded-swarm line
-  (`LAB-IGNITER-EMBEDDED-VM-SWARM-READINESS-P1`) both depend on this choice — decide it once.
+  cross-arch-deterministic) and a deterministic `stdlib.Math.det.sin` (fixed-point/LUT/CORDIC, designed for
+  bit-identical replay across architectures; physical swarm identity still requires proof). The emergence line
+  AND the embedded-swarm line (`LAB-IGNITER-EMBEDDED-VM-SWARM-READINESS-P1`) both depend on this choice —
+  decide it once.
 
 ## Acceptance
 

@@ -1,6 +1,6 @@
 # LAB-HYGIENE-MATH-DETERMINISM-SCOPE-P9 - keep det math claims below physical hardware proof
 
-Status: READY
+Status: CLOSED
 Lane: workspace hygiene / science claims
 Type: documentation cleanup
 Delegation code: OPUS-HYGIENE-MATH-DETERMINISM-SCOPE-P9
@@ -55,11 +55,18 @@ until a hardware/swarm proof records it.
 
 ## Acceptance
 
-- [ ] Fast Float vs `det_*` vs physical-hardware proof are separated.
-- [ ] No doc says physical ESP32/multi-device identity is proven unless a live proof exists.
-- [ ] Golden-vector / fixed-algorithm lab evidence remains credited.
-- [ ] `git diff --check` clean.
+- [x] Fast Float vs `det_*` vs physical-hardware proof are separated.
+- [x] No doc says physical ESP32/multi-device identity is proven unless a live proof exists.
+- [x] Golden-vector / fixed-algorithm lab evidence remains credited.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+- Verified with the prescribed `rg` over `lab-docs/lang` and `.agents/work/cards/lang`.
+- Read the high-traffic determinism docs `lab-stdlib-math-determinism-readiness-p3-v0.md` and
+  `lab-stdlib-math-det-tier1-p5-v0.md`, plus current Kuramoto/emergence surfaces that cite `det_*`.
+- Patched wording only: fast `stdlib.Math.*` remains platform/local simulation; `det_*` remains credited as a
+  fixed-algorithm/golden-vector lab surface; qemu cross-arch and physical ESP32/swarm identity are now named as
+  pending proof gates.
+- Also aligned the drift-forensics "Live Truth" line so it no longer implies an emulator proof already exists.
+- No VM/compiler/math implementation changed; no new tests, hardware, or emulator runs.

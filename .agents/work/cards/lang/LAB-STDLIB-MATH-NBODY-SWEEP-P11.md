@@ -103,7 +103,8 @@ in the fold lambda — compiles+typechecks clean via `igc`) work; only the recor
 
 **Smallest remaining scientific blocker = the multi-step time-integration loop** (not the math). Minor:
 `count`→Float (N is a Float literal today). Replay: exact where math is exact (synchronized→1.0 to the bit),
-tolerance-based otherwise until qemu cross-arch CI (P3/P5).
+tolerance-based otherwise until qemu cross-arch CI (P3/P5). This is a fixed-algorithm/golden-vector lab claim,
+not a physical multi-device identity claim.
 
 **Artifacts:** proof doc `lab-docs/lang/lab-stdlib-math-nbody-sweep-p11-v0.md`; authored `.ig` in
 `igniter-home-lab/apps/emergence/kuramoto/{nbody_order,nbody_order_record}.ig`. No new stdlib fns; no code

@@ -71,7 +71,8 @@ Do not pretend Rust/libm f64 is cross-arch deterministic unless proven.
 - [x] At least four implementation strategies compared. (6 in the strategy table.)
 - [x] Recommended deterministic surface and return types chosen. (`det.*`, `Float` finite-guarded.)
 - [x] Error budget and test strategy proposed. (golden vectors + bit-stability + CI qemu cross-emulation.)
-- [x] Cross-architecture/replay claim stated conservatively. (by-construction + emulation now; HW on swarm.)
+- [x] Cross-architecture/replay claim stated conservatively. (fixed algorithm + golden-vector plan; qemu and
+  hardware remain proof gates.)
 - [x] Interaction with source_hash/lock/provenance addressed. (`STDLIB_VERSION`-pinned; det = replay linchpin.)
 - [x] No production code changes.
 
@@ -106,8 +107,8 @@ invention), so the integer-domain det path is a **named, deferred embedded track
 direct connection to the emergence "exact replay" thesis and the swarm.
 
 **Proof strategy without multi-arch HW:** golden-vector bit tests + bit-stability + **CI `qemu` aarch64/riscv64
-identical-bits** (real cross-arch proof, no hardware); physical ESP32-vs-host identity = the future swarm
-Stage-3 validation, claimed conservatively until then.
+identical-bits**. When run, qemu is the cross-arch proof without physical hardware; physical ESP32-vs-host
+identity = the future swarm Stage-3 validation, claimed conservatively until then.
 
 **Deliverables:** readiness packet `lab-docs/lang/lab-stdlib-math-determinism-readiness-p3-v0.md`; concrete
 impl card `LAB-STDLIB-MATH-DET-TIER1-P4` named with an acceptance matrix (surface, sqrt/sin/cos sources,

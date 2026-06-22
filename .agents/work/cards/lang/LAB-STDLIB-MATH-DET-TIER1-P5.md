@@ -108,7 +108,8 @@ locally:** actual cross-arch bit-identity (rests on pure-Rust libm + Rust-no-aut
 qemu CI — next card). Golden vectors = the governance lock (libm change → test fails → STDLIB_VERSION bump).
 
 **Live e2e:** `det_sin(0.5)`→0.479425538604203; Kuramoto order param on `det_*`→r=1.0 (synchronized). One-call
-swap `sin`→`det_sin` makes emergence sims replay-safe / swarm-portable.
+swap `sin`→`det_sin` makes emergence sims a fixed-algorithm/golden-vector swarm-portability candidate;
+physical multi-arch identity remains pending until a hardware/swarm proof records it.
 
 **Tests/green:** igniter-vm `stdlib_math_det_tests` **6**, `stdlib_math_tests` **5** (P2); igniter-compiler
 `stdlib_math_tests` **5** (3 P2 + 1 P4 + 1 P5); igniter-compiler `package_workspace_tests` **46**

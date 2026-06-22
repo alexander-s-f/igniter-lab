@@ -1,6 +1,6 @@
 # LAB-HYGIENE-READTHEN-STATUS-CLARITY-P7 - stop docs implying staged ReadThen is implemented
 
-Status: READY
+Status: CLOSED
 Lane: workspace hygiene / IgWeb reads
 Type: documentation cleanup
 Delegation code: OPUS-HYGIENE-READTHEN-STATUS-CLARITY-P7
@@ -52,11 +52,46 @@ Do not trust old proof docs. Live source wins.
 
 ## Acceptance
 
-- [ ] Live source inventory states whether a `ReadThen` arm/runner exists today.
-- [ ] Any patched doc uses one of these exact categories: `designed`, `harness-proven`, `implemented`, `runner-integrated`.
-- [ ] No doc claims `ReadThen` is active unless live source proves it.
-- [ ] `git diff --check` clean.
+- [x] Live source inventory states whether a `ReadThen` arm/runner exists today.
+- [x] Any patched doc uses one of these exact categories: `designed`, `harness-proven`, `implemented`, `runner-integrated`.
+- [x] No doc claims `ReadThen` is active unless live source proves it.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+Closed on 2026-06-22.
+
+Live source inventory:
+
+```text
+rg -n "ReadThen|read then|staged read" \
+  lang/igniter-compiler/src \
+  server/igniter-web/src \
+  server/igniter-server/src \
+  lang/igniter-vm/src
+```
+
+returned no source matches.
+
+Current live arms:
+
+- IgWeb prelude `Decision`: `Respond`, `InvokeEffect`, `RespondView`, `Render`, `RenderView`.
+- `server/igniter-web/src/lib.rs::map_decision`: maps those five final arms only.
+- `server/igniter-server/src/protocol.rs::ServerDecision`: `Respond`, `Invoke`, `InvokeEffect`.
+
+Current status categories:
+
+- `designed`: yes.
+- `harness-proven`: yes, via hand-orchestrated read host tests.
+- `implemented`: no live prelude/compiler/VM/web mapping arm.
+- `runner-integrated`: no `igweb-serve` staged-read runner integration.
+
+Updated exactly the preferred high-traffic docs:
+
+```text
+lab-docs/lang/lab-todoapp-api-runner-productization-p9-v0.md
+lab-docs/lang/lab-igniter-web-readthen-runner-readiness-p10-v0.md
+lab-docs/lang/lab-igniter-workspace-drift-forensics-p1-v0.md
+```
+
+No compiler, VM, runner, or `.igweb` implementation changed. No broad historical proof rewrite.

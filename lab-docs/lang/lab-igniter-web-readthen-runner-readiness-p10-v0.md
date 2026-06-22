@@ -10,6 +10,14 @@ host owns source/field policy, clamp, adapter, DSN, and infra failures; server o
 owns the read executor + receipts. Builds on the read-guard-host readiness
 (`lab-igniter-web-read-guard-host-readiness-p5-v0.md`) and the P6 direct-dispatch harness.
 
+**Status as of 2026-06-22:** `ReadThen` is `designed` and `harness-proven`, but not `implemented` and not
+`runner-integrated`. Live source has no `ReadThen` arm in `lang/igniter-compiler/src/igweb.rs`,
+`server/igniter-web/src/lib.rs`, `server/igniter-server/src/protocol.rs`, or `lang/igniter-vm/src`. Current
+final decisions are `Respond`, `InvokeEffect`, `RespondView`, `Render`, and `RenderView` in the IgWeb prelude,
+mapped to server decisions by `map_decision`; server protocol has `Respond`, `Invoke`, and `InvokeEffect`.
+The hand-orchestrated read host tests prove the staged shape, but that does not make the arm active in
+compiler/prelude/runner code.
+
 ---
 
 ## 1. Executive summary

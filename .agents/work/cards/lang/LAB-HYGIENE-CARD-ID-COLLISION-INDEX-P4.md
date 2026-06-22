@@ -1,6 +1,6 @@
 # LAB-HYGIENE-CARD-ID-COLLISION-INDEX-P4 - make duplicated P-suffixes navigable without mass rename
 
-Status: READY
+Status: CLOSED
 Lane: workspace hygiene / agent navigation
 Type: documentation cleanup / index
 Delegation code: OPUS-HYGIENE-CARD-ID-COLLISION-INDEX-P4
@@ -67,12 +67,33 @@ Use live filenames, not Gemini's partial list.
 
 ## Acceptance
 
-- [ ] Collision index lists all duplicated numeric suffixes, not just P9/P22.
-- [ ] Index includes full filenames and lane hints where cheaply inferable from the card title.
-- [ ] Index states the agent rule: bare `P<n>` is never unique in the flat folder.
-- [ ] No card renames or file moves.
-- [ ] `git diff --check` clean.
+- [x] Collision index lists all duplicated numeric suffixes, not just P9/P22.
+- [x] Index includes full filenames and lane hints where cheaply inferable from the card title.
+- [x] Index states the agent rule: bare `P<n>` is never unique in the flat folder.
+- [x] No card renames or file moves.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-TBD.
+Closed 2026-06-22.
+
+Added `.agents/work/cards/CARD-SUFFIX-COLLISIONS.md` as the durable navigation index for
+duplicated numeric suffixes in `.agents/work/cards/lang/*.md`.
+
+Live scan result:
+
+- duplicated suffix groups: 26 (`P0` through `P25`);
+- duplicated card rows listed in the index: 392;
+- agent rule recorded in the index: never treat a bare suffix like `P9` or `P22` as unique;
+- each row includes the full filename and a lane/title hint where available from the card body.
+
+This card did not rename, move, or edit historical card files. This card did not change lab docs or
+production code.
+No `.agents/work/README.md` pointer was added because that file is not present in the current tree.
+
+Validation:
+
+- regenerated the index from the live `.agents/work/cards/lang/*.md` directory;
+- verified the generated index is ASCII-only;
+- verified the rule and representative `P22` entries are present with `rg`;
+- `git diff --check` passed.

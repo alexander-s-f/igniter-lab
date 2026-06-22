@@ -43,8 +43,9 @@ All through `igniter_vm::compiler::Compiler` → `VM::execute` (real bytecode, n
 
 `det_sin/det_cos` are the deterministic (golden-bit-locked, vendored pure-Rust libm) surface from P5;
 `det_sqrt` is IEEE-correct `f64::sqrt` with a finite-domain guard. Using them makes the order parameter
-**replay-safe by construction** (the emergence-line thesis) — the same phases yield the same `r` bits on any
-node running the same stdlib surface. The fast surface is kept only as a secondary tolerance check.
+the right lab substrate for replay: fixed algorithm, golden vectors, and a locked stdlib surface. Cross-arch
+qemu identity and physical multi-device identity remain pending proof gates, so this proof does not claim
+hardware-node bit identity yet. The fast surface is kept only as a secondary tolerance check.
 
 ## The proof shapes
 

@@ -78,7 +78,8 @@ KuramotoRDet(0.0, 0.0)    → 1.0                         (order parameter on th
 ```
 
 Kuramoto is unblocked on the **replay-safe** surface by a one-call swap (`sin`→`det_sin`, `sqrt`→`det_sqrt`):
-`igniter-home-lab/.../kuramoto_proof.ig` can move to `det_*` for swarm-portable sims with zero rewrite.
+`igniter-home-lab/.../kuramoto_proof.ig` can move to `det_*` as a swarm-portability candidate with zero
+rewrite; physical multi-arch identity remains pending until a hardware/swarm proof records it.
 
 ## Tests & commands — exact counts
 
@@ -126,12 +127,14 @@ benchmark; no `Result`-typed math (runtime-error v0); **no cross-arch CI yet** (
 
 `LAB-STDLIB-MATH-DET-CROSSARCH-CI-P6` — run `golden_vectors_exact_bits` under qemu `aarch64` + `riscv64` to
 upgrade the determinism claim from "argued + golden-locked" to "cross-arch confirmed." Then Tier-2
-(`tan/pow/exp/ln`) and the full Kuramoto phase-transition sweep on the det surface (swarm-portable).
+(`tan/pow/exp/ln`) and the full Kuramoto phase-transition sweep on the det surface (swarm-portability
+candidate; hardware proof still pending).
 
 ---
 
 *Implementation proof. 2026-06-21. A deterministic `det_sin/det_cos/det_sqrt` surface (vendored pure-Rust
 `libm` + IEEE `f64::sqrt`, finite-guaranteed, flat spelling) sits beside the fast P2 surface; golden-vector
 bit equality + repeatability + no-silent-NaN proven locally; cross-arch identity argued + golden-locked,
-qemu CI deferred. Kuramoto is now runnable on a replay-safe surface — the keystone for portable emergence
-sims (single node → ESP32 swarm). 6 VM + 5 compiler math tests green; `git diff --check` clean.*
+qemu CI deferred. Kuramoto is now runnable on a fixed-algorithm/golden-vector surface — the keystone for a
+portable-emergence candidate; qemu and physical swarm identity remain pending proof gates. 6 VM + 5 compiler
+math tests green; `git diff --check` clean.*
