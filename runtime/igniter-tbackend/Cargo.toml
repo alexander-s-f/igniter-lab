@@ -12,8 +12,10 @@ name = "tbackend"
 path = "src/main.rs"
 
 
+# LAB-TBACKEND-FEATURE-SPLIT-P2: the daemon is pure Rust by default; the Ruby/Magnus FFI adapter is opt-in
+# (`--features ffi`). Operators build `cargo build --release --bin tbackend` with no flags.
 [features]
-default = ["ffi"]
+default = []
 ffi = ["dep:magnus"]
 
 [dependencies]
