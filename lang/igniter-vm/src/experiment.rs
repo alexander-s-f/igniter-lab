@@ -14,9 +14,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 const TWO_PI: f64 = std::f64::consts::PI * 2.0;
+const MODE_ALL_TO_ALL_TICK: &str = "all_to_all_tick";
+const MODE_NODE_TICK: &str = "node_tick";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KuramotoConfig {
+    #[serde(default = "default_kernel_mode")]
+    pub kernel_mode: String,
     pub seed: u64,
     pub gamma: f64,
     pub kc_expected: f64,
@@ -30,11 +34,14 @@ pub struct KuramotoConfig {
     pub series_sample_stride: usize,
     #[serde(default = "default_cli_sample_ticks")]
     pub cli_sample_ticks: usize,
+    #[serde(default = "default_topologies")]
+    pub topologies: Vec<String>,
 }
 
 impl Default for KuramotoConfig {
     fn default() -> Self {
         Self {
+            kernel_mode: MODE_ALL_TO_ALL_TICK.to_string(),
             seed: 20260621,
             gamma: 1.0,
             kc_expected: 2.0,
@@ -46,8 +53,13 @@ impl Default for KuramotoConfig {
             omega_clip: 10.0,
             series_sample_stride: 5,
             cli_sample_ticks: 3,
+            topologies: default_topologies(),
         }
     }
+}
+
+fn default_kernel_mode() -> String {
+    MODE_ALL_TO_ALL_TICK.to_string()
 }
 
 fn default_series_stride() -> usize {
@@ -56,6 +68,10 @@ fn default_series_stride() -> usize {
 
 fn default_cli_sample_ticks() -> usize {
     3
+}
+
+fn default_topologies() -> Vec<String> {
+    vec!["all_to_all".to_string()]
 }
 
 #[derive(Debug)]
@@ -70,19 +86,61 @@ struct ExperimentArgs {
 
 #[derive(Debug, Serialize)]
 struct SummaryRow {
+    topology: String,
     #[serde(rename = "N")]
     n: usize,
     #[serde(rename = "K")]
     k: f64,
     plateau_r: f64,
-    expected_r: f64,
-    residual: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_plateau_r: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected_r: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    residual_vs_mean_field: Option<f64>,
+}
+
+#[derive(Debug)]
+struct SeriesRow {
+    topology: String,
+    n: usize,
+    k: f64,
+    tick: usize,
+    global_r: f64,
+    local_r_mean: Option<f64>,
+}
+
+#[derive(Debug)]
+struct LocalOrderRow {
+    topology: String,
+    n: usize,
+    k: f64,
+    tick: usize,
+    mean: f64,
+    min: f64,
+    max: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct NeighborEdge {
+    target: usize,
+    weight: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct Topology {
+    name: String,
+    n: usize,
+    weight_policy: String,
+    neighbors: Vec<Vec<NeighborEdge>>,
 }
 
 #[derive(Debug)]
 struct SimulationResult {
     rows: Vec<SummaryRow>,
-    series_rows: Vec<(usize, f64, usize, f64)>,
+    series_rows: Vec<SeriesRow>,
+    local_order_rows: Vec<LocalOrderRow>,
+    topologies: Vec<Topology>,
     dispatch_us: Vec<u128>,
     tick_ms: Vec<f64>,
 }
@@ -280,6 +338,12 @@ fn load_config(path: Option<&Path>) -> Result<KuramotoConfig, String> {
 }
 
 fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
+    if config.kernel_mode != MODE_ALL_TO_ALL_TICK && config.kernel_mode != MODE_NODE_TICK {
+        return Err(format!(
+            "config.kernel_mode must be '{}' or '{}'",
+            MODE_ALL_TO_ALL_TICK, MODE_NODE_TICK
+        ));
+    }
     if config.n_values.is_empty() {
         return Err("config.n_values must not be empty".to_string());
     }
@@ -294,6 +358,30 @@ fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
     }
     if config.dt <= 0.0 {
         return Err("config.dt must be > 0".to_string());
+    }
+    if config.kernel_mode == MODE_NODE_TICK {
+        if config.topologies.is_empty() {
+            return Err("config.topologies must not be empty for node_tick mode".to_string());
+        }
+        for topology in &config.topologies {
+            match topology.as_str() {
+                "all_to_all" | "ring" | "grid" | "shuffled_ring" => {}
+                other => {
+                    return Err(format!(
+                    "unsupported topology '{}'; expected all_to_all, ring, grid, or shuffled_ring",
+                    other
+                ))
+                }
+            }
+        }
+        for &n in &config.n_values {
+            if n < 2 {
+                return Err("node_tick mode requires all N values to be >= 2".to_string());
+            }
+            if config.topologies.iter().any(|t| t == "grid") && !is_square(n) {
+                return Err(format!("grid topology requires square N, got {}", n));
+            }
+        }
     }
     Ok(())
 }
@@ -437,12 +525,26 @@ async fn simulate(
     config: &KuramotoConfig,
     loaded: &LoadedKernel,
 ) -> Result<SimulationResult, String> {
+    if config.kernel_mode == MODE_NODE_TICK {
+        simulate_node_tick(config, loaded).await
+    } else {
+        simulate_all_to_all_tick(config, loaded).await
+    }
+}
+
+async fn simulate_all_to_all_tick(
+    config: &KuramotoConfig,
+    loaded: &LoadedKernel,
+) -> Result<SimulationResult, String> {
     let mut rows = Vec::new();
     let mut series_rows = Vec::new();
+    let local_order_rows = Vec::new();
+    let mut topologies = Vec::new();
     let mut dispatch_us = Vec::new();
     let mut tick_ms = Vec::new();
 
     for &n in &config.n_values {
+        topologies.push(build_topology("all_to_all", n, config.seed)?);
         let omegas = omega_vector(n, config.gamma, config.omega_clip);
         for &k in &config.k_values {
             let mut thetas = init_phases(n);
@@ -458,17 +560,26 @@ async fn simulate(
                 let r = order_parameter(&thetas);
                 r_series.push(r);
                 if config.series_sample_stride == 0 || tick % config.series_sample_stride == 0 {
-                    series_rows.push((n, k, tick, r));
+                    series_rows.push(SeriesRow {
+                        topology: "all_to_all".to_string(),
+                        n,
+                        k,
+                        tick,
+                        global_r: r,
+                        local_r_mean: None,
+                    });
                 }
             }
             let plateau = mean(&r_series[r_series.len() - config.plateau_window..]);
             let expected = expected_r(k, config.kc_expected);
             rows.push(SummaryRow {
+                topology: "all_to_all".to_string(),
                 n,
                 k,
                 plateau_r: plateau,
-                expected_r: expected,
-                residual: plateau - expected,
+                local_plateau_r: None,
+                expected_r: Some(expected),
+                residual_vs_mean_field: Some(plateau - expected),
             });
         }
     }
@@ -476,6 +587,105 @@ async fn simulate(
     Ok(SimulationResult {
         rows,
         series_rows,
+        local_order_rows,
+        topologies,
+        dispatch_us,
+        tick_ms,
+    })
+}
+
+async fn simulate_node_tick(
+    config: &KuramotoConfig,
+    loaded: &LoadedKernel,
+) -> Result<SimulationResult, String> {
+    let mut rows = Vec::new();
+    let mut series_rows = Vec::new();
+    let mut local_order_rows = Vec::new();
+    let mut topologies_out = Vec::new();
+    let mut dispatch_us = Vec::new();
+    let mut tick_ms = Vec::new();
+
+    for &n in &config.n_values {
+        let omegas = omega_vector(n, config.gamma, config.omega_clip);
+        let topologies = build_topologies(n, &config.topologies, config.seed)?;
+        topologies_out.extend(topologies.iter().cloned());
+
+        for topology in &topologies {
+            for &k in &config.k_values {
+                let mut thetas = init_phases(n);
+                let mut global_r_series = Vec::new();
+                let mut local_r_series = Vec::new();
+
+                for tick in 0..config.ticks {
+                    let tick_start = Instant::now();
+                    let snapshot = thetas.clone();
+                    let mut next_thetas = Vec::with_capacity(n);
+
+                    for node_idx in 0..n {
+                        let (next_theta, elapsed_us) = execute_node_tick(
+                            loaded, &snapshot, &omegas, topology, node_idx, k, config.dt,
+                        )
+                        .await?;
+                        next_thetas.push(next_theta);
+                        dispatch_us.push(elapsed_us);
+                    }
+
+                    thetas = next_thetas.into_iter().map(wrap_phase).collect();
+                    tick_ms.push(tick_start.elapsed().as_secs_f64() * 1000.0);
+
+                    let global_r = order_parameter(&thetas);
+                    let local_stats = local_order_stats(&thetas, topology);
+                    global_r_series.push(global_r);
+                    local_r_series.push(local_stats.mean);
+
+                    if config.series_sample_stride == 0 || tick % config.series_sample_stride == 0 {
+                        series_rows.push(SeriesRow {
+                            topology: topology.name.clone(),
+                            n,
+                            k,
+                            tick,
+                            global_r,
+                            local_r_mean: Some(local_stats.mean),
+                        });
+                        local_order_rows.push(LocalOrderRow {
+                            topology: topology.name.clone(),
+                            n,
+                            k,
+                            tick,
+                            mean: local_stats.mean,
+                            min: local_stats.min,
+                            max: local_stats.max,
+                        });
+                    }
+                }
+
+                let plateau =
+                    mean(&global_r_series[global_r_series.len() - config.plateau_window..]);
+                let local_plateau =
+                    mean(&local_r_series[local_r_series.len() - config.plateau_window..]);
+                let expected = if topology.name == "all_to_all" {
+                    Some(expected_r(k, config.kc_expected))
+                } else {
+                    None
+                };
+                rows.push(SummaryRow {
+                    topology: topology.name.clone(),
+                    n,
+                    k,
+                    plateau_r: plateau,
+                    local_plateau_r: Some(local_plateau),
+                    expected_r: expected,
+                    residual_vs_mean_field: expected.map(|target| plateau - target),
+                });
+            }
+        }
+    }
+
+    Ok(SimulationResult {
+        rows,
+        series_rows,
+        local_order_rows,
+        topologies: topologies_out,
         dispatch_us,
         tick_ms,
     })
@@ -500,6 +710,53 @@ async fn execute_tick(
             inputs.insert(k.clone(), Value::from_json(v));
         }
     }
+    let (out, elapsed) = execute_loaded(loaded, &inputs).await?;
+    let values = floats_from_value(&out)?;
+    if values.len() != thetas.len() {
+        return Err(format!(
+            "contract={} output length {} != input length {}",
+            loaded.contract_name,
+            values.len(),
+            thetas.len()
+        ));
+    }
+    Ok((values, elapsed))
+}
+
+async fn execute_node_tick(
+    loaded: &LoadedKernel,
+    snapshot_thetas: &[f64],
+    omegas: &[f64],
+    topology: &Topology,
+    node_idx: usize,
+    k_value: f64,
+    dt: f64,
+) -> Result<(f64, u128), String> {
+    let neighbors: Vec<JsonValue> = topology.neighbors[node_idx]
+        .iter()
+        .map(|edge| json!({"theta": snapshot_thetas[edge.target], "weight": edge.weight}))
+        .collect();
+    let inputs_json = json!({
+        "self": {"theta": snapshot_thetas[node_idx], "omega": omegas[node_idx]},
+        "neighbors": neighbors,
+        "k": k_value,
+        "dt": dt
+    });
+    let mut inputs = HashMap::new();
+    if let Some(obj) = inputs_json.as_object() {
+        for (k, v) in obj {
+            inputs.insert(k.clone(), Value::from_json(v));
+        }
+    }
+    let (out, elapsed) = execute_loaded(loaded, &inputs).await?;
+    let theta = float_from_value(&out)?;
+    Ok((theta, elapsed))
+}
+
+async fn execute_loaded(
+    loaded: &LoadedKernel,
+    inputs: &HashMap<String, Value>,
+) -> Result<(Value, u128), String> {
     let mut temporal = HashMap::new();
     temporal.insert(
         "contract_modifier".to_string(),
@@ -516,20 +773,10 @@ async fn execute_tick(
 
     let start = Instant::now();
     let out = vm
-        .execute(&loaded.bytecode, &inputs, &temporal)
+        .execute(&loaded.bytecode, inputs, &temporal)
         .await
         .map_err(|e| format!("contract={} error={}", loaded.contract_name, e))?;
-    let elapsed = start.elapsed().as_micros();
-    let values = floats_from_value(&out)?;
-    if values.len() != thetas.len() {
-        return Err(format!(
-            "contract={} output length {} != input length {}",
-            loaded.contract_name,
-            values.len(),
-            thetas.len()
-        ));
-    }
-    Ok((values, elapsed))
+    Ok((out, start.elapsed().as_micros()))
 }
 
 fn floats_from_value(value: &Value) -> Result<Vec<f64>, String> {
@@ -552,6 +799,18 @@ async fn run_cli_comparison(
     config: &KuramotoConfig,
     igapp_dir: &Path,
 ) -> Result<JsonValue, String> {
+    if config.kernel_mode == MODE_NODE_TICK {
+        return Ok(json!({
+            "status": "skipped",
+            "reason": "node_tick mode performs N in-process dispatches per tick; CLI comparison belongs to P5 all_to_all_tick mode"
+        }));
+    }
+    if config.cli_sample_ticks == 0 {
+        return Ok(json!({
+            "status": "skipped",
+            "reason": "config.cli_sample_ticks=0"
+        }));
+    }
     let n = *config.n_values.first().ok_or("empty n_values")?;
     let k = *config.k_values.last().ok_or("empty k_values")?;
     let sample_ticks = config.cli_sample_ticks.min(config.ticks).max(1);
@@ -659,8 +918,16 @@ fn write_bundle(
         None
     };
 
+    let topology_out = json!({
+        "kernel_mode": config.kernel_mode,
+        "sync_barrier": "strict_jacobi: read all node states at tick t, compute all next states from snapshot t, commit together to t+1",
+        "topologies": simulation.topologies,
+    });
+    let topology_hash = sha256_text(&serde_json::to_string(&topology_out).unwrap_or_default());
+
     let config_out = json!({
         "runner": "igniter-vm experiment kuramoto",
+        "kernel_mode": config.kernel_mode,
         "kernel": args.kernel,
         "entry": args.entry,
         "seed": config.seed,
@@ -668,6 +935,7 @@ fn write_bundle(
         "kc_expected": config.kc_expected,
         "n_values": config.n_values,
         "k_values": config.k_values,
+        "topologies": config.topologies,
         "dt": config.dt,
         "ticks": config.ticks,
         "plateau_window": config.plateau_window,
@@ -677,24 +945,44 @@ fn write_bundle(
         "integrator": "explicit_euler",
         "kernel_sha256": meta.kernel_hash,
         "config_sha256": meta.config_hash,
+        "topology_sha256": topology_hash,
         "contract_name": loaded.contract_name,
     });
     write_json(args.out_dir.join("config.json"), &config_out)?;
+    write_json(args.out_dir.join("topology.json"), &topology_out)?;
 
-    let mut series = String::from("N,K,tick,r\n");
-    for (n, k, tick, r) in &simulation.series_rows {
-        series.push_str(&format!("{},{},{},{}\n", n, k, tick, r));
+    let mut series = String::from("topology,N,K,tick,global_r,local_r_mean\n");
+    for row in &simulation.series_rows {
+        series.push_str(&format!(
+            "{},{},{},{},{},{}\n",
+            row.topology,
+            row.n,
+            row.k,
+            row.tick,
+            row.global_r,
+            row.local_r_mean.map(|v| v.to_string()).unwrap_or_default()
+        ));
     }
     fs::write(args.out_dir.join("series.csv"), series)
         .map_err(|e| format!("failed to write series.csv: {}", e))?;
 
-    let transition_observed = simulation
-        .rows
-        .iter()
-        .any(|r| r.k >= config.kc_expected * 1.5 && r.plateau_r > 0.4);
+    let mut local_order = String::from("topology,N,K,tick,mean_local_r,min_local_r,max_local_r\n");
+    for row in &simulation.local_order_rows {
+        local_order.push_str(&format!(
+            "{},{},{},{},{},{},{}\n",
+            row.topology, row.n, row.k, row.tick, row.mean, row.min, row.max
+        ));
+    }
+    fs::write(args.out_dir.join("local_order.csv"), local_order)
+        .map_err(|e| format!("failed to write local_order.csv: {}", e))?;
+
+    let transition_observed = simulation.rows.iter().any(|r| {
+        r.topology == "all_to_all" && r.k >= config.kc_expected * 1.5 && r.plateau_r > 0.4
+    });
     let summary = json!({
         "status": "ok",
         "run_started_utc": meta.run_started.to_rfc3339(),
+        "kernel_mode": config.kernel_mode,
         "rows": simulation.rows,
         "transition_observed": transition_observed,
         "inprocess_dispatches": simulation.dispatch_us.len(),
@@ -729,7 +1017,12 @@ fn write_report(
 ) -> Result<(), String> {
     let mut text = String::new();
     text.push_str("# In-process Kuramoto runner proof\n\n");
-    text.push_str("LAB-IGNITER-EXPERIMENT-INPROCESS-RUNNER-P5. Apparatus infrastructure, not a new scientific claim.\n\n");
+    if config.kernel_mode == MODE_NODE_TICK {
+        text.push_str("LAB-IGNITER-EMERGENCE-LOCAL-MULTINODE-SIM-P6. Deterministic local multi-node reference, not a distributed system and not a new scientific claim.\n\n");
+        text.push_str("Strict barrier semantics: read every node state at tick t, compute every next state from that snapshot, then commit all states together to t+1.\n\n");
+    } else {
+        text.push_str("LAB-IGNITER-EXPERIMENT-INPROCESS-RUNNER-P5. Apparatus infrastructure, not a new scientific claim.\n\n");
+    }
     text.push_str("## Command\n\n```text\n");
     text.push_str("igniter-vm experiment kuramoto --kernel ");
     text.push_str(&args.kernel.display().to_string());
@@ -756,6 +1049,9 @@ fn write_report(
         "- CLI per-tick mean: {:.1} us\n- In-process dispatch mean: {:.1} us\n",
         cli_mean, inprocess_mean
     ));
+    if config.kernel_mode == MODE_NODE_TICK && cli_mean == 0.0 {
+        text.push_str("- CLI comparison: skipped for node_tick mode\n");
+    }
     if let Some(s) = speedup {
         text.push_str(&format!("- CLI/in-process mean ratio: {:.1}x\n", s));
     }
@@ -821,6 +1117,178 @@ fn expected_r(k: f64, kc: f64) -> f64 {
     } else {
         0.0
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LocalOrderStats {
+    mean: f64,
+    min: f64,
+    max: f64,
+}
+
+fn local_order_stats(thetas: &[f64], topology: &Topology) -> LocalOrderStats {
+    let mut local = Vec::with_capacity(thetas.len());
+    for (idx, theta) in thetas.iter().enumerate() {
+        let mut phases = Vec::with_capacity(topology.neighbors[idx].len() + 1);
+        phases.push(*theta);
+        for edge in &topology.neighbors[idx] {
+            phases.push(thetas[edge.target]);
+        }
+        local.push(order_parameter(&phases));
+    }
+    LocalOrderStats {
+        mean: mean(&local),
+        min: local.iter().cloned().reduce(f64::min).unwrap_or(0.0),
+        max: local.iter().cloned().reduce(f64::max).unwrap_or(0.0),
+    }
+}
+
+fn build_topologies(n: usize, names: &[String], seed: u64) -> Result<Vec<Topology>, String> {
+    names
+        .iter()
+        .map(|name| build_topology(name, n, seed))
+        .collect()
+}
+
+fn build_topology(name: &str, n: usize, seed: u64) -> Result<Topology, String> {
+    match name {
+        "all_to_all" => Ok(all_to_all_topology(n)),
+        "ring" => Ok(ring_topology(n, "ring")),
+        "grid" => grid_topology(n),
+        "shuffled_ring" => Ok(shuffled_ring_topology(n, seed)),
+        other => Err(format!("unsupported topology '{}'", other)),
+    }
+}
+
+fn all_to_all_topology(n: usize) -> Topology {
+    let weight = 1.0 / n as f64;
+    let neighbors = (0..n)
+        .map(|i| {
+            (0..n)
+                .filter(|&j| j != i)
+                .map(|j| NeighborEdge { target: j, weight })
+                .collect()
+        })
+        .collect();
+    Topology {
+        name: "all_to_all".to_string(),
+        n,
+        weight_policy: "weight=1/N; self edge omitted because sin(0)=0".to_string(),
+        neighbors,
+    }
+}
+
+fn ring_topology(n: usize, name: &str) -> Topology {
+    let neighbors = (0..n)
+        .map(|i| {
+            let mut targets = vec![(i + n - 1) % n, (i + 1) % n];
+            targets.sort_unstable();
+            targets.dedup();
+            targets
+                .into_iter()
+                .map(|target| NeighborEdge {
+                    target,
+                    weight: 1.0,
+                })
+                .collect()
+        })
+        .collect();
+    Topology {
+        name: name.to_string(),
+        n,
+        weight_policy: "ring nearest-neighbor weight=1".to_string(),
+        neighbors,
+    }
+}
+
+fn shuffled_ring_topology(n: usize, seed: u64) -> Topology {
+    let perm = shuffled_indices(n, seed ^ 0x9e37_79b9_7f4a_7c15);
+    let mut neighbors = vec![Vec::new(); n];
+    for pos in 0..n {
+        let node = perm[pos];
+        let left = perm[(pos + n - 1) % n];
+        let right = perm[(pos + 1) % n];
+        let mut targets = vec![left, right];
+        targets.sort_unstable();
+        targets.dedup();
+        neighbors[node] = targets
+            .into_iter()
+            .map(|target| NeighborEdge {
+                target,
+                weight: 1.0,
+            })
+            .collect();
+    }
+    Topology {
+        name: "shuffled_ring".to_string(),
+        n,
+        weight_policy: "degree-preserving deterministic ring relabel; weight=1".to_string(),
+        neighbors,
+    }
+}
+
+fn grid_topology(n: usize) -> Result<Topology, String> {
+    let side =
+        square_side(n).ok_or_else(|| format!("grid topology requires square N, got {}", n))?;
+    let mut neighbors = Vec::with_capacity(n);
+    for y in 0..side {
+        for x in 0..side {
+            let mut targets = vec![
+                y * side + ((x + side - 1) % side),
+                y * side + ((x + 1) % side),
+                ((y + side - 1) % side) * side + x,
+                ((y + 1) % side) * side + x,
+            ];
+            targets.sort_unstable();
+            targets.dedup();
+            neighbors.push(
+                targets
+                    .into_iter()
+                    .map(|target| NeighborEdge {
+                        target,
+                        weight: 1.0,
+                    })
+                    .collect(),
+            );
+        }
+    }
+    Ok(Topology {
+        name: "grid".to_string(),
+        n,
+        weight_policy: format!("{}x{} periodic grid 4-neighbor weight=1", side, side),
+        neighbors,
+    })
+}
+
+fn square_side(n: usize) -> Option<usize> {
+    let side = (n as f64).sqrt() as usize;
+    if side * side == n {
+        Some(side)
+    } else {
+        None
+    }
+}
+
+fn is_square(n: usize) -> bool {
+    square_side(n).is_some()
+}
+
+fn shuffled_indices(n: usize, seed: u64) -> Vec<usize> {
+    let mut out: Vec<usize> = (0..n).collect();
+    let mut state = seed;
+    for i in (1..n).rev() {
+        let j = (splitmix64(&mut state) as usize) % (i + 1);
+        out.swap(i, j);
+    }
+    out
+}
+
+fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
 }
 
 fn wrap_phase(v: f64) -> f64 {
@@ -900,5 +1368,33 @@ mod tests {
         assert!((order_parameter(&[0.0, 0.0, 0.0]) - 1.0).abs() < 1e-12);
         let balanced = order_parameter(&[0.0, TWO_PI / 3.0, 2.0 * TWO_PI / 3.0]);
         assert!(balanced < 1e-12);
+    }
+
+    #[test]
+    fn all_to_all_topology_uses_mean_field_weight() {
+        let topology = all_to_all_topology(4);
+        assert_eq!(topology.neighbors.len(), 4);
+        assert_eq!(topology.neighbors[0].len(), 3);
+        assert!(topology.neighbors[0]
+            .iter()
+            .all(|edge| (edge.weight - 0.25).abs() < 1e-12));
+        assert!(!topology.neighbors[0].iter().any(|edge| edge.target == 0));
+    }
+
+    #[test]
+    fn grid_topology_requires_square_n() {
+        assert!(grid_topology(16).is_ok());
+        assert!(grid_topology(18).is_err());
+    }
+
+    #[test]
+    fn shuffled_ring_is_deterministic_degree_two() {
+        let a = shuffled_ring_topology(16, 20260622);
+        let b = shuffled_ring_topology(16, 20260622);
+        assert_eq!(
+            serde_json::to_string(&a.neighbors).unwrap(),
+            serde_json::to_string(&b.neighbors).unwrap()
+        );
+        assert!(a.neighbors.iter().all(|edges| edges.len() == 2));
     }
 }
