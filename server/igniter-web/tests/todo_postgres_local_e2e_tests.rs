@@ -26,18 +26,31 @@ use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind,
     RunMode, RECEIPTS_STORE,
 };
-use igniter_machine::clock::{ClockProvider, FixedClock};
+use igniter_machine::clock::{ClockProvider, FixedClock, SystemClock};
+use igniter_machine::coordination::CoordinationHub;
+use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::postgres_read::{PostgresReadExecutor, PostgresReadPolicy};
 use igniter_machine::postgres_real::{TokioPostgresReadAdapter, TokioPostgresWriteAdapter};
 use igniter_machine::postgres_write::{
     PostgresWriteExecutor, PostgresWriteIntent, PostgresWritePolicy,
 };
+use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{run_write_effect, WriteRequest, WriteState};
+
+use igniter_server::effect_host::MachineEffectHost;
+use igniter_server::serving_loop::ServingPolicy;
+use igniter_web::host_binding::{
+    build_staged_read_host_from_resolved, build_write_host_from_resolved,
+};
+use igniter_web::host_config::{load_host_config, resolve_host_config};
+use igniter_web::machine_runner;
+use igniter_web::runner::build_loaded_app_from_dir;
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::OnceCell;
 use tokio_postgres::{Client, NoTls};
 
@@ -162,6 +175,13 @@ async fn prepare(account: &str, todo_ids: &[&str], idem_keys: &[&str]) -> Option
             .await
             .unwrap();
     }
+    // Clear ANY residual todos under this test's account before removing the account row — the account
+    // namespace is test-owned, so prior tests in the same family may have left children that would
+    // otherwise trip the `todos_account_id_fkey` FK (order-independent, single-threaded DB tests).
+    client
+        .execute("DELETE FROM todos WHERE account_id = $1", &[&account])
+        .await
+        .unwrap();
     client
         .execute("DELETE FROM accounts WHERE id = $1", &[&account])
         .await
@@ -453,6 +473,554 @@ fn local_write_replay_no_second_mutation() {
             1,
             "same key → exactly one real mutation"
         );
+    });
+}
+
+// ── 6: binary path — build_staged_read_host_from_resolved → real adapter → HTTP 200 ─────────────
+//
+// Proves the binary's actual construction path (P25): same function the binary calls under
+// --features postgres when [postgres.read] is configured.  Skips cleanly without
+// IGNITER_TODO_PG_DSN; no subprocess, no stable CLI claim.
+
+#[test]
+fn binary_path_readhost_from_config_found_200() {
+    rt().block_on(async {
+        let Some((client, dsn)) = prepare("acct-p25-cfg", &["todo-p25-1", "todo-p25-2"], &[]).await
+        else {
+            return;
+        };
+        for (id, title) in [("todo-p25-1", "P25 smoke A"), ("todo-p25-2", "P25 smoke B")] {
+            client
+                .execute(
+                    "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                    &[&id, &"acct-p25-cfg", &title],
+                )
+                .await
+                .unwrap();
+        }
+
+        // Write temp host.toml referencing a dedicated env var so resolution is self-contained.
+        let dsn_env = "IGNITER_P25_PG_READ_DSN";
+        std::env::set_var(dsn_env, &dsn);
+        let toml = format!(
+            "[postgres.read]\ndsn_env = \"{dsn_env}\"\nsource = \"todos\"\n\
+             fields = \"id,account_id,title,done\"\nrow_limit = \"50\"\n\
+             capability = \"IO.PostgresRead\"\n"
+        );
+        let tmp = std::env::temp_dir().join("igweb-p25-binary-path.toml");
+        std::fs::write(&tmp, &toml).unwrap();
+
+        // Binary path: load_host_config → resolve → build real StagedReadHost.
+        let cfg = load_host_config(&tmp).unwrap();
+        let resolved = resolve_host_config(&cfg).unwrap();
+        assert!(
+            resolved.postgres_read_dsn.is_some(),
+            "DSN must resolve from env"
+        );
+        let read_host = build_staged_read_host_from_resolved(&cfg, &resolved)
+            .await
+            .expect("build_staged_read_host_from_resolved must succeed")
+            .expect("[postgres.read] present → Some(host)");
+
+        // No-op effect host: write not exercised; same infrastructure as binary's v0 path.
+        let router = IngressRouter::new();
+        let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);
+        let hub = CoordinationHub::new(audit.clone(), Arc::clone(&clk));
+        let reg = CapabilityExecutorRegistry::new();
+        let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        let ep = CapabilityPassport {
+            subject: "host".to_string(),
+            capability_id: "noop".to_string(),
+            scopes: vec![],
+            issued_at: 0.0,
+            expires_at: None,
+            revoked: false,
+            evidence_digest: String::new(),
+        };
+        let sf = SingleFlight::new();
+        let bridge_cfg = EffectBridgeConfig {
+            registry: &reg,
+            receipts: &receipts,
+            effect_clock: &clk,
+            effect_passport: &ep,
+            single_flight: &sf,
+            capability_id: "noop".to_string(),
+            operation: "noop".to_string(),
+            scope: "noop".to_string(),
+        };
+        let effect_host = MachineEffectHost::new(&router, &hub, &bridge_cfg);
+
+        let app_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo_postgres_app");
+        let (app, _) = build_loaded_app_from_dir(&app_dir).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client_task = tokio::spawn(async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let req =
+                "GET /accounts/acct-p25-cfg/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
+            s.write_all(req.as_bytes()).await.unwrap();
+            s.flush().await.unwrap();
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
+
+        let raw = client_task.await.unwrap();
+        let status: u16 = raw
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        assert_eq!(
+            status, 200,
+            "binary path build_staged_read_host_from_resolved → real read → 200; raw={raw}"
+        );
+        assert!(
+            raw.contains("todo-p25-1"),
+            "response must contain seeded todo id; raw={raw}"
+        );
+
+        std::env::remove_var(dsn_env);
+        std::fs::remove_file(&tmp).ok();
+    });
+}
+
+// ── 7: binary path — build_write_host_from_resolved → real adapter → HTTP 200 + replay ────────────
+//
+// Proves the binary's actual write construction path (P26): same function the binary calls under
+// --features postgres when [postgres.write] + [effects.*] + passport_env are configured.
+// Also proves: replay same idempotency key produces no second mutation (dedup_strict in recipe).
+// Skips cleanly without IGNITER_TODO_PG_DSN; no subprocess, no stable CLI claim.
+
+#[test]
+fn binary_path_write_from_config_committed() {
+    rt().block_on(async {
+        let idem_key = "p26-write-k1";
+        let Some((_client, dsn)) = prepare("acct-p26-cfg", &[idem_key], &[idem_key]).await else {
+            return;
+        };
+
+        let tok_env = "IGNITER_P26_VENDOR_TOKEN";
+        let write_env = "IGNITER_P26_PG_WRITE_DSN";
+        let tok_val = "p26-vtok";
+        std::env::set_var(tok_env, tok_val);
+        std::env::set_var(write_env, &dsn);
+
+        let toml = format!(
+            "[postgres.write]\n\
+             dsn_env = \"{write_env}\"\n\
+             targets = \"todos\"\n\
+             key_column = \"id\"\n\
+             columns = \"account_id,title,done\"\n\
+             ops = \"insert,upsert\"\n\
+             capability = \"IO.TodoWrite\"\n\
+             \n\
+             [effects.todo-create]\n\
+             route = \"/w\"\n\
+             passport_env = \"{tok_env}\"\n\
+             \n\
+             [effects.todo-done]\n\
+             route = \"/w\"\n\
+             passport_env = \"{tok_env}\"\n"
+        );
+        let tmp = std::env::temp_dir().join("igweb-p26-binary-write.toml");
+        std::fs::write(&tmp, &toml).unwrap();
+
+        let cfg = load_host_config(&tmp).unwrap();
+        let resolved = resolve_host_config(&cfg).unwrap();
+        assert!(
+            resolved.postgres_write_dsn.is_some(),
+            "write DSN must resolve from env"
+        );
+
+        // Binary path: build_write_host_from_resolved.
+        let state = build_write_host_from_resolved(&cfg, &resolved)
+            .await
+            .expect("build_write_host_from_resolved must succeed")
+            .expect("[postgres.write] + passport_env present → Some(components)");
+
+        use igniter_machine::ingress::EffectBridgeConfig;
+        use igniter_server::effect_host::MachineEffectHost;
+        let bridge_cfg = EffectBridgeConfig {
+            registry: &state.registry,
+            receipts: &state.receipts,
+            effect_clock: &state.clk,
+            effect_passport: &state.ep,
+            single_flight: &state.sf,
+            capability_id: state.capability_id.clone(),
+            operation: "write_record".to_string(),
+            scope: "write".to_string(),
+        };
+        let mut effect_host = MachineEffectHost::new(&state.router, &state.hub, &bridge_cfg);
+        for (target, route) in &state.bind_targets {
+            effect_host.bind_target(target, route);
+        }
+
+        // No-op read host (not exercised by POST requests).
+        let read_reg = CapabilityExecutorRegistry::new();
+        let read_recs: std::sync::Arc<dyn igniter_machine::backend::TBackend> =
+            std::sync::Arc::new(InMemoryBackend::new());
+        let read_host =
+            igniter_web::read_dispatch::StagedReadHost::new(read_reg, read_recs, "IO.PostgresRead");
+
+        let app_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo_postgres_app");
+        let (app, _) = build_loaded_app_from_dir(&app_dir).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let build_post = |key: &str| {
+            let tok = tok_val;
+            let body = "{}";
+            format!(
+                "POST /accounts/acct-p26-cfg/todos HTTP/1.1\r\nHost: x\r\n\
+                 Authorization: Bearer {tok}\r\n\
+                 idempotency-key: {key}\r\n\
+                 Content-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            )
+        };
+
+        // Client task: first POST (fresh write), then second POST (same key → dedup replay).
+        let post1 = build_post(idem_key);
+        let post2 = build_post(idem_key);
+        let client_task = tokio::spawn(async move {
+            let send_raw = |raw: String| async move {
+                let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+                s.write_all(raw.as_bytes()).await.unwrap();
+                s.flush().await.unwrap();
+                let mut buf = Vec::new();
+                s.read_to_end(&mut buf).await.unwrap();
+                String::from_utf8_lossy(&buf).to_string()
+            };
+            let r1 = send_raw(post1).await;
+            let r2 = send_raw(post2).await;
+            (r1, r2)
+        });
+
+        let policy = ServingPolicy::new(2).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
+
+        let (raw1, raw2) = client_task.await.unwrap();
+        let status1: u16 = raw1
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let status2: u16 = raw2
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        assert_eq!(status1, 200, "first POST → 200 committed; raw={raw1}");
+        assert_eq!(
+            status2, 200,
+            "second POST (same key) → 200 dedup replay; raw={raw2}"
+        );
+
+        std::env::remove_var(tok_env);
+        std::env::remove_var(write_env);
+        std::fs::remove_file(&tmp).ok();
+    });
+}
+
+// ── 8: REAL SUBPROCESS — the product command end-to-end (LAB-TODOAPP-API-IGWEB-SERVE-LOCAL-POSTGRES-P12)
+//
+// Unlike sections 6/7 (which call the binary's builder fns directly), this spawns the ACTUAL compiled
+// `igweb-serve` binary as a subprocess and drives it over a real loopback socket — exercising CLI parsing,
+// env-var resolution before bind, the combined [postgres.read] + [postgres.write] + [effects.*] wiring,
+// and deterministic `--max-requests` exit. One operator-owned host.toml (env-var refs only); both DSN refs
+// point at the same dedicated test DB. Proves all four product behaviors in one run:
+//   read found  → 200    read empty → app-owned 404
+//   write       → 200 committed (real business row + PG effect_receipts row)
+//   replay key  → 200, NO second mutation (exactly one business row)
+// The binary is located via CARGO_BIN_EXE_igweb-serve (compiled with the same --features as this test).
+// Skips cleanly without IGNITER_TODO_PG_DSN. No stable CLI claim; no daemon left running.
+
+#[test]
+fn subprocess_product_command_read_write_replay_e2e() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    rt().block_on(async {
+        let write_key = "p12-write-k1";
+        let seeded = ["todo-p12-a", "todo-p12-b"];
+        // prepare seeds the account + cleans the keys/ids this test owns (incl. the written row).
+        let Some((client, dsn)) = prepare(
+            "acct-p12-sub",
+            &["todo-p12-a", "todo-p12-b", write_key],
+            &[write_key],
+        )
+        .await
+        else {
+            return;
+        };
+        for (id, title) in [(seeded[0], "P12 sub A"), (seeded[1], "P12 sub B")] {
+            client
+                .execute(
+                    "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                    &[&id, &"acct-p12-sub", &title],
+                )
+                .await
+                .unwrap();
+        }
+        // The ingress/coordination path keys PG `effect_receipts` by `intent.key + ":<attempt>"`, so the
+        // exact-key clean in `prepare` (which only knows the un-suffixed key) cannot reach it. Clear it by
+        // the stable `business_key` (== intent.key) so a re-run starts from a genuinely fresh write.
+        client
+            .execute(
+                "DELETE FROM effect_receipts WHERE business_key = $1",
+                &[&write_key],
+            )
+            .await
+            .unwrap();
+
+        // Operator-owned host.toml: both read + write sections, env-var DSN refs only (no inline secret).
+        let read_env = "IGNITER_P12_PG_READ_DSN";
+        let write_env = "IGNITER_P12_PG_WRITE_DSN";
+        let tok_env = "IGNITER_P12_VENDOR_TOKEN";
+        let tok_val = "p12-vtok";
+        let toml = format!(
+            "[postgres.read]\n\
+             dsn_env = \"{read_env}\"\n\
+             source = \"todos\"\n\
+             fields = \"id,account_id,title,done\"\n\
+             row_limit = \"50\"\n\
+             capability = \"IO.PostgresRead\"\n\
+             \n\
+             [postgres.write]\n\
+             dsn_env = \"{write_env}\"\n\
+             targets = \"todos\"\n\
+             key_column = \"id\"\n\
+             columns = \"account_id,title,done\"\n\
+             ops = \"insert,upsert\"\n\
+             capability = \"IO.TodoWrite\"\n\
+             \n\
+             [effects.todo-create]\n\
+             route = \"/w\"\n\
+             passport_env = \"{tok_env}\"\n\
+             \n\
+             [effects.todo-done]\n\
+             route = \"/w\"\n\
+             passport_env = \"{tok_env}\"\n"
+        );
+        let tmp =
+            std::env::temp_dir().join(format!("igweb-p12-subprocess-{}.toml", std::process::id()));
+        std::fs::write(&tmp, &toml).unwrap();
+
+        let app_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo_postgres_app");
+
+        // Spawn the ACTUAL binary. Env vars set on the child only (parent env stays clean); both DSN refs
+        // point at the same dedicated test DB.
+        let mut child = Command::new(env!("CARGO_BIN_EXE_igweb-serve"))
+            .arg("--host-config")
+            .arg(&tmp)
+            .arg("--addr")
+            .arg("127.0.0.1:0")
+            .arg("--max-requests")
+            .arg("4")
+            .arg(&app_dir)
+            .env(read_env, &dsn)
+            .env(write_env, &dsn)
+            .env(tok_env, tok_val)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn igweb-serve");
+
+        // Drain stderr into a shared buffer for diagnostics (and so a full pipe never blocks the child).
+        let err_buf = Arc::new(std::sync::Mutex::new(String::new()));
+        let err_task = {
+            let buf = err_buf.clone();
+            let stderr = child.stderr.take().unwrap();
+            tokio::spawn(async move {
+                let mut r = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match r.read_line(&mut line).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => buf.lock().unwrap().push_str(&line),
+                    }
+                }
+            })
+        };
+        let errs = {
+            let buf = err_buf.clone();
+            move || buf.lock().unwrap().clone()
+        };
+
+        fn parse_listen_addr(line: &str) -> Option<String> {
+            let marker = "listening http://";
+            let i = line.find(marker)? + marker.len();
+            let rest = &line[i..];
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            Some(rest[..end].to_string())
+        }
+
+        // Read stdout until the binary prints its bound address (env resolves + DB connects before bind).
+        let stdout = child.stdout.take().unwrap();
+        let mut out = BufReader::new(stdout).lines();
+        let addr = loop {
+            match timeout(Duration::from_secs(30), out.next_line()).await {
+                Ok(Ok(Some(l))) => {
+                    if let Some(a) = parse_listen_addr(&l) {
+                        break a;
+                    }
+                }
+                Ok(Ok(None)) => {
+                    panic!("igweb-serve exited before listening; stderr=\n{}", errs())
+                }
+                Ok(Err(e)) => panic!("stdout read error: {e}; stderr=\n{}", errs()),
+                Err(_) => panic!("timeout waiting for listening line; stderr=\n{}", errs()),
+            }
+        };
+        // Keep draining stdout so the child never blocks writing progress lines.
+        let out_task =
+            tokio::spawn(async move { while let Ok(Some(_)) = out.next_line().await {} });
+
+        async fn http_send(addr: &str, raw: &str) -> String {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            s.write_all(raw.as_bytes()).await.unwrap();
+            s.flush().await.unwrap();
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        }
+        fn status_of(raw: &str) -> u16 {
+            raw.split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0)
+        }
+
+        // 4 requests, strictly sequential (one connection each, read to EOF) → bounded loop serves & exits.
+        let get_found =
+            "GET /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
+        let get_empty =
+            "GET /accounts/acct-p12-empty/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
+        let post = format!(
+            "POST /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\n\
+             Authorization: Bearer {tok_val}\r\nidempotency-key: {write_key}\r\n\
+             Content-Length: 2\r\n\r\n{{}}"
+        );
+
+        let r_found = http_send(&addr, get_found).await;
+        let r_empty = http_send(&addr, get_empty).await;
+        let r_write = http_send(&addr, &post).await;
+        let r_replay = http_send(&addr, &post).await;
+
+        // Deterministic exit after exactly 4 requests (no daemon left running).
+        let status = match timeout(Duration::from_secs(30), child.wait()).await {
+            Ok(s) => s.expect("wait igweb-serve"),
+            Err(_) => panic!(
+                "igweb-serve did not exit after 4 requests; stderr=\n{}",
+                errs()
+            ),
+        };
+        out_task.await.ok();
+        err_task.await.ok();
+        assert!(
+            status.success(),
+            "igweb-serve exit status {status}; stderr=\n{}",
+            errs()
+        );
+
+        // HTTP outcomes through the real binary.
+        assert_eq!(status_of(&r_found), 200, "read found → 200; raw={r_found}");
+        assert!(
+            r_found.contains(seeded[0]),
+            "found response carries a seeded todo id; raw={r_found}"
+        );
+        assert_eq!(
+            status_of(&r_empty),
+            404,
+            "read empty → app-owned 404; raw={r_empty}"
+        );
+        assert_eq!(
+            status_of(&r_write),
+            200,
+            "write create → 200 committed; raw={r_write}"
+        );
+        assert_eq!(
+            status_of(&r_replay),
+            200,
+            "replay same key → 200 dedup; raw={r_replay}"
+        );
+
+        // DB truth: exactly one business row + one PG receipt for the written key (replay = no 2nd mutation).
+        let n_row: i64 = client
+            .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&write_key])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n_row, 1, "exactly one business row for the written key");
+        let acct: Option<String> = client
+            .query_one("SELECT account_id FROM todos WHERE id = $1", &[&write_key])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(
+            acct.as_deref(),
+            Some("acct-p12-sub"),
+            "business row carries the app-authored account_id"
+        );
+        let n_rcpt: i64 = client
+            .query_one(
+                "SELECT count(*) FROM effect_receipts WHERE business_key = $1",
+                &[&write_key],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n_rcpt, 1, "exactly one PG effect_receipts row for the key");
+
+        // Cleanup test-owned rows (children first for the FK), then the temp file.
+        client
+            .execute(
+                "DELETE FROM effect_receipts WHERE business_key = $1",
+                &[&write_key],
+            )
+            .await
+            .ok();
+        for id in [seeded[0], seeded[1], write_key] {
+            client
+                .execute("DELETE FROM todos WHERE id = $1", &[&id])
+                .await
+                .ok();
+        }
+        client
+            .execute("DELETE FROM accounts WHERE id = $1", &[&"acct-p12-sub"])
+            .await
+            .ok();
+        std::fs::remove_file(&tmp).ok();
     });
 }
 

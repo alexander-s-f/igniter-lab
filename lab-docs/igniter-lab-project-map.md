@@ -82,12 +82,7 @@ ide/igniter-jetbrains-plugin ./gradlew test --rerun-tasks                -> gree
 ide/igniter-ide/src-tauri cargo check                                    -> green
 ```
 
-Known older red tests, not caused by the rehome:
-
-```text
-lang/igniter-compiler loop_conformance_tests: 4 failures
-lang/igniter-vm vm_candidate_proof_tests: 1 failure
-```
+All known older red tests have been cleared (all suites compile and run 100% green as of 2026-06-22).
 
 ## Relationship Map
 

@@ -99,7 +99,10 @@ pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
         .as_deref()
         .unwrap_or("IO.PostgresRead")
         .to_string();
-    ReadPolicyBinding { policy, capability_id }
+    ReadPolicyBinding {
+        policy,
+        capability_id,
+    }
 }
 
 // ── StagedReadHost factory (machine feature) ──────────────────────────────────────────────────────
@@ -130,6 +133,327 @@ where
     crate::read_dispatch::StagedReadHost::new(registry, receipts, &binding.capability_id)
 }
 
+// ── Real Postgres write host factory (postgres feature) ──────────────────────────────────────────
+
+/// Thin bridge decorator that unwraps the `{ intent: <WriteIntent>, correlation_id }` envelope
+/// produced by the ingress-capsule step before forwarding to `PostgresWriteExecutor`.
+/// The shaping capsule (`ShapeTodoWrite`) re-emits the caller's structured intent as its output;
+/// `IngressRouter::handle_effect` wraps that output in `{ intent: <output>, correlation_id }`.
+/// This executor lifts `args["intent"]` back to the top level so `PostgresWriteExecutor` sees
+/// the raw `WriteIntent` it expects.
+#[cfg(feature = "postgres")]
+struct IntentBridgeExecutor {
+    cap: String,
+    inner: igniter_machine::postgres_write::PostgresWriteExecutor<
+        igniter_machine::postgres_real::TokioPostgresWriteAdapter,
+    >,
+}
+
+#[cfg(feature = "postgres")]
+#[async_trait::async_trait]
+impl igniter_machine::capability::CapabilityExecutor for IntentBridgeExecutor {
+    fn capability_id(&self) -> &str {
+        &self.cap
+    }
+
+    async fn execute(
+        &self,
+        req: &igniter_machine::capability::EffectRequest,
+    ) -> igniter_machine::capability::EffectOutcome {
+        let intent = req
+            .args
+            .get("intent")
+            .cloned()
+            .unwrap_or_else(|| req.args.clone());
+        self.inner
+            .execute(&igniter_machine::capability::EffectRequest {
+                capability_id: req.capability_id.clone(),
+                idempotency_key: req.idempotency_key.clone(),
+                authority_ref: req.authority_ref.clone(),
+                args: intent,
+            })
+            .await
+    }
+}
+
+/// All host-owned components needed to drive a real `MachineEffectHost` for Postgres writes.
+/// Built by `build_write_host_from_resolved`; the caller derives `EffectBridgeConfig` and
+/// `MachineEffectHost` from references to this struct (both borrow `'_` from it).
+#[cfg(feature = "postgres")]
+pub struct WriteHostComponents {
+    pub hub: igniter_machine::coordination::CoordinationHub,
+    pub router: igniter_machine::ingress::IngressRouter,
+    pub registry: igniter_machine::capability::CapabilityExecutorRegistry,
+    pub receipts: std::sync::Arc<dyn igniter_machine::backend::TBackend>,
+    pub clk: std::sync::Arc<dyn igniter_machine::clock::ClockProvider>,
+    pub ep: igniter_machine::capability::CapabilityPassport,
+    pub sf: igniter_machine::single_flight::SingleFlight,
+    pub capability_id: String,
+    pub bind_targets: Vec<(String, String)>,
+}
+
+/// Build all host-owned write infrastructure from the resolved host config.
+///
+/// Returns `Ok(None)` when:
+/// - no `[postgres.write]` section, or
+/// - no `[effects.*]` sections, or
+/// - no `[effects.*]` section carries a resolved `passport_env` value (no bearer auth = no write path).
+///
+/// Returns `Err` when the section is present and configured but connection or coordination setup
+/// fails — caller should abort before binding the socket.
+///
+/// v0 constraint: single `targets[0]` entry; multi-target requires a separate card.
+#[cfg(feature = "postgres")]
+pub async fn build_write_host_from_resolved(
+    cfg: &HostConfig,
+    resolved: &crate::host_config::ResolvedHostConfig,
+) -> Result<Option<WriteHostComponents>, Box<dyn std::error::Error + Send + Sync>> {
+    use igniter_machine::{
+        backend::{InMemoryBackend, TBackend},
+        capability::{CapabilityExecutorRegistry, CapabilityPassport},
+        clock::{ClockProvider, SystemClock},
+        coordination::{
+            AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
+            PoolVisibility, ServiceRecipe, COORDINATION_CAPABILITY,
+        },
+        ingress::IngressRouter,
+        machine::IgniterMachine,
+        postgres_real::TokioPostgresWriteAdapter,
+        postgres_write::PostgresWriteExecutor,
+        single_flight::SingleFlight,
+    };
+    use std::sync::Arc;
+
+    let wc = match &cfg.postgres_write {
+        Some(wc) => wc,
+        None => return Ok(None),
+    };
+    // Collect resolved bearer tokens from effects that have passport_env set.
+    // Each token is the value the vendor HTTP client sends in Authorization: Bearer <token>.
+    let bearer_tokens: Vec<String> = resolved
+        .effects
+        .values()
+        .filter_map(|re| re.passport.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    if bearer_tokens.is_empty() {
+        // No authenticated effects → no write path to wire. Fall-closed.
+        return Ok(None);
+    }
+    let dsn = match &resolved.postgres_write_dsn {
+        Some(d) => d.as_str(),
+        None => return Ok(None),
+    };
+
+    // v0: single write target from config (multi-target = future card).
+    let target = wc.targets.first().map(|s| s.as_str()).unwrap_or("todos");
+    let key_col = wc.key_column.as_deref().unwrap_or("id");
+    let col_refs: Vec<&str> = wc.columns.iter().map(|s| s.as_str()).collect();
+    let adapter =
+        Arc::new(TokioPostgresWriteAdapter::connect(dsn, target, key_col, &col_refs).await?);
+
+    let plan = write_binding_plan(cfg);
+    let capability_id = plan.capability_id.clone();
+
+    // Build executor: IntentBridgeExecutor wraps PostgresWriteExecutor to lift the capsule's
+    // bridge envelope (args["intent"]) before write policy enforcement.
+    let inner = PostgresWriteExecutor::new(&capability_id, adapter, plan.write_policy.clone());
+    let exec: Arc<dyn igniter_machine::capability::CapabilityExecutor> =
+        Arc::new(IntentBridgeExecutor {
+            cap: capability_id.clone(),
+            inner,
+        });
+    let mut registry = CapabilityExecutorRegistry::new();
+    registry.register(exec);
+
+    // ── Coordination infrastructure ─────────────────────────────────────────────────────────────
+    // Matches the proven P9/P11 test shape: 3 shaping-capsule replicas, dedup_strict recipe,
+    // one route "/w" → pool "svc", bearer tokens → coordination passport.
+
+    let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);
+    let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+    let mut hub = CoordinationHub::new(Arc::clone(&audit), Arc::clone(&clk));
+
+    // Host-internal coordination subjects (never product-named; purely infra).
+    let actor_id = "host:write-actor";
+    let dev_id = "host:dev";
+    let svc_id = "host:svc";
+
+    let coord_passport = CapabilityPassport {
+        subject: svc_id.to_string(),
+        capability_id: COORDINATION_CAPABILITY.to_string(),
+        scopes: vec![
+            "create_pool".into(),
+            "import_capsule".into(),
+            "activate_capsule".into(),
+            "grant_access".into(),
+            "accept_recipe".into(),
+            "invoke".into(),
+        ],
+        issued_at: 0.0,
+        expires_at: Some(f64::MAX),
+        revoked: false,
+        evidence_digest: "host-owned".into(),
+    };
+    let dev_passport = CapabilityPassport {
+        subject: dev_id.to_string(),
+        capability_id: COORDINATION_CAPABILITY.to_string(),
+        scopes: vec!["accept_recipe".into(), "grant_access".into()],
+        issued_at: 0.0,
+        expires_at: Some(f64::MAX),
+        revoked: false,
+        evidence_digest: "host-owned".into(),
+    };
+
+    hub.register_agent(AgentIdentity {
+        agent_id: actor_id.into(),
+        kind: AgentKind::Agent,
+        label: actor_id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await?;
+    hub.register_agent(AgentIdentity {
+        agent_id: dev_id.into(),
+        kind: AgentKind::Developer,
+        label: dev_id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await?;
+    hub.register_agent(AgentIdentity {
+        agent_id: svc_id.into(),
+        kind: AgentKind::RuntimeActor,
+        label: svc_id.into(),
+        status: AgentStatus::Active,
+        registered_at: 0.0,
+    })
+    .await?;
+
+    hub.create_pool(&coord_passport, "svc", "candidate", PoolVisibility::Private)
+        .await
+        .map_err(|e| e.reason())?;
+
+    // ShapeTodoWrite shaping capsule: re-emits the structured WriteIntent as capsule output so the
+    // bridge envelope wraps it as { intent: <WriteIntent>, correlation_id }.
+    let capsule_src = "contract ShapeTodoWrite {\n\
+        input operation : String\n  input target : String\n  input key : String\n\
+        input values : Unknown\n  input correlation_id : String\n\
+        compute intent = { operation: operation, target: target, key: key, \
+        values: values, correlation_id: correlation_id }\n\
+        output intent : Unknown\n}";
+    let m = IgniterMachine::new(None, "in_memory")?;
+    m.load_contract_source(capsule_src, "ShapeTodoWrite")?;
+    let bytes = m.checkpoint_bytes().await?;
+
+    let mut digest = String::new();
+    for _ in 0..3 {
+        digest = hub
+            .add_capsule(&coord_passport, "svc", bytes.clone(), vec![])
+            .await
+            .map_err(|e| e.reason())?
+            .capsule_id;
+    }
+
+    let dup_policy = DuplicatePolicy {
+        mode: "dedup_strict".into(),
+        key_header: "idempotency-key".into(),
+        max_fresh: 0,
+        after_limit: "dedup_last".into(),
+        seed_field: "attempt".into(),
+        variant_payload: false,
+        require_key: true,
+    };
+    hub.accept_recipe(
+        &dev_passport,
+        "svc",
+        ServiceRecipe {
+            recipe_id: "host-write-r1".into(),
+            capsule_digest: digest,
+            entry_contract: "ShapeTodoWrite".into(),
+            input_schema_digest: None,
+            capability_bindings: vec![],
+            required_scopes: vec!["invoke".into()],
+            receipt_policy: "audit".into(),
+            retry_policy_ref: None,
+            pool_sizing: 3,
+            created_by: actor_id.into(),
+            accepted_by: None,
+            accepted_at: None,
+            duplicate_policy: Some(dup_policy),
+        },
+    )
+    .await
+    .map_err(|e| e.reason())?;
+
+    hub.grant(&dev_passport, "svc", svc_id, PoolRight::ActivateCapsule)
+        .await
+        .map_err(|e| e.reason())?;
+
+    // Wire ingress router: all effects route to pool "svc" via "/w".
+    // Each unique resolved bearer token is registered against the coordination passport
+    // (the token value comes from `passport_env` in host.toml; clients send it as Bearer).
+    let mut router = IngressRouter::new();
+    router.route("/w", "svc");
+    for token in &bearer_tokens {
+        router.token(token, coord_passport.clone());
+    }
+
+    let ep = CapabilityPassport {
+        subject: "host".into(),
+        capability_id: capability_id.clone(),
+        scopes: vec!["write".into()],
+        issued_at: 0.0,
+        expires_at: Some(f64::MAX),
+        revoked: false,
+        evidence_digest: "host-owned".into(),
+    };
+
+    Ok(Some(WriteHostComponents {
+        hub,
+        router,
+        registry,
+        receipts: Arc::new(InMemoryBackend::new()),
+        clk,
+        ep,
+        sf: SingleFlight::new(),
+        capability_id,
+        bind_targets: plan.bind_targets,
+    }))
+}
+
+// ── Real Postgres read host factory (postgres feature) ───────────────────────────────────────────
+
+/// Build a `StagedReadHost` backed by a real `TokioPostgresReadAdapter`.
+///
+/// Called by the binary under `--features postgres`; tests use the same function to prove the
+/// binary's construction path.  Returns `Ok(None)` when `[postgres.read]` is absent — the caller
+/// keeps its fail-closed empty host.  Returns `Err` when the section is present but the connection
+/// fails (caller should abort before binding the socket).
+#[cfg(feature = "postgres")]
+pub async fn build_staged_read_host_from_resolved(
+    cfg: &HostConfig,
+    resolved: &crate::host_config::ResolvedHostConfig,
+) -> Result<Option<crate::read_dispatch::StagedReadHost>, Box<dyn std::error::Error + Send + Sync>>
+{
+    let rc = match &cfg.postgres_read {
+        Some(rc) => rc,
+        None => return Ok(None),
+    };
+    let dsn = match &resolved.postgres_read_dsn {
+        Some(d) => d.as_str(),
+        None => return Ok(None),
+    };
+    use igniter_machine::postgres_real::TokioPostgresReadAdapter;
+    let adapter = TokioPostgresReadAdapter::connect(dsn).await?;
+    let binding = read_policy_binding(rc);
+    Ok(Some(build_staged_read_host_with_adapter(
+        &binding,
+        std::sync::Arc::new(adapter),
+    )))
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -149,15 +473,21 @@ mod tests {
         let plan = write_binding_plan(&cfg);
         assert_eq!(plan.capability_id, "IO.TodoWrite");
         assert!(
-            plan.write_policy.allowed_targets.contains(&"todos".to_string()),
+            plan.write_policy
+                .allowed_targets
+                .contains(&"todos".to_string()),
             "todos must be an allowed target"
         );
         assert!(
-            plan.write_policy.allowed_ops.contains(&"insert".to_string()),
+            plan.write_policy
+                .allowed_ops
+                .contains(&"insert".to_string()),
             "insert must be allowed"
         );
         assert!(
-            plan.write_policy.allowed_ops.contains(&"upsert".to_string()),
+            plan.write_policy
+                .allowed_ops
+                .contains(&"upsert".to_string()),
             "upsert must be allowed"
         );
     }
@@ -211,13 +541,19 @@ mod tests {
         assert_eq!(binding.policy.row_limit, 50);
         // source is allowlisted
         assert!(
-            binding.policy.allowed_sources.contains(&"todos".to_string()),
+            binding
+                .policy
+                .allowed_sources
+                .contains(&"todos".to_string()),
             "todos must be in allowed_sources"
         );
         // fields are allowlisted under the source
         let todos_fields = binding.policy.allowed_fields.get("todos").unwrap();
         for f in ["id", "account_id", "title", "done"] {
-            assert!(todos_fields.contains(&f.to_string()), "field {f} must be allowed");
+            assert!(
+                todos_fields.contains(&f.to_string()),
+                "field {f} must be allowed"
+            );
         }
     }
 
@@ -246,6 +582,57 @@ mod tests {
     }
 
     // ── StagedReadHost factory (machine feature) ──────────────────────────────────────────────────
+
+    // ── StagedReadHost factory (machine feature) ──────────────────────────────────────────────────
+
+    #[cfg(feature = "machine")]
+    #[test]
+    fn build_staged_read_host_denied_field_before_adapter() {
+        // Proves: host field allowlist is enforced BEFORE the adapter is ever called.
+        // Policy allows only "id" and "title"; a plan requesting "done" is denied at (G3).
+        use igniter_machine::postgres_read::FakePostgresAdapter;
+        use serde_json::json;
+        use std::sync::Arc;
+
+        let cfg = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\n\
+             fields = \"id,title\"\nrow_limit = \"10\"\n",
+        )
+        .unwrap();
+        let rc = cfg.postgres_read.as_ref().unwrap();
+        let binding = read_policy_binding(rc);
+
+        let adapter = Arc::new(
+            FakePostgresAdapter::new()
+                .with_table("todos", vec![json!({"id": "t1", "title": "Buy milk"})]),
+        );
+        let host = build_staged_read_host_with_adapter(&binding, adapter.clone());
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            use crate::read_dispatch::StagedReadResult;
+            use igniter_server::protocol::ServerRequest;
+            // "done" is not in the allowlist (id, title only) — host gate fires before adapter.
+            let plan =
+                json!({"source": "todos", "projection": ["id", "title", "done"], "limit": 10});
+            let req = ServerRequest::new("GET", "/todos", serde_json::Value::Null);
+            match host.execute(&plan, &req).await {
+                // StagedReadResult::Denied carries the generic host message; the detail
+                // ("forbidden field: done") is in EffectOutcome.result["denied"] — not leaked.
+                StagedReadResult::Denied(_) => {}
+                StagedReadResult::Rows(_) => panic!("should be denied for forbidden field"),
+                StagedReadResult::HostError(e) => panic!("unexpected host error: {e}"),
+            }
+            assert_eq!(
+                adapter.query_count(),
+                0,
+                "adapter must NOT be reached when field is denied before query"
+            );
+        });
+    }
 
     #[cfg(feature = "machine")]
     #[test]
@@ -276,19 +663,25 @@ mod tests {
         rt.block_on(async {
             use crate::read_dispatch::StagedReadResult;
             use igniter_server::protocol::ServerRequest;
-            let plan =
-                json!({"source": "todos", "projection": ["id", "title"], "limit": 10});
+            let plan = json!({"source": "todos", "projection": ["id", "title"], "limit": 10});
             let req = ServerRequest::new("GET", "/todos", serde_json::Value::Null);
             match host.execute(&plan, &req).await {
                 StagedReadResult::Rows(json_str) => {
-                    assert!(json_str.contains("Buy milk"), "rows must include seeded row");
+                    assert!(
+                        json_str.contains("Buy milk"),
+                        "rows must include seeded row"
+                    );
                 }
                 StagedReadResult::Denied(reason) => {
                     panic!("read denied by host policy: {reason}")
                 }
                 StagedReadResult::HostError(e) => panic!("host error: {e}"),
             }
-            assert_eq!(adapter.query_count(), 1, "adapter must have been queried once");
+            assert_eq!(
+                adapter.query_count(),
+                1,
+                "adapter must have been queried once"
+            );
         });
     }
 }

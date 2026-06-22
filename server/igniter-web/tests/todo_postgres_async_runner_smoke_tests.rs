@@ -225,7 +225,10 @@ fn build_write_effect_state() -> WriteEffectState {
         .allow_target("todos")
         .allow_ops(&["insert", "upsert"]);
     let inner = PostgresWriteExecutor::new(WRITE_CAP, adapter.clone(), policy);
-    let exec = Arc::new(IntentBridgeExecutor { cap: WRITE_CAP.into(), inner });
+    let exec = Arc::new(IntentBridgeExecutor {
+        cap: WRITE_CAP.into(),
+        inner,
+    });
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
     WriteEffectState {
@@ -334,9 +337,8 @@ fn read_found_todos_via_runner_200() {
     let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
 
     let account_id = "acct-p10-found";
-    let adapter = Arc::new(
-        FakePostgresAdapter::new().with_table("todos", sample_todos(account_id)),
-    );
+    let adapter =
+        Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(account_id)));
     let read_host = make_read_host(adapter.clone());
 
     rt().block_on(async {
@@ -358,8 +360,14 @@ fn read_found_todos_via_runner_200() {
         let raw = client.await.unwrap();
 
         assert_eq!(http_status(&raw), 200, "found rows → HTTP 200; raw={raw}");
-        assert!(raw.contains("Buy milk"), "response body carries the first todo title");
-        assert!(raw.contains("Write spec"), "response body carries the second todo title");
+        assert!(
+            raw.contains("Buy milk"),
+            "response body carries the first todo title"
+        );
+        assert!(
+            raw.contains("Write spec"),
+            "response body carries the second todo title"
+        );
         assert_eq!(adapter.query_count(), 1, "one read adapter query");
     });
 }
@@ -426,11 +434,26 @@ fn write_create_todo_via_runner_committed() {
             .unwrap();
         let raw = client.await.unwrap();
 
-        assert_eq!(http_status(&raw), 200, "committed write → HTTP 200; raw={raw}");
-        assert!(raw.contains("committed"), "response body confirms committed status");
+        assert_eq!(
+            http_status(&raw),
+            200,
+            "committed write → HTTP 200; raw={raw}"
+        );
+        assert!(
+            raw.contains("committed"),
+            "response body confirms committed status"
+        );
         assert_eq!(st.adapter.attempts(), 1, "one write adapter attempt");
-        assert_eq!(st.adapter.business_row_count(), 1, "one business row committed");
-        assert_eq!(st.adapter.effect_receipt_count(), 1, "one effect receipt written");
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "one business row committed"
+        );
+        assert_eq!(
+            st.adapter.effect_receipt_count(),
+            1,
+            "one effect receipt written"
+        );
     });
 }
 
@@ -469,7 +492,11 @@ fn write_replay_same_key_no_second_mutation() {
             1,
             "same key → machine dedup: only one adapter attempt"
         );
-        assert_eq!(st.adapter.business_row_count(), 1, "only one business row committed");
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "only one business row committed"
+        );
     });
 }
 
@@ -504,7 +531,16 @@ fn app_files_carry_no_forbidden_authority_surface() {
             "authored app must not contain `{forbidden}`"
         );
     }
-    assert!(handlers.contains("\"todo-create\""), "only logical effect targets");
-    assert!(handlers.contains("source: \"todos\""), "only logical DB source names");
-    assert!(handlers.contains("ReadThen"), "index handler now emits ReadThen");
+    assert!(
+        handlers.contains("\"todo-create\""),
+        "only logical effect targets"
+    );
+    assert!(
+        handlers.contains("source: \"todos\""),
+        "only logical DB source names"
+    );
+    assert!(
+        handlers.contains("ReadThen"),
+        "index handler now emits ReadThen"
+    );
 }

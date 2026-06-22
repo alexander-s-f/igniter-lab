@@ -12,6 +12,8 @@ edition = "2021"
 igniter_server = { path = "../igniter-server" }
 igniter_compiler = { path = "../../lang/igniter-compiler" }
 igniter_machine = { path = "../../runtime/igniter-machine" }
+# Needed for IntentBridgeExecutor in host_binding.rs under --features postgres (P26).
+async-trait = "0.1"
 # Render decision (LAB-IGNITER-WEB-RENDER-DECISION-P16): ViewArtifact JSON → HTML via the P3 projector.
 # igniter-web carries the renderer weight so igniter-server core stays renderer/view-free.
 igniter_render_html = { path = "../../frame-ui/igniter-render-html" }
@@ -33,6 +35,3 @@ machine = ["igniter_server/machine"]
 postgres = ["machine", "igniter_machine/postgres", "dep:tokio-postgres"]
 
 [dev-dependencies]
-# LAB-IGNITER-WEB-EFFECT-HOST-RUNNER-P9: the typed-write effect-host runner test implements a thin
-# `CapabilityExecutor` decorator, which uses the `#[async_trait]` macro (same version as igniter-machine).
-async-trait = "0.1"

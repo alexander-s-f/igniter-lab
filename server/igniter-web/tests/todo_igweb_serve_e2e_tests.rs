@@ -226,8 +226,7 @@ fn write_host_toml(stamp: u128) -> (PathBuf, String, String) {
     std::env::set_var(&read_var, "postgres://fake-p11-read/db");
     std::env::set_var(&write_var, "postgres://fake-p11-write/db");
 
-    let dir = std::env::temp_dir()
-        .join(format!("igweb_p11_{}_{stamp}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("igweb_p11_{}_{stamp}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("host.toml");
     let toml = format!(
@@ -268,10 +267,18 @@ struct WriteState {
 
 /// Build write-side state from the host.toml-derived `WriteBindingPlan`.
 /// Policy + capability_id come from the plan; adapter is injected by the caller.
-fn build_write_state(capability_id: &str, adapter: Arc<FakePostgresWriteAdapter>, plan: &igniter_web::host_binding::WriteBindingPlan) -> WriteState {
+fn build_write_state(
+    capability_id: &str,
+    adapter: Arc<FakePostgresWriteAdapter>,
+    plan: &igniter_web::host_binding::WriteBindingPlan,
+) -> WriteState {
     let exec = Arc::new(IntentBridgeExecutor {
         cap: capability_id.to_string(),
-        inner: PostgresWriteExecutor::new(capability_id, adapter.clone(), plan.write_policy.clone()),
+        inner: PostgresWriteExecutor::new(
+            capability_id,
+            adapter.clone(),
+            plan.write_policy.clone(),
+        ),
     });
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
@@ -374,7 +381,8 @@ fn e2e_read_found_via_host_config_200() {
 
     // Binary path: load + resolve config before socket bind.
     let cfg = load_host_config(&host_toml_path).expect("load host.toml");
-    let _resolved = resolve_host_config(&cfg).expect("resolve host.toml (env var check before bind)");
+    let _resolved =
+        resolve_host_config(&cfg).expect("resolve host.toml (env var check before bind)");
 
     // Read host: policy from host.toml, rows from fake adapter.
     let rc = cfg.postgres_read.as_ref().unwrap();
@@ -395,18 +403,29 @@ fn e2e_read_found_via_host_config_200() {
 
     rt().block_on(async {
         let (hub, router) = build_coordination().await;
-        let effect_host = build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
+        let effect_host =
+            build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let acct = account_id.clone();
         let client = tokio::spawn(async move { get_todos(addr, &acct).await });
         let policy = ServingPolicy::new(1).loopback_only();
-        machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-            .await
-            .unwrap();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
         let raw = client.await.unwrap();
-        assert_eq!(http_status(&raw), 200, "found rows → ReadThen → 200; raw={raw}");
+        assert_eq!(
+            http_status(&raw),
+            200,
+            "found rows → ReadThen → 200; raw={raw}"
+        );
         assert!(raw.contains("Buy milk"), "response body carries todo title");
         assert_eq!(read_adapter.query_count(), 1, "adapter queried once");
     });
@@ -440,17 +459,28 @@ fn e2e_read_empty_via_host_config_404() {
 
     rt().block_on(async {
         let (hub, router) = build_coordination().await;
-        let effect_host = build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
+        let effect_host =
+            build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let client = tokio::spawn(async move { get_todos(addr, "acct-p11-empty").await });
         let policy = ServingPolicy::new(1).loopback_only();
-        machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-            .await
-            .unwrap();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
         let raw = client.await.unwrap();
-        assert_eq!(http_status(&raw), 404, "empty rows → app-owned 404; raw={raw}");
+        assert_eq!(
+            http_status(&raw),
+            404,
+            "empty rows → app-owned 404; raw={raw}"
+        );
     });
 
     std::env::remove_var(&read_var);
@@ -483,7 +513,8 @@ fn e2e_write_create_via_host_config_committed() {
 
     rt().block_on(async {
         let (hub, router) = build_coordination().await;
-        let effect_host = build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
+        let effect_host =
+            build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -491,15 +522,36 @@ fn e2e_write_create_via_host_config_committed() {
             post_todo(addr, "acct-p11-write", &format!("evt-p11-c1-{s}")).await
         });
         let policy = ServingPolicy::new(1).loopback_only();
-        machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-            .await
-            .unwrap();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
         let raw = client.await.unwrap();
-        assert_eq!(http_status(&raw), 200, "committed write → HTTP 200; raw={raw}");
-        assert!(raw.contains("committed"), "response confirms committed status");
+        assert_eq!(
+            http_status(&raw),
+            200,
+            "committed write → HTTP 200; raw={raw}"
+        );
+        assert!(
+            raw.contains("committed"),
+            "response confirms committed status"
+        );
         assert_eq!(st.adapter.attempts(), 1, "one write adapter attempt");
-        assert_eq!(st.adapter.business_row_count(), 1, "one business row committed");
-        assert_eq!(st.adapter.effect_receipt_count(), 1, "one effect receipt written");
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "one business row committed"
+        );
+        assert_eq!(
+            st.adapter.effect_receipt_count(),
+            1,
+            "one effect receipt written"
+        );
     });
 
     std::env::remove_var(&read_var);
@@ -531,7 +583,8 @@ fn e2e_write_replay_no_second_mutation() {
 
     rt().block_on(async {
         let (hub, router) = build_coordination().await;
-        let effect_host = build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
+        let effect_host =
+            build_effect_host_with_plan(&router, &hub, &bridge_cfg, &plan.bind_targets);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -544,9 +597,15 @@ fn e2e_write_replay_no_second_mutation() {
             (r1, r2)
         });
         let policy = ServingPolicy::new(2).loopback_only();
-        machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-            .await
-            .unwrap();
+        machine_runner::serve_loop_loaded_with_read(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+        )
+        .await
+        .unwrap();
         let (r1, r2) = client.await.unwrap();
         assert_eq!(http_status(&r1), 200, "first create → 200; raw={r1}");
         assert_eq!(http_status(&r2), 200, "replay → still 200; raw={r2}");
@@ -555,7 +614,11 @@ fn e2e_write_replay_no_second_mutation() {
             1,
             "same key → dedup: only one adapter attempt"
         );
-        assert_eq!(st.adapter.business_row_count(), 1, "only one business row committed");
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "only one business row committed"
+        );
     });
 
     std::env::remove_var(&read_var);
@@ -565,8 +628,10 @@ fn e2e_write_replay_no_second_mutation() {
 // ── helpers ───────────────────────────────────────────────────────────────────────────────────────
 
 fn stamp() -> u128 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos()
+        + NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128
 }

@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-RUNNER-STATUS-HYGIENE-P27 - sync runner truth after P23-P26
 
-Status: OPEN
+Status: ✅ CLOSED — 2026-06-22
 Lane: IgWeb / docs hygiene / implemented surface
 Type: hygiene / documentation
 Delegation code: GEMINI-WEB-RUNNER-STATUS-HYGIENE-P27
@@ -15,7 +15,7 @@ The runner line moved quickly:
 - staged reads;
 - host-config read/write policy;
 - fake extracted-core Todo E2E;
-- upcoming real Postgres read/write wiring.
+- real Postgres read/write wiring.
 
 Agents are starting to confuse:
 
@@ -70,13 +70,22 @@ rg -n "executor not yet wired|fake adapter|extracted binary core|actual igweb-se
 
 ## Acceptance
 
-- [ ] Status table distinguishes actual binary, extracted core, fake adapters, local Postgres, and stable/public CLI.
-- [ ] Stale "not implemented" / "deferred" claims are either corrected or marked superseded with dates.
-- [ ] Docs do not overclaim subprocess E2E if only extracted core is proven.
-- [ ] Docs do not overclaim live DB if only fake adapters are proven.
-- [ ] `igweb-serve` remains marked lab-only / not stable CLI unless a separate authority card changed that.
-- [ ] `git diff --check` clean.
+- [x] Status table distinguishes actual binary, extracted core, fake adapters, local Postgres, and stable/public CLI.
+- [x] Stale "not implemented" / "deferred" claims are either corrected or marked superseded with dates.
+- [x] Docs do not overclaim subprocess E2E if only extracted core is proven.
+- [x] Docs do not overclaim live DB if only fake adapters are proven.
+- [x] `igweb-serve` remains marked lab-only / not stable CLI unless a separate authority card changed that.
+- [x] `git diff --check` clean.
 
 ## Next
 
 This is not a feature card. It should reduce agent uncertainty before the next implementation wave.
+
+## Closing report
+
+**Date:** 2026-06-22
+
+Updated the compact runner truth tables in `lab-docs/STATUS.md` and `server/igniter-web/README.md`.
+During curation, P12 superseded the first hygiene wording: subprocess CLI E2E is now **proven** under the
+`postgres` feature with `IGNITER_TODO_PG_DSN`, not manual-only. Real Postgres read/write are now marked
+**wired + proven** through `igweb-serve --host-config`, while the CLI remains lab-only / not stable public API.

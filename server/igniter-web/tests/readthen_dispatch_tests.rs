@@ -17,9 +17,9 @@ use igniter_machine::capability::{
 use igniter_machine::postgres_read::{
     FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
 };
+use igniter_server::protocol::{ResponseBody, ServerDecision, ServerRequest, PROTOCOL_VERSION};
 use igniter_web::read_dispatch::StagedReadHost;
 use igniter_web::{build_igweb_loaded_app, IgWebBuildInput};
-use igniter_server::protocol::{ResponseBody, ServerDecision, ServerRequest, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -72,10 +72,7 @@ fn todos_policy(cap: i64) -> PostgresReadPolicy {
 }
 
 /// Build a `StagedReadHost` with the given adapter and policy.
-fn make_read_host(
-    adapter: Arc<FakePostgresAdapter>,
-    policy: PostgresReadPolicy,
-) -> StagedReadHost {
+fn make_read_host(adapter: Arc<FakePostgresAdapter>, policy: PostgresReadPolicy) -> StagedReadHost {
     let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
@@ -105,9 +102,7 @@ fn found_rows_flow_to_continuation_200() {
     let read_host = make_read_host(adapter.clone(), todos_policy(100));
 
     rt().block_on(async {
-        let decision = app
-            .dispatch_with_read(get_req("acct-7"), &read_host)
-            .await;
+        let decision = app.dispatch_with_read(get_req("acct-7"), &read_host).await;
 
         match decision {
             ServerDecision::Respond { response } => {
@@ -119,7 +114,10 @@ fn found_rows_flow_to_continuation_200() {
                     }
                 };
                 assert!(body_str.contains("todo-1"), "body must contain todo-1");
-                assert!(body_str.contains("Write spec"), "body must contain second todo");
+                assert!(
+                    body_str.contains("Write spec"),
+                    "body must contain second todo"
+                );
             }
             other => panic!("expected Respond, got {other:?}"),
         }
@@ -164,9 +162,7 @@ fn denied_source_gives_host_403_before_adapter() {
     let read_host = make_read_host(adapter.clone(), restrictive_policy);
 
     rt().block_on(async {
-        let decision = app
-            .dispatch_with_read(get_req("acct-7"), &read_host)
-            .await;
+        let decision = app.dispatch_with_read(get_req("acct-7"), &read_host).await;
 
         match decision {
             ServerDecision::Respond { response } => {
@@ -224,7 +220,10 @@ fn dispatch_with_read_has_no_nested_block_on() {
         let decision = app.dispatch_with_read(get_req("acct-7"), &read_host).await;
         match decision {
             ServerDecision::Respond { response } => {
-                assert_eq!(response.status, 200, "async dispatch succeeded without nesting");
+                assert_eq!(
+                    response.status, 200,
+                    "async dispatch succeeded without nesting"
+                );
             }
             other => panic!("expected Respond 200, got {other:?}"),
         }
@@ -248,10 +247,7 @@ fn fixture_carries_no_authority_surface() {
         "scope",
     ];
     for f in forbidden {
-        assert!(
-            !code.contains(f),
-            "fixture must not contain `{f}`"
-        );
+        assert!(!code.contains(f), "fixture must not contain `{f}`");
     }
     // Fixture must only name logical `then` target, not capability wiring
     assert!(code.contains("readthen"), "fixture uses ReadThen arm");

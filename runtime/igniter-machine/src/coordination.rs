@@ -174,7 +174,7 @@ pub enum PoolRefusal {
 }
 
 impl PoolRefusal {
-    fn reason(&self) -> String {
+    pub fn reason(&self) -> String {
         match self {
             PoolRefusal::Unauthenticated(a) => format!("unauthenticated: {:?}", a),
             PoolRefusal::UnknownAgent => "unknown agent".to_string(),

@@ -61,6 +61,19 @@ does not claim whole-repo or whole-workspace green.
 | IDE tooling | Active tooling lane (`ide/`). | Editor/tooling assistance only; no language/runtime authority. |
 | Apps / product pressure | Active fixture lane (`apps/`). | Product/DX learning only. |
 
+## IgWeb Runner & Database Status Matrix
+
+| Component / Layer | Status | Target / Feature Gate | Description |
+| :--- | :--- | :--- | :--- |
+| **`igweb-serve` CLI** | **Lab Prototype** | `igweb-serve` binary | Not a stable public CLI. Loopback-only. |
+| **Sync Mode** (default) | **Implemented** | Default build (no-cfg) | Bounded sync request loop using observed effects (no execution). |
+| **Async Machine Mode** | **Implemented** | `--host-config <file>` + `machine` feature | Async tokio loop, parsing `host.toml`, executing raw/staged reads and writes. |
+| **Extracted Core E2E** | **Proven** | Cargo tests (e.g. `todo_igweb_serve_e2e_tests`) | In-process testing of the serving/effect loop; does NOT spawn subprocesses in cargo tests. |
+| **Subprocess CLI E2E** | **Proven** | `postgres` feature + `IGNITER_TODO_PG_DSN` | Cargo test spawns the compiled `igweb-serve` binary and drives read/write/replay over loopback; skips cleanly without DSN. |
+| **Fake DB Adapters** | **Proven** | Default VM & Runner tests | In-memory read/write simulation of Postgres; default path for tests. |
+| **Real Postgres (Read)** | **Wired + Proven** | `postgres` feature + `[postgres.read]` in `host.toml` | `igweb-serve` builds a real read executor from resolved DSN and host policy; P12 proves read found/empty through subprocess. |
+| **Real Postgres (Write)** | **Wired + Proven** | `postgres` feature + `[postgres.write]` + `[effects.*]` in `host.toml` | `igweb-serve` builds a real write effect host from resolved DSN, policy, and bearer token; P12 proves write/replay through subprocess. |
+
 ## Operating Rule
 
 Use `.agents/` for dispatch and handoff memory. Use `lab-docs/` for durable

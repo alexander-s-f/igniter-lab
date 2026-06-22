@@ -11,7 +11,9 @@
 
 use crate::read_dispatch::StagedReadHost;
 use crate::IgWebLoadedApp;
-use igniter_server::effect_host::{dispatch as effect_dispatch, read_server_request, MachineEffectHost};
+use igniter_server::effect_host::{
+    dispatch as effect_dispatch, read_server_request, MachineEffectHost,
+};
 use igniter_server::host::encode_response;
 use igniter_server::serving_loop::{ServingPolicy, ServingReport};
 use std::sync::Arc;

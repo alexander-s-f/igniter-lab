@@ -54,7 +54,7 @@ pub struct EffectConfig {
     pub passport_env: Option<String>,
 }
 
-/// `[postgres.write]` section: env-var ref + write allowlist policy (P24).
+/// `[postgres.write]` section: env-var ref + write allowlist policy (P24) + adapter schema (P26).
 #[derive(Debug, Clone, Default)]
 pub struct PostgresWriteConfig {
     /// Env-var name for the Postgres write DSN. Required.
@@ -65,6 +65,11 @@ pub struct PostgresWriteConfig {
     pub ops: Vec<String>,
     /// Host capability id for the write executor (e.g. `"IO.TodoWrite"`). Optional.
     pub capability_id: Option<String>,
+    /// Primary-key column for the write adapter (v0 single-target). Defaults to `"id"` if absent.
+    pub key_column: Option<String>,
+    /// Writable value columns for the write adapter (e.g. `["account_id", "title", "done"]`).
+    /// If empty, the adapter is built with no value columns (only the key is inserted).
+    pub columns: Vec<String>,
 }
 
 /// `[postgres.read]` section: env-var ref + read allowlist policy (P24).
@@ -122,18 +127,34 @@ pub enum HostConfigError {
     /// File could not be read.
     Io(String),
     UnknownSection(String),
-    UnknownKey { section: String, key: String },
+    UnknownKey {
+        section: String,
+        key: String,
+    },
     /// A raw-secret key was used instead of a `*_env` reference.
-    InlineSecret { key: String },
+    InlineSecret {
+        key: String,
+    },
     /// `[effects.<target>]` appeared but `route` was not provided.
-    MissingRoute { target: String },
+    MissingRoute {
+        target: String,
+    },
     /// `[postgres.*]` appeared but `dsn_env` was not provided.
-    MissingDsnEnv { section: String },
-    EmptyEnvName { key: String },
+    MissingDsnEnv {
+        section: String,
+    },
+    EmptyEnvName {
+        key: String,
+    },
     /// Env-var name contains template syntax (`$`, `{`, `}`).
-    TemplateEnvName { key: String },
+    TemplateEnvName {
+        key: String,
+    },
     /// `route` value does not begin with `/`.
-    InvalidRoute { target: String, route: String },
+    InvalidRoute {
+        target: String,
+        route: String,
+    },
     /// `[host] mode` is not a supported value.
     UnsupportedMode(String),
     /// Env-var named by a `*_env` key is missing or empty at runtime.
@@ -158,7 +179,10 @@ impl std::fmt::Display for HostConfigError {
                 "host.toml: `{key}` stores a raw secret — use `{key}_env = \"VAR_NAME\"` instead"
             ),
             Self::MissingRoute { target } => {
-                write!(f, "host.toml: `[effects.{target}]` is missing required `route`")
+                write!(
+                    f,
+                    "host.toml: `[effects.{target}]` is missing required `route`"
+                )
             }
             Self::MissingDsnEnv { section } => {
                 write!(f, "host.toml: `[{section}]` is missing required `dsn_env`")
@@ -178,7 +202,11 @@ impl std::fmt::Display for HostConfigError {
                 f,
                 "host.toml: `[host] mode = \"{m}\"` is unsupported in v0 (only \"loopback\")"
             ),
-            Self::EnvVar { var_name, key, section } => write!(
+            Self::EnvVar {
+                var_name,
+                key,
+                section,
+            } => write!(
                 f,
                 "host.toml: env var \"{var_name}\" (from [{section}].{key}) is not set or is empty"
             ),
@@ -190,9 +218,7 @@ impl std::error::Error for HostConfigError {}
 
 // ── parser ────────────────────────────────────────────────────────────────────────────────────────
 
-const INLINE_SECRET_KEYS: &[&str] = &[
-    "dsn", "password", "secret", "token", "passport", "api_key",
-];
+const INLINE_SECRET_KEYS: &[&str] = &["dsn", "password", "secret", "token", "passport", "api_key"];
 
 enum Section {
     None,
@@ -214,10 +240,14 @@ fn section_label(s: &Section) -> String {
 
 fn check_env_name(key: &str, val: &str) -> Result<(), HostConfigError> {
     if val.is_empty() {
-        return Err(HostConfigError::EmptyEnvName { key: key.to_string() });
+        return Err(HostConfigError::EmptyEnvName {
+            key: key.to_string(),
+        });
     }
     if val.contains('$') || val.contains('{') || val.contains('}') {
-        return Err(HostConfigError::TemplateEnvName { key: key.to_string() });
+        return Err(HostConfigError::TemplateEnvName {
+            key: key.to_string(),
+        });
     }
     Ok(())
 }
@@ -257,6 +287,8 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut pg_write_targets: Vec<String> = Vec::new();
     let mut pg_write_ops: Vec<String> = Vec::new();
     let mut pg_write_capability: Option<String> = None;
+    let mut pg_write_key_column: Option<String> = None;
+    let mut pg_write_columns: Vec<String> = Vec::new();
     let mut pg_write_seen = false;
 
     let mut pg_read_dsn_env: Option<String> = None;
@@ -374,6 +406,17 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                     }
                     pg_write_capability = Some(val);
                 }
+                "key_column" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::Parse(
+                            "`key_column` must not be empty".to_string(),
+                        ));
+                    }
+                    pg_write_key_column = Some(val);
+                }
+                "columns" => {
+                    pg_write_columns = parse_comma_list(&val, key)?;
+                }
                 _ => {
                     return Err(HostConfigError::UnknownKey {
                         section: label,
@@ -445,6 +488,8 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             targets: pg_write_targets,
             ops: pg_write_ops,
             capability_id: pg_write_capability,
+            key_column: pg_write_key_column,
+            columns: pg_write_columns,
         });
     }
     if pg_read_seen {
@@ -543,7 +588,10 @@ where
     };
 
     Ok(ResolvedHostConfig {
-        host_mode: cfg.host_mode.clone().unwrap_or_else(|| "loopback".to_string()),
+        host_mode: cfg
+            .host_mode
+            .clone()
+            .unwrap_or_else(|| "loopback".to_string()),
         effects,
         postgres_read_dsn,
         postgres_write_dsn,
@@ -626,7 +674,13 @@ dsn_env = "IGNITER_PG_READ_DSN"
 
     #[test]
     fn unknown_section_fails_closed() {
-        for bad in &["[vault]", "[capabilities]", "[secrets]", "[database]", "[effects]"] {
+        for bad in &[
+            "[vault]",
+            "[capabilities]",
+            "[secrets]",
+            "[database]",
+            "[effects]",
+        ] {
             let err = parse_host_config(&format!("{}\nkey = \"val\"", bad)).unwrap_err();
             assert!(
                 matches!(err, HostConfigError::UnknownSection(_)),
@@ -654,15 +708,13 @@ dsn_env = "IGNITER_PG_READ_DSN"
 
     #[test]
     fn unknown_key_in_effects_fails_closed() {
-        let err =
-            parse_host_config("[effects.x]\nroute = \"/w\"\nextra = \"y\"").unwrap_err();
+        let err = parse_host_config("[effects.x]\nroute = \"/w\"\nextra = \"y\"").unwrap_err();
         assert!(matches!(err, HostConfigError::UnknownKey { .. }));
     }
 
     #[test]
     fn unknown_key_in_postgres_write_fails_closed() {
-        let err =
-            parse_host_config("[postgres.write]\ndsn_env = \"V\"\npool = \"5\"").unwrap_err();
+        let err = parse_host_config("[postgres.write]\ndsn_env = \"V\"\npool = \"5\"").unwrap_err();
         assert!(matches!(err, HostConfigError::UnknownKey { .. }));
     }
 
@@ -689,8 +741,7 @@ dsn_env = "IGNITER_PG_READ_DSN"
 
     #[test]
     fn inline_passport_fails_closed() {
-        let err =
-            parse_host_config("[effects.x]\nroute = \"/w\"\npassport = \"raw\"").unwrap_err();
+        let err = parse_host_config("[effects.x]\nroute = \"/w\"\npassport = \"raw\"").unwrap_err();
         assert!(matches!(err, HostConfigError::InlineSecret { .. }));
     }
 
@@ -867,7 +918,8 @@ capability = "IO.PostgresRead"
 
     #[test]
     fn empty_targets_value_fails_closed() {
-        let err = parse_host_config("[postgres.write]\ndsn_env = \"V\"\ntargets = \"\"").unwrap_err();
+        let err =
+            parse_host_config("[postgres.write]\ndsn_env = \"V\"\ntargets = \"\"").unwrap_err();
         assert!(matches!(err, HostConfigError::Parse(_)));
     }
 
@@ -886,8 +938,8 @@ capability = "IO.PostgresRead"
 
     #[test]
     fn non_integer_row_limit_fails_closed() {
-        let err =
-            parse_host_config("[postgres.read]\ndsn_env = \"V\"\nrow_limit = \"many\"").unwrap_err();
+        let err = parse_host_config("[postgres.read]\ndsn_env = \"V\"\nrow_limit = \"many\"")
+            .unwrap_err();
         assert!(matches!(err, HostConfigError::Parse(_)));
     }
 
@@ -959,10 +1011,7 @@ capability = "IO.PostgresRead"
 
     #[test]
     fn resolve_missing_env_var_returns_error() {
-        let cfg = parse_host_config(
-            "[postgres.read]\ndsn_env = \"MISSING_VAR\"\n",
-        )
-        .unwrap();
+        let cfg = parse_host_config("[postgres.read]\ndsn_env = \"MISSING_VAR\"\n").unwrap();
         let err = resolve_with_env(&cfg, |_| None).unwrap_err();
         assert!(
             matches!(&err, HostConfigError::EnvVar { var_name, .. } if var_name == "MISSING_VAR")
@@ -971,10 +1020,8 @@ capability = "IO.PostgresRead"
 
     #[test]
     fn resolve_empty_env_var_returns_error() {
-        let cfg = parse_host_config(
-            "[effects.x]\nroute = \"/w\"\npassport_env = \"EMPTY_VAR\"\n",
-        )
-        .unwrap();
+        let cfg = parse_host_config("[effects.x]\nroute = \"/w\"\npassport_env = \"EMPTY_VAR\"\n")
+            .unwrap();
         let err = resolve_with_env(&cfg, |_| Some(String::new())).unwrap_err();
         assert!(
             matches!(&err, HostConfigError::EnvVar { var_name, .. } if var_name == "EMPTY_VAR")

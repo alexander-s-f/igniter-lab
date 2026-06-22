@@ -510,9 +510,9 @@ pub mod runner {
                     max_requests = Some(parsed);
                 }
                 "--host-config" => {
-                    let value = iter.next().ok_or_else(|| {
-                        RunnerError::Cli("--host-config requires a value".into())
-                    })?;
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--host-config requires a value".into()))?;
                     host_config_path = Some(PathBuf::from(value));
                 }
                 value if value.starts_with('-') => {

@@ -17,6 +17,15 @@ use igniter_server::protocol::ServerRequest;
 use serde_json::Value;
 use std::sync::Arc;
 
+/// Digest of a query plan, used to scope the in-memory read idempotency key per query.
+/// This key is only used for in-memory host receipts, so process-local stability is enough.
+fn plan_digest(plan: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(plan).unwrap_or_default().hash(&mut h);
+    h.finish()
+}
+
 /// Result of executing a staged read, before the continuation is dispatched.
 pub enum StagedReadResult {
     /// Rows serialized to JSON array string (may be "[]" for empty result set).
@@ -59,14 +68,19 @@ impl StagedReadHost {
         self
     }
 
-    /// Execute the staged read for `plan`. The `req.correlation_id` is used as the idempotency key
-    /// (reads are idempotent; replaying with the same key is always safe).
+    /// Execute the staged read for `plan`. Reads are idempotent *per query*, so the idempotency key
+    /// folds a digest of the `plan` into the (optional) `req.correlation_id`. Without the plan
+    /// digest, two DIFFERENT queries served on one host instance with the same/empty correlation id
+    /// would collide on one key — the second read would replay the first's cached rows instead of
+    /// executing its own query (e.g. an empty-account read returning a populated account's rows).
+    /// Same correlation + same plan still replays safely; distinct plans never collide.
     pub async fn execute(&self, plan: &Value, req: &ServerRequest) -> StagedReadResult {
-        let idem_key = req
+        let corr = req
             .correlation_id
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "staged-read".to_string());
+        let idem_key = format!("{corr}:{:016x}", plan_digest(plan));
 
         let effect_req = EffectRequest {
             capability_id: self.capability_id.clone(),
@@ -96,10 +110,9 @@ impl StagedReadHost {
                         .to_string();
                     StagedReadResult::Denied(reason)
                 }
-                _ => StagedReadResult::HostError(format!(
-                    "staged read returned {:?}",
-                    outcome.kind
-                )),
+                _ => {
+                    StagedReadResult::HostError(format!("staged read returned {:?}", outcome.kind))
+                }
             },
         }
     }

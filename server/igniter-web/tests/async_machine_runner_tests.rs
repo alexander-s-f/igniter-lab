@@ -343,8 +343,7 @@ fn replay_same_key_no_second_mutation_over_socket() {
         let addr = listener.local_addr().unwrap();
 
         for i in 1..=2u16 {
-            let client =
-                tokio::spawn(async move { post_todo(addr, "evt-replay-p2").await });
+            let client = tokio::spawn(async move { post_todo(addr, "evt-replay-p2").await });
             machine_runner::serve_once_loaded(&listener, &loaded, &eh)
                 .await
                 .unwrap();
@@ -363,8 +362,12 @@ fn replay_same_key_no_second_mutation_over_socket() {
 fn async_path_carries_no_authority_surface() {
     let handlers = std::fs::read_to_string(app_dir().join("todo_handlers.ig")).unwrap();
     let routes = std::fs::read_to_string(app_dir().join("routes.igweb")).unwrap();
-    let strip_comments =
-        |s: &str| s.lines().map(|l| l.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n");
+    let strip_comments = |s: &str| {
+        s.lines()
+            .map(|l| l.split("--").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let code = format!("{}\n{}", strip_comments(&handlers), strip_comments(&routes)).to_lowercase();
     for forbidden in [
         "capability_id",

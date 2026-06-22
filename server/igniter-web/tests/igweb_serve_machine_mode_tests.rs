@@ -28,7 +28,11 @@ fn app_dir() -> PathBuf {
 fn cli_parse_host_config_flag() {
     let cmd = parse_cli_args(["--host-config", "/etc/host.toml", "app_dir"]).unwrap();
     match cmd {
-        RunnerCliCommand::Run(RunnerCliOptions { host_config_path, app_dir, .. }) => {
+        RunnerCliCommand::Run(RunnerCliOptions {
+            host_config_path,
+            app_dir,
+            ..
+        }) => {
             assert_eq!(
                 host_config_path,
                 Some(PathBuf::from("/etc/host.toml")),
@@ -53,7 +57,9 @@ fn cli_parse_host_config_requires_value() {
 fn cli_parse_without_host_config_has_none() {
     let cmd = parse_cli_args(["app_dir"]).unwrap();
     match cmd {
-        RunnerCliCommand::Run(RunnerCliOptions { host_config_path, .. }) => {
+        RunnerCliCommand::Run(RunnerCliOptions {
+            host_config_path, ..
+        }) => {
             assert!(
                 host_config_path.is_none(),
                 "no --host-config → host_config_path must be None"
@@ -258,7 +264,10 @@ fn machine_mode_smoke_serves_health_request() {
             .nth(1)
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
-        assert_eq!(status, 200, "GET /health in machine mode → 200; raw={response}");
+        assert_eq!(
+            status, 200,
+            "GET /health in machine mode → 200; raw={response}"
+        );
         assert!(response.contains("ok"), "body must be 'ok'");
     });
 }
@@ -280,7 +289,9 @@ mod readthen_p23 {
     use igniter_machine::clock::{ClockProvider, SystemClock};
     use igniter_machine::coordination::CoordinationHub;
     use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
-    use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+    use igniter_machine::postgres_read::{
+        FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+    };
     use igniter_machine::single_flight::SingleFlight;
     use igniter_server::effect_host::MachineEffectHost;
     use igniter_server::serving_loop::ServingPolicy;
@@ -339,7 +350,15 @@ mod readthen_p23 {
                 evidence_digest: String::new(),
             };
             let sf = SingleFlight::new();
-            Self { router, hub, registry, receipts, clk, ep, sf }
+            Self {
+                router,
+                hub,
+                registry,
+                receipts,
+                clk,
+                ep,
+                sf,
+            }
         }
     }
 
@@ -394,7 +413,11 @@ mod readthen_p23 {
             let client = tokio::spawn(async move { get_todos(addr, &acct).await });
             let policy = ServingPolicy::new(1).loopback_only();
             machine_runner::serve_loop_loaded_with_read(
-                &listener, &app, &effect_host, &read_host, &policy,
+                &listener,
+                &app,
+                &effect_host,
+                &read_host,
+                &policy,
             )
             .await
             .unwrap();
@@ -404,7 +427,10 @@ mod readthen_p23 {
                 200,
                 "found rows → ReadThen → 200 in machine-mode path; raw={raw}"
             );
-            assert!(raw.contains("Buy milk"), "response body carries the todo title");
+            assert!(
+                raw.contains("Buy milk"),
+                "response body carries the todo title"
+            );
         });
     }
 
@@ -434,11 +460,14 @@ mod readthen_p23 {
         rt.block_on(async {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
-            let client =
-                tokio::spawn(async move { get_todos(addr, "acct-p23-empty").await });
+            let client = tokio::spawn(async move { get_todos(addr, "acct-p23-empty").await });
             let policy = ServingPolicy::new(1).loopback_only();
             machine_runner::serve_loop_loaded_with_read(
-                &listener, &app, &effect_host, &read_host, &policy,
+                &listener,
+                &app,
+                &effect_host,
+                &read_host,
+                &policy,
             )
             .await
             .unwrap();
@@ -480,11 +509,14 @@ mod readthen_p23 {
         rt.block_on(async {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
-            let client =
-                tokio::spawn(async move { get_todos(addr, "acct-p23-denied").await });
+            let client = tokio::spawn(async move { get_todos(addr, "acct-p23-denied").await });
             let policy = ServingPolicy::new(1).loopback_only();
             machine_runner::serve_loop_loaded_with_read(
-                &listener, &app, &effect_host, &read_host, &policy,
+                &listener,
+                &app,
+                &effect_host,
+                &read_host,
+                &policy,
             )
             .await
             .unwrap();

@@ -9,11 +9,11 @@
 
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
+#[cfg(feature = "machine")]
+use igniter_web::runner::RunnerCliOptions;
 use igniter_web::runner::{
     build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
 };
-#[cfg(feature = "machine")]
-use igniter_web::runner::RunnerCliOptions;
 use std::net::TcpListener;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -107,13 +107,22 @@ fn run_machine_mode(
         );
     }
     if resolved.postgres_read_dsn.is_some() {
+        #[cfg(feature = "postgres")]
+        println!("igweb-serve: machine-mode postgres.read DSN resolved; connecting real executor");
+        #[cfg(not(feature = "postgres"))]
         println!(
             "igweb-serve: machine-mode postgres.read DSN resolved \
-             (v0: executor not yet wired; ReadThen decisions denied by host)"
+             (build with --features postgres to wire a real executor; ReadThen denied by host)"
         );
     }
     if resolved.postgres_write_dsn.is_some() {
-        println!("igweb-serve: machine-mode postgres.write DSN resolved");
+        #[cfg(feature = "postgres")]
+        println!("igweb-serve: machine-mode postgres.write DSN resolved; connecting real executor");
+        #[cfg(not(feature = "postgres"))]
+        println!(
+            "igweb-serve: machine-mode postgres.write DSN resolved \
+             (build with --features postgres to wire a real executor; InvokeEffect denied by host)"
+        );
     }
 
     // 2. Build the loaded app (async dispatch path, never calls ServerApp::call)
@@ -149,13 +158,6 @@ fn run_machine_mode(
     };
     let effect_host = MachineEffectHost::new(&router, &hub, &cfg);
 
-    // Build a minimal staged-read host (v0: empty registry).
-    // ReadThen decisions return 403 host-denied until an executor is wired from resolved DSN.
-    // Authority stays host-owned; the empty registry is the fail-closed posture for v0.
-    let read_registry = CapabilityExecutorRegistry::new();
-    let read_receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-    let read_host = StagedReadHost::new(read_registry, read_receipts, "IO.PostgresRead");
-
     // 4. Run bounded loopback tokio loop; block_on blocks until max requests are served
     let app_dir_str = cli.app_dir.display().to_string();
     let entry = manifest.entry.clone();
@@ -164,6 +166,93 @@ fn run_machine_mode(
         .enable_all()
         .build()?;
     rt.block_on(async {
+        // Build the active read host: real executor under --features postgres when [postgres.read]
+        // is configured; fail-closed empty registry otherwise (ReadThen → 403 host-denied).
+        #[cfg(feature = "postgres")]
+        let read_host = {
+            use igniter_web::host_binding::build_staged_read_host_from_resolved;
+            match build_staged_read_host_from_resolved(&host_cfg, &resolved).await {
+                Ok(Some(h)) => {
+                    println!("igweb-serve: machine-mode postgres.read executor connected");
+                    h
+                }
+                Ok(None) => {
+                    let reg = CapabilityExecutorRegistry::new();
+                    let recs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+                    StagedReadHost::new(reg, recs, "IO.PostgresRead")
+                }
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("postgres.read: {e}"),
+                    ))
+                }
+            }
+        };
+        #[cfg(not(feature = "postgres"))]
+        let read_host = {
+            let reg = CapabilityExecutorRegistry::new();
+            let recs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+            StagedReadHost::new(reg, recs, "IO.PostgresRead")
+        };
+
+        // Build the active write host: real executor + coordination under --features postgres when
+        // [postgres.write] + [effects.*] + passport_env are all configured. Returns early with the
+        // real effect host; falls through to the no-op host when the section is absent.
+        #[cfg(feature = "postgres")]
+        {
+            use igniter_machine::ingress::EffectBridgeConfig;
+            use igniter_web::host_binding::build_write_host_from_resolved;
+            let write_opt = match build_write_host_from_resolved(&host_cfg, &resolved).await {
+                Ok(opt) => opt,
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("postgres.write: {e}"),
+                    ))
+                }
+            };
+            if let Some(state) = write_opt {
+                println!("igweb-serve: machine-mode postgres.write executor connected");
+                let bridge_cfg = EffectBridgeConfig {
+                    registry: &state.registry,
+                    receipts: &state.receipts,
+                    effect_clock: &state.clk,
+                    effect_passport: &state.ep,
+                    single_flight: &state.sf,
+                    capability_id: state.capability_id.clone(),
+                    operation: "write_record".to_string(),
+                    scope: "write".to_string(),
+                };
+                let mut real_effect_host =
+                    igniter_server::effect_host::MachineEffectHost::new(
+                        &state.router, &state.hub, &bridge_cfg,
+                    );
+                for (target, route) in &state.bind_targets {
+                    real_effect_host.bind_target(target, route);
+                }
+                let listener = tokio::net::TcpListener::bind(addr).await?;
+                let bound = listener.local_addr()?;
+                println!(
+                    "igweb-serve: machine-mode app_dir={} entry={} listening http://{} \
+                     (loopback, bounded to {} request(s))",
+                    app_dir_str, entry, bound, max
+                );
+                let policy = ServingPolicy::new(max).loopback_only();
+                let report = machine_runner::serve_loop_loaded_with_read(
+                    &listener, &app, &real_effect_host, &read_host, &policy,
+                )
+                .await?;
+                println!(
+                    "igweb-serve: machine-mode served {} request(s); exiting",
+                    report.requests_served
+                );
+                return Ok(());
+            }
+        }
+
+        // Fallback: no-op effect host (no [postgres.write] section, no passport_env, or no
+        // --features postgres). InvokeEffect → 502 "unbound target" (fail-closed).
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let bound = listener.local_addr()?;
         println!(

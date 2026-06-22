@@ -53,7 +53,10 @@ fn loopback_behaviors() {
     // returns 500 for unhandled decision tags. The machine-mode path is proven in
     // todo_postgres_async_runner_smoke_tests (LAB-TODOAPP-API-ASYNC-RUNNER-SMOKE-P10).
     let (s, _) = roundtrip(&*app, "GET", "/accounts/7/todos", &[], "");
-    assert_eq!(s, 500, "index emits ReadThen → sync path returns 500 (machine mode only)");
+    assert_eq!(
+        s, 500,
+        "index emits ReadThen → sync path returns 500 (machine mode only)"
+    );
 
     // show — todo context (capture 2) threaded through the two-capture guard.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");

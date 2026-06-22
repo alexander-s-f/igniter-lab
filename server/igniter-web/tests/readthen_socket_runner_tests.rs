@@ -49,11 +49,7 @@ fn fixture_app() -> Arc<igniter_web::IgWebLoadedApp> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "igweb_p12_{}_{}",
-        std::process::id(),
-        stamp
-    ));
+    let dir = std::env::temp_dir().join(format!("igweb_p12_{}_{}", std::process::id(), stamp));
     std::fs::create_dir_all(&dir).unwrap();
     let fixture_path = dir.join("read_then_fixture.ig");
     std::fs::write(&fixture_path, FIXTURE).unwrap();
@@ -183,7 +179,10 @@ fn found_rows_gives_http_200_over_socket() {
         let raw = client.await.unwrap();
 
         assert_eq!(http_status(&raw), 200, "found rows → HTTP 200; raw={raw}");
-        assert!(raw.contains("Buy milk"), "response body includes todo title");
+        assert!(
+            raw.contains("Buy milk"),
+            "response body includes todo title"
+        );
         assert_eq!(adapter.query_count(), 1, "one adapter query");
     });
 }
@@ -249,7 +248,11 @@ fn denied_source_gives_http_403_adapter_not_reached() {
             .unwrap();
         let raw = client.await.unwrap();
 
-        assert_eq!(http_status(&raw), 403, "denied source → HTTP 403; raw={raw}");
+        assert_eq!(
+            http_status(&raw),
+            403,
+            "denied source → HTTP 403; raw={raw}"
+        );
         assert_eq!(adapter.query_count(), 0, "adapter must not be reached");
     });
 }
@@ -270,7 +273,10 @@ fn serve_loop_serves_multiple_staged_read_requests() {
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let policy = ServingPolicy { max_requests: 2, loopback_only: true };
+        let policy = ServingPolicy {
+            max_requests: 2,
+            loopback_only: true,
+        };
 
         let path_clone = path.to_string();
         let client = tokio::spawn(async move {
@@ -278,11 +284,10 @@ fn serve_loop_serves_multiple_staged_read_requests() {
             let r2 = send_get(addr, &path_clone).await;
             (r1, r2)
         });
-        let report = machine_runner::serve_loop_loaded_with_read(
-            &listener, &app, &eh, &read_host, &policy,
-        )
-        .await
-        .unwrap();
+        let report =
+            machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+                .await
+                .unwrap();
         let (r1, r2) = client.await.unwrap();
 
         assert_eq!(http_status(&r1), 200, "first request → 200");

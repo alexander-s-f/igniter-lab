@@ -119,10 +119,9 @@ implemented through the regexp stdlib substrate; handlers receive them as `Optio
 
 Handlers may return logical `InvokeEffect` decisions, such as target `"todo-done"`.
 That target is not capability authority. The actual mapping from logical target to capability,
-operation, scope, credentials, and receipts belongs to the host side.
-
-In the current runner, effects are observed as protocol decisions. Live effect execution remains a
-separate host gate.
+operation, scope, credentials, and receipts belongs to the host side:
+- **Default (Sync) Mode:** Effects are observed as protocol decisions without being executed.
+- **Async Machine Mode (`--host-config`):** Real/fake database effects and staged reads are executed dynamically based on the configured policies in `host.toml`.
 
 ## Current Limits
 
@@ -131,7 +130,20 @@ separate host gate.
 - No file watcher or auto-reload.
 - No package manager or package manifest.
 - No public listener mode.
-- No inline secrets.
-- No live external effect execution.
+- No inline secrets (secrets must be mapped from the environment; inline secrets in `host.toml` are rejected at parse time).
+- Live external effect execution is limited to local Postgres or fake database capability adapters under the `--host-config` flag.
 
 Those omissions are intentional for the lab v0 safety envelope.
+
+## Runner & Database Status Matrix
+
+| Component / Layer | Status | Target / Feature Gate | Description |
+| :--- | :--- | :--- | :--- |
+| **`igweb-serve` CLI** | **Lab Prototype** | `igweb-serve` binary | Not a stable public CLI. Loopback-only. |
+| **Sync Mode** (default) | **Implemented** | Default build (no-cfg) | Bounded sync request loop using observed effects (no execution). |
+| **Async Machine Mode** | **Implemented** | `--host-config <file>` + `machine` feature | Async tokio loop, parsing `host.toml`, executing raw/staged reads and writes. |
+| **Extracted Core E2E** | **Proven** | Cargo tests (e.g. `todo_igweb_serve_e2e_tests`) | In-process testing of the serving/effect loop; does NOT spawn subprocesses in cargo tests. |
+| **Subprocess CLI E2E** | **Proven** | `postgres` feature + `IGNITER_TODO_PG_DSN` | Cargo test spawns the compiled `igweb-serve` binary and drives read/write/replay over loopback; skips cleanly without DSN. |
+| **Fake DB Adapters** | **Proven** | Default VM & Runner tests | In-memory read/write simulation of Postgres; default path for tests. |
+| **Real Postgres (Read)** | **Wired + Proven** | `postgres` feature + `[postgres.read]` in `host.toml` | `igweb-serve` builds a real read executor from resolved DSN and host policy; P12 proves read found/empty through subprocess. |
+| **Real Postgres (Write)** | **Wired + Proven** | `postgres` feature + `[postgres.write]` + `[effects.*]` in `host.toml` | `igweb-serve` builds a real write effect host from resolved DSN, policy, and bearer token; P12 proves write/replay through subprocess. |
