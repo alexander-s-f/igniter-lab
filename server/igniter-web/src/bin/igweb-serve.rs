@@ -1,7 +1,7 @@
 //! `igweb-serve <app_dir>` — the generic lab IgWeb runner.
 //!
 //! Without `--host-config`: sync `std::net::TcpListener` + `serve_loop` (unchanged from P12).
-//! With `--host-config`:    async tokio loop via `machine_runner::serve_loop_loaded` (P22).
+//! With `--host-config`:    async tokio loop via `machine_runner::serve_loop_loaded_with_read` (P23).
 //!
 //! `--host-config` parses and resolves `host.toml` (env-var expansion) before binding the socket.
 //! Missing env vars exit immediately; inline secrets are rejected at parse time.
@@ -92,6 +92,7 @@ fn run_machine_mode(
     use igniter_server::serving_loop::ServingPolicy;
     use igniter_web::host_config::{load_host_config, resolve_host_config};
     use igniter_web::machine_runner;
+    use igniter_web::read_dispatch::StagedReadHost;
     use igniter_web::runner::build_loaded_app_from_dir;
     use std::sync::Arc;
 
@@ -106,7 +107,10 @@ fn run_machine_mode(
         );
     }
     if resolved.postgres_read_dsn.is_some() {
-        println!("igweb-serve: machine-mode postgres.read DSN resolved");
+        println!(
+            "igweb-serve: machine-mode postgres.read DSN resolved \
+             (v0: executor not yet wired; ReadThen decisions denied by host)"
+        );
     }
     if resolved.postgres_write_dsn.is_some() {
         println!("igweb-serve: machine-mode postgres.write DSN resolved");
@@ -145,6 +149,13 @@ fn run_machine_mode(
     };
     let effect_host = MachineEffectHost::new(&router, &hub, &cfg);
 
+    // Build a minimal staged-read host (v0: empty registry).
+    // ReadThen decisions return 403 host-denied until an executor is wired from resolved DSN.
+    // Authority stays host-owned; the empty registry is the fail-closed posture for v0.
+    let read_registry = CapabilityExecutorRegistry::new();
+    let read_receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+    let read_host = StagedReadHost::new(read_registry, read_receipts, "IO.PostgresRead");
+
     // 4. Run bounded loopback tokio loop; block_on blocks until max requests are served
     let app_dir_str = cli.app_dir.display().to_string();
     let entry = manifest.entry.clone();
@@ -161,7 +172,7 @@ fn run_machine_mode(
         );
         let policy = ServingPolicy::new(max).loopback_only();
         let report =
-            machine_runner::serve_loop_loaded(&listener, &app, &effect_host, &policy).await?;
+            machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy).await?;
         println!(
             "igweb-serve: machine-mode served {} request(s); exiting",
             report.requests_served

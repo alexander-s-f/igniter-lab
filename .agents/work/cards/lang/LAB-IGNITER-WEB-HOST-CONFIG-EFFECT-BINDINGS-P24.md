@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-HOST-CONFIG-EFFECT-BINDINGS-P24 - host.toml read/write binding plan
 
-Status: OPEN
+Status: CLOSED
 Lane: IgWeb / host config / machine bindings
 Type: implementation if small, readiness fallback if not
 Delegation code: OPUS-WEB-HOST-CONFIG-EFFECT-BINDINGS-P24
@@ -67,17 +67,65 @@ Answer in closing report even if implementation lands:
 
 ## Acceptance
 
-- [ ] Verify-first notes compare current config fields with required read/write host fields.
-- [ ] If implemented: parser rejects unknown binding keys fail-closed.
-- [ ] If implemented: inline secret rejection still covers all new sections.
-- [ ] If implemented: resolved binding structs never log DSN/passport values.
-- [ ] If implemented: read policy can allow `todos(id, account_id, title, done)` with a max-row clamp.
-- [ ] If implemented: write policy can allow Todo create/done targets with key/fields.
-- [ ] If implemented: fake read/write host construction is testable without live DB.
-- [ ] If not implemented: readiness packet names the exact schema and the next implementation card.
-- [ ] Existing `host_config::tests` remain green.
-- [ ] `server/igniter-web cargo test --features machine` passes if code changes.
-- [ ] `git diff --check` clean.
+- [x] Verify-first notes compare current config fields with required read/write host fields.
+- [x] If implemented: parser rejects unknown binding keys fail-closed.
+- [x] If implemented: inline secret rejection still covers all new sections.
+- [x] If implemented: resolved binding structs never log DSN/passport values.
+- [x] If implemented: read policy can allow `todos(id, account_id, title, done)` with a max-row clamp.
+- [x] If implemented: write policy can allow Todo create/done targets with key/fields.
+- [x] If implemented: fake read/write host construction is testable without live DB.
+- [x] Not applicable: implemented; schema and binding decisions are captured in the closing report.
+- [x] Existing `host_config::tests` remain green.
+- [x] `server/igniter-web cargo test --features machine` passes if code changes.
+- [x] `git diff --check` clean.
+
+## Closing report
+
+**Date:** 2026-06-22
+
+**Implementation:** Small — implemented (not readiness).
+
+### Verify-first findings
+
+**Read policy fields required today** (`PostgresReadPolicy`): `allowed_sources`, `allowed_fields` per source,
+`row_limit` (hard clamp), `allowed_ops` (default `["select"]`). `max_in_values` (100) and `max_order_by` (3)
+have sensible defaults.
+
+**Write policy fields required today** (`PostgresWritePolicy`): `allowed_targets`, `allowed_ops`. The `key`
+and `values` come from the typed `PostgresWriteIntent` emitted by the contract — not a host policy concept.
+No field allowlist for writes (reads have field gates, writes do not).
+
+**InvokeEffect.target → MachineEffectHost today**: two-level map:
+1. `effect_host.bind_target("todo-create", "/w")` — target → ingress route
+2. `IngressRouter.route("/w", "svc")` — route → capsule pool (provisioned separately by machine setup)
+
+**Parser extensibility**: the hand-rolled parser extends safely — comma-list and u32 string parsing added,
+new keys in existing section match arms, no structural redesign needed.
+
+### Decision answers
+
+- **v0 read schema**: single source per `[postgres.read]` (v0 simplification); `source`, `fields`
+  (comma-separated), `row_limit` (quoted integer), `capability`.
+- **v0 write schema**: `targets`, `ops` (comma-separated), `capability`.
+- **`effects.<target>` capability fields**: derived by host code — `capability_id` optionally in
+  `[postgres.write]`; `operation`/`scope` are caller-provisioned, not from `host.toml`.
+- **Fake adapter seeding**: test caller seeds `FakePostgresAdapter::with_table(source, rows)` — the binding
+  layer produces a `ReadPolicyBinding` and `build_staged_read_host_with_adapter` takes the pre-seeded adapter.
+  Production config concepts never name test rows.
+- **Deferred to real Postgres mode**: DSN resolution from `resolved.postgres_*_dsn`, pool/TLS,
+  `tokio-postgres`-backed real adapters, multi-source `[postgres.read]` sub-sections.
+
+### New code
+
+- **`host_config.rs`**: `PostgresConfig` split into `PostgresWriteConfig` + `PostgresReadConfig`; new keys
+  `targets`, `ops`, `capability` (write), `source`, `fields`, `row_limit`, `capability` (read); helpers
+  `parse_comma_list` / `parse_u32`; 13 new tests.
+- **`host_binding.rs`** (new): `WriteBindingPlan` + `write_binding_plan`; `ReadPolicyBinding` +
+  `read_policy_binding`; `build_staged_read_host_with_adapter` (`#[cfg(feature = "machine")]`); 9 tests.
+- **`lib.rs`**: `pub mod host_binding;` added.
+
+`cargo test --features machine`: 54 lib unit tests green (9 binding + 13 new config + 32 prior).
+All integration test suites green. `git diff --check` clean.
 
 ## Closed surfaces
 

@@ -1,4 +1,4 @@
-//! Operator-owned host configuration parser (LAB-IGNITER-HOST-CONFIG-SCHEMA-P3).
+//! Operator-owned host configuration parser (LAB-IGNITER-HOST-CONFIG-SCHEMA-P3 / P24).
 //!
 //! host.toml stores env-var NAME references — never raw secret values:
 //!
@@ -25,6 +25,10 @@
 //! - `[host] mode` only accepts `"loopback"` in v0.
 //! - `[effects.<target>]` without `route` fails closed.
 //! - `[postgres.*]` without `dsn_env` fails closed.
+//!
+//! P24 adds policy fields (not secrets — no `*_env` wrapping required):
+//! - `[postgres.read]`:  `source`, `fields` (comma-list), `row_limit`, `capability`
+//! - `[postgres.write]`: `targets` (comma-list), `ops` (comma-list), `capability`
 
 use std::collections::BTreeMap;
 
@@ -37,9 +41,9 @@ pub struct HostConfig {
     /// `[effects.<target>]` — one entry per logical effect target.
     pub effects: BTreeMap<String, EffectConfig>,
     /// `[postgres.write]`
-    pub postgres_write: Option<PostgresConfig>,
+    pub postgres_write: Option<PostgresWriteConfig>,
     /// `[postgres.read]`
-    pub postgres_read: Option<PostgresConfig>,
+    pub postgres_read: Option<PostgresReadConfig>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -50,10 +54,44 @@ pub struct EffectConfig {
     pub passport_env: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct PostgresConfig {
-    /// Env-var name for the Postgres DSN. Required when section is present.
+/// `[postgres.write]` section: env-var ref + write allowlist policy (P24).
+#[derive(Debug, Clone, Default)]
+pub struct PostgresWriteConfig {
+    /// Env-var name for the Postgres write DSN. Required.
     pub dsn_env: String,
+    /// Allowed write targets (e.g. `["todos"]`). Empty = deny all writes.
+    pub targets: Vec<String>,
+    /// Allowed write ops (e.g. `["insert", "upsert"]`). Empty = deny all writes.
+    pub ops: Vec<String>,
+    /// Host capability id for the write executor (e.g. `"IO.TodoWrite"`). Optional.
+    pub capability_id: Option<String>,
+}
+
+/// `[postgres.read]` section: env-var ref + read allowlist policy (P24).
+#[derive(Debug, Clone)]
+pub struct PostgresReadConfig {
+    /// Env-var name for the Postgres read DSN. Required.
+    pub dsn_env: String,
+    /// Single allowlisted source name for v0 (e.g. `"todos"`). None = no source configured.
+    pub source: Option<String>,
+    /// Allowlisted fields for the source. Empty = not configured.
+    pub fields: Vec<String>,
+    /// Max-row clamp. Default 100.
+    pub row_limit: u32,
+    /// Host capability id for the read executor (e.g. `"IO.PostgresRead"`). Optional.
+    pub capability_id: Option<String>,
+}
+
+impl Default for PostgresReadConfig {
+    fn default() -> Self {
+        Self {
+            dsn_env: String::new(),
+            source: None,
+            fields: Vec::new(),
+            row_limit: 100,
+            capability_id: None,
+        }
+    }
 }
 
 // ── resolved config (actual values; never log these fields) ──────────────────────────────────────
@@ -184,6 +222,29 @@ fn check_env_name(key: &str, val: &str) -> Result<(), HostConfigError> {
     Ok(())
 }
 
+/// Parse a non-empty, comma-separated list of non-empty trimmed identifiers.
+fn parse_comma_list(val: &str, key: &str) -> Result<Vec<String>, HostConfigError> {
+    if val.is_empty() {
+        return Err(HostConfigError::Parse(format!(
+            "`{key}` must be a non-empty comma-separated list"
+        )));
+    }
+    let items: Vec<String> = val.split(',').map(|s| s.trim().to_string()).collect();
+    if items.iter().any(|s| s.is_empty()) {
+        return Err(HostConfigError::Parse(format!(
+            "`{key}` contains an empty item (trailing comma or double-comma?)"
+        )));
+    }
+    Ok(items)
+}
+
+/// Parse a non-negative integer from a quoted string value.
+fn parse_u32(val: &str, key: &str) -> Result<u32, HostConfigError> {
+    val.parse::<u32>().map_err(|_| {
+        HostConfigError::Parse(format!("`{key}` must be a positive integer, got `{val}`"))
+    })
+}
+
 /// Parse `host.toml` text. Pure; no IO, no env-var access.
 pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut config = HostConfig::default();
@@ -191,9 +252,18 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
 
     let mut effect_routes: BTreeMap<String, String> = BTreeMap::new();
     let mut effect_passport_envs: BTreeMap<String, String> = BTreeMap::new();
+
     let mut pg_write_dsn_env: Option<String> = None;
-    let mut pg_read_dsn_env: Option<String> = None;
+    let mut pg_write_targets: Vec<String> = Vec::new();
+    let mut pg_write_ops: Vec<String> = Vec::new();
+    let mut pg_write_capability: Option<String> = None;
     let mut pg_write_seen = false;
+
+    let mut pg_read_dsn_env: Option<String> = None;
+    let mut pg_read_source: Option<String> = None;
+    let mut pg_read_fields: Vec<String> = Vec::new();
+    let mut pg_read_row_limit: Option<u32> = None;
+    let mut pg_read_capability: Option<String> = None;
     let mut pg_read_seen = false;
 
     for raw in text.lines() {
@@ -290,6 +360,20 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                     check_env_name(key, &val)?;
                     pg_write_dsn_env = Some(val);
                 }
+                "targets" => {
+                    pg_write_targets = parse_comma_list(&val, key)?;
+                }
+                "ops" => {
+                    pg_write_ops = parse_comma_list(&val, key)?;
+                }
+                "capability" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::Parse(
+                            "`capability` must not be empty".to_string(),
+                        ));
+                    }
+                    pg_write_capability = Some(val);
+                }
                 _ => {
                     return Err(HostConfigError::UnknownKey {
                         section: label,
@@ -301,6 +385,28 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                 "dsn_env" => {
                     check_env_name(key, &val)?;
                     pg_read_dsn_env = Some(val);
+                }
+                "source" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::Parse(
+                            "`source` must not be empty".to_string(),
+                        ));
+                    }
+                    pg_read_source = Some(val);
+                }
+                "fields" => {
+                    pg_read_fields = parse_comma_list(&val, key)?;
+                }
+                "row_limit" => {
+                    pg_read_row_limit = Some(parse_u32(&val, key)?);
+                }
+                "capability" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::Parse(
+                            "`capability` must not be empty".to_string(),
+                        ));
+                    }
+                    pg_read_capability = Some(val);
                 }
                 _ => {
                     return Err(HostConfigError::UnknownKey {
@@ -334,13 +440,24 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
         let dsn_env = pg_write_dsn_env.ok_or_else(|| HostConfigError::MissingDsnEnv {
             section: "postgres.write".to_string(),
         })?;
-        config.postgres_write = Some(PostgresConfig { dsn_env });
+        config.postgres_write = Some(PostgresWriteConfig {
+            dsn_env,
+            targets: pg_write_targets,
+            ops: pg_write_ops,
+            capability_id: pg_write_capability,
+        });
     }
     if pg_read_seen {
         let dsn_env = pg_read_dsn_env.ok_or_else(|| HostConfigError::MissingDsnEnv {
             section: "postgres.read".to_string(),
         })?;
-        config.postgres_read = Some(PostgresConfig { dsn_env });
+        config.postgres_read = Some(PostgresReadConfig {
+            dsn_env,
+            source: pg_read_source,
+            fields: pg_read_fields,
+            row_limit: pg_read_row_limit.unwrap_or(100),
+            capability_id: pg_read_capability,
+        });
     }
 
     Ok(config)
@@ -675,6 +792,124 @@ dsn_env = "IGNITER_PG_READ_DSN"
     fn key_before_section_fails_closed() {
         let err = parse_host_config("mode = \"loopback\"").unwrap_err();
         assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    // ── load_host_config ─────────────────────────────────────────────────────────────────────────
+
+    // ── P24: read/write policy keys ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn postgres_write_policy_keys_round_trip() {
+        let text = r#"
+[postgres.write]
+dsn_env = "PG_WRITE"
+targets = "todos"
+ops = "insert,upsert"
+capability = "IO.TodoWrite"
+"#;
+        let cfg = parse_host_config(text).expect("valid");
+        let wc = cfg.postgres_write.unwrap();
+        assert_eq!(wc.dsn_env, "PG_WRITE");
+        assert_eq!(wc.targets, vec!["todos"]);
+        assert_eq!(wc.ops, vec!["insert", "upsert"]);
+        assert_eq!(wc.capability_id.as_deref(), Some("IO.TodoWrite"));
+    }
+
+    #[test]
+    fn postgres_write_without_policy_keys_still_valid() {
+        let text = "[postgres.write]\ndsn_env = \"PG_W\"\n";
+        let cfg = parse_host_config(text).expect("valid");
+        let wc = cfg.postgres_write.unwrap();
+        assert_eq!(wc.dsn_env, "PG_W");
+        assert!(wc.targets.is_empty());
+        assert!(wc.ops.is_empty());
+        assert!(wc.capability_id.is_none());
+    }
+
+    #[test]
+    fn postgres_read_policy_keys_round_trip() {
+        let text = r#"
+[postgres.read]
+dsn_env = "PG_READ"
+source = "todos"
+fields = "id,account_id,title,done"
+row_limit = "50"
+capability = "IO.PostgresRead"
+"#;
+        let cfg = parse_host_config(text).expect("valid");
+        let rc = cfg.postgres_read.unwrap();
+        assert_eq!(rc.dsn_env, "PG_READ");
+        assert_eq!(rc.source.as_deref(), Some("todos"));
+        assert_eq!(rc.fields, vec!["id", "account_id", "title", "done"]);
+        assert_eq!(rc.row_limit, 50);
+        assert_eq!(rc.capability_id.as_deref(), Some("IO.PostgresRead"));
+    }
+
+    #[test]
+    fn postgres_read_defaults_row_limit_to_100() {
+        let text = "[postgres.read]\ndsn_env = \"PG_R\"\n";
+        let cfg = parse_host_config(text).expect("valid");
+        assert_eq!(cfg.postgres_read.unwrap().row_limit, 100);
+    }
+
+    #[test]
+    fn unknown_key_in_postgres_write_p24_fails_closed() {
+        let err = parse_host_config("[postgres.write]\ndsn_env = \"V\"\ncpu = \"4\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::UnknownKey { .. }));
+    }
+
+    #[test]
+    fn unknown_key_in_postgres_read_p24_fails_closed() {
+        let err =
+            parse_host_config("[postgres.read]\ndsn_env = \"V\"\nindex = \"btree\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::UnknownKey { .. }));
+    }
+
+    #[test]
+    fn empty_targets_value_fails_closed() {
+        let err = parse_host_config("[postgres.write]\ndsn_env = \"V\"\ntargets = \"\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn trailing_comma_in_ops_fails_closed() {
+        let err =
+            parse_host_config("[postgres.write]\ndsn_env = \"V\"\nops = \"insert,\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn empty_source_fails_closed() {
+        let err = parse_host_config("[postgres.read]\ndsn_env = \"V\"\nsource = \"\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn non_integer_row_limit_fails_closed() {
+        let err =
+            parse_host_config("[postgres.read]\ndsn_env = \"V\"\nrow_limit = \"many\"").unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn empty_capability_fails_closed() {
+        for text in &[
+            "[postgres.write]\ndsn_env = \"V\"\ncapability = \"\"",
+            "[postgres.read]\ndsn_env = \"V\"\ncapability = \"\"",
+        ] {
+            let err = parse_host_config(text).unwrap_err();
+            assert!(
+                matches!(err, HostConfigError::Parse(_)),
+                "empty capability must fail closed; text={text}"
+            );
+        }
+    }
+
+    #[test]
+    fn comma_list_whitespace_trimmed() {
+        let text = "[postgres.write]\ndsn_env = \"V\"\ntargets = \" todos , users \"\n";
+        let cfg = parse_host_config(text).expect("valid");
+        assert_eq!(cfg.postgres_write.unwrap().targets, vec!["todos", "users"]);
     }
 
     // ── load_host_config ─────────────────────────────────────────────────────────────────────────

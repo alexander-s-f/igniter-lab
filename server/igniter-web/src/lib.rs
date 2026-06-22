@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+pub mod host_binding;
 pub mod host_config;
 #[cfg(feature = "machine")]
 pub mod machine_runner;

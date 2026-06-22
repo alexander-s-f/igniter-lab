@@ -263,6 +263,241 @@ fn machine_mode_smoke_serves_health_request() {
     });
 }
 
+// ── 5: ReadThen in machine-mode socket path (P23) ─────────────────────────────────────────────────
+//
+// Mirrors what `igweb-serve --host-config` does after P23:
+//   machine_mode_readthen_found_rows_http_200     — fake executor, found rows → ReadThen → 200
+//   machine_mode_readthen_empty_rows_http_404     — fake executor, empty table → ReadThen → 404
+//   machine_mode_readthen_no_executor_host_denied — empty registry (v0 binary posture) → 403
+//
+// All use serve_loop_loaded_with_read + build_loaded_app_from_dir(&app_dir()) + no-op write host.
+
+#[cfg(feature = "machine")]
+mod readthen_p23 {
+    use super::{app_dir, stamp};
+    use igniter_machine::backend::{InMemoryBackend, TBackend};
+    use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport};
+    use igniter_machine::clock::{ClockProvider, SystemClock};
+    use igniter_machine::coordination::CoordinationHub;
+    use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
+    use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+    use igniter_machine::single_flight::SingleFlight;
+    use igniter_server::effect_host::MachineEffectHost;
+    use igniter_server::serving_loop::ServingPolicy;
+    use igniter_web::machine_runner;
+    use igniter_web::read_dispatch::StagedReadHost;
+    use igniter_web::runner::build_loaded_app_from_dir;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const READ_CAP: &str = "IO.PostgresRead";
+
+    fn sample_todos(account_id: &str) -> Vec<serde_json::Value> {
+        vec![
+            json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": false}),
+            json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": true}),
+        ]
+    }
+
+    fn make_read_host(adapter: Arc<FakePostgresAdapter>) -> StagedReadHost {
+        let policy = PostgresReadPolicy::new(100)
+            .allow_ops(&["select"])
+            .allow_source("todos", &["id", "account_id", "title", "done"]);
+        let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
+        let mut registry = CapabilityExecutorRegistry::new();
+        registry.register(exec);
+        let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        StagedReadHost::new(registry, receipts, READ_CAP)
+    }
+
+    /// Components for a no-op write-side effect host. All borrows must outlive the host.
+    struct NoopParts {
+        router: IngressRouter,
+        hub: CoordinationHub,
+        registry: CapabilityExecutorRegistry,
+        receipts: Arc<dyn TBackend>,
+        clk: Arc<dyn ClockProvider>,
+        ep: CapabilityPassport,
+        sf: SingleFlight,
+    }
+    impl NoopParts {
+        fn new() -> Self {
+            let router = IngressRouter::new();
+            let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+            let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);
+            let hub = CoordinationHub::new(audit.clone(), Arc::clone(&clk));
+            let registry = CapabilityExecutorRegistry::new();
+            let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+            let ep = CapabilityPassport {
+                subject: "host".to_string(),
+                capability_id: "noop".to_string(),
+                scopes: vec![],
+                issued_at: 0.0,
+                expires_at: None,
+                revoked: false,
+                evidence_digest: String::new(),
+            };
+            let sf = SingleFlight::new();
+            Self { router, hub, registry, receipts, clk, ep, sf }
+        }
+    }
+
+    async fn get_todos(addr: std::net::SocketAddr, account_id: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let raw = format!(
+            "GET /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n"
+        );
+        stream.write_all(raw.as_bytes()).await.unwrap();
+        stream.flush().await.unwrap();
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.unwrap();
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    fn http_status(raw: &str) -> u16 {
+        raw.split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn machine_mode_readthen_found_rows_http_200() {
+        let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+        let account_id = format!("acct-p23-found-{}", stamp());
+        let adapter =
+            Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(&account_id)));
+        let read_host = make_read_host(adapter);
+
+        let parts = NoopParts::new();
+        let cfg = EffectBridgeConfig {
+            registry: &parts.registry,
+            receipts: &parts.receipts,
+            effect_clock: &parts.clk,
+            effect_passport: &parts.ep,
+            single_flight: &parts.sf,
+            capability_id: "noop".to_string(),
+            operation: "noop".to_string(),
+            scope: "noop".to_string(),
+        };
+        let effect_host = MachineEffectHost::new(&parts.router, &parts.hub, &cfg);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let acct = account_id.clone();
+            let client = tokio::spawn(async move { get_todos(addr, &acct).await });
+            let policy = ServingPolicy::new(1).loopback_only();
+            machine_runner::serve_loop_loaded_with_read(
+                &listener, &app, &effect_host, &read_host, &policy,
+            )
+            .await
+            .unwrap();
+            let raw = client.await.unwrap();
+            assert_eq!(
+                http_status(&raw),
+                200,
+                "found rows → ReadThen → 200 in machine-mode path; raw={raw}"
+            );
+            assert!(raw.contains("Buy milk"), "response body carries the todo title");
+        });
+    }
+
+    #[test]
+    fn machine_mode_readthen_empty_rows_http_404() {
+        let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
+        let read_host = make_read_host(adapter);
+
+        let parts = NoopParts::new();
+        let cfg = EffectBridgeConfig {
+            registry: &parts.registry,
+            receipts: &parts.receipts,
+            effect_clock: &parts.clk,
+            effect_passport: &parts.ep,
+            single_flight: &parts.sf,
+            capability_id: "noop".to_string(),
+            operation: "noop".to_string(),
+            scope: "noop".to_string(),
+        };
+        let effect_host = MachineEffectHost::new(&parts.router, &parts.hub, &cfg);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let client =
+                tokio::spawn(async move { get_todos(addr, "acct-p23-empty").await });
+            let policy = ServingPolicy::new(1).loopback_only();
+            machine_runner::serve_loop_loaded_with_read(
+                &listener, &app, &effect_host, &read_host, &policy,
+            )
+            .await
+            .unwrap();
+            let raw = client.await.unwrap();
+            assert_eq!(
+                http_status(&raw),
+                404,
+                "empty rows → app-owned 404 in machine-mode path; raw={raw}"
+            );
+        });
+    }
+
+    #[test]
+    fn machine_mode_readthen_no_executor_host_denied() {
+        // Proves the v0 binary posture: empty StagedReadHost → ReadThen → 403 host-denied.
+        // The binary builds exactly this until a real executor is wired from the resolved DSN.
+        let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+        let read_receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        let read_host =
+            StagedReadHost::new(CapabilityExecutorRegistry::new(), read_receipts, READ_CAP);
+
+        let parts = NoopParts::new();
+        let cfg = EffectBridgeConfig {
+            registry: &parts.registry,
+            receipts: &parts.receipts,
+            effect_clock: &parts.clk,
+            effect_passport: &parts.ep,
+            single_flight: &parts.sf,
+            capability_id: "noop".to_string(),
+            operation: "noop".to_string(),
+            scope: "noop".to_string(),
+        };
+        let effect_host = MachineEffectHost::new(&parts.router, &parts.hub, &cfg);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let client =
+                tokio::spawn(async move { get_todos(addr, "acct-p23-denied").await });
+            let policy = ServingPolicy::new(1).loopback_only();
+            machine_runner::serve_loop_loaded_with_read(
+                &listener, &app, &effect_host, &read_host, &policy,
+            )
+            .await
+            .unwrap();
+            let raw = client.await.unwrap();
+            assert_eq!(
+                http_status(&raw),
+                403,
+                "empty registry → host-denied 403 (v0 binary posture); raw={raw}"
+            );
+        });
+    }
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────────────────────────
 
 fn stamp() -> u128 {
