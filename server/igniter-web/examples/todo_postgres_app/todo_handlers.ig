@@ -205,7 +205,9 @@ pure contract LoadTodoContext {
 pure contract AccountTodoIndex {
   input req : Request
   input ctx : TodoListCtx
-  compute d : Decision = Respond { status: 200, body: or_else(ctx.account_id, "none") }
+  compute account_id = or_else(ctx.account_id, "")
+  compute plan = call_contract("ListTodosByAccount", account_id)
+  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoIndexFromRows" }
   output d : Decision
 }
 

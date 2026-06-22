@@ -402,6 +402,8 @@ pub mod runner {
         pub app_dir: PathBuf,
         pub addr: SocketAddr,
         pub max_requests: Option<usize>,
+        /// Path to `host.toml`; presence enables the async machine-mode runner.
+        pub host_config_path: Option<PathBuf>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -419,8 +421,8 @@ pub mod runner {
     pub const DEFAULT_ADDR: &str = "127.0.0.1:0";
 
     pub fn usage() -> &'static str {
-        "usage: igweb-serve run [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
-         usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] <app_dir>\n\
+        "usage: igweb-serve run [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH] <app_dir>\n\
+         usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH] <app_dir>\n\
          usage: igweb-serve check <app_dir>\n\
          \n\
          Commands:\n\
@@ -430,8 +432,10 @@ pub mod runner {
          Options for run:\n\
            --addr HOST:PORT       loopback-only bind address (default 127.0.0.1:0)\n\
            --max-requests N       override [server].max_requests for this run\n\
+           --host-config PATH     host.toml for machine-mode runner (resolves env vars before bind)\n\
          \n\
-         Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side."
+         Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side.\n\
+         --host-config requires --features machine. Not a stable CLI surface."
     }
 
     pub fn parse_cli_args<I, S>(args: I) -> Result<RunnerCliCommand, RunnerError>
@@ -477,6 +481,7 @@ pub mod runner {
         let mut addr = parse_loopback_addr(DEFAULT_ADDR)?;
         let mut max_requests = None;
         let mut app_dir = None;
+        let mut host_config_path = None;
         let mut iter = args.into_iter();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -503,6 +508,12 @@ pub mod runner {
                     }
                     max_requests = Some(parsed);
                 }
+                "--host-config" => {
+                    let value = iter.next().ok_or_else(|| {
+                        RunnerError::Cli("--host-config requires a value".into())
+                    })?;
+                    host_config_path = Some(PathBuf::from(value));
+                }
                 value if value.starts_with('-') => {
                     return Err(RunnerError::Cli(format!("unknown option `{value}`")))
                 }
@@ -521,6 +532,7 @@ pub mod runner {
             app_dir,
             addr,
             max_requests,
+            host_config_path,
         }))
     }
 
