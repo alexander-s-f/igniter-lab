@@ -753,6 +753,8 @@ impl Compiler {
                 self.next_register += 1;
                 self.compute_node_registers
                     .insert(loop_name.to_string(), tick_reg);
+                self.compute_node_registers
+                    .insert(format!("{}.time", loop_name), tick_reg);
 
                 // 1. OP_LOAD_TICK pushes tick value onto stack
                 self.emit(OP_LOAD_TICK, vec![Value::Integer(interval_ms)]);

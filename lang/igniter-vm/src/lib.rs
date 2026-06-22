@@ -2,6 +2,7 @@
 // Lab-only experimental VM candidate crate
 
 pub mod compiler;
+pub mod experiment;
 pub mod instructions;
 pub mod passport;
 pub mod pipeline;

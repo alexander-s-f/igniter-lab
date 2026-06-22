@@ -3,7 +3,6 @@
 
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -91,6 +90,16 @@ async fn main() {
             }
         };
         handle_vm_trace(&igapp_path, entry_arg.as_deref(), &inputs_path).await;
+        return;
+    }
+
+    // LAB-IGNITER-EXPERIMENT-INPROCESS-RUNNER-P5:
+    // compile source once, compile VM bytecode once, then run Kuramoto ticks in-process.
+    if args.len() >= 2 && args[1] == "experiment" {
+        if let Err(e) = igniter_vm::experiment::handle_experiment(&args[2..]).await {
+            eprintln!("experiment error: {}", e);
+            std::process::exit(1);
+        }
         return;
     }
 
@@ -1047,6 +1056,7 @@ async fn main() {
 fn print_help() {
     println!("\n{}Usage:{}", BOLD, RESET);
     println!("  igniter-vm run --contract <path> --inputs <path> [options]");
+    println!("  igniter-vm experiment kuramoto --kernel <path> --out <dir> [--compiler <path>] [--config <json>]");
     println!("  igniter-vm reactive --contract <path> --trigger-store <store> --target-store <store> --tbackend <ip:port> [options]");
     println!("\n{}Options:{}", BOLD, RESET);
     println!("  -c, --contract <path>     Path to compiled contract JSON or .igapp directory");
