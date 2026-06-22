@@ -1007,3 +1007,127 @@ fn cli_export_change_is_lock_drift() {
         "changed drift for lib after exports edit: {v}"
     );
 }
+
+// ── LAB-IGNITER-PACKAGE-EMERGENCE-PACK-P24 (Kuramoto Admission) ───────────────────
+
+fn temp_kuramoto_fixture(tag: &str) -> PathBuf {
+    let base = std::env::temp_dir().join(format!("igc_lock_kuramoto_{}_{}", tag, std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    copy_tree(
+        Path::new("tests/fixtures/package_emergence_kuramoto"),
+        &base,
+    );
+    base
+}
+
+fn pack_kuramoto_temp(tag: &str, with_lock: bool) -> PathBuf {
+    let app = temp_kuramoto_fixture(tag);
+    if with_lock {
+        run("lock", &app);
+    }
+    let out = igpkg_path(tag);
+    run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &root_arg(&app),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    out
+}
+
+/// A Kuramoto package fixture packs into `.igpkg`.
+#[test]
+fn cli_pack_emergence_kuramoto() {
+    let pkg = pack_kuramoto_temp("kuramoto_pack", false);
+    assert!(pkg.exists());
+    let (ok, v) = run_args(&["package", "verify", pkg.to_str().unwrap()]);
+    assert!(ok, "verify of packed kuramoto package failed: {v}");
+    assert_eq!(v["ok"], Value::Bool(true));
+}
+
+/// `verify_archive` succeeds.
+#[test]
+fn cli_verify_emergence_kuramoto() {
+    let pkg = pack_kuramoto_temp("kuramoto_verify", false);
+    let (ok, v) = run_args(&["package", "verify", pkg.to_str().unwrap()]);
+    assert!(ok, "verification failed: {v}");
+    assert_eq!(v["ok"], Value::Bool(true));
+    assert_eq!(v["digest_ok"], Value::Bool(true));
+    assert_eq!(v["integrity"]["ok"], Value::Bool(true));
+}
+
+/// Node admission succeeds and emits deterministic receipt-like identity.
+#[test]
+fn cli_admit_emergence_kuramoto() {
+    let pkg = pack_kuramoto_temp("kuramoto_admit", false);
+
+    // Test admission succeeds without --require-lock (since no lock file was generated)
+    let (ok, v) = admit(&pkg, &["--match-toolchain"]);
+    assert!(ok, "admission failed: {v}");
+    assert_eq!(v["accepted"], Value::Bool(true));
+    assert!(v["artifact_digest"].as_str().unwrap().starts_with("sha256:"));
+    assert_eq!(v["lock_digest"], Value::Null);
+    assert!(v["compiler_version"].as_str().is_some());
+    assert!(v["stdlib_version"].as_str().is_some());
+
+    // Check stability/determinism
+    let (_, a) = admit(&pkg, &["--match-toolchain"]);
+    let (_, b) = admit(&pkg, &["--match-toolchain"]);
+    assert_eq!(a, b, "admission receipt must be deterministic");
+}
+
+/// Tampered archive is refused.
+#[test]
+fn cli_admit_emergence_kuramoto_tampered() {
+    let pkg = pack_kuramoto_temp("kuramoto_tampered", false);
+
+    // Tamper with one byte
+    let mut bytes = std::fs::read(&pkg).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&pkg, &bytes).unwrap();
+
+    let (ok, v) = admit(&pkg, &[]);
+    assert!(!ok, "tampered Kuramoto archive was accepted: {v}");
+    assert!(
+        refusal_reasons(&v).contains(&"digest_mismatch".to_string()),
+        "expected digest_mismatch: {v}"
+    );
+}
+
+/// Missing required lock is refused.
+#[test]
+fn cli_admit_emergence_kuramoto_require_lock() {
+    // 1. Missing required lock
+    let pkg_nolock = pack_kuramoto_temp("kuramoto_require_lock_missing", false);
+    let (ok, v) = admit(&pkg_nolock, &["--require-lock"]);
+    assert!(!ok, "admit without lock under --require-lock succeeded: {v}");
+    assert!(
+        refusal_reasons(&v).contains(&"missing_lock".to_string()),
+        "expected missing_lock: {v}"
+    );
+
+    // 2. Successful admission with lock
+    let pkg_locked = pack_kuramoto_temp("kuramoto_require_lock_present", true);
+    let (ok2, v2) = admit(&pkg_locked, &["--require-lock", "--match-toolchain"]);
+    assert!(ok2, "admit with lock under --require-lock failed: {v2}");
+    assert_eq!(v2["accepted"], Value::Bool(true));
+    assert!(v2["lock_digest"].as_str().unwrap().starts_with("sha256:"));
+}
+
+/// Toolchain drift is refused on Kuramoto.
+#[test]
+fn cli_admit_emergence_kuramoto_toolchain_drift() {
+    let pkg = pack_kuramoto_temp("kuramoto_tc_drift", false);
+    rewrite_manifest_field(&pkg, "compiler_version", "9.9.9-other-node");
+    let (ok, v) = admit(&pkg, &["--match-toolchain"]);
+    assert!(!ok, "toolchain drift was accepted on Kuramoto: {v}");
+    let tc = v["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["reason"] == serde_json::json!("toolchain_drift"));
+    assert!(tc.is_some(), "expected toolchain_drift refusal: {v}");
+}

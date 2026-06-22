@@ -1294,7 +1294,7 @@ fn is_safe_archive_path(path: &str) -> bool {
 }
 
 fn is_safe_archive_entry_path(path: &str) -> bool {
-    path.is_empty() || is_safe_archive_path(path)
+    path.is_empty() || path == "." || is_safe_archive_path(path)
 }
 
 /// Monotonic per-process counter so concurrent unpacks (parallel tests) get unique temp dirs.

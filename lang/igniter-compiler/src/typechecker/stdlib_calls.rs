@@ -448,7 +448,8 @@ impl TypeChecker {
             // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: pure deterministic PRNG (native SplitMix64), explicit
             // state threading, scalar surface (no record returns, no language bitops). `Rng` state is a plain
             // Integer (opaque). rng_seed/rng_next/rng_value : (Integer)->Integer ; rng_uniform01 :
-            // (Integer)->Float. OOF-RAND1 = arity, OOF-RAND2 = non-Integer argument. No ambient/crypto/entropy.
+            // (Integer)->Float. P3 adds deterministic distribution helpers that sample from an explicit
+            // state. OOF-RAND1 = arity, OOF-RAND2 = non-Integer argument. No ambient/crypto/entropy.
             "stdlib.random.rng_seed"
             | "rng_seed"
             | "stdlib.random.rng_next"
@@ -456,35 +457,47 @@ impl TypeChecker {
             | "stdlib.random.rng_value"
             | "rng_value"
             | "stdlib.random.rng_uniform01"
-            | "rng_uniform01" => {
+            | "rng_uniform01"
+            | "stdlib.random.rng_uniform_int"
+            | "rng_uniform_int"
+            | "stdlib.random.rng_bernoulli_per_million"
+            | "rng_bernoulli_per_million" => {
                 is_resolved = true;
                 let base = fn_name.rsplit('.').next().unwrap_or(fn_name);
-                // rng_uniform01 maps to a Float in [0,1); the rest keep the Integer state/sample domain.
-                let ret = if base == "rng_uniform01" {
-                    "Float"
-                } else {
-                    "Integer"
+                let (expected_args, ret) = match base {
+                    "rng_uniform01" => (1, "Float"),
+                    "rng_uniform_int" => (3, "Integer"),
+                    "rng_bernoulli_per_million" => (2, "Bool"),
+                    _ => (1, "Integer"),
                 };
                 resolved_type = self.type_ir(&serde_json::Value::String(ret.to_string()));
-                if args.len() != 1 {
+                if args.len() != expected_args {
                     type_errors.push(ClassifierDiagnostic {
                         rule: "OOF-RAND1".to_string(),
-                        message: format!("{}: expected 1 argument, got {}", base, args.len()),
+                        message: format!(
+                            "{}: expected {} argument(s), got {}",
+                            base,
+                            expected_args,
+                            args.len()
+                        ),
                         node: node_name.to_string(),
                         line: None,
                     });
-                } else if let Some(first) = typed_args.first() {
-                    let arg_name = self.type_name(&first.resolved_type);
-                    if arg_name != "Integer" && arg_name != "Unknown" {
-                        type_errors.push(ClassifierDiagnostic {
-                            rule: "OOF-RAND2".to_string(),
-                            message: format!(
-                                "{}: argument must be Integer, got {}",
-                                base, arg_name
-                            ),
-                            node: node_name.to_string(),
-                            line: None,
-                        });
+                } else {
+                    for typed in typed_args {
+                        let arg_name = self.type_name(&typed.resolved_type);
+                        if arg_name != "Integer" && arg_name != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-RAND2".to_string(),
+                                message: format!(
+                                    "{}: arguments must be Integer, got {}",
+                                    base, arg_name
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                            break;
+                        }
                     }
                 }
             }

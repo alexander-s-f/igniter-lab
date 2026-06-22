@@ -2077,7 +2077,9 @@ impl VM {
                         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
                         | "stdlib.random.rng_seed" | "rng_seed" | "stdlib.random.rng_next" | "rng_next"
                         | "stdlib.random.rng_value" | "rng_value"
-                        | "stdlib.random.rng_uniform01" | "rng_uniform01" => match eval_math_call(fn_name, &args) {
+                        | "stdlib.random.rng_uniform01" | "rng_uniform01"
+                        | "stdlib.random.rng_uniform_int" | "rng_uniform_int"
+                        | "stdlib.random.rng_bernoulli_per_million" | "rng_bernoulli_per_million" => match eval_math_call(fn_name, &args) {
                             Some(r) => r?,
                             None => unreachable!("OP_CALL math arm names mirror eval_math_call"),
                         },
@@ -3643,6 +3645,10 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
             rng_unary_int("rng_value", args, |s| splitmix64_mix(s as u64) as i64)
         }
         "stdlib.random.rng_uniform01" | "rng_uniform01" => rng_uniform01(args),
+        "stdlib.random.rng_uniform_int" | "rng_uniform_int" => rng_uniform_int(args),
+        "stdlib.random.rng_bernoulli_per_million" | "rng_bernoulli_per_million" => {
+            rng_bernoulli_per_million(args)
+        }
         _ => return None,
     };
     Some(result)
@@ -3687,6 +3693,62 @@ fn rng_uniform01(args: &[Value]) -> Result<Value, String> {
         }
         _ => Err("rng_uniform01 expects an Integer argument".to_string()),
     }
+}
+
+/// Deterministically maps a SplitMix64 state sample into `[0, span)` using integer multiply-high scaling.
+/// This keeps distribution helpers Float-free and supports `span == 2^64` (the full i64 range).
+fn rng_scaled_offset(state: i64, span: u128) -> u128 {
+    let sample = splitmix64_mix(state as u64) as u128;
+    if span == (1u128 << 64) {
+        sample
+    } else {
+        (sample * span) >> 64
+    }
+}
+
+/// `rng_uniform_int(lo, hi, state)` → Integer in the inclusive range `[lo, hi]`.
+/// Callers advance state explicitly with `rng_next`; this helper only samples the supplied state.
+fn rng_uniform_int(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "rng_uniform_int expects exactly 3 arguments, got {}",
+            args.len()
+        ));
+    }
+    let (lo, hi, state) = match (&args[0], &args[1], &args[2]) {
+        (Value::Integer(lo), Value::Integer(hi), Value::Integer(state)) => (*lo, *hi, *state),
+        _ => return Err("rng_uniform_int expects Integer arguments".to_string()),
+    };
+    if lo > hi {
+        return Err("rng_uniform_int domain error: lo must be <= hi".to_string());
+    }
+
+    let span = (hi as i128 - lo as i128 + 1) as u128;
+    let offset = rng_scaled_offset(state, span) as i128;
+    Ok(Value::Integer((lo as i128 + offset) as i64))
+}
+
+/// `rng_bernoulli_per_million(p, state)` → Bool where p is an exact integer probability in [0, 1_000_000].
+fn rng_bernoulli_per_million(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "rng_bernoulli_per_million expects exactly 2 arguments, got {}",
+            args.len()
+        ));
+    }
+    let (p, state) = match (&args[0], &args[1]) {
+        (Value::Integer(p), Value::Integer(state)) => (*p, *state),
+        _ => return Err("rng_bernoulli_per_million expects Integer arguments".to_string()),
+    };
+    if !(0..=1_000_000).contains(&p) {
+        return Err(
+            "rng_bernoulli_per_million domain error: probability must be in [0, 1000000]"
+                .to_string(),
+        );
+    }
+
+    let draw = rng_scaled_offset(state, 1_000_000);
+    Ok(Value::Bool(draw < p as u128))
 }
 
 fn eval_ast<'a>(

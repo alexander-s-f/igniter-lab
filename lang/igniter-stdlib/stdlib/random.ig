@@ -31,3 +31,11 @@ def rng_value(state: Integer) -> Integer
 
 -- The sample for a state mapped to a Float in [0, 1) (top 53 bits / 2^53). Always finite.
 def rng_uniform01(state: Integer) -> Float
+
+-- Deterministic integer sample for a state, in the inclusive range [lo, hi].
+-- Callers advance state explicitly with rng_next before sampling.
+def rng_uniform_int(lo: Integer, hi: Integer, state: Integer) -> Integer
+
+-- Deterministic Bernoulli sample for a state. `p_per_million` is an exact integer probability in [0, 1000000].
+-- Callers advance state explicitly with rng_next before sampling.
+def rng_bernoulli_per_million(p_per_million: Integer, state: Integer) -> Bool
