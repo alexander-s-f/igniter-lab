@@ -76,7 +76,10 @@ fn invalid_artifact_fails_closed_to_json_500() {
     let (status, wire) = roundtrip_raw(&*app, "POST", "/render", &[], r#"{"foo":1}"#);
     assert_eq!(status, 500, "bad artifact → 500");
     let (head, body) = split(&wire);
-    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(
+        head.contains("content-type: application/json"),
+        "head: {head}"
+    );
     assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
     assert!(body.contains("\"error\""));
     assert!(body.contains("render failed"));
@@ -89,7 +92,10 @@ fn plain_respond_route_stays_json() {
     let (status, wire) = roundtrip_raw(&*app, "GET", "/data", &[], "");
     assert_eq!(status, 200);
     let (head, body) = split(&wire);
-    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(
+        head.contains("content-type: application/json"),
+        "head: {head}"
+    );
     // existing `Respond { body: String }` shape: `{"body":"ok"}` — unchanged by the render seam.
     assert!(body.contains("{\"body\":\"ok\"}"), "body: {body}");
 }

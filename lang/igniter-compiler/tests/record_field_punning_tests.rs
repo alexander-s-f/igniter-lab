@@ -18,7 +18,12 @@ fn compile(src: &str, tag: &str) -> (String, PathBuf) {
     std::fs::write(&f, src).unwrap();
     let out = dir.join("out");
     let o = Command::new(bin())
-        .args(["compile", f.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .args([
+            "compile",
+            f.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .output()
         .expect("run igniter_compiler");
     (String::from_utf8_lossy(&o.stdout).to_string(), out)
@@ -44,14 +49,20 @@ fn pure_punning_compiles() {
 fn mixed_punned_and_explicit_compiles() {
     let src = "type QF { field : String  op : String  value : String }
 pure contract C { input value : String  compute f : QF = { field: \"account_id\", op: \"eq\", value }  output f : QF }";
-    assert!(ok(&compile(src, "mixed").0), "mixed punned + explicit must compile");
+    assert!(
+        ok(&compile(src, "mixed").0),
+        "mixed punned + explicit must compile"
+    );
 }
 
 #[test]
 fn spread_with_punning_compiles() {
     let src = "type Ctx { account_id : String  todo_id : String }
 pure contract C { input ctx : Ctx  input todo_id : String  compute next : Ctx = { ...ctx, todo_id }  output next : Ctx }";
-    assert!(ok(&compile(src, "spread").0), "spread + punning must compile");
+    assert!(
+        ok(&compile(src, "spread").0),
+        "spread + punning must compile"
+    );
 }
 
 // ── failures fall through normal paths ───────────────────────────────────────────────────────────
@@ -62,7 +73,10 @@ fn missing_symbol_punned_rejected() {
 pure contract C { compute v : WV = { account_id }  output v : WV }";
     let (o, _) = compile(src, "missing");
     assert!(!ok(&o));
-    assert!(o.contains("Unresolved symbol: account_id"), "missing punned symbol path: {o}");
+    assert!(
+        o.contains("Unresolved symbol: account_id"),
+        "missing punned symbol path: {o}"
+    );
 }
 
 #[test]
@@ -71,14 +85,20 @@ fn unexpected_punned_field_rejected() {
 pure contract C { input account_id : String  input nope : String  compute v : WV = { account_id, nope }  output v : WV }";
     let (o, _) = compile(src, "extra");
     assert!(!ok(&o));
-    assert!(o.contains("unexpected field"), "extra punned field shape path: {o}");
+    assert!(
+        o.contains("unexpected field"),
+        "extra punned field shape path: {o}"
+    );
 }
 
 #[test]
 fn dotted_punning_is_a_parse_error() {
     let src = "type WV { id : String }
 pure contract C { input account : String  compute v : WV = { account.id }  output v : WV }";
-    assert!(!ok(&compile(src, "dotted").0), "dotted punning must not compile");
+    assert!(
+        !ok(&compile(src, "dotted").0),
+        "dotted punning must not compile"
+    );
 }
 
 // ── Todo-shaped app-pressure fixture (WriteValues with punning) ──────────────────────────────────────
@@ -88,15 +108,19 @@ fn todo_writevalues_punning_compiles() {
     // Mirrors todo_handlers.ig MakeWriteValues, written with punning.
     let src = "type WriteValues { account_id : String  title : String  done : String }
 pure contract MakeWriteValues { input account_id : String  input title : String  input done : String  compute v : WriteValues = { account_id, title, done }  output v : WriteValues }";
-    assert!(ok(&compile(src, "todo").0), "Todo WriteValues punning must compile");
+    assert!(
+        ok(&compile(src, "todo").0),
+        "Todo WriteValues punning must compile"
+    );
 }
 
 // ── serialization parity: punned == explicit ────────────────────────────────────────────────────────
 
 fn record_nodes(dir: &PathBuf) -> String {
-    let sir: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("semantic_ir_program.json")).unwrap())
-            .unwrap();
+    let sir: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("semantic_ir_program.json")).unwrap(),
+    )
+    .unwrap();
     let mut nodes = Vec::new();
     fn walk(v: &serde_json::Value, out: &mut Vec<serde_json::Value>) {
         match v {
@@ -127,5 +151,9 @@ fn punned_record_sir_identical_to_explicit() {
     let (po, pd) = compile(&punned, "par_pun");
     let (eo, ed) = compile(&explicit, "par_exp");
     assert!(ok(&po) && ok(&eo), "both must compile");
-    assert_eq!(record_nodes(&pd), record_nodes(&ed), "punned record SIR must equal explicit");
+    assert_eq!(
+        record_nodes(&pd),
+        record_nodes(&ed),
+        "punned record SIR must equal explicit"
+    );
 }

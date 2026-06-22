@@ -191,7 +191,10 @@ fn resolve_arg(
     } else {
         Err(IgwebError {
             line,
-            message: format!("unknown arg `{}` (not `req`, a `let`, the guard, or a path param)", name),
+            message: format!(
+                "unknown arg `{}` (not `req`, a `let`, the guard, or a path param)",
+                name
+            ),
         })
     }
 }
@@ -212,7 +215,8 @@ fn apply_bindings(
         if !guards.is_empty() || route.handler_args.is_some() {
             return Err(IgwebError {
                 line,
-                message: "route-level `via` cannot be combined with `guard`/explicit handler args".into(),
+                message: "route-level `via` cannot be combined with `guard`/explicit handler args"
+                    .into(),
             });
         }
         return Ok(()); // P20 via path, no bindings
@@ -237,7 +241,16 @@ fn apply_bindings(
         let resolved: Vec<String> = g
             .args
             .iter()
-            .map(|a| resolve_arg(a, g.line, let_names, visible_ctx, &route.params, &route.regex))
+            .map(|a| {
+                resolve_arg(
+                    a,
+                    g.line,
+                    let_names,
+                    visible_ctx,
+                    &route.params,
+                    &route.regex,
+                )
+            })
             .collect::<Result<_, _>>()?;
         route.guard_calls.push(format!(
             "call_contract(\"{}\", {})",
@@ -248,8 +261,9 @@ fn apply_bindings(
     // handler args resolve the context name to the latest (innermost) `value`.
     let args = route.handler_args.as_ref().ok_or(IgwebError {
         line,
-        message: "handler must list explicit args (e.g. `-> H(req, …)`) when a `guard`/`let` is active"
-            .into(),
+        message:
+            "handler must list explicit args (e.g. `-> H(req, …)`) when a `guard`/`let` is active"
+                .into(),
     })?;
     let resolved: Vec<String> = args
         .iter()
@@ -458,7 +472,11 @@ fn finalize_route(
     let_names: &[String],
     line: usize,
 ) -> Result<Route, IgwebError> {
-    let guards: Vec<&Binding> = binding_levels.iter().flatten().filter(|b| b.is_guard).collect();
+    let guards: Vec<&Binding> = binding_levels
+        .iter()
+        .flatten()
+        .filter(|b| b.is_guard)
+        .collect();
     let mut names: Vec<&str> = guards.iter().map(|g| g.name.as_str()).collect();
     names.sort_unstable();
     names.dedup();
@@ -543,7 +561,8 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
             }
             return Err(IgwebError {
                 line,
-                message: "unexpected `}` (no open `app`, `scope`, `resource`, or route block)".into(),
+                message: "unexpected `}` (no open `app`, `scope`, `resource`, or route block)"
+                    .into(),
             });
         }
         // Inside a route body: only `let`/`guard` lines and the terminal `-> Handler(...)`.
@@ -555,15 +574,33 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                 });
             }
             if let Some(rest) = t.strip_prefix("let ") {
-                add_binding(false, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+                add_binding(
+                    false,
+                    rest,
+                    line,
+                    &mut let_names,
+                    &mut let_computes,
+                    &mut binding_levels,
+                )?;
                 continue;
             }
             if let Some(rest) = t.strip_prefix("guard ") {
-                add_binding(true, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+                add_binding(
+                    true,
+                    rest,
+                    line,
+                    &mut let_names,
+                    &mut let_computes,
+                    &mut binding_levels,
+                )?;
                 continue;
             }
             if t.starts_with("->") {
-                let prefix = scope_stack.last().map(String::as_str).unwrap_or("").to_string();
+                let prefix = scope_stack
+                    .last()
+                    .map(String::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let tail = format!("{} \"{}\" {}", method, raw_pattern, t);
                 let r = parse_route(&tail, line, &prefix)?;
                 let r = finalize_route(r, &binding_levels, &let_names, line)?;
@@ -646,7 +683,14 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                     message: "`let` outside an `app { ... }` block".into(),
                 });
             }
-            add_binding(false, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+            add_binding(
+                false,
+                rest,
+                line,
+                &mut let_names,
+                &mut let_computes,
+                &mut binding_levels,
+            )?;
             continue;
         }
         if let Some(rest) = t.strip_prefix("guard ") {
@@ -656,7 +700,14 @@ pub fn lower_igweb(src: &str) -> Result<String, IgwebError> {
                     message: "`guard` outside an `app { ... }` block".into(),
                 });
             }
-            add_binding(true, rest, line, &mut let_names, &mut let_computes, &mut binding_levels)?;
+            add_binding(
+                true,
+                rest,
+                line,
+                &mut let_names,
+                &mut let_computes,
+                &mut binding_levels,
+            )?;
             continue;
         }
         if let Some(rest) = t.strip_prefix("route ") {
@@ -1179,7 +1230,12 @@ fn combined_regex(entries: &[(String, Vec<&Route>)]) -> String {
     format!("^({})$", inners.join("|"))
 }
 
-fn generate_ig(entry: &str, handlers_module: &str, routes: &[Route], let_computes: &[String]) -> String {
+fn generate_ig(
+    entry: &str,
+    handlers_module: &str,
+    routes: &[Route],
+    let_computes: &[String],
+) -> String {
     let mut out = String::new();
     out.push_str("-- GENERATED by lower_igweb (LAB-IGNITER-WEB-ROUTING-LOWERING-P4/P10). Do not edit by hand.\n");
     out.push_str("-- Routing/product meaning lives here (the app), never in igniter-server.\n");
@@ -1217,7 +1273,10 @@ fn pad(n: usize) -> String {
 ///     most-specific-wins reordering; only static `call_contract` leaves; no new `.ig` node.
 fn route_tree(entries: &[(String, Vec<&Route>)], indent: usize) -> String {
     if entries.is_empty() {
-        return format!("{}Respond {{ status: 404, body: \"not found\" }}", pad(indent));
+        return format!(
+            "{}Respond {{ status: 404, body: \"not found\" }}",
+            pad(indent)
+        );
     }
     if entries.len() == 1 {
         let (regex, group) = &entries[0];
@@ -1837,7 +1896,10 @@ mod tests {
     #[test]
     fn ctx_let_guard_explicit_args_lower() {
         let ig = lower_igweb(CTX).unwrap();
-        assert!(ig.contains("  compute req_info = call_contract(\"ReqInfo\", req)\n"), "let hoist:\n{ig}");
+        assert!(
+            ig.contains("  compute req_info = call_contract(\"ReqInfo\", req)\n"),
+            "let hoist:\n{ig}"
+        );
         // index: account_id consumed by the guard (capture 1); handler gets req, req_info, value.
         assert!(ig.contains(
             "match call_contract(\"LoadAccount\", req, req_info, capture(req.path, \"^/accounts/([^/]+)/todos$\", 1)) { Ok { value } => call_contract(\"TodoIndex\", req, req_info, value) Err { error } => error }"
@@ -1874,28 +1936,53 @@ mod tests {
     fn ctx_refusals() {
         // unknown handler arg
         let unknown = "app X entry Serve {\n  handlers H\n  route GET \"/x\" -> H(req, nope)\n}\n";
-        assert!(lower_igweb(unknown).unwrap_err().message.contains("unknown arg"));
+        assert!(lower_igweb(unknown)
+            .unwrap_err()
+            .message
+            .contains("unknown arg"));
         // duplicate binding name
         let dup = "app X entry Serve {\n  handlers H\n  let a = F(req)\n  let a = G(req)\n  route GET \"/x\" -> H(req, a)\n}\n";
-        assert!(lower_igweb(dup).unwrap_err().message.contains("duplicate binding"));
+        assert!(lower_igweb(dup)
+            .unwrap_err()
+            .message
+            .contains("duplicate binding"));
         // binding name collides with a path param
         let collide = "app X entry Serve {\n  handlers H\n  scope \"/a/:account\" {\n    guard account = LoadAccount(req)\n    route GET \"/x\" -> H(req, account)\n  }\n}\n";
-        assert!(lower_igweb(collide).unwrap_err().message.contains("collides with a path param"));
+        assert!(lower_igweb(collide)
+            .unwrap_err()
+            .message
+            .contains("collides with a path param"));
         // forward reference: a let referencing a later let
         let fwd = "app X entry Serve {\n  handlers H\n  let a = F(b)\n  let b = G(req)\n  route GET \"/x\" -> H(req, a, b)\n}\n";
-        assert!(lower_igweb(fwd).unwrap_err().message.contains("unknown arg"));
+        assert!(lower_igweb(fwd)
+            .unwrap_err()
+            .message
+            .contains("unknown arg"));
         // distinct active guard names (P27 only allows same-name accumulation)
         let two = "app X entry Serve {\n  handlers H\n  guard user = RequireUser(req)\n  scope \"/a/:id\" {\n    guard account = LoadAccount(req, id)\n    route GET \"/x\" -> H(req, user, account)\n  }\n}\n";
-        assert!(lower_igweb(two).unwrap_err().message.contains("distinct active `guard`"));
+        assert!(lower_igweb(two)
+            .unwrap_err()
+            .message
+            .contains("distinct active `guard`"));
         // via cannot mix with explicit args / guard
         let mix = "app X entry Serve {\n  handlers H\n  route GET \"/a/:id\" via G(id) as g -> H(req, g)\n}\n";
-        assert!(lower_igweb(mix).unwrap_err().message.contains("cannot be combined"));
+        assert!(lower_igweb(mix)
+            .unwrap_err()
+            .message
+            .contains("cannot be combined"));
         // route-body opener rejects stray tokens after the quoted pattern
         let extra = "app X entry Serve {\n  handlers H\n  route GET \"/x\" extra {\n    -> H(req)\n  }\n}\n";
-        assert!(lower_igweb(extra).unwrap_err().message.contains("unexpected tokens"));
+        assert!(lower_igweb(extra)
+            .unwrap_err()
+            .message
+            .contains("unexpected tokens"));
         // unclosed route body
-        let unclosed = "app X entry Serve {\n  handlers H\n  route GET \"/x\" {\n    let a = F(req)\n";
-        assert!(lower_igweb(unclosed).unwrap_err().message.contains("unclosed route"));
+        let unclosed =
+            "app X entry Serve {\n  handlers H\n  route GET \"/x\" {\n    let a = F(req)\n";
+        assert!(lower_igweb(unclosed)
+            .unwrap_err()
+            .message
+            .contains("unclosed route"));
     }
 
     /// `let`/`guard` lowering is deterministic.
@@ -1922,14 +2009,20 @@ mod tests {
     #[test]
     fn accum_distinct_names_refused() {
         let src = "app X entry Serve {\n  handlers H\n  guard user = RequireUser(req)\n  scope \"/a/:id\" {\n    guard account = LoadAccount(req, id)\n    route GET \"/x\" -> H(req, account)\n  }\n}\n";
-        assert!(lower_igweb(src).unwrap_err().message.contains("distinct active `guard`"));
+        assert!(lower_igweb(src)
+            .unwrap_err()
+            .message
+            .contains("distinct active `guard`"));
     }
 
     /// The first guard cannot reference the context name (no prior step) → unknown arg.
     #[test]
     fn accum_first_guard_cannot_use_ctx() {
         let src = "app X entry Serve {\n  handlers H\n  guard ctx = First(req, ctx)\n  route GET \"/x\" -> H(req, ctx)\n}\n";
-        assert!(lower_igweb(src).unwrap_err().message.contains("unknown arg"));
+        assert!(lower_igweb(src)
+            .unwrap_err()
+            .message
+            .contains("unknown arg"));
     }
 
     /// Idempotency stays outermost over the whole accumulation chain.
@@ -1978,8 +2071,11 @@ mod tests {
             max_indent / 2
         );
         // leaves still call the right static handlers (first, middle, last).
-        assert!(ig.contains("call_contract(\"Handler0\", req, capture(req.path, \"^/r0/([^/]+)$\", 1))"));
-        assert!(ig.contains("call_contract(\"Handler999\", req, capture(req.path, \"^/r999/([^/]+)$\", 1))"));
+        assert!(ig
+            .contains("call_contract(\"Handler0\", req, capture(req.path, \"^/r0/([^/]+)$\", 1))"));
+        assert!(ig.contains(
+            "call_contract(\"Handler999\", req, capture(req.path, \"^/r999/([^/]+)$\", 1))"
+        ));
         // exactly one 405-bearing method chain per pattern is preserved.
         assert!(ig.contains("status: 405"));
     }
@@ -1994,12 +2090,18 @@ mod tests {
         // the static-leaf prune (`^/r/overdue$`) is tested before the param leaf in output order.
         let i_overdue = ig.find("^/r/overdue$").expect("overdue leaf");
         let i_show = ig.find("^/r/([^/]+)$").expect("show leaf");
-        assert!(i_overdue < i_show, "static authored first must appear/branch first");
+        assert!(
+            i_overdue < i_show,
+            "static authored first must appear/branch first"
+        );
 
         let param_first = "app X entry Serve {\n  handlers H\n  route GET \"/r/:id\" -> Show\n  route GET \"/r/overdue\" -> Overdue\n}\n";
         let ig2 = lower_igweb(param_first).unwrap();
         let j_show = ig2.find("^/r/([^/]+)$").expect("show leaf");
         let j_overdue = ig2.find("^/r/overdue$").expect("overdue leaf");
-        assert!(j_show < j_overdue, "param authored first must appear/branch first");
+        assert!(
+            j_show < j_overdue,
+            "param authored first must appear/branch first"
+        );
     }
 }

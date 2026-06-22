@@ -328,18 +328,20 @@ fn real_typed_read_decodes_by_kind() {
         let Some(adapter) = connect_or_skip().await else {
             return;
         };
-        let pol = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
-            "igniter_typed_read",
-            &[
-                ("id", Integer),
-                ("active", Boolean),
-                ("meta", Json),
-                ("tags", Array),
-                ("created_at", Timestamp),
-                ("amount", DecimalString),
-                ("note", Text),
-            ],
-        );
+        let pol = PostgresReadPolicy::new(100)
+            .allow_ops(&["select"])
+            .allow_source_typed(
+                "igniter_typed_read",
+                &[
+                    ("id", Integer),
+                    ("active", Boolean),
+                    ("meta", Json),
+                    ("tags", Array),
+                    ("created_at", Timestamp),
+                    ("amount", DecimalString),
+                    ("note", Text),
+                ],
+            );
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -369,13 +371,19 @@ fn real_typed_read_decodes_by_kind() {
         );
         let rows = out.result["rows"].as_array().expect("rows array");
         if rows.is_empty() {
-            eprintln!("SKIP-ASSERT: igniter_typed_read present but empty — seed one row to assert types");
+            eprintln!(
+                "SKIP-ASSERT: igniter_typed_read present but empty — seed one row to assert types"
+            );
             return;
         }
         // STRUCTURAL type assertions (P10): each field decodes to its declared JSON kind.
         let r = &rows[0];
         assert!(r["id"].is_i64(), "Integer → JSON number, got {:?}", r["id"]);
-        assert!(r["active"].is_boolean(), "Boolean → JSON bool, got {:?}", r["active"]);
+        assert!(
+            r["active"].is_boolean(),
+            "Boolean → JSON bool, got {:?}",
+            r["active"]
+        );
         assert!(
             r["meta"].is_object() || r["meta"].is_array() || r["meta"].is_null(),
             "Json → decoded value, got {:?}",
@@ -417,10 +425,12 @@ fn real_typed_predicates_and_order() {
         let Some(adapter) = connect_or_skip().await else {
             return;
         };
-        let pol = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
-            "igniter_typed_read",
-            &[("id", Integer), ("active", Boolean), ("note", Text)],
-        );
+        let pol = PostgresReadPolicy::new(100)
+            .allow_ops(&["select"])
+            .allow_source_typed(
+                "igniter_typed_read",
+                &[("id", Integer), ("active", Boolean), ("note", Text)],
+            );
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), pol));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);

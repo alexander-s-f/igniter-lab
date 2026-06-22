@@ -208,7 +208,11 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
         // schema directly.
         "RenderView" => render_to_decision(
             get_i("status") as u16,
-            &fields.get("view").cloned().unwrap_or(Value::Null).to_string(),
+            &fields
+                .get("view")
+                .cloned()
+                .unwrap_or(Value::Null)
+                .to_string(),
         ),
         other => ServerDecision::Respond {
             response: ServerResponse::json(

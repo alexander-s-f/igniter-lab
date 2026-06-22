@@ -2643,7 +2643,14 @@ fn check_expr_io(
             }
         }
         Expr::RecordSpread { spread, fields } => {
-            check_expr_io(spread, capabilities, effects, contract_name, is_pure, diagnostics);
+            check_expr_io(
+                spread,
+                capabilities,
+                effects,
+                contract_name,
+                is_pure,
+                diagnostics,
+            );
             for v in fields.values() {
                 check_expr_io(
                     v,

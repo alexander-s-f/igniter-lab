@@ -117,11 +117,15 @@ fn nested_scalar_sum_executes() {
 #[test]
 fn nested_fold_per_row_executes() {
     let src = "pure contract C {\n  input xss : Collection[Collection[Float]]\n  compute d : Collection[Float] = map(xss, row -> fold(row, 0.0, (acc, x) -> acc + x))\n  output d : Collection[Float]\n}\n";
-    let Some(out) = compile_and_run(src, "C", "{\"xss\":[[1.0,2.0,3.0],[10.0,20.0]]}", "foldrow") else {
+    let Some(out) = compile_and_run(src, "C", "{\"xss\":[[1.0,2.0,3.0],[10.0,20.0]]}", "foldrow")
+    else {
         eprintln!("skip: ../igniter-compiler not built");
         return;
     };
-    assert!(out.contains("6.0") && out.contains("30.0"), "per-row fold sum [6.0, 30.0]: {out}");
+    assert!(
+        out.contains("6.0") && out.contains("30.0"),
+        "per-row fold sum [6.0, 30.0]: {out}"
+    );
     assert!(!out.contains("Unsupported"), "no late VM failure: {out}");
 }
 
@@ -136,6 +140,9 @@ fn kuramoto_coupling_via_nested_fold_executes() {
         eprintln!("skip: ../igniter-compiler not built");
         return;
     };
-    assert!(out.contains("1.0") || out.contains("0.9999"), "i=0 coupling ≈ 1.0: {out}");
+    assert!(
+        out.contains("1.0") || out.contains("0.9999"),
+        "i=0 coupling ≈ 1.0: {out}"
+    );
     assert!(!out.contains("Unsupported"), "no late VM failure: {out}");
 }

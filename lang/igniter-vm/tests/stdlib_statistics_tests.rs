@@ -62,11 +62,19 @@ fn run_stat(entry: &str, inputs: &str, tag: &str) -> Option<String> {
     std::fs::write(&f, STATS_IG).unwrap();
     let igapp = dir.join("out.igapp");
     let c = Command::new(&igc)
-        .args(["compile", f.to_str().unwrap(), "--out", igapp.to_str().unwrap()])
+        .args([
+            "compile",
+            f.to_str().unwrap(),
+            "--out",
+            igapp.to_str().unwrap(),
+        ])
         .output()
         .expect("run igniter_compiler");
     let cout = String::from_utf8_lossy(&c.stdout);
-    assert!(cout.contains("\"status\": \"ok\""), "stats lib must compile: {cout}");
+    assert!(
+        cout.contains("\"status\": \"ok\""),
+        "stats lib must compile: {cout}"
+    );
     let inf = dir.join("in.json");
     std::fs::write(&inf, inputs).unwrap();
     let r = Command::new(vm_bin())
@@ -93,7 +101,10 @@ fn mean_of_three_is_some_2() {
     let Some(o) = run_stat("Mean", "{\"xs\":[1.0,2.0,3.0]}", "mean3") else {
         return skip();
     };
-    assert!(o.contains("Some") && o.contains("2.0"), "mean([1,2,3]) = some(2.0): {o}");
+    assert!(
+        o.contains("Some") && o.contains("2.0"),
+        "mean([1,2,3]) = some(2.0): {o}"
+    );
 }
 
 #[test]
@@ -114,7 +125,10 @@ fn variance_of_three_is_population_two_thirds() {
         return skip();
     };
     // population variance of [1,2,3] = ((1+0+1))/3 = 2/3 = 0.6666…
-    assert!(o.contains("Some") && o.contains("0.6666666666666666"), "variance([1,2,3]) = some(2/3): {o}");
+    assert!(
+        o.contains("Some") && o.contains("0.6666666666666666"),
+        "variance([1,2,3]) = some(2/3): {o}"
+    );
 }
 
 #[test]
@@ -134,5 +148,8 @@ fn stddev_of_three_uses_det_sqrt() {
         return skip();
     };
     // sqrt(2/3) = 0.816496580927726 (det_sqrt, IEEE-correct).
-    assert!(o.contains("Some") && o.contains("0.816496580927726"), "stddev([1,2,3]) = some(sqrt(2/3)): {o}");
+    assert!(
+        o.contains("Some") && o.contains("0.816496580927726"),
+        "stddev([1,2,3]) = some(sqrt(2/3)): {o}"
+    );
 }

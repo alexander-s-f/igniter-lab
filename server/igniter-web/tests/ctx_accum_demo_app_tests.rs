@@ -31,7 +31,11 @@ fn ctx_accum_demo_loopback_behaviors() {
     // accumulated context (app guard → scope guard → handler) reached the handler with the latest value.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos", &[], "");
     assert_eq!(s, 200);
-    assert_eq!(b["body"], json!("7"), "accumulated account context reached TodoIndex");
+    assert_eq!(
+        b["body"],
+        json!("7"),
+        "accumulated account context reached TodoIndex"
+    );
 
     // show: same accumulated ctx + the unconsumed todo_id capture reach TodoShow.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");
@@ -57,6 +61,12 @@ fn ctx_accum_demo_loopback_behaviors() {
     assert_eq!(b["idempotency_key"], json!("evt-1"));
 
     // 404 / 405 preserved.
-    assert_eq!(roundtrip(&*app, "GET", "/accounts/7/missing", &[], "").0, 404);
-    assert_eq!(roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0, 405);
+    assert_eq!(
+        roundtrip(&*app, "GET", "/accounts/7/missing", &[], "").0,
+        404
+    );
+    assert_eq!(
+        roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0,
+        405
+    );
 }

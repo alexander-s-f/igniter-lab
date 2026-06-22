@@ -72,7 +72,11 @@ fn ordinary_string_is_unchanged() {
 fn invalid_escape_is_illegal_token() {
     let t = lex_first(r#""\q""#);
     assert_eq!(t.token_type, TokenType::Illegal);
-    assert!(t.value.contains("invalid string escape"), "got: {}", t.value);
+    assert!(
+        t.value.contains("invalid string escape"),
+        "got: {}",
+        t.value
+    );
 }
 
 #[test]
@@ -94,11 +98,15 @@ fn trailing_backslash_is_illegal_token() {
 #[test]
 fn valid_escape_contract_has_no_lex_error() {
     let src = r#"contract Esc { input x : String compute s : String = "{\"body\":\"ok\"}" output s : String }"#;
-    assert!(!has_lex_error(src), "valid-escape contract must not raise OOF-LEX1");
+    assert!(
+        !has_lex_error(src),
+        "valid-escape contract must not raise OOF-LEX1"
+    );
 }
 
 #[test]
 fn invalid_escape_contract_reports_oof_lex1() {
-    let src = r#"contract Esc { input x : String compute s : String = "bad \q here" output s : String }"#;
+    let src =
+        r#"contract Esc { input x : String compute s : String = "bad \q here" output s : String }"#;
     assert!(has_lex_error(src), "invalid escape must surface OOF-LEX1");
 }

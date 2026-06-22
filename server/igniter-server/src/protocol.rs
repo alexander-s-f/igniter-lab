@@ -36,7 +36,10 @@ impl ServerRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ResponseBody {
     Json(Value),
-    Raw { bytes: Vec<u8>, content_type: String },
+    Raw {
+        bytes: Vec<u8>,
+        content_type: String,
+    },
 }
 
 impl ResponseBody {
@@ -235,11 +238,15 @@ mod tests {
 
     #[test]
     fn raw_helper_carries_bytes_and_content_type() {
-        let response = ServerResponse::raw(200, b"<h1>Hello</h1>".to_vec(), "text/html; charset=utf-8");
+        let response =
+            ServerResponse::raw(200, b"<h1>Hello</h1>".to_vec(), "text/html; charset=utf-8");
 
         assert_eq!(response.status, 200);
         match &response.body {
-            ResponseBody::Raw { bytes, content_type } => {
+            ResponseBody::Raw {
+                bytes,
+                content_type,
+            } => {
                 assert_eq!(bytes, b"<h1>Hello</h1>");
                 assert_eq!(content_type, "text/html; charset=utf-8");
             }

@@ -33,7 +33,10 @@ fn cross_package_import_resolves() {
     let paths =
         project::resolve_entry(Path::new(&format!("{FIX}/workspace/app")), "App.Main").unwrap();
     let names = module_files(&paths);
-    assert!(names.contains(&"main.ig".to_string()), "app file present: {names:?}");
+    assert!(
+        names.contains(&"main.ig".to_string()),
+        "app file present: {names:?}"
+    );
     assert!(
         names.contains(&"util.ig".to_string()),
         "dependency file pulled into the closure: {names:?}"
@@ -62,7 +65,11 @@ fn cross_package_project_compiles_clean() {
     let errors: Vec<&Value> = v
         .get("diagnostics")
         .and_then(|d| d.as_array())
-        .map(|a| a.iter().filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error")).collect())
+        .map(|a| {
+            a.iter()
+                .filter(|d| d.get("severity").and_then(|s| s.as_str()) == Some("error"))
+                .collect()
+        })
         .unwrap_or_default();
     assert!(
         errors.is_empty(),
@@ -74,11 +81,16 @@ fn cross_package_project_compiles_clean() {
 /// substring "path" inside the quoted value.
 #[test]
 fn bare_string_dependency_path_resolves() {
-    let paths =
-        project::resolve_entry(Path::new(&format!("{FIX}/workspace_barepath/app")), "App.Main")
-            .unwrap();
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_barepath/app")),
+        "App.Main",
+    )
+    .unwrap();
     let names = module_files(&paths);
-    assert!(names.contains(&"main.ig".to_string()), "app file present: {names:?}");
+    assert!(
+        names.contains(&"main.ig".to_string()),
+        "app file present: {names:?}"
+    );
     assert!(
         names.contains(&"util.ig".to_string()),
         "bare-string dependency path pulled into the closure: {names:?}"
@@ -106,12 +118,20 @@ fn duplicate_module_across_packages_is_oof_imp4() {
 /// reaches it through the declared `mid → deep` edge (app + mid + deep).
 #[test]
 fn transitive_dependency_is_assembled() {
-    let paths =
-        project::resolve_entry(Path::new(&format!("{FIX}/workspace_direct/app")), "App.Main")
-            .unwrap();
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_direct/app")),
+        "App.Main",
+    )
+    .unwrap();
     let names = module_files(&paths);
-    assert!(names.contains(&"main.ig".to_string()), "app present: {names:?}");
-    assert!(names.contains(&"x.ig".to_string()), "direct dep `mid` present: {names:?}");
+    assert!(
+        names.contains(&"main.ig".to_string()),
+        "app present: {names:?}"
+    );
+    assert!(
+        names.contains(&"x.ig".to_string()),
+        "direct dep `mid` present: {names:?}"
+    );
     assert!(
         names.contains(&"d.ig".to_string()),
         "transitive dep `deep` is now assembled through the declared mid->deep edge: {names:?}"
@@ -124,7 +144,10 @@ fn no_dependencies_parity() {
     let paths = project::resolve_entry(Path::new(&format!("{FIX}/transitive")), "Chain.A").unwrap();
     let names = module_files(&paths);
     // unchanged P1 closure: a/b/c chain, no dependency folding.
-    assert!(names.contains(&"a.ig".to_string()) && names.contains(&"c.ig".to_string()), "{names:?}");
+    assert!(
+        names.contains(&"a.ig".to_string()) && names.contains(&"c.ig".to_string()),
+        "{names:?}"
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-IMPORT-SCOPING-P7 ───────────────────────────────────────────────────────────
@@ -133,14 +156,19 @@ fn no_dependencies_parity() {
 /// root app also depends on it). Out-of-scope → `OOF-IMP6`.
 #[test]
 fn phantom_sibling_import_is_oof_imp6() {
-    let err = project::resolve_entry(Path::new(&format!("{FIX}/workspace_phantom/app")), "App.Main")
-        .unwrap_err();
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_phantom/app")),
+        "App.Main",
+    )
+    .unwrap_err();
     match err {
         ProjectError::Diagnostic(d) => {
             assert_eq!(d.rule, "OOF-IMP6", "phantom import → OOF-IMP6: {d:?}");
             assert_eq!(d.module_path.as_deref(), Some("Lib1.A"), "importer module");
             assert!(
-                d.message.contains("Lib2.B") && d.message.contains("lib1") && d.message.contains("lib2"),
+                d.message.contains("Lib2.B")
+                    && d.message.contains("lib1")
+                    && d.message.contains("lib2"),
                 "message names importer/imported + packages: {}",
                 d.message
             );
@@ -154,11 +182,15 @@ fn phantom_sibling_import_is_oof_imp6() {
 /// scope. Resolves clean (no OOF-IMP6); the closure contains all three files.
 #[test]
 fn intra_package_import_is_allowed() {
-    let paths = project::resolve_entry(Path::new(&format!("{FIX}/workspace_intra/app")), "App.Main")
-        .unwrap();
+    let paths =
+        project::resolve_entry(Path::new(&format!("{FIX}/workspace_intra/app")), "App.Main")
+            .unwrap();
     let names = module_files(&paths);
     assert!(names.contains(&"main.ig".to_string()), "{names:?}");
-    assert!(names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()), "{names:?}");
+    assert!(
+        names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()),
+        "{names:?}"
+    );
 }
 
 /// A declared root→dependency import (`app` imports `Lib.Util`, lib is declared) is in scope — no OOF-IMP6.
@@ -166,7 +198,10 @@ fn intra_package_import_is_allowed() {
 fn declared_cross_package_import_is_allowed() {
     // Reuses the P2 `workspace` fixture; resolving it must NOT raise a scope diagnostic.
     let res = project::resolve_entry(Path::new(&format!("{FIX}/workspace/app")), "App.Main");
-    assert!(res.is_ok(), "declared cross-package import must be in scope: {res:?}");
+    assert!(
+        res.is_ok(),
+        "declared cross-package import must be in scope: {res:?}"
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-LOCKFILE-FROZEN-CI-P8 (entry-free integrity gate) ────────────────────────────
@@ -193,9 +228,11 @@ fn check_workspace_integrity_ok_on_clean() {
 /// dependency) is unrestricted. `workspace_exports_ok` resolves clean with all three files.
 #[test]
 fn exported_module_import_is_allowed() {
-    let paths =
-        project::resolve_entry(Path::new(&format!("{FIX}/workspace_exports_ok/app")), "App.Main")
-            .unwrap();
+    let paths = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_exports_ok/app")),
+        "App.Main",
+    )
+    .unwrap();
     let names = module_files(&paths);
     assert!(names.contains(&"main.ig".to_string()), "{names:?}");
     assert!(
@@ -215,7 +252,11 @@ fn non_exported_module_import_is_oof_imp7() {
     match err {
         ProjectError::Diagnostic(d) => {
             assert_eq!(d.rule, "OOF-IMP7", "non-exported import → OOF-IMP7: {d:?}");
-            assert_eq!(d.module_path.as_deref(), Some("App.Main"), "importer module");
+            assert_eq!(
+                d.module_path.as_deref(),
+                Some("App.Main"),
+                "importer module"
+            );
             assert!(
                 d.message.contains("Lib.Private") && d.message.contains("lib"),
                 "message names imported module + package: {}",
@@ -237,8 +278,11 @@ fn no_exports_block_is_open() {
 /// P7 phantom sibling edge is still `OOF-IMP6`, not reclassified by the export pass (OOF-IMP6 runs first).
 #[test]
 fn phantom_sibling_still_oof_imp6_after_exports() {
-    let err = project::resolve_entry(Path::new(&format!("{FIX}/workspace_phantom/app")), "App.Main")
-        .unwrap_err();
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_phantom/app")),
+        "App.Main",
+    )
+    .unwrap_err();
     match err {
         ProjectError::Diagnostic(d) => assert_eq!(d.rule, "OOF-IMP6", "{d:?}"),
         other => panic!("expected OOF-IMP6, got {other:?}"),
@@ -261,9 +305,11 @@ fn check_workspace_integrity_flags_non_export() {
 /// sealed: importing any of its modules is `OOF-IMP7` (message names the closed-default policy).
 #[test]
 fn closed_default_seals_undeclared_dependency() {
-    let err =
-        project::resolve_entry(Path::new(&format!("{FIX}/workspace_closed_default/app")), "App.Main")
-            .unwrap_err();
+    let err = project::resolve_entry(
+        Path::new(&format!("{FIX}/workspace_closed_default/app")),
+        "App.Main",
+    )
+    .unwrap_err();
     match err {
         ProjectError::Diagnostic(d) => {
             assert_eq!(d.rule, "OOF-IMP7", "{d:?}");
@@ -415,8 +461,14 @@ fn diamond_same_package_dedups() {
     .unwrap();
     let names = module_files(&paths);
     let c_count = names.iter().filter(|n| *n == "c.ig").count();
-    assert_eq!(c_count, 1, "shared package `c` folded exactly once: {names:?}");
-    assert!(names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()), "{names:?}");
+    assert_eq!(
+        c_count, 1,
+        "shared package `c` folded exactly once: {names:?}"
+    );
+    assert!(
+        names.contains(&"a.ig".to_string()) && names.contains(&"b.ig".to_string()),
+        "{names:?}"
+    );
 }
 
 /// The lock records the FULL reachable graph: `workspace_transitive_ok` locks `mid` AND `leaf`.
@@ -425,8 +477,14 @@ fn lock_records_full_transitive_graph() {
     let lock = project::workspace_lock(&app("workspace_transitive_ok")).unwrap();
     let paths: Vec<&str> = lock.dependencies.iter().map(|d| d.path.as_str()).collect();
     assert_eq!(lock.dependencies.len(), 2, "mid + leaf locked: {paths:?}");
-    assert!(paths.iter().any(|p| p.contains("mid")), "mid in lock: {paths:?}");
-    assert!(paths.iter().any(|p| p.contains("leaf")), "leaf (transitive) in lock: {paths:?}");
+    assert!(
+        paths.iter().any(|p| p.contains("mid")),
+        "mid in lock: {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p.contains("leaf")),
+        "leaf (transitive) in lock: {paths:?}"
+    );
 }
 
 // ── LAB-IGNITER-PACKAGE-MISSING-DEP-DIAGNOSTIC-P16 ──────────────────────────────────────────────────
@@ -444,7 +502,11 @@ fn missing_root_dependency_is_oof_imp9() {
         ProjectError::Diagnostic(d) => {
             assert_eq!(d.rule, "OOF-IMP9", "{d:?}");
             assert_eq!(d.module_path, None, "graph fault, not a module fault");
-            assert_eq!(d.node, "dependency:<root>->ghost", "stable edge node: {}", d.node);
+            assert_eq!(
+                d.node, "dependency:<root>->ghost",
+                "stable edge node: {}",
+                d.node
+            );
             assert!(
                 d.message.contains("ghost") && d.message.contains("does not exist"),
                 "names dep + missing path: {}",
@@ -467,7 +529,11 @@ fn missing_transitive_dependency_is_oof_imp9() {
     match err {
         ProjectError::Diagnostic(d) => {
             assert_eq!(d.rule, "OOF-IMP9", "{d:?}");
-            assert_eq!(d.node, "dependency:mid->ghost", "declaring package is `mid`: {}", d.node);
+            assert_eq!(
+                d.node, "dependency:mid->ghost",
+                "declaring package is `mid`: {}",
+                d.node
+            );
         }
         other => panic!("expected OOF-IMP9, got {other:?}"),
     }
@@ -515,7 +581,9 @@ fn existing_dir_without_manifest_is_not_missing() {
 // ── LAB-IGNITER-PACKAGE-DIAGNOSTIC-DETAILS-P19 ──────────────────────────────────────────────────────
 
 fn diagnostic_for(fixture: &str) -> project::ProjectDiagnostic {
-    match project::resolve_entry(Path::new(&format!("{FIX}/{fixture}/app")), "App.Main").unwrap_err() {
+    match project::resolve_entry(Path::new(&format!("{FIX}/{fixture}/app")), "App.Main")
+        .unwrap_err()
+    {
         ProjectError::Diagnostic(d) => d,
         other => panic!("expected a diagnostic, got {other:?}"),
     }
@@ -534,9 +602,14 @@ fn oof_imp6_has_import_scope_details() {
     assert_eq!(det["importer"]["package"], serde_json::json!("lib1"));
     assert_eq!(det["provider"]["module"], serde_json::json!("Lib2.B"));
     assert_eq!(det["provider"]["package"], serde_json::json!("lib2"));
-    assert!(det["importer"]["path"].as_str().is_some(), "importer path present");
     assert!(
-        det["fix"].as_str().is_some_and(|f| f.contains("[dependencies]") && f.contains("lib2")),
+        det["importer"]["path"].as_str().is_some(),
+        "importer path present"
+    );
+    assert!(
+        det["fix"]
+            .as_str()
+            .is_some_and(|f| f.contains("[dependencies]") && f.contains("lib2")),
         "fix advises declaring the provider: {det}"
     );
 }
@@ -551,8 +624,14 @@ fn oof_imp7_allowlist_has_import_export_details() {
     assert_eq!(det["kind"], serde_json::json!("import_export"));
     assert_eq!(det["declared_edge"], serde_json::json!(true));
     assert_eq!(det["exports_default"], serde_json::json!("open"));
-    assert_eq!(det["provider_exports"]["mode"], serde_json::json!("allowlist"));
-    assert_eq!(det["provider_exports"]["modules"][0], serde_json::json!("Lib.Public"));
+    assert_eq!(
+        det["provider_exports"]["mode"],
+        serde_json::json!("allowlist")
+    );
+    assert_eq!(
+        det["provider_exports"]["modules"][0],
+        serde_json::json!("Lib.Public")
+    );
     assert!(
         det["fix"].as_str().is_some_and(|f| f.contains("[exports]")),
         "fix advises [exports]: {det}"
@@ -599,7 +678,11 @@ fn lock_is_deterministic_and_pins_each_dependency() {
     let lib = &a.dependencies[0];
     assert_eq!(lib.name, "lib");
     assert_eq!(lib.path, "../lib");
-    assert!(lib.digest.starts_with("sha256:"), "sha256 digest: {}", lib.digest);
+    assert!(
+        lib.digest.starts_with("sha256:"),
+        "sha256 digest: {}",
+        lib.digest
+    );
     assert!(lib.digest.len() > "sha256:".len() + 16, "non-empty hex");
 }
 
@@ -609,7 +692,10 @@ fn clean_verify_has_no_drift() {
     let root = app("workspace");
     let lock = project::workspace_lock(&root).unwrap();
     let drift = project::verify_lock(&root, &lock).unwrap();
-    assert!(drift.is_empty(), "clean workspace must verify with no drift: {drift:?}");
+    assert!(
+        drift.is_empty(),
+        "clean workspace must verify with no drift: {drift:?}"
+    );
 }
 
 /// A tampered lock digest is detected as `Changed` drift (the dependency content differs from the lock).
@@ -621,7 +707,11 @@ fn tampered_digest_is_changed_drift() {
     let drift = project::verify_lock(&root, &lock).unwrap();
     assert_eq!(drift.len(), 1, "exactly one drift");
     match &drift[0] {
-        LockDrift::Changed { name, locked, actual } => {
+        LockDrift::Changed {
+            name,
+            locked,
+            actual,
+        } => {
             assert_eq!(name, "lib");
             assert_eq!(locked, "sha256:deadbeef");
             assert!(actual.starts_with("sha256:") && actual != "sha256:deadbeef");
@@ -638,7 +728,10 @@ fn digest_is_content_addressed() {
     let b = project::workspace_lock(&app("workspace_dup")).unwrap();
     let da = &a.dependencies[0].digest;
     let db = &b.dependencies[0].digest;
-    assert_eq!(a.dependencies[0].name, b.dependencies[0].name, "both named lib");
+    assert_eq!(
+        a.dependencies[0].name, b.dependencies[0].name,
+        "both named lib"
+    );
     assert_ne!(da, db, "different content → different digest");
 }
 
@@ -754,7 +847,10 @@ fn stdlib_version_mirrors_crate() {
 fn lock_stamps_compiler_version() {
     let lock = project::workspace_lock(&app("workspace")).unwrap();
     assert_eq!(lock.toolchain.compiler, env!("CARGO_PKG_VERSION"));
-    assert!(!lock.toolchain.compiler.is_empty(), "compiler version stamped");
+    assert!(
+        !lock.toolchain.compiler.is_empty(),
+        "compiler version stamped"
+    );
 }
 
 /// A lock pinned to a different compiler version verifies as `Toolchain` drift.
@@ -792,7 +888,9 @@ fn unpinned_lock_has_no_toolchain_drift() {
     lock.toolchain.compiler = String::new(); // simulate a pre-P5 lock with no toolchain block
     let drift = project::verify_lock(&root, &lock).unwrap();
     assert!(
-        !drift.iter().any(|d| matches!(d, LockDrift::Toolchain { .. })),
+        !drift
+            .iter()
+            .any(|d| matches!(d, LockDrift::Toolchain { .. })),
         "unpinned lock must not report toolchain drift: {drift:?}"
     );
 }

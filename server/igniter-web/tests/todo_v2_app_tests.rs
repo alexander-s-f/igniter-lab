@@ -11,7 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn v2_dir() -> PathBuf {
-    PathBuf::from(format!("{}/examples/todo_v2_app", env!("CARGO_MANIFEST_DIR")))
+    PathBuf::from(format!(
+        "{}/examples/todo_v2_app",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }
 
 fn build() -> Arc<dyn ServerApp + Send + Sync> {
@@ -32,13 +35,21 @@ fn todo_v2_loopback_behaviors() {
     // 2. index — the account context (capture 1) threaded through the composite guard into the handler.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos", &[], "");
     assert_eq!(s, 200);
-    assert_eq!(b["body"], json!("7"), "account context reached AccountTodoIndex");
+    assert_eq!(
+        b["body"],
+        json!("7"),
+        "account context reached AccountTodoIndex"
+    );
 
     // 3. show — the todo context (capture 2) threaded through the two-capture composite guard. The
     //    account is co-carried in the same TodoCtx (compile-enforced; independently proven by #2/#5).
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");
     assert_eq!(s, 200);
-    assert_eq!(b["body"], json!("42"), "todo context reached AccountTodoShow");
+    assert_eq!(
+        b["body"],
+        json!("42"),
+        "todo context reached AccountTodoShow"
+    );
 
     // 4. create without idempotency-key → keyless 400 (guard outermost, before the via match).
     assert_eq!(
@@ -57,7 +68,10 @@ fn todo_v2_loopback_behaviors() {
     assert_eq!(s, 202);
     assert_eq!(b["target"], json!("todo-create"));
     assert_eq!(b["idempotency_key"], json!("evt-1"));
-    assert!(b.get("capability_id").is_none(), "no effect identity smuggled");
+    assert!(
+        b.get("capability_id").is_none(),
+        "no effect identity smuggled"
+    );
     assert!(b.get("scope").is_none());
 
     // 6. done without key → 400.

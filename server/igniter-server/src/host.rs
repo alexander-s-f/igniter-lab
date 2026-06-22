@@ -278,7 +278,11 @@ mod tests {
         let (head, body) = split(&wire);
         assert!(head.contains("HTTP/1.1 200"));
         assert!(head.contains("content-type: application/json"));
-        assert_eq!(body, br#"{"ok":true}"#.to_vec(), "JSON body, not double-wrapped");
+        assert_eq!(
+            body,
+            br#"{"ok":true}"#.to_vec(),
+            "JSON body, not double-wrapped"
+        );
         assert!(head.contains(&format!("Content-Length: {}", body.len())));
     }
 

@@ -157,19 +157,27 @@ fn bind_array(
         PostgresReadValueKind::Integer => {
             let mut out = Vec::with_capacity(vs.len());
             for v in vs {
-                out.push(v.as_i64().ok_or_else(|| format!("expected integer, got {v}"))?);
+                out.push(
+                    v.as_i64()
+                        .ok_or_else(|| format!("expected integer, got {v}"))?,
+                );
             }
             Ok(Box::new(out) as Box<dyn ToSql + Sync + Send>)
         }
         PostgresReadValueKind::Boolean => {
             let mut out = Vec::with_capacity(vs.len());
             for v in vs {
-                out.push(v.as_bool().ok_or_else(|| format!("expected boolean, got {v}"))?);
+                out.push(
+                    v.as_bool()
+                        .ok_or_else(|| format!("expected boolean, got {v}"))?,
+                );
             }
             Ok(Box::new(out) as Box<dyn ToSql + Sync + Send>)
         }
-        _ => Ok(Box::new(vs.iter().map(value_to_text).collect::<Vec<String>>())
-            as Box<dyn ToSql + Sync + Send>),
+        _ => Ok(
+            Box::new(vs.iter().map(value_to_text).collect::<Vec<String>>())
+                as Box<dyn ToSql + Sync + Send>,
+        ),
     }
 }
 

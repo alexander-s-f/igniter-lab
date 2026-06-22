@@ -18,12 +18,21 @@ fn compile(tag: &str, src: &str) -> (String, Vec<Value>) {
     std::fs::write(&ig, src).unwrap();
     let out = dir.join("m.igapp");
     let output = Command::new(bin())
-        .args(["compile", ig.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .args([
+            "compile",
+            ig.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .output()
         .expect("run igniter_compiler");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let v: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
-    let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("?").to_string();
+    let status = v
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("?")
+        .to_string();
     let errors: Vec<Value> = v
         .get("diagnostics")
         .and_then(|d| d.as_array())
@@ -38,7 +47,9 @@ fn compile(tag: &str, src: &str) -> (String, Vec<Value>) {
 }
 
 fn has_rule(errors: &[Value], rule: &str) -> bool {
-    errors.iter().any(|d| d.get("rule").and_then(|r| r.as_str()) == Some(rule))
+    errors
+        .iter()
+        .any(|d| d.get("rule").and_then(|r| r.as_str()) == Some(rule))
 }
 
 #[test]
@@ -47,7 +58,10 @@ fn valid_integer_calls_compile_clean() {
         "valid",
         "module M.Valid\n\npure contract C {\n  input n : Integer\n  compute root : Integer = isqrt(n)\n  compute pow : Integer = ipow(n, 3)\n  compute rem : Integer = mod(n, 7)\n  compute combined : Integer = mod(ipow(root, 2), 100)\n  output combined : Integer\n}\n",
     );
-    assert_eq!(status, "ok", "valid integer-math program must compile; errors: {errors:?}");
+    assert_eq!(
+        status, "ok",
+        "valid integer-math program must compile; errors: {errors:?}"
+    );
     assert!(errors.is_empty(), "no error diagnostics: {errors:?}");
 }
 
@@ -57,7 +71,10 @@ fn wrong_arity_is_oof_math1() {
         "arity",
         "module M.Arity\n\npure contract C {\n  input n : Integer\n  compute s : Integer = isqrt(n, n)\n  output s : Integer\n}\n",
     );
-    assert!(has_rule(&errors, "OOF-MATH1"), "isqrt/2 → OOF-MATH1: {errors:?}");
+    assert!(
+        has_rule(&errors, "OOF-MATH1"),
+        "isqrt/2 → OOF-MATH1: {errors:?}"
+    );
 }
 
 #[test]
@@ -66,7 +83,10 @@ fn non_integer_argument_is_oof_math2() {
         "nonint",
         "module M.NonInt\n\npure contract C {\n  input f : Float\n  compute s : Integer = isqrt(f)\n  output s : Integer\n}\n",
     );
-    assert!(has_rule(&errors, "OOF-MATH2"), "isqrt(Float) → OOF-MATH2: {errors:?}");
+    assert!(
+        has_rule(&errors, "OOF-MATH2"),
+        "isqrt(Float) → OOF-MATH2: {errors:?}"
+    );
 }
 
 #[test]
@@ -75,10 +95,16 @@ fn ipow_and_mod_reject_non_integer() {
         "ipowf",
         "module M.IpowF\n\npure contract C {\n  input f : Float\n  compute s : Integer = ipow(f, 2)\n  output s : Integer\n}\n",
     );
-    assert!(has_rule(&e1, "OOF-MATH2"), "ipow(Float,_) → OOF-MATH2: {e1:?}");
+    assert!(
+        has_rule(&e1, "OOF-MATH2"),
+        "ipow(Float,_) → OOF-MATH2: {e1:?}"
+    );
     let (_s2, e2) = compile(
         "modf",
         "module M.ModF\n\npure contract C {\n  input f : Float\n  compute s : Integer = mod(f, 2)\n  output s : Integer\n}\n",
     );
-    assert!(has_rule(&e2, "OOF-MATH2"), "mod(Float,_) → OOF-MATH2: {e2:?}");
+    assert!(
+        has_rule(&e2, "OOF-MATH2"),
+        "mod(Float,_) → OOF-MATH2: {e2:?}"
+    );
 }

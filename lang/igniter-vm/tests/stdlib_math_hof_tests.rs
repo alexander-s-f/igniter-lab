@@ -81,7 +81,9 @@ fn map_then_sum_contract(vals: &[f64], map_body: serde_json::Value) -> serde_jso
 async fn run(contract: serde_json::Value) -> Result<Value, String> {
     let mut c = Compiler::new();
     let bc = c.compile(&contract)?;
-    VM::new(None).execute(&bc, &HashMap::new(), &HashMap::new()).await
+    VM::new(None)
+        .execute(&bc, &HashMap::new(), &HashMap::new())
+        .await
 }
 
 fn as_f64(r: Result<Value, String>) -> f64 {
@@ -97,8 +99,17 @@ fn as_f64(r: Result<Value, String>) -> f64 {
 #[tokio::test]
 async fn sin_inside_fold_lambda_runs() {
     let body = add(ref_("acc"), call("sin", vec![ref_("x")]));
-    let r = as_f64(run(fold_contract(&[0.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI], body)).await);
-    assert!((r - 1.0).abs() < 1e-12, "sin(0)+sin(π/2)+sin(π) ≈ 1.0, got {r}");
+    let r = as_f64(
+        run(fold_contract(
+            &[0.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI],
+            body,
+        ))
+        .await,
+    );
+    assert!(
+        (r - 1.0).abs() < 1e-12,
+        "sin(0)+sin(π/2)+sin(π) ≈ 1.0, got {r}"
+    );
 }
 
 /// P9's pressure shape directly: map each item through `sin`, then sum the mapped Floats.
@@ -117,12 +128,27 @@ async fn map_then_sum_sin_inside_lambda_runs() {
 /// cos / sqrt / pi also work inside the HOF lambda body, not only direct bytecode calls.
 #[tokio::test]
 async fn cos_sqrt_pi_inside_fold_lambda() {
-    let cos = as_f64(run(fold_contract(&[0.0], add(ref_("acc"), call("cos", vec![ref_("x")])))).await);
+    let cos = as_f64(
+        run(fold_contract(
+            &[0.0],
+            add(ref_("acc"), call("cos", vec![ref_("x")])),
+        ))
+        .await,
+    );
     assert!((cos - 1.0).abs() < 1e-12, "cos(0)=1, got {cos}");
-    let sqrt = as_f64(run(fold_contract(&[4.0], add(ref_("acc"), call("sqrt", vec![ref_("x")])))).await);
+    let sqrt = as_f64(
+        run(fold_contract(
+            &[4.0],
+            add(ref_("acc"), call("sqrt", vec![ref_("x")])),
+        ))
+        .await,
+    );
     assert!((sqrt - 2.0).abs() < 1e-12, "sqrt(4)=2, got {sqrt}");
     let pi = as_f64(run(fold_contract(&[0.0], add(ref_("acc"), call("pi", vec![])))).await);
-    assert!((pi - std::f64::consts::PI).abs() < 1e-12, "pi()=π, got {pi}");
+    assert!(
+        (pi - std::f64::consts::PI).abs() < 1e-12,
+        "pi()=π, got {pi}"
+    );
 }
 
 /// Deterministic `det_sin` inside a lambda preserves golden-bit semantics.
@@ -130,7 +156,11 @@ async fn cos_sqrt_pi_inside_fold_lambda() {
 async fn det_sin_inside_fold_lambda_is_golden() {
     // body ignores acc → returns det_sin(0.5) for the single element.
     let r = as_f64(run(fold_contract(&[0.5], call("det_sin", vec![ref_("x")]))).await);
-    assert_eq!(r.to_bits(), 0x3fdeaee8744b05f0, "det_sin(0.5) golden bits inside HOF");
+    assert_eq!(
+        r.to_bits(),
+        0x3fdeaee8744b05f0,
+        "det_sin(0.5) golden bits inside HOF"
+    );
 }
 
 /// Negative `det_sqrt` inside a lambda is a deterministic ERROR, not a silent NaN/null.
@@ -144,10 +174,20 @@ async fn det_sqrt_negative_inside_fold_lambda_errors() {
 /// A wrong-arity math call inside a lambda gives the math message, NOT the binary-operator fallback.
 #[tokio::test]
 async fn arity_error_inside_lambda_is_math_message() {
-    let r = run(fold_contract(&[1.0], call("sin", vec![ref_("x"), ref_("x")]))).await;
+    let r = run(fold_contract(
+        &[1.0],
+        call("sin", vec![ref_("x"), ref_("x")]),
+    ))
+    .await;
     let e = r.unwrap_err();
-    assert!(e.contains("sin expects exactly 1 argument"), "math arity msg, got: {e}");
-    assert!(!e.contains("expects exactly 2 operands"), "must NOT fall to binary-op msg: {e}");
+    assert!(
+        e.contains("sin expects exactly 1 argument"),
+        "math arity msg, got: {e}"
+    );
+    assert!(
+        !e.contains("expects exactly 2 operands"),
+        "must NOT fall to binary-op msg: {e}"
+    );
 }
 
 // ── single-source unit tests (`eval_math_call`, shared by OP_CALL + eval_ast) ────────────────────────
@@ -159,7 +199,10 @@ fn shared_source_values_and_errors() {
     assert_eq!(f("sqrt", &[Value::Float(4.0)]), Ok(Value::Float(2.0)));
     assert_eq!(f("pi", &[]), Ok(Value::Float(std::f64::consts::PI)));
     // det_sqrt(2) == the canonical √2 double (golden bits).
-    assert_eq!(as_f64(f("det_sqrt", &[Value::Float(2.0)])).to_bits(), 0x3ff6a09e667f3bcd);
+    assert_eq!(
+        as_f64(f("det_sqrt", &[Value::Float(2.0)])).to_bits(),
+        0x3ff6a09e667f3bcd
+    );
     // errors: domain, non-finite, arity, non-Float
     assert!(f("det_sqrt", &[Value::Float(-1.0)]).is_err());
     assert!(f("det_sin", &[Value::Float(f64::NAN)]).is_err());

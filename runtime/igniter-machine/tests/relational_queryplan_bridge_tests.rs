@@ -13,15 +13,18 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectRequest, OutcomeKind, RunMode, RECEIPTS_STORE,
 };
-use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+use igniter_machine::postgres_read::{
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 const CAP: &str = "IO.PostgresRead";
 
 /// The P2 relational fixture — the source of truth for the `.ig` `QueryPlan` shape this card bridges.
-const P2_FIXTURE: &str =
-    include_str!("../../../lang/igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig");
+const P2_FIXTURE: &str = include_str!(
+    "../../../lang/igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig"
+);
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -105,7 +108,11 @@ fn p2_fixture_declares_the_queryplan_shape_the_executor_reads() {
 fn p2_queryplan_reaches_executor_and_returns_rows() {
     rt().block_on(async {
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), todos_policy()));
+        let exec = Arc::new(PostgresReadExecutor::new(
+            CAP,
+            adapter.clone(),
+            todos_policy(),
+        ));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let store = receipts();
@@ -145,22 +152,34 @@ fn p2_queryplan_reaches_executor_and_returns_rows() {
 fn allowlist_source_field_and_op_gates() {
     rt().block_on(async {
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), todos_policy()));
+        let exec = Arc::new(PostgresReadExecutor::new(
+            CAP,
+            adapter.clone(),
+            todos_policy(),
+        ));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let store = receipts();
 
         // unknown source → denied before the adapter.
-        let bad_src = run_effect(&reg, &store, &req("g-src", json!({"source": "secrets"})), RunMode::Live)
-            .await
-            .unwrap();
+        let bad_src = run_effect(
+            &reg,
+            &store,
+            &req("g-src", json!({"source": "secrets"})),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
         assert_eq!(bad_src.kind, OutcomeKind::Denied);
 
         // projection field not in the allowlist → denied.
         let bad_proj = run_effect(
             &reg,
             &store,
-            &req("g-proj", json!({"source": "todos", "projection": ["id", "secret_col"]})),
+            &req(
+                "g-proj",
+                json!({"source": "todos", "projection": ["id", "secret_col"]}),
+            ),
             RunMode::Live,
         )
         .await
@@ -233,22 +252,43 @@ fn limit_clamped_to_policy() {
 fn replay_same_key_bypasses_adapter() {
     rt().block_on(async {
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), todos_policy()));
+        let exec = Arc::new(PostgresReadExecutor::new(
+            CAP,
+            adapter.clone(),
+            todos_policy(),
+        ));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let store = receipts();
 
-        let first = run_effect(&reg, &store, &req("same", todos_by_account_plan("acct-7")), RunMode::Live)
-            .await
-            .unwrap();
-        let second = run_effect(&reg, &store, &req("same", todos_by_account_plan("acct-7")), RunMode::Live)
-            .await
-            .unwrap();
+        let first = run_effect(
+            &reg,
+            &store,
+            &req("same", todos_by_account_plan("acct-7")),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        let second = run_effect(
+            &reg,
+            &store,
+            &req("same", todos_by_account_plan("acct-7")),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(first.kind, OutcomeKind::Succeeded);
         assert_eq!(second.kind, OutcomeKind::Succeeded);
-        assert_eq!(first.result, second.result, "replay returns the receipt result");
-        assert_eq!(adapter.query_count(), 1, "adapter runs once per idempotency key");
+        assert_eq!(
+            first.result, second.result,
+            "replay returns the receipt result"
+        );
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "adapter runs once per idempotency key"
+        );
     });
 }
 
@@ -258,7 +298,11 @@ fn replay_same_key_bypasses_adapter() {
 fn raw_sql_refused_structurally() {
     rt().block_on(async {
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), todos_policy()));
+        let exec = Arc::new(PostgresReadExecutor::new(
+            CAP,
+            adapter.clone(),
+            todos_policy(),
+        ));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
         let store = receipts();
@@ -277,9 +321,17 @@ fn raw_sql_refused_structurally() {
             )
             .await
             .unwrap();
-            assert_eq!(out.kind, OutcomeKind::PermanentFailure, "`{key}` must be refused");
+            assert_eq!(
+                out.kind,
+                OutcomeKind::PermanentFailure,
+                "`{key}` must be refused"
+            );
             assert!(out.failure_kind.unwrap().contains("raw SQL refused"));
         }
-        assert_eq!(adapter.query_count(), 0, "adapter never sees a raw-SQL request");
+        assert_eq!(
+            adapter.query_count(),
+            0,
+            "adapter never sees a raw-SQL request"
+        );
     });
 }

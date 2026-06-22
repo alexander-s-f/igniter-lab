@@ -17,7 +17,12 @@ fn compile(src: &str, tag: &str) -> String {
     std::fs::write(&f, src).unwrap();
     let out = dir.join("out");
     let o = Command::new(bin())
-        .args(["compile", f.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .args([
+            "compile",
+            f.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .output()
         .expect("run igniter_compiler");
     String::from_utf8_lossy(&o.stdout).to_string()
@@ -34,7 +39,10 @@ fn signature_bound_handler_compiles() {
 pure contract Health(x: Integer) -> (d: Decision) {
   d = { status: 200, body: \"ok\" }
 }";
-    assert!(ok(&compile(src, "sig")), "signature-bound handler must compile");
+    assert!(
+        ok(&compile(src, "sig")),
+        "signature-bound handler must compile"
+    );
 }
 
 // Snippet: ViewArtifact-style list — signature + comprehension + filter + record element, composed.
@@ -45,7 +53,10 @@ type Node { text : Text }
 pure contract View(todos: Collection[Todo]) -> (body: Collection[Node]) {
   body = [ { text: t.title } for t in todos if t.done == false ]
 }";
-    assert!(ok(&compile(src, "view")), "signature + comprehension list must compile");
+    assert!(
+        ok(&compile(src, "view")),
+        "signature + comprehension list must compile"
+    );
 }
 
 // Snippet: guard/handler failure path — signature + fallible `?` over a Result-returning contract,
@@ -63,5 +74,8 @@ pure contract Handler(id: String) -> (d: Decision) {
     { status: 200, body: ctx.id }
   }
 }";
-    assert!(ok(&compile(src, "fallible")), "signature + fallible ? handler must compile");
+    assert!(
+        ok(&compile(src, "fallible")),
+        "signature + fallible ? handler must compile"
+    );
 }

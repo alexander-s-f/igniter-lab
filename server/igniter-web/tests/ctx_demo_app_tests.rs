@@ -11,7 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn dir() -> PathBuf {
-    PathBuf::from(format!("{}/examples/ctx_demo_app", env!("CARGO_MANIFEST_DIR")))
+    PathBuf::from(format!(
+        "{}/examples/ctx_demo_app",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }
 
 fn build() -> Arc<dyn ServerApp + Send + Sync> {
@@ -28,7 +31,11 @@ fn ctx_demo_loopback_behaviors() {
     // the account — proving the inherited guard value reached the handler via explicit args.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos", &[], "");
     assert_eq!(s, 200);
-    assert_eq!(b["body"], json!("7"), "guard account context reached TodoIndex");
+    assert_eq!(
+        b["body"],
+        json!("7"),
+        "guard account context reached TodoIndex"
+    );
 
     // show: same guard + the unconsumed `todo_id` capture reach TodoShow.
     let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");
@@ -54,6 +61,12 @@ fn ctx_demo_loopback_behaviors() {
     assert_eq!(b["idempotency_key"], json!("evt-1"));
 
     // unknown sub-path → 404; wrong method on a known path → 405.
-    assert_eq!(roundtrip(&*app, "GET", "/accounts/7/missing", &[], "").0, 404);
-    assert_eq!(roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0, 405);
+    assert_eq!(
+        roundtrip(&*app, "GET", "/accounts/7/missing", &[], "").0,
+        404
+    );
+    assert_eq!(
+        roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0,
+        405
+    );
 }

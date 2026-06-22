@@ -42,7 +42,11 @@ fn if_block_let_binds_and_compiles() {
   compute r : Integer = if x == 1 { let a = x  a } else { 0 }
   output r : Integer
 }";
-    assert!(is_ok(&compile(src, "letif")), "if-block let must compile: {}", compile(src, "letif"));
+    assert!(
+        is_ok(&compile(src, "letif")),
+        "if-block let must compile: {}",
+        compile(src, "letif")
+    );
 }
 
 // ── 2: block-local names do not leak past their block ─────────────────────────────────────────────
@@ -57,7 +61,10 @@ fn block_local_let_does_not_leak() {
 }";
     let out = compile(src, "leak");
     assert!(!is_ok(&out), "leaked block-local must NOT compile");
-    assert!(out.contains("Unresolved symbol: a"), "expected unresolved `a`: {out}");
+    assert!(
+        out.contains("Unresolved symbol: a"),
+        "expected unresolved `a`: {out}"
+    );
 }
 
 // ── 3: match arm may be a block with local lets, available to the arm's final expression ─────────
@@ -76,7 +83,11 @@ fn match_arm_block_with_local_lets() {
   }
   output d : Integer
 }";
-    assert!(is_ok(&compile(src, "twolets")), "match-arm block must compile: {}", compile(src, "twolets"));
+    assert!(
+        is_ok(&compile(src, "twolets")),
+        "match-arm block must compile: {}",
+        compile(src, "twolets")
+    );
 }
 
 // ── 4: nested Result — rename outer `value` with a let so the inner match doesn't shadow it ──────
@@ -113,7 +124,11 @@ fn arithmetic_block_let_chain() {
   compute r : Integer = if x == 1 { let a = x  let b = a  b } else { 0 }
   output r : Integer
 }";
-    assert!(is_ok(&compile(src, "calc")), "arithmetic block let-chain must compile: {}", compile(src, "calc"));
+    assert!(
+        is_ok(&compile(src, "calc")),
+        "arithmetic block let-chain must compile: {}",
+        compile(src, "calc")
+    );
 }
 
 // ── 6: a plain (non-block) match arm still works — no regression ──────────────────────────────────
@@ -128,5 +143,9 @@ fn plain_match_arm_still_compiles() {
   }
   output d : Integer
 }";
-    assert!(is_ok(&compile(src, "plain")), "plain match arm must still compile: {}", compile(src, "plain"));
+    assert!(
+        is_ok(&compile(src, "plain")),
+        "plain match arm must still compile: {}",
+        compile(src, "plain")
+    );
 }

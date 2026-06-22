@@ -17,7 +17,9 @@ use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectOutcome, EffectRequest, OutcomeKind, RunMode,
 };
 use igniter_machine::machine::IgniterMachine;
-use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+use igniter_machine::postgres_read::{
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -45,7 +47,11 @@ fn load_app_contracts() -> IgniterMachine {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("igweb_api_read_p3_{}_{}", std::process::id(), stamp));
+    let dir = std::env::temp_dir().join(format!(
+        "igweb_api_read_p3_{}_{}",
+        std::process::id(),
+        stamp
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     std::fs::write(&pl, igniter_compiler::igweb::PRELUDE_SOURCE).unwrap();
@@ -179,7 +185,12 @@ fn host_gates_before_adapter_and_clamp() {
     rt().block_on(async {
         // denied source.
         let a1 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let out = host_read(&json!({"source": "secrets", "op": "select"}), todos_policy(100), a1.clone()).await;
+        let out = host_read(
+            &json!({"source": "secrets", "op": "select"}),
+            todos_policy(100),
+            a1.clone(),
+        )
+        .await;
         assert_eq!(out.kind, OutcomeKind::Denied);
         assert_eq!(a1.query_count(), 0);
 
@@ -246,10 +257,20 @@ fn product_app_has_no_forbidden_surface() {
     // NOTE: `scope` is the IgWeb routing keyword (`scope "/accounts/:account_id"`), not a capability
     // scope — excluded. Capability scope/passport identity is structurally absent from `.igweb`/`.ig`.
     for forbidden in [
-        "select ", "insert into", "where ", "capability_id", "io.postgres", "passport", "dsn",
-        "postgres://", "secret",
+        "select ",
+        "insert into",
+        "where ",
+        "capability_id",
+        "io.postgres",
+        "passport",
+        "dsn",
+        "postgres://",
+        "secret",
     ] {
-        assert!(!code.contains(forbidden), "authored app must not contain `{forbidden}`");
+        assert!(
+            !code.contains(forbidden),
+            "authored app must not contain `{forbidden}`"
+        );
     }
     // the only DB-ish token is the logical `source: "todos"`.
     assert!(handlers.contains("source: \"todos\""));

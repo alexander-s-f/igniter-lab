@@ -19,7 +19,12 @@ fn compile(src: &str, tag: &str) -> (String, PathBuf) {
     std::fs::write(&f, src).unwrap();
     let out = dir.join("out");
     let output = Command::new(bin())
-        .args(["compile", f.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .args([
+            "compile",
+            f.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .output()
         .expect("run igniter_compiler");
     (String::from_utf8_lossy(&output.stdout).to_string(), out)
@@ -29,7 +34,8 @@ fn is_ok(s: &str) -> bool {
     s.contains("\"status\": \"ok\"")
 }
 
-const TYPES: &str = "type Decision { code : Integer }\ntype Acct { id : Integer }\ntype Todo { title : Integer }\n";
+const TYPES: &str =
+    "type Decision { code : Integer }\ntype Acct { id : Integer }\ntype Todo { title : Integer }\n";
 
 #[test]
 fn single_question_binds_and_compiles() {
@@ -53,7 +59,10 @@ fn igweb_style_guard_chain_compiles() {
     let src = format!(
         "{TYPES}contract Guard {{ input load_account : Result[Acct, Decision]  input load_todo : Result[Todo, Decision]  compute d : Decision = {{ let account = load_account?  let todo = load_todo?  {{ code: todo.title }} }}  output d : Decision }}"
     );
-    assert!(is_ok(&compile(&src, "guard").0), "IgWeb-style guard chain must compile");
+    assert!(
+        is_ok(&compile(&src, "guard").0),
+        "IgWeb-style guard chain must compile"
+    );
 }
 
 #[test]
@@ -61,7 +70,10 @@ fn pure_contract_with_question_stays_pure() {
     let src = format!(
         "{TYPES}pure contract H {{ input r : Result[Acct, Decision]  compute d : Decision = {{ let account = r?  {{ code: account.id }} }}  output d : Decision }}"
     );
-    assert!(is_ok(&compile(&src, "pure").0), "pure contract with ? must compile");
+    assert!(
+        is_ok(&compile(&src, "pure").0),
+        "pure contract with ? must compile"
+    );
 }
 
 #[test]
@@ -71,7 +83,10 @@ fn question_on_non_result_rejected() {
     );
     let (out, _) = compile(&src, "nonres");
     assert!(!is_ok(&out));
-    assert!(out.contains("? applies only to Result"), "expected OOF-Q1: {out}");
+    assert!(
+        out.contains("? applies only to Result"),
+        "expected OOF-Q1: {out}"
+    );
 }
 
 #[test]
@@ -81,7 +96,10 @@ fn question_on_option_rejected_v0() {
     );
     let (out, _) = compile(&src, "opt");
     assert!(!is_ok(&out));
-    assert!(out.contains("not supported on Option in v0"), "expected Option-v0 OOF-Q1: {out}");
+    assert!(
+        out.contains("not supported on Option in v0"),
+        "expected Option-v0 OOF-Q1: {out}"
+    );
 }
 
 #[test]
@@ -99,22 +117,29 @@ fn question_outside_binding_rejected() {
     );
     let (out, _) = compile(&src, "misplaced");
     assert!(!is_ok(&out));
-    assert!(out.contains("OOF-Q3") || out.contains("only allowed as a `let` binding"), "expected OOF-Q3: {out}");
+    assert!(
+        out.contains("OOF-Q3") || out.contains("only allowed as a `let` binding"),
+        "expected OOF-Q3: {out}"
+    );
 }
 
 #[test]
 fn handwritten_result_match_still_compiles() {
     // regression: the OOF-Q1 branding must not affect a real Result match.
     let src = "contract H { input r : Result[Integer, Integer]  compute d : Integer = match r { Ok { value } => value  Err { error } => error }  output d : Integer }";
-    assert!(is_ok(&compile(src, "handok").0), "hand-written Result match must still compile");
+    assert!(
+        is_ok(&compile(src, "handok").0),
+        "hand-written Result match must still compile"
+    );
 }
 
 // ── SIR parity: `?` desugars to exactly the hand-written nested match ─────────────────────────────
 
 fn match_nodes(dir: &PathBuf) -> String {
-    let sir: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("semantic_ir_program.json")).unwrap())
-            .unwrap();
+    let sir: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("semantic_ir_program.json")).unwrap(),
+    )
+    .unwrap();
     let mut nodes = Vec::new();
     fn walk(v: &serde_json::Value, out: &mut Vec<serde_json::Value>) {
         match v {
@@ -156,5 +181,8 @@ fn question_sir_identical_to_handwritten_match() {
     );
     // and no `try` node survives into the SIR
     let sir = std::fs::read_to_string(sd.join("semantic_ir_program.json")).unwrap();
-    assert!(!sir.contains("\"kind\": \"try\""), "no `try` node may reach the SIR");
+    assert!(
+        !sir.contains("\"kind\": \"try\""),
+        "no `try` node may reach the SIR"
+    );
 }

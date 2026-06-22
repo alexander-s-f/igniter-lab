@@ -189,7 +189,7 @@ fn kind_allows_op(kind: PostgresReadValueKind, op: &str) -> bool {
     use PostgresReadValueKind::*;
     match (kind, op) {
         (Json, _) | (Array, _) => false,
-        (_, "eq") => true,                                  // every scalar kind supports equality
+        (_, "eq") => true, // every scalar kind supports equality
         (Text, "in") | (Integer, "in") | (Boolean, "in") => true,
         (Integer, o) | (Timestamp, o) if is_range_op(o) => true, // range: integer + timestamp
         _ => false,
@@ -223,7 +223,10 @@ fn validate_predicates(
         }
         if f.op == "in" {
             if f.values.is_empty() {
-                return Err(format!("`in` on `{}` requires a non-empty `values`", f.field));
+                return Err(format!(
+                    "`in` on `{}` requires a non-empty `values`",
+                    f.field
+                ));
             }
             if f.values.len() > policy.max_in_values {
                 return Err(format!(
@@ -232,7 +235,10 @@ fn validate_predicates(
                 ));
             }
         } else if is_range_op(&f.op) && f.value.is_null() {
-            return Err(format!("range `{}` on `{}` requires a `value`", f.op, f.field));
+            return Err(format!(
+                "range `{}` on `{}` requires a `value`",
+                f.op, f.field
+            ));
         }
     }
     if plan.order_by.len() > policy.max_order_by {

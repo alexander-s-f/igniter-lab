@@ -1372,12 +1372,16 @@ fn unpack_archive(path: &Path) -> Result<UnpackedArchive, ProjectError> {
 fn unpacked_integrity(u: &UnpackedArchive) -> Option<Value> {
     let entry = u.manifest["entry"].as_str().unwrap_or(".");
     if !is_safe_archive_entry_path(entry) {
-        return Some(json!({ "rule": "OOF-PKG-FORMAT", "message": "archive entry path must be forward-only" }));
+        return Some(
+            json!({ "rule": "OOF-PKG-FORMAT", "message": "archive entry path must be forward-only" }),
+        );
     }
     match check_workspace_integrity(&u.tmp.join(entry)) {
         Ok(()) => None,
         Err(ProjectError::Diagnostic(d)) => Some(d.to_value()),
-        Err(_) => Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble unpacked archive" })),
+        Err(_) => {
+            Some(json!({ "rule": "OOF-PROJ-IO", "message": "could not assemble unpacked archive" }))
+        }
     }
 }
 

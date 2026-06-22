@@ -12,10 +12,12 @@
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    run_effect, CapabilityExecutorRegistry, EffectRequest, EffectOutcome, OutcomeKind, RunMode,
+    run_effect, CapabilityExecutorRegistry, EffectOutcome, EffectRequest, OutcomeKind, RunMode,
 };
 use igniter_machine::machine::IgniterMachine;
-use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+use igniter_machine::postgres_read::{
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -35,8 +37,7 @@ fn load_machine() -> IgniterMachine {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir =
-        std::env::temp_dir().join(format!("igweb_read_p6_{}_{}", std::process::id(), stamp));
+    let dir = std::env::temp_dir().join(format!("igweb_read_p6_{}_{}", std::process::id(), stamp));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     let fx = dir.join("read_harness.ig");
@@ -171,9 +172,18 @@ fn host_gates_before_adapter_and_clamp() {
     rt().block_on(async {
         // denied source (not allowlisted) → Denied, adapter untouched.
         let a1 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let out = host_read(&json!({"source": "secrets", "op": "select"}), todos_policy(100), a1.clone()).await;
+        let out = host_read(
+            &json!({"source": "secrets", "op": "select"}),
+            todos_policy(100),
+            a1.clone(),
+        )
+        .await;
         assert_eq!(out.kind, OutcomeKind::Denied);
-        assert_eq!(a1.query_count(), 0, "denied source never reaches the adapter");
+        assert_eq!(
+            a1.query_count(),
+            0,
+            "denied source never reaches the adapter"
+        );
 
         // forbidden projection field → Denied, adapter untouched.
         let a2 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
@@ -188,7 +198,12 @@ fn host_gates_before_adapter_and_clamp() {
 
         // raw SQL key → permanent refusal before the adapter.
         let a3 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
-        let out = host_read(&json!({"sql": "SELECT * FROM todos"}), todos_policy(100), a3.clone()).await;
+        let out = host_read(
+            &json!({"sql": "SELECT * FROM todos"}),
+            todos_policy(100),
+            a3.clone(),
+        )
+        .await;
         assert_eq!(out.kind, OutcomeKind::PermanentFailure);
         assert_eq!(a3.query_count(), 0);
 
@@ -218,10 +233,20 @@ fn authored_fixture_has_no_forbidden_surface() {
         .join("\n")
         .to_lowercase();
     for forbidden in [
-        "select ", "insert into", "where ", "capability_id", "io.postgres", "passport", "dsn",
-        "postgres://", "scope",
+        "select ",
+        "insert into",
+        "where ",
+        "capability_id",
+        "io.postgres",
+        "passport",
+        "dsn",
+        "postgres://",
+        "scope",
     ] {
-        assert!(!code.contains(forbidden), "authored .ig must not contain `{forbidden}`");
+        assert!(
+            !code.contains(forbidden),
+            "authored .ig must not contain `{forbidden}`"
+        );
     }
     // the only DB-ish token is the logical `source` field of QueryPlan.
     assert!(FIXTURE.contains("source: \"todos\""));

@@ -1668,7 +1668,8 @@ impl Parser {
             };
             match self.parse_compute_decl() {
                 Ok(decl) => {
-                    if let BodyDecl::Compute { name, .. } | BodyDecl::FoldStream { name, .. } = &decl
+                    if let BodyDecl::Compute { name, .. } | BodyDecl::FoldStream { name, .. } =
+                        &decl
                     {
                         if seen.iter().any(|n| n == name) {
                             self.add_parse_error(
@@ -1717,7 +1718,10 @@ impl Parser {
             if !seen.iter().any(|n| n == name) {
                 self.add_parse_error(
                     "OOF-P1",
-                    &format!("signature output `{}` is not defined in the contract body", name),
+                    &format!(
+                        "signature output `{}` is not defined in the contract body",
+                        name
+                    ),
                     name,
                     hdr_line,
                     hdr_col,
@@ -3793,10 +3797,9 @@ impl Parser {
         // block form `compute d = { let x = …  value }` — the home of `?` bindings. Match-arm blocks
         // (MATCH-ARM-BINDINGS-P2) already parse via parse_block_body; this extends it to expression
         // position. A `{` starting with anything else stays a record literal / spread.
-        if self
-            .peek(1)
-            .map_or(false, |t| t.token_type == TokenType::Keyword && t.value == "let")
-        {
+        if self.peek(1).map_or(false, |t| {
+            t.token_type == TokenType::Keyword && t.value == "let"
+        }) {
             return Ok(Expr::Block(self.parse_block_body()?));
         }
         let brace_line = self.current().map(|t| t.line).unwrap_or(0);
@@ -4053,7 +4056,11 @@ fn expr_contains_try(e: &Expr) -> bool {
     match e {
         Expr::Try { .. } => true,
         Expr::Block(b) => block_contains_try(b),
-        Expr::IfExpr { cond, then, else_block } => {
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
             expr_contains_try(cond)
                 || block_contains_try(then)
                 || else_block.as_ref().map_or(false, block_contains_try)
@@ -4068,7 +4075,10 @@ fn expr_contains_try(e: &Expr) -> bool {
 fn block_contains_try(b: &BlockBody) -> bool {
     b.stmts.iter().any(|s| match s {
         Stmt::Let { expr, .. } | Stmt::ExprStmt { expr } => expr_contains_try(expr),
-    }) || b.return_expr.as_ref().map_or(false, |r| expr_contains_try(r))
+    }) || b
+        .return_expr
+        .as_ref()
+        .map_or(false, |r| expr_contains_try(r))
 }
 
 /// Desugar `?` within an expression, returning an equivalent `?`-free expression.
@@ -4078,7 +4088,11 @@ fn desugar_try_expr(e: Expr) -> Expr {
     }
     match e {
         Expr::Block(b) => desugar_try_block(&b.stmts, b.return_expr),
-        Expr::IfExpr { cond, then, else_block } => Expr::IfExpr {
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => Expr::IfExpr {
             cond: Box::new(desugar_try_expr(*cond)),
             then: desugar_try_branch(then),
             else_block: else_block.map(desugar_try_branch),

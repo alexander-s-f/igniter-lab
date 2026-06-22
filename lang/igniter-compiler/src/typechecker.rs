@@ -1667,7 +1667,9 @@ impl TypeChecker {
                         // fields are exactly those the TARGET declares AND the SOURCE has; explicit fields
                         // override. The expanded literal is stashed as `annotated_expr` so the emitter lowers
                         // it via the existing record-literal path (no new SIR node kind).
-                        else if let Some(Expr::RecordSpread { spread, fields }) = decl.expr.as_ref() {
+                        else if let Some(Expr::RecordSpread { spread, fields }) =
+                            decl.expr.as_ref()
+                        {
                             if let Some(expected_type_name) = output_type_hints.get(&decl.name) {
                                 if let Some(target_shape) =
                                     local_type_shapes.get(expected_type_name.as_str()).cloned()
@@ -1702,13 +1704,17 @@ impl TypeChecker {
                                         }
                                         Some(src_shape) => {
                                             // Build the expanded explicit field set.
-                                            let mut expanded: HashMap<String, Expr> = HashMap::new();
+                                            let mut expanded: HashMap<String, Expr> =
+                                                HashMap::new();
                                             for (fname, ftype) in target_shape.iter() {
                                                 if let Some(explicit) = fields.get(fname) {
-                                                    expanded.insert(fname.clone(), explicit.clone());
+                                                    expanded
+                                                        .insert(fname.clone(), explicit.clone());
                                                 } else if let Some(stype) = src_shape.get(fname) {
                                                     // copied field — verify source/target field types agree
-                                                    if self.type_name(stype) != self.type_name(ftype) {
+                                                    if self.type_name(stype)
+                                                        != self.type_name(ftype)
+                                                    {
                                                         type_errors.push(ClassifierDiagnostic {
                                                             rule: "OOF-TY0".to_string(),
                                                             message: format!(
@@ -1756,11 +1762,10 @@ impl TypeChecker {
                                                 if let Ok(json) = serde_json::to_value(&lit) {
                                                     typed_expr.annotated_expr = Some(json);
                                                 }
-                                                typed_expr.resolved_type = self.type_ir(
-                                                    &serde_json::Value::String(
+                                                typed_expr.resolved_type =
+                                                    self.type_ir(&serde_json::Value::String(
                                                         expected_type_name.clone(),
-                                                    ),
-                                                );
+                                                    ));
                                             }
                                         }
                                     }

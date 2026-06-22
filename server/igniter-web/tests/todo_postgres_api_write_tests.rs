@@ -38,8 +38,11 @@ fn load_app_contracts() -> IgniterMachine {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir =
-        std::env::temp_dir().join(format!("igweb_api_write_p4_{}_{}", std::process::id(), stamp));
+    let dir = std::env::temp_dir().join(format!(
+        "igweb_api_write_p4_{}_{}",
+        std::process::id(),
+        stamp
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let pl = dir.join("prelude.ig");
     std::fs::write(&pl, igniter_compiler::igweb::PRELUDE_SOURCE).unwrap();
@@ -72,7 +75,11 @@ fn command_contracts_produce_write_intents() {
             .unwrap();
         assert_eq!(create["operation"], json!("insert"));
         assert_eq!(create["target"], json!("todos"));
-        assert_eq!(create["key"], json!("evt-1"), "intent key = the app idempotency key");
+        assert_eq!(
+            create["key"],
+            json!("evt-1"),
+            "intent key = the app idempotency key"
+        );
 
         let done = m
             .dispatch(
@@ -86,7 +93,13 @@ fn command_contracts_produce_write_intents() {
         assert_eq!(done["key"], json!("evt-2"));
 
         // no capability identity smuggled into the structured intent.
-        for k in ["capability_id", "operation_scope", "scope", "passport", "dsn"] {
+        for k in [
+            "capability_id",
+            "operation_scope",
+            "scope",
+            "passport",
+            "dsn",
+        ] {
             assert!(create.get(k).is_none(), "WriteIntent must not carry `{k}`");
         }
     });
@@ -112,8 +125,18 @@ fn handlers_wire_command_contracts_with_no_identity() {
         .collect::<Vec<_>>()
         .join("\n")
         .to_lowercase();
-    for forbidden in ["capability_id", "io.postgres", "passport", "dsn", "select ", "raw_sql"] {
-        assert!(!code.contains(forbidden), "authored app must not contain `{forbidden}`");
+    for forbidden in [
+        "capability_id",
+        "io.postgres",
+        "passport",
+        "dsn",
+        "select ",
+        "raw_sql",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "authored app must not contain `{forbidden}`"
+        );
     }
 }
 
@@ -134,12 +157,19 @@ fn structured_intent_maps_to_postgres_write_values() {
             .unwrap();
 
         // the VM-serialized intent is a CLEAN JSON object — no string wrapper, no variant discriminants.
-        assert!(intent.is_object(), "intent crosses as an object, not a string");
+        assert!(
+            intent.is_object(),
+            "intent crosses as an object, not a string"
+        );
         let s = intent.to_string();
-        assert!(!s.contains("__arm") && !s.contains("__variant"), "plain record is tag-free: {s}");
+        assert!(
+            !s.contains("__arm") && !s.contains("__variant"),
+            "plain record is tag-free: {s}"
+        );
 
         // the host builds a PostgresWriteIntent straight from that object — no SQL, no parsing.
-        let pg = PostgresWriteIntent::from_args(&intent).expect("from_args on the structured intent");
+        let pg =
+            PostgresWriteIntent::from_args(&intent).expect("from_args on the structured intent");
         assert_eq!(pg.operation, "insert");
         assert_eq!(pg.target, "todos");
         assert_eq!(pg.key, "evt-1");
@@ -147,7 +177,10 @@ fn structured_intent_maps_to_postgres_write_values() {
         assert_eq!(pg.values["account_id"], json!("acct-7"));
         assert_eq!(pg.values["title"], json!(""));
         assert_eq!(pg.values["done"], json!("false"));
-        assert!(pg.values.is_object(), "values is a structured object, not a string");
+        assert!(
+            pg.values.is_object(),
+            "values is a structured object, not a string"
+        );
     });
 }
 
@@ -160,5 +193,8 @@ fn raw_sql_in_structured_input_is_refused() {
         "values": { "title": "x" }, "raw_sql": "DROP TABLE todos"
     });
     let err = PostgresWriteIntent::from_args(&malicious).unwrap_err();
-    assert!(err.contains("raw SQL refused"), "host must refuse raw SQL: {err}");
+    assert!(
+        err.contains("raw SQL refused"),
+        "host must refuse raw SQL: {err}"
+    );
 }

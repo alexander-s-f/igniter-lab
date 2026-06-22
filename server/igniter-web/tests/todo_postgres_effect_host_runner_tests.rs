@@ -22,7 +22,8 @@
 use async_trait::async_trait;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest,
+    CapabilityExecutor, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome,
+    EffectRequest,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
@@ -101,7 +102,14 @@ fn vendor() -> CapabilityPassport {
     cpass(
         "vendor:acme",
         "coordination",
-        &["create_pool", "import_capsule", "activate_capsule", "grant_access", "accept_recipe", "invoke"],
+        &[
+            "create_pool",
+            "import_capsule",
+            "activate_capsule",
+            "grant_access",
+            "accept_recipe",
+            "invoke",
+        ],
     )
 }
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
@@ -174,9 +182,13 @@ async fn prod(n: usize) -> (CoordinationHub, IngressRouter) {
             .unwrap()
             .capsule_id;
     }
-    h.accept_recipe(&cpass("dev", "coordination", &["accept_recipe"]), "svc", recipe(&digest, n as u32))
-        .await
-        .unwrap();
+    h.accept_recipe(
+        &cpass("dev", "coordination", &["accept_recipe"]),
+        "svc",
+        recipe(&digest, n as u32),
+    )
+    .await
+    .unwrap();
     h.grant(
         &cpass("dev", "coordination", &["grant_access"]),
         "svc",
@@ -207,7 +219,10 @@ fn write_policy() -> PostgresWritePolicy {
 fn effect_state() -> EffectState {
     let adapter = Arc::new(FakePostgresWriteAdapter::new(FakeWriteBehavior::Commit));
     let inner = PostgresWriteExecutor::new(WRITE_CAP, adapter.clone(), write_policy());
-    let exec = Arc::new(IntentBridgeExecutor { cap: WRITE_CAP.into(), inner });
+    let exec = Arc::new(IntentBridgeExecutor {
+        cap: WRITE_CAP.into(),
+        inner,
+    });
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
     EffectState {
@@ -242,7 +257,10 @@ fn effect_host<'a>(
     eh
 }
 fn app_dir() -> PathBuf {
-    PathBuf::from(format!("{}/examples/todo_postgres_app", env!("CARGO_MANIFEST_DIR")))
+    PathBuf::from(format!(
+        "{}/examples/todo_postgres_app",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }
 fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
     build_app_from_dir(&app_dir())
@@ -256,9 +274,18 @@ fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerReques
     req.idempotency_key = idem_key.map(|k| k.to_string());
     req
 }
-async fn execute(eh: &MachineEffectHost<'_>, req: &ServerRequest, decision: ServerDecision) -> (u16, Value, bool) {
+async fn execute(
+    eh: &MachineEffectHost<'_>,
+    req: &ServerRequest,
+    decision: ServerDecision,
+) -> (u16, Value, bool) {
     match decision {
-        ServerDecision::InvokeEffect { target, input, correlation_id, idempotency_key } => {
+        ServerDecision::InvokeEffect {
+            target,
+            input,
+            correlation_id,
+            idempotency_key,
+        } => {
             let resp = eh
                 .run_invoke_effect(req, &target, &input, correlation_id, idempotency_key)
                 .await;
@@ -294,17 +321,35 @@ fn typed_write_flows_through_machine_host() {
 
         let (status, body, executed) = execute(&eh, &req, decision).await;
 
-        assert!(executed, "keyed create → final InvokeEffect, executed through the host");
+        assert!(
+            executed,
+            "keyed create → final InvokeEffect, executed through the host"
+        );
         assert_eq!(status, 200, "committed effect → 200, body={body}");
         assert_eq!(body["status"], json!("committed"));
         // the FINAL capability payload was the TYPED WriteIntent — from_args parsed target/key from it
         // (the committed result echoes the intent's target/key).
-        assert_eq!(body["result"]["target"], json!("todos"), "from_args read the app intent's target");
-        assert!(body["result"]["key"].as_str().is_some(), "from_args read the app intent's key");
+        assert_eq!(
+            body["result"]["target"],
+            json!("todos"),
+            "from_args read the app intent's target"
+        );
+        assert!(
+            body["result"]["key"].as_str().is_some(),
+            "from_args read the app intent's key"
+        );
         // exactly one real (fake) transaction + one business row + one PG-side receipt.
         assert_eq!(st.adapter.attempts(), 1);
-        assert_eq!(st.adapter.business_row_count(), 1, "one business row via the host contour");
-        assert_eq!(st.adapter.effect_receipt_count(), 1, "one PG-side effect receipt");
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "one business row via the host contour"
+        );
+        assert_eq!(
+            st.adapter.effect_receipt_count(),
+            1,
+            "one PG-side effect receipt"
+        );
         // executed response carries no capability identity.
         assert!(body.get("capability_id").is_none());
         assert!(body.get("scope").is_none());
@@ -329,8 +374,16 @@ fn replay_same_key_no_second_mutation() {
         assert_eq!(s1, 200);
         let (s2, _b2, _e2) = execute(&eh, &req, d2).await;
         assert_eq!(s2, 200, "replay still reports 200");
-        assert_eq!(st.adapter.attempts(), 1, "same key → machine dedup keeps it at one mutation");
-        assert_eq!(st.adapter.business_row_count(), 1, "still exactly one business row");
+        assert_eq!(
+            st.adapter.attempts(),
+            1,
+            "same key → machine dedup keeps it at one mutation"
+        );
+        assert_eq!(
+            st.adapter.business_row_count(),
+            1,
+            "still exactly one business row"
+        );
     });
 }
 
@@ -348,9 +401,16 @@ fn keyless_mutation_is_app_owned_400_before_host() {
         let eh = effect_host(&r, &h, &c);
 
         let (status, _body, executed) = execute(&eh, &req, decision).await;
-        assert!(!executed, "keyless → app Respond, not an executed InvokeEffect");
+        assert!(
+            !executed,
+            "keyless → app Respond, not an executed InvokeEffect"
+        );
         assert_eq!(status, 400, "keyless mutation is an app-owned 400");
-        assert_eq!(st.adapter.attempts(), 0, "no host execution before the app's guard");
+        assert_eq!(
+            st.adapter.attempts(),
+            0,
+            "no host execution before the app's guard"
+        );
     });
 }
 
@@ -368,10 +428,21 @@ fn app_names_no_authority_surface() {
     };
     let code = format!("{}\n{}", strip(&handlers), strip(&routes)).to_lowercase();
     for forbidden in [
-        "capability_id", "io.todowrite", "io.postgres", "passport", "dsn", "postgres://", "secret",
-        "[effects]", "select ", "insert into",
+        "capability_id",
+        "io.todowrite",
+        "io.postgres",
+        "passport",
+        "dsn",
+        "postgres://",
+        "secret",
+        "[effects]",
+        "select ",
+        "insert into",
     ] {
-        assert!(!code.contains(forbidden), "authored app must not contain `{forbidden}`");
+        assert!(
+            !code.contains(forbidden),
+            "authored app must not contain `{forbidden}`"
+        );
     }
     assert!(handlers.contains("\"todo-create\"")); // only logical targets.
 }

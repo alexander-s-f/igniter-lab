@@ -277,7 +277,10 @@ fn keyed_create_executes_via_machine_host() {
 
         let (status, body, executed) = execute(&eh, &req, decision).await;
 
-        assert!(executed, "a keyed mutating route produces a final InvokeEffect");
+        assert!(
+            executed,
+            "a keyed mutating route produces a final InvokeEffect"
+        );
         assert_eq!(status, 200, "committed effect → 200, body={body}");
         assert_eq!(body["status"], json!("committed"));
         assert_eq!(st.exec.attempts(), 1, "exactly one write effect performed");
@@ -387,9 +390,16 @@ fn structured_input_crosses_as_clean_object() {
     let app = build_app();
     let req = app_request("POST", "/accounts/7/todos", Some("evt-1"));
     match app.call(req) {
-        ServerDecision::InvokeEffect { input, idempotency_key, .. } => {
+        ServerDecision::InvokeEffect {
+            input,
+            idempotency_key,
+            ..
+        } => {
             // P7: `input` is the WHOLE structured WriteIntent — a JSON object, NOT `{"input": "<string>"}`.
-            assert!(input.is_object(), "input crosses as a structured object: {input}");
+            assert!(
+                input.is_object(),
+                "input crosses as a structured object: {input}"
+            );
             assert!(input.get("input").is_none(), "no legacy string wrapper");
             assert_eq!(input["operation"], json!("insert"));
             assert_eq!(input["target"], json!("todos"));
@@ -397,7 +407,10 @@ fn structured_input_crosses_as_clean_object() {
             assert!(input["values"].is_object(), "nested `values` preserved");
             assert_eq!(input["values"]["done"], json!("false"));
             let s = input.to_string();
-            assert!(!s.contains("__arm") && !s.contains("__variant"), "tag-free: {s}");
+            assert!(
+                !s.contains("__arm") && !s.contains("__variant"),
+                "tag-free: {s}"
+            );
             // idempotency stays its OWN field, never folded into `input`.
             assert_eq!(idempotency_key.as_deref(), Some("evt-1"));
         }

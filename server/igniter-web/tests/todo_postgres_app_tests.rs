@@ -60,7 +60,10 @@ fn loopback_behaviors() {
     assert_eq!(b["body"], json!("42"));
 
     // create without idempotency-key → keyless 400 (guard outermost, before the via match).
-    assert_eq!(roundtrip(&*app, "POST", "/accounts/7/todos", &[], "{}").0, 400);
+    assert_eq!(
+        roundtrip(&*app, "POST", "/accounts/7/todos", &[], "{}").0,
+        400
+    );
 
     // create with key → 202 observed InvokeEffect target `todo-create`, key preserved, no identity.
     let (s, b) = roundtrip(
@@ -73,7 +76,10 @@ fn loopback_behaviors() {
     assert_eq!(s, 202);
     assert_eq!(b["target"], json!("todo-create"));
     assert_eq!(b["idempotency_key"], json!("evt-1"));
-    assert!(b.get("capability_id").is_none(), "no effect identity smuggled");
+    assert!(
+        b.get("capability_id").is_none(),
+        "no effect identity smuggled"
+    );
     assert!(b.get("scope").is_none());
 
     // done without key → 400; with key → 202 observed InvokeEffect target `todo-done`.
@@ -94,7 +100,10 @@ fn loopback_behaviors() {
 
     // unmatched path → 404; wrong method on a known pattern → 405.
     assert_eq!(roundtrip(&*app, "GET", "/missing", &[], "").0, 404);
-    assert_eq!(roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0, 405);
+    assert_eq!(
+        roundtrip(&*app, "DELETE", "/accounts/7/todos", &[], "").0,
+        405
+    );
 }
 
 // ── 4 + 5: relational contracts are present, and the authored app carries no SQL/identity surface ─
@@ -114,7 +123,10 @@ fn relational_contracts_present_and_no_forbidden_surface() {
         "output plan : QueryPlan",
         "output intent : WriteIntent",
     ] {
-        assert!(handlers.contains(needle), "handlers must declare `{needle}`");
+        assert!(
+            handlers.contains(needle),
+            "handlers must declare `{needle}`"
+        );
     }
 
     // boundary: authored app (routes + handlers) carries no raw SQL, capability ids, scopes, DSNs, secrets.
@@ -130,16 +142,19 @@ fn relational_contracts_present_and_no_forbidden_surface() {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let code = format!(
-        "{}\n{}\n{}",
-        strip(&handlers),
-        strip(&routes),
-        strip(&toml)
-    )
-    .to_lowercase();
+    let code = format!("{}\n{}\n{}", strip(&handlers), strip(&routes), strip(&toml)).to_lowercase();
     for forbidden in [
-        "select ", "insert into", "update ", "delete from", "create table",
-        "capability_id", "io.postgres", "passport", "dsn", "password", "secret",
+        "select ",
+        "insert into",
+        "update ",
+        "delete from",
+        "create table",
+        "capability_id",
+        "io.postgres",
+        "passport",
+        "dsn",
+        "password",
+        "secret",
         "[effects]",
     ] {
         assert!(

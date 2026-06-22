@@ -34,7 +34,11 @@ fn vec3_package_compiles_through_resolver() {
         .expect("run igc");
     let stdout = String::from_utf8_lossy(&o.stdout);
     let v: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
-    assert_eq!(v["status"], Value::String("ok".into()), "package compiles clean: {stdout}");
+    assert_eq!(
+        v["status"],
+        Value::String("ok".into()),
+        "package compiles clean: {stdout}"
+    );
     let err_count = v["diagnostics"]
         .as_array()
         .map(|a| a.iter().filter(|d| d["severity"] == "error").count())
@@ -79,5 +83,9 @@ fn vec3_package_locks_and_verifies_strict() {
     let (ok, v) = run(&["verify", "--project-root", app_s, "--strict"]);
     assert!(ok, "verify --strict passes on the linalg workspace: {v}");
     assert_eq!(v["ok"], Value::Bool(true));
-    assert_eq!(v["integrity"]["ok"], Value::Bool(true), "assembly integrity clean: {v}");
+    assert_eq!(
+        v["integrity"]["ok"],
+        Value::Bool(true),
+        "assembly integrity clean: {v}"
+    );
 }

@@ -114,7 +114,11 @@ pure contract Plain {
 }";
     let sf = parse(explicit);
     assert_eq!(sf.contracts.len(), 1);
-    assert!(sf.parse_errors.is_empty(), "explicit form unaffected: {:?}", sf.parse_errors);
+    assert!(
+        sf.parse_errors.is_empty(),
+        "explicit form unaffected: {:?}",
+        sf.parse_errors
+    );
     // 1 input + 1 compute + 1 output
     assert_eq!(sf.contracts[0].body.len(), 3);
 }

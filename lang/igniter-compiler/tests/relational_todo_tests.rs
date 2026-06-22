@@ -71,15 +71,18 @@ fn relational_todo_compiles_clean() {
 
     // sanity: the intended shapes are actually present in the fixture (guards against an empty/no-op proof).
     for needle in [
-        "output plan : QueryPlan",          // query contracts return a structured plan
-        "output intent : WriteIntent",      // command contracts return a structured write intent
-        "Collection[QueryFilter]",          // filters are a typed collection
-        "compute r : Option[Todo]",         // not-found is an Option
+        "output plan : QueryPlan",     // query contracts return a structured plan
+        "output intent : WriteIntent", // command contracts return a structured write intent
+        "Collection[QueryFilter]",     // filters are a typed collection
+        "compute r : Option[Todo]",    // not-found is an Option
         "some(todo)",
         "none()",
-        "pure contract TodosByAccount",     // relation expressed as a CONTRACT
+        "pure contract TodosByAccount", // relation expressed as a CONTRACT
     ] {
-        assert!(FIXTURE.contains(needle), "fixture should contain `{needle}`");
+        assert!(
+            FIXTURE.contains(needle),
+            "fixture should contain `{needle}`"
+        );
     }
 }
 
@@ -96,7 +99,10 @@ fn fixture_has_no_raw_sql() {
         " join ",
         "create table",
     ] {
-        assert!(!hay.contains(sql), "fixture code must contain no raw SQL: `{sql}`");
+        assert!(
+            !hay.contains(sql),
+            "fixture code must contain no raw SQL: `{sql}`"
+        );
     }
 }
 
@@ -106,10 +112,20 @@ fn fixture_has_no_raw_sql() {
 fn fixture_has_no_orm_surface() {
     let hay = code_only();
     for orm in [
-        ".save", "save(", "find_by_sql", "belongs_to", "has_many", "has_one", "active_record",
-        ".all(", "lazy",
+        ".save",
+        "save(",
+        "find_by_sql",
+        "belongs_to",
+        "has_many",
+        "has_one",
+        "active_record",
+        ".all(",
+        "lazy",
     ] {
-        assert!(!hay.contains(orm), "fixture code must contain no ORM surface: `{orm}`");
+        assert!(
+            !hay.contains(orm),
+            "fixture code must contain no ORM surface: `{orm}`"
+        );
     }
     // "Account has many Todos" is the `TodosByAccount` contract — NOT a nested/lazy `todos` field.
     assert!(
@@ -123,7 +139,13 @@ fn fixture_has_no_orm_surface() {
 #[test]
 fn fixture_is_pure_ig() {
     let hay = code_only();
-    for forbidden in ["import ", "invokeeffect", "call_capability", "capability", "passport"] {
+    for forbidden in [
+        "import ",
+        "invokeeffect",
+        "call_capability",
+        "capability",
+        "passport",
+    ] {
         assert!(
             !hay.contains(forbidden),
             "relational Todo fixture code must be self-contained pure `.ig` (found `{forbidden}`)"

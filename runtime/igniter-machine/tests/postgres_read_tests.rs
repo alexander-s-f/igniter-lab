@@ -357,18 +357,20 @@ fn fake_typed_values_survive_projection_and_receipt() {
             "note": serde_json::Value::Null            // NULL     → null for any kind
         })];
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("typed_todos", rows));
-        let policy = PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
-            "typed_todos",
-            &[
-                ("id", Integer),
-                ("active", Boolean),
-                ("meta", Json),
-                ("tags", Array),
-                ("created_at", Timestamp),
-                ("amount", DecimalString),
-                ("note", Text),
-            ],
-        );
+        let policy = PostgresReadPolicy::new(100)
+            .allow_ops(&["select"])
+            .allow_source_typed(
+                "typed_todos",
+                &[
+                    ("id", Integer),
+                    ("active", Boolean),
+                    ("meta", Json),
+                    ("tags", Array),
+                    ("created_at", Timestamp),
+                    ("amount", DecimalString),
+                    ("note", Text),
+                ],
+            );
         let exec = Arc::new(PostgresReadExecutor::new(CAP, adapter.clone(), policy));
         let mut reg = CapabilityExecutorRegistry::new();
         reg.register(exec);
@@ -429,15 +431,17 @@ fn typed_todo_rows() -> Vec<serde_json::Value> {
 
 fn typed_policy() -> PostgresReadPolicy {
     use PostgresReadValueKind::*;
-    PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
-        "todos",
-        &[
-            ("id", Integer),
-            ("account_id", Text),
-            ("title", Text),
-            ("done", Boolean),
-        ],
-    )
+    PostgresReadPolicy::new(100)
+        .allow_ops(&["select"])
+        .allow_source_typed(
+            "todos",
+            &[
+                ("id", Integer),
+                ("account_id", Text),
+                ("title", Text),
+                ("done", Boolean),
+            ],
+        )
 }
 
 fn run_typed(plan: serde_json::Value, key: &str) -> igniter_machine::capability::EffectOutcome {

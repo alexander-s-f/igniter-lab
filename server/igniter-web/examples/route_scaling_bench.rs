@@ -30,7 +30,10 @@ const DISPATCH_ITERS: usize = 1000;
 /// Route counts from argv (e.g. `-- 10 50 90`), else the default set. Lets a single N be probed in its own
 /// process — needed because the typechecker stack-overflows (aborts) on very deep route chains (see doc).
 fn route_counts() -> Vec<usize> {
-    let from_args: Vec<usize> = std::env::args().skip(1).filter_map(|a| a.parse().ok()).collect();
+    let from_args: Vec<usize> = std::env::args()
+        .skip(1)
+        .filter_map(|a| a.parse().ok())
+        .collect();
     if from_args.is_empty() {
         DEFAULT_ROUTE_COUNTS.to_vec()
     } else {
@@ -178,14 +181,20 @@ fn main() {
             None => {
                 // build hit the wall (e.g. serde recursion limit on the deep nested-if IR) — recorded
                 // above; skip dispatch for this N and keep going.
-                eprintln!("note: build failed at {n} routes (the route-lowering scaling wall) — see JSON");
+                eprintln!(
+                    "note: build failed at {n} routes (the route-lowering scaling wall) — see JSON"
+                );
                 continue;
             }
         };
         let _ = build_ok;
 
         // warm up: prime the regexp cache for this app's patterns (so dispatch measures match, not first-touch compile).
-        let _ = app.call(ServerRequest::new("GET", &format!("/r{}/123", n - 1), Value::Null));
+        let _ = app.call(ServerRequest::new(
+            "GET",
+            &format!("/r{}/123", n - 1),
+            Value::Null,
+        ));
 
         // early / middle / late / miss — the route-chain depth curve.
         let first = "/r0/123".to_string();
@@ -193,10 +202,30 @@ fn main() {
         let last = format!("/r{}/123", n - 1);
         let miss = "/nope/123".to_string(); // matches no route → 404, walks every arm.
 
-        scenarios.push(time_dispatch(&format!("dispatch_{n}_first"), &*app, &first, 200));
-        scenarios.push(time_dispatch(&format!("dispatch_{n}_middle"), &*app, &middle, 200));
-        scenarios.push(time_dispatch(&format!("dispatch_{n}_last"), &*app, &last, 200));
-        scenarios.push(time_dispatch(&format!("dispatch_{n}_miss"), &*app, &miss, 404));
+        scenarios.push(time_dispatch(
+            &format!("dispatch_{n}_first"),
+            &*app,
+            &first,
+            200,
+        ));
+        scenarios.push(time_dispatch(
+            &format!("dispatch_{n}_middle"),
+            &*app,
+            &middle,
+            200,
+        ));
+        scenarios.push(time_dispatch(
+            &format!("dispatch_{n}_last"),
+            &*app,
+            &last,
+            200,
+        ));
+        scenarios.push(time_dispatch(
+            &format!("dispatch_{n}_miss"),
+            &*app,
+            &miss,
+            404,
+        ));
     }
 
     let all_ok = scenarios.iter().all(|s| s.ok);
@@ -219,7 +248,9 @@ fn main() {
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
 
     if !dispatch_behavior_ok {
-        eprintln!("FAIL: a dispatched route produced wrong behavior (not a timing or build-wall finding)");
+        eprintln!(
+            "FAIL: a dispatched route produced wrong behavior (not a timing or build-wall finding)"
+        );
         std::process::exit(1);
     }
 }

@@ -26,7 +26,9 @@ use igniter_machine::coordination::{
 };
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter};
 use igniter_machine::machine::IgniterMachine;
-use igniter_machine::postgres_read::{FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy};
+use igniter_machine::postgres_read::{
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
+};
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
@@ -334,9 +336,17 @@ fn product_read_then_write_e2e() {
             .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
             .await
             .unwrap();
-        assert_eq!(plan["source"], json!("todos"), "app QueryPlan, not Rust SQL");
+        assert_eq!(
+            plan["source"],
+            json!("todos"),
+            "app QueryPlan, not Rust SQL"
+        );
         assert_eq!(plan["op"], json!("select"));
-        assert_eq!(plan["filters"][0]["field"], json!("account_id"), "host gate keys on app filter");
+        assert_eq!(
+            plan["filters"][0]["field"],
+            json!("account_id"),
+            "host gate keys on app filter"
+        );
 
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
         let out = host_read(&plan, todos_policy(100), adapter.clone()).await;
@@ -373,7 +383,11 @@ fn product_read_then_write_e2e() {
             )
             .await
             .unwrap();
-        assert_eq!(not_found["status"], json!(404), "empty rows → app 404, not infra error");
+        assert_eq!(
+            not_found["status"],
+            json!(404),
+            "empty rows → app 404, not infra error"
+        );
 
         // ── WRITE: keyed create EXECUTES through the machine effect host → committed receipt ──
         let (h, r) = prod(3).await;
@@ -416,10 +430,22 @@ fn product_app_has_no_authority_surface() {
     };
     let code = format!("{}\n{}", strip(&handlers), strip(&routes)).to_lowercase();
     for forbidden in [
-        "select ", "insert into", "where ", "capability_id", "io.postgres", "io.todowrite",
-        "passport", "dsn", "postgres://", "secret", "[effects]",
+        "select ",
+        "insert into",
+        "where ",
+        "capability_id",
+        "io.postgres",
+        "io.todowrite",
+        "passport",
+        "dsn",
+        "postgres://",
+        "secret",
+        "[effects]",
     ] {
-        assert!(!code.contains(forbidden), "authored app must not contain `{forbidden}`");
+        assert!(
+            !code.contains(forbidden),
+            "authored app must not contain `{forbidden}`"
+        );
     }
     // the only DB-ish token is the logical `source: "todos"`; effects name only logical targets.
     assert!(handlers.contains("source: \"todos\""));

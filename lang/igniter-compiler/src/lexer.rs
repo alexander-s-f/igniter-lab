@@ -27,7 +27,7 @@ pub enum TokenType {
     Question, // ?
     Bang,     // !
     At,       // @
-    Illegal,  // a malformed lexeme (e.g. invalid string escape / unterminated string); `value` = reason
+    Illegal, // a malformed lexeme (e.g. invalid string escape / unterminated string); `value` = reason
     Eof,
 }
 

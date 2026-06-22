@@ -988,8 +988,10 @@ impl Emitter {
                 // `if`/`match` branch the emitter falls here, so recognize them directly (mirroring
                 // typechecker::infer_sealed_construct) instead of emitting an untagged `{ ok: x }` record.
                 if map.get("kind").and_then(|k| k.as_str()) == Some("call") {
-                    if let Some((arm, variant, field)) =
-                        map.get("fn").and_then(|f| f.as_str()).and_then(|f| match f {
+                    if let Some((arm, variant, field)) = map
+                        .get("fn")
+                        .and_then(|f| f.as_str())
+                        .and_then(|f| match f {
                             "ok" => Some(("Ok", "Result", Some("value"))),
                             "err" => Some(("Err", "Result", Some("error"))),
                             "some" => Some(("Some", "Option", Some("value"))),

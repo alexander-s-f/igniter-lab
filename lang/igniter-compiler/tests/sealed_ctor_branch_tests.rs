@@ -48,7 +48,10 @@ fn sealed_ctor_in_if_branch_lowers_to_tagged_variant() {
         .expect("run igniter_compiler");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     assert!(output.status.success(), "compile must succeed.\n{stdout}");
-    assert!(!stdout.contains("OOF-"), "no diagnostics expected.\n{stdout}");
+    assert!(
+        !stdout.contains("OOF-"),
+        "no diagnostics expected.\n{stdout}"
+    );
 
     // The emitted SemanticIR carries the branch constructors as TAGGED sealed variants.
     let sir = std::fs::read_to_string(out.join("semantic_ir_program.json"))

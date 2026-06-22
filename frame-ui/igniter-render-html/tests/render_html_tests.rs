@@ -18,7 +18,9 @@ fn renders_canonical_form_fixture_deterministically() {
     assert!(a.contains("<title>Lead Intake</title>"));
     assert!(a.contains("<input type=\"text\" name=\"name\" required>"));
     assert!(a.contains("<option value=\"referral\">referral</option>"));
-    assert!(a.contains("<button type=\"submit\" id=\"submit\" data-action=\"submit\">Submit</button>"));
+    assert!(
+        a.contains("<button type=\"submit\" id=\"submit\" data-action=\"submit\">Submit</button>")
+    );
 }
 
 #[test]
@@ -60,7 +62,10 @@ fn attribute_values_are_escaped() {
         "body":[ { "kind":"text", "id":"x\" onload=\"evil", "label":"L" } ] }"#;
     let html = render_html(artifact).unwrap();
     assert!(html.contains("name=\"x&quot; onload=&quot;evil\""));
-    assert!(!html.contains("onload=\"evil\""), "must not break out of the attribute");
+    assert!(
+        !html.contains("onload=\"evil\""),
+        "must not break out of the attribute"
+    );
 }
 
 #[test]

@@ -28,9 +28,15 @@ fn isqrt_values_and_domain() {
     assert_eq!(ok("isqrt", &[Value::Integer(16)]), Value::Integer(4));
     assert_eq!(ok("isqrt", &[Value::Integer(17)]), Value::Integer(4));
     // large: 1_000_000_000_000 = 10^12, isqrt = 10^6
-    assert_eq!(ok("isqrt", &[Value::Integer(1_000_000_000_000)]), Value::Integer(1_000_000));
+    assert_eq!(
+        ok("isqrt", &[Value::Integer(1_000_000_000_000)]),
+        Value::Integer(1_000_000)
+    );
     // a non-perfect large square: 10^18 isqrt = 1_000_000_000
-    assert_eq!(ok("isqrt", &[Value::Integer(1_000_000_000_000_000_000)]), Value::Integer(1_000_000_000));
+    assert_eq!(
+        ok("isqrt", &[Value::Integer(1_000_000_000_000_000_000)]),
+        Value::Integer(1_000_000_000)
+    );
     assert!(err("isqrt", &[Value::Integer(-1)]).contains("domain"));
     assert!(err("isqrt", &[Value::Float(4.0)]).contains("Integer"));
     assert!(err("isqrt", &[Value::Integer(1), Value::Integer(2)]).contains("exactly 1"));
@@ -38,11 +44,26 @@ fn isqrt_values_and_domain() {
 
 #[test]
 fn ipow_values_domain_overflow() {
-    assert_eq!(ok("ipow", &[Value::Integer(2), Value::Integer(0)]), Value::Integer(1));
-    assert_eq!(ok("ipow", &[Value::Integer(2), Value::Integer(10)]), Value::Integer(1024));
-    assert_eq!(ok("ipow", &[Value::Integer(3), Value::Integer(4)]), Value::Integer(81));
-    assert_eq!(ok("ipow", &[Value::Integer(-2), Value::Integer(3)]), Value::Integer(-8)); // negative base
-    assert_eq!(ok("ipow", &[Value::Integer(5), Value::Integer(1)]), Value::Integer(5));
+    assert_eq!(
+        ok("ipow", &[Value::Integer(2), Value::Integer(0)]),
+        Value::Integer(1)
+    );
+    assert_eq!(
+        ok("ipow", &[Value::Integer(2), Value::Integer(10)]),
+        Value::Integer(1024)
+    );
+    assert_eq!(
+        ok("ipow", &[Value::Integer(3), Value::Integer(4)]),
+        Value::Integer(81)
+    );
+    assert_eq!(
+        ok("ipow", &[Value::Integer(-2), Value::Integer(3)]),
+        Value::Integer(-8)
+    ); // negative base
+    assert_eq!(
+        ok("ipow", &[Value::Integer(5), Value::Integer(1)]),
+        Value::Integer(5)
+    );
     assert!(err("ipow", &[Value::Integer(2), Value::Integer(-1)]).contains("domain")); // neg exponent
     assert!(err("ipow", &[Value::Integer(10), Value::Integer(19)]).contains("overflow")); // 10^19 > i64::MAX
     assert!(err("ipow", &[Value::Float(2.0), Value::Integer(3)]).contains("Integer"));
@@ -51,11 +72,23 @@ fn ipow_values_domain_overflow() {
 
 #[test]
 fn mod_values_euclidean_and_zero() {
-    assert_eq!(ok("mod", &[Value::Integer(7), Value::Integer(3)]), Value::Integer(1));
-    assert_eq!(ok("mod", &[Value::Integer(6), Value::Integer(3)]), Value::Integer(0));
+    assert_eq!(
+        ok("mod", &[Value::Integer(7), Value::Integer(3)]),
+        Value::Integer(1)
+    );
+    assert_eq!(
+        ok("mod", &[Value::Integer(6), Value::Integer(3)]),
+        Value::Integer(0)
+    );
     // Euclidean: negative dividend → NON-NEGATIVE result for positive modulus (NOT Rust `%`, which gives -1).
-    assert_eq!(ok("mod", &[Value::Integer(-1), Value::Integer(3)]), Value::Integer(2));
-    assert_eq!(ok("mod", &[Value::Integer(-7), Value::Integer(3)]), Value::Integer(2));
+    assert_eq!(
+        ok("mod", &[Value::Integer(-1), Value::Integer(3)]),
+        Value::Integer(2)
+    );
+    assert_eq!(
+        ok("mod", &[Value::Integer(-7), Value::Integer(3)]),
+        Value::Integer(2)
+    );
     assert!(err("mod", &[Value::Integer(1), Value::Integer(0)]).contains("division by zero"));
     assert!(err("mod", &[Value::Integer(1), Value::Float(2.0)]).contains("Integer"));
 }
@@ -79,13 +112,18 @@ async fn run_expr(expr: serde_json::Value) -> Result<Value, String> {
     let contract = json!({ "contract_id": "IntMod", "inputs": [], "expression": expr });
     let mut c = Compiler::new();
     let bc = c.compile(&contract)?;
-    VM::new(None).execute(&bc, &HashMap::new(), &HashMap::new()).await
+    VM::new(None)
+        .execute(&bc, &HashMap::new(), &HashMap::new())
+        .await
 }
 
 /// A nested integer expression compiles and runs: `mod(ipow(2,10), 7)` = 1024 mod 7 = 2.
 #[tokio::test]
 async fn compiler_vm_nested_integer_expression() {
-    let expr = call("mod", vec![call("ipow", vec![lit_int(2), lit_int(10)]), lit_int(7)]);
+    let expr = call(
+        "mod",
+        vec![call("ipow", vec![lit_int(2), lit_int(10)]), lit_int(7)],
+    );
     assert_eq!(run_expr(expr).await.unwrap(), Value::Integer(2));
 }
 
@@ -93,7 +131,8 @@ async fn compiler_vm_nested_integer_expression() {
 /// = (31*42+17) mod 64 = 1319 mod 64 = 39.
 #[tokio::test]
 async fn bloom_filter_style_hash_uses_mod() {
-    let a_key = json!({ "kind": "binary_op", "op": "*", "left": lit_int(31), "right": lit_int(42) });
+    let a_key =
+        json!({ "kind": "binary_op", "op": "*", "left": lit_int(31), "right": lit_int(42) });
     let a_key_b = json!({ "kind": "binary_op", "op": "+", "left": a_key, "right": lit_int(17) });
     let expr = call("mod", vec![a_key_b, lit_int(64)]);
     assert_eq!(run_expr(expr).await.unwrap(), Value::Integer(39));
@@ -119,6 +158,13 @@ async fn isqrt_inside_fold_lambda() {
     });
     let mut c = Compiler::new();
     let bc = c.compile(&contract).unwrap();
-    let r = VM::new(None).execute(&bc, &HashMap::new(), &HashMap::new()).await.unwrap();
-    assert_eq!(r, Value::Integer(9), "Σ isqrt(16,9,4) = 4+3+2 = 9 inside a fold lambda");
+    let r = VM::new(None)
+        .execute(&bc, &HashMap::new(), &HashMap::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        r,
+        Value::Integer(9),
+        "Σ isqrt(16,9,4) = 4+3+2 = 9 inside a fold lambda"
+    );
 }

@@ -477,7 +477,14 @@ fn pack_temp(fixture: &str, tag: &str, with_lock: bool) -> PathBuf {
         run("lock", &app);
     }
     let out = igpkg_path(tag);
-    run_args(&["package", "pack", "--project-root", &root_arg(&app), "--out", out.to_str().unwrap()]);
+    run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &root_arg(&app),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
     out
 }
 
@@ -512,8 +519,14 @@ fn cli_admit_clean_accepted() {
     let (ok, v) = admit(&pkg, &["--require-lock", "--match-toolchain"]);
     assert!(ok, "clean archive admitted: {v}");
     assert_eq!(v["accepted"], Value::Bool(true));
-    assert!(v["artifact_digest"].as_str().unwrap().starts_with("sha256:"));
-    assert!(v["lock_digest"].as_str().unwrap().starts_with("sha256:"), "lock identity present");
+    assert!(v["artifact_digest"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
+    assert!(
+        v["lock_digest"].as_str().unwrap().starts_with("sha256:"),
+        "lock identity present"
+    );
     assert!(v["compiler_version"].as_str().is_some());
     assert!(v["stdlib_version"].as_str().is_some());
     assert!(v["refusals"].as_array().unwrap().is_empty());
@@ -538,7 +551,10 @@ fn cli_admit_tampered_digest_mismatch() {
     std::fs::write(&pkg, &bytes).unwrap();
     let (ok, v) = admit(&pkg, &[]);
     assert!(!ok, "tampered archive refused: {v}");
-    assert!(refusal_reasons(&v).contains(&"digest_mismatch".to_string()), "{v}");
+    assert!(
+        refusal_reasons(&v).contains(&"digest_mismatch".to_string()),
+        "{v}"
+    );
 }
 
 /// An integrity fault (phantom import) is refused as `integrity`, exposing the `OOF-IMP*`.
@@ -547,9 +563,16 @@ fn cli_admit_integrity_refused() {
     let pkg = pack_temp("workspace_phantom", "p23_integ", false);
     let (ok, v) = admit(&pkg, &[]);
     assert!(!ok, "phantom archive refused: {v}");
-    let integrity = v["refusals"].as_array().unwrap().iter().find(|r| r["reason"] == serde_json::json!("integrity"));
+    let integrity = v["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["reason"] == serde_json::json!("integrity"));
     let integrity = integrity.unwrap_or_else(|| panic!("expected integrity refusal: {v}"));
-    assert_eq!(integrity["diagnostic"]["rule"], serde_json::json!("OOF-IMP6"));
+    assert_eq!(
+        integrity["diagnostic"]["rule"],
+        serde_json::json!("OOF-IMP6")
+    );
 }
 
 /// A stale lock (sources edited after locking, before packing) is refused as `stale_lock`.
@@ -563,11 +586,21 @@ fn cli_admit_stale_lock_refused() {
     c.push_str("\n-- stale\n");
     std::fs::write(&leaf, c).unwrap();
     let pkg = igpkg_path("p23_stale");
-    run_args(&["package", "pack", "--project-root", &root_arg(&app), "--out", pkg.to_str().unwrap()]);
+    run_args(&[
+        "package",
+        "pack",
+        "--project-root",
+        &root_arg(&app),
+        "--out",
+        pkg.to_str().unwrap(),
+    ]);
 
     let (ok, v) = admit(&pkg, &["--require-lock"]);
     assert!(!ok, "stale lock refused: {v}");
-    assert!(refusal_reasons(&v).contains(&"stale_lock".to_string()), "{v}");
+    assert!(
+        refusal_reasons(&v).contains(&"stale_lock".to_string()),
+        "{v}"
+    );
 }
 
 /// A missing lock under `--require-lock` is refused as `missing_lock`.
@@ -576,7 +609,10 @@ fn cli_admit_missing_lock_refused() {
     let pkg = pack_temp("workspace_transitive_ok", "p23_nolock", false); // no `igc lock` run
     let (ok, v) = admit(&pkg, &["--require-lock"]);
     assert!(!ok, "missing lock refused under --require-lock: {v}");
-    assert!(refusal_reasons(&v).contains(&"missing_lock".to_string()), "{v}");
+    assert!(
+        refusal_reasons(&v).contains(&"missing_lock".to_string()),
+        "{v}"
+    );
     // without --require-lock it is NOT a refusal
     let (ok2, _) = admit(&pkg, &[]);
     assert!(ok2, "missing lock is fine without --require-lock");
@@ -589,17 +625,31 @@ fn cli_admit_toolchain_drift_refused() {
     rewrite_manifest_field(&pkg, "compiler_version", "9.9.9-other-node");
     let (ok, v) = admit(&pkg, &["--match-toolchain"]);
     assert!(!ok, "toolchain drift refused: {v}");
-    let tc = v["refusals"].as_array().unwrap().iter().find(|r| r["reason"] == serde_json::json!("toolchain_drift"));
+    let tc = v["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["reason"] == serde_json::json!("toolchain_drift"));
     let tc = tc.unwrap_or_else(|| panic!("expected toolchain_drift: {v}"));
-    assert_eq!(tc["actual"]["compiler"], serde_json::json!("9.9.9-other-node"));
+    assert_eq!(
+        tc["actual"]["compiler"],
+        serde_json::json!("9.9.9-other-node")
+    );
     // editing the manifest header does NOT change the tree digest → digest still matches
-    assert!(!refusal_reasons(&v).contains(&"digest_mismatch".to_string()), "manifest edit is outside the tree digest: {v}");
+    assert!(
+        !refusal_reasons(&v).contains(&"digest_mismatch".to_string()),
+        "manifest edit is outside the tree digest: {v}"
+    );
 }
 
 fn refusal_reasons(v: &Value) -> Vec<String> {
     v["refusals"]
         .as_array()
-        .map(|a| a.iter().filter_map(|r| r["reason"].as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|r| r["reason"].as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

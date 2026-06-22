@@ -81,7 +81,10 @@ pub fn safe_url(url: &str) -> Result<String, RenderHtmlError> {
         // a scheme is `alpha *( alpha | digit | + | - | . )` with no `/` before the `:`.
         let is_scheme = !before.is_empty()
             && !before.contains('/')
-            && before.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && before
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
             && before
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
@@ -127,9 +130,9 @@ fn document(body: &str, title: &str) -> String {
 }
 
 fn req<'a>(v: &'a Value, key: &str, ctx: &str) -> Result<&'a str, RenderHtmlError> {
-    v.get(key)
-        .and_then(|x| x.as_str())
-        .ok_or_else(|| RenderHtmlError::InvalidArtifact(format!("{ctx}: missing string field '{key}'")))
+    v.get(key).and_then(|x| x.as_str()).ok_or_else(|| {
+        RenderHtmlError::InvalidArtifact(format!("{ctx}: missing string field '{key}'"))
+    })
 }
 
 fn bool_field(v: &Value, key: &str) -> bool {
@@ -313,7 +316,10 @@ mod tests {
     #[test]
     fn safe_url_allows_relative_and_http_s() {
         assert_eq!(safe_url("/todos/1").unwrap(), "/todos/1");
-        assert_eq!(safe_url("https://example.com/x").unwrap(), "https://example.com/x");
+        assert_eq!(
+            safe_url("https://example.com/x").unwrap(),
+            "https://example.com/x"
+        );
         assert_eq!(safe_url("./a").unwrap(), "./a");
         assert_eq!(safe_url("a/b:c").unwrap(), "a/b:c"); // ':' after '/' is not a scheme
     }

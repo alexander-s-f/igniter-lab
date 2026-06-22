@@ -3,10 +3,10 @@
 // build a typed `View` descriptor returned via `RespondView`, and the loopback response body root IS
 // that clean view JSON object — NOT a `{"body": "<escaped-json>"}` double-wrap. Fake data, no DB, no Rust.
 
+use igniter_server::protocol::ServerApp;
 use igniter_web::runner::check_app_dir;
 use igniter_web::testkit::{roundtrip, roundtrip_raw};
 use igniter_web::{build_igweb_app, IgWebBuildInput};
-use igniter_server::protocol::ServerApp;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,7 +16,10 @@ use std::sync::Arc;
 const TODO_ARTIFACT: &str = r#"{"artifact":"view","layout":"form","title":"Todos","body":[{"kind":"label","text":"Buy milk <script>"},{"kind":"label","text":"Write the spec"},{"kind":"button","id":"done","label":"Done","action":"submit"}]}"#;
 
 fn dir() -> PathBuf {
-    PathBuf::from(format!("{}/examples/todo_view_app", env!("CARGO_MANIFEST_DIR")))
+    PathBuf::from(format!(
+        "{}/examples/todo_view_app",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }
 
 fn sources() -> Vec<PathBuf> {
@@ -56,11 +59,20 @@ fn index_view_body_root_is_the_clean_view_object() {
     assert_eq!(body["items"][1]["label"], json!("Write the spec"));
 
     // NOT double-wrapped (`{"body": "..."}`) and NOT a stringified JSON document.
-    assert!(body.get("body").is_none(), "must not be {{\"body\": ...}}: {body}");
-    assert!(body.is_object(), "root must be a JSON object, not a string: {body}");
+    assert!(
+        body.get("body").is_none(),
+        "must not be {{\"body\": ...}}: {body}"
+    );
+    assert!(
+        body.is_object(),
+        "root must be a JSON object, not a string: {body}"
+    );
     // Plain records serialize clean — no VM variant discriminants leak into the view root.
     assert!(body.get("__arm").is_none(), "no __arm in view root: {body}");
-    assert!(body.get("__variant").is_none(), "no __variant in view root: {body}");
+    assert!(
+        body.get("__variant").is_none(),
+        "no __variant in view root: {body}"
+    );
 }
 
 #[test]
@@ -135,10 +147,14 @@ fn todo_html_preview_returns_verbatim_text_html() {
 fn todo_html_preview_invalid_artifact_is_json_500() {
     let app = build();
     // valid JSON but not a view artifact → renderer rejects → JSON 500, not HTML, not a panic.
-    let (status, wire) = roundtrip_raw(&*app, "POST", "/todos/html-preview", &[], r#"{"todo":"x"}"#);
+    let (status, wire) =
+        roundtrip_raw(&*app, "POST", "/todos/html-preview", &[], r#"{"todo":"x"}"#);
     assert_eq!(status, 500);
     let (head, body) = split(&wire);
-    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(
+        head.contains("content-type: application/json"),
+        "head: {head}"
+    );
     assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
     assert!(body.contains("render failed"));
 }
@@ -162,7 +178,10 @@ fn authored_renderview_returns_html_built_from_ig_records() {
     assert!(!body.contains("{\"body\""));
     assert!(body.contains("<title>Todo Detail</title>"));
     // route param flowed into a leaf field.
-    assert!(body.contains("<p class=\"ig-label\">42</p>"), "param in artifact: {body}");
+    assert!(
+        body.contains("<p class=\"ig-label\">42</p>"),
+        "param in artifact: {body}"
+    );
     // the typed `button` record rendered.
     assert!(body.contains("data-action=\"submit\""));
     // a `<script>` leaf is escaped on the way to bytes.
@@ -207,7 +226,10 @@ fn list_html_maps_domain_collection_to_nodes() {
     assert_eq!(status, 200);
     let (head, body) = split(&wire);
 
-    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
     assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
     assert!(body.contains("<title>Todos</title>"));
     // both items render, in authored order (map preserves order).
@@ -216,7 +238,10 @@ fn list_html_maps_domain_collection_to_nodes() {
     assert!(i_milk < i_spec, "deterministic authored order");
     // malicious title text is escaped on the way to bytes.
     assert!(body.contains("Buy milk &lt;script&gt;"));
-    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
 }
 
 #[test]
@@ -228,7 +253,10 @@ fn pending_html_filters_then_maps_domain_collection() {
     assert_eq!(status, 200);
     let (head, body) = split(&wire);
 
-    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
     assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
     assert!(body.contains("<title>Pending</title>"));
     // kept: the two pending items, in original order.
@@ -236,10 +264,16 @@ fn pending_html_filters_then_maps_domain_collection() {
     let i_bills = body.find("Pay bills").expect("pending item 3 present");
     assert!(i_milk < i_bills, "kept items in original order");
     // omitted: the done item.
-    assert!(!body.contains("Write the spec"), "done item must be omitted: {body}");
+    assert!(
+        !body.contains("Write the spec"),
+        "done item must be omitted: {body}"
+    );
     // kept malicious text is still escaped.
     assert!(body.contains("Buy milk &lt;script&gt;"));
-    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
 }
 
 #[test]
@@ -251,16 +285,34 @@ fn filter_html_renders_select_options_in_order_escaped() {
     assert_eq!(status, 200);
     let (head, body) = split(&wire);
 
-    assert!(head.contains("content-type: text/html; charset=utf-8"), "head: {head}");
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
     assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
-    assert!(body.contains("<select name=\"status\">"), "select rendered: {body}");
+    assert!(
+        body.contains("<select name=\"status\">"),
+        "select rendered: {body}"
+    );
     // options in authored order.
-    let i_all = body.find("<option value=\"all\">all</option>").expect("option all");
-    let i_pending = body.find("pending &lt;script&gt;").expect("option pending escaped");
-    let i_done = body.find("<option value=\"done\">done</option>").expect("option done");
-    assert!(i_all < i_pending && i_pending < i_done, "options in authored order");
+    let i_all = body
+        .find("<option value=\"all\">all</option>")
+        .expect("option all");
+    let i_pending = body
+        .find("pending &lt;script&gt;")
+        .expect("option pending escaped");
+    let i_done = body
+        .find("<option value=\"done\">done</option>")
+        .expect("option done");
+    assert!(
+        i_all < i_pending && i_pending < i_done,
+        "options in authored order"
+    );
     // malicious option text escaped; no raw script.
-    assert!(!body.contains("<script>"), "raw <script> must not appear: {body}");
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
     // the sibling button still renders (mixed node kinds in one body).
     assert!(body.contains("data-action=\"/todos\""));
 }
@@ -271,7 +323,10 @@ fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     let (status, wire) = roundtrip_raw(&*app, "GET", "/bad-node", &[], "");
     assert_eq!(status, 500, "unsupported `kind` → 500, not a panic");
     let (head, body) = split(&wire);
-    assert!(head.contains("content-type: application/json"), "head: {head}");
+    assert!(
+        head.contains("content-type: application/json"),
+        "head: {head}"
+    );
     assert!(!body.starts_with("<!DOCTYPE"), "must not be HTML");
     assert!(body.contains("render failed"));
     assert!(body.contains("unsupported_node"), "kind surfaced: {body}");
