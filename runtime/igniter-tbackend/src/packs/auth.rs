@@ -149,7 +149,7 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
                 }
             }
             "write_only" => {
-                let allowed_ops = ["ping", "write_fact"];
+                let allowed_ops = ["ping", "write_fact", "write_fact_once"];
                 if !allowed_ops.contains(&op) {
                     return Err(format!(
                         "Access denied: role 'write_only' cannot execute operation '{}'",

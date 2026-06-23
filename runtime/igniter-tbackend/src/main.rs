@@ -10,7 +10,7 @@ use packs::{
     AnalyticsPack, AuthPack, BaseAuditPack, CrossStorePack, DiagnosticsPack, McpPack,
     MultiTenantScannerPack, PipelinePack, QueryPack, SnapshotPack, TriggerPack,
 };
-use pure_core::FactData;
+use pure_core::{FactData, WriteOnceResult};
 
 use parking_lot::Mutex;
 use std::io::{Read, Write};
@@ -183,6 +183,53 @@ impl ServerPack for CorePack {
             }
             engine.log.push(data);
             serde_json::json!({ "ok": true })
+        }));
+
+        // 3. write_fact_once
+        registry.register("write_fact_once", Arc::new(|req, kernel| {
+            let data_val = match req.get("fact") {
+                Some(f) => f,
+                None => return serde_json::json!({ "ok": false, "error": "Missing 'fact' parameter" }),
+            };
+            let data: FactData = match serde_json::from_value(data_val.clone()) {
+                Ok(d) => d,
+                Err(e) => return serde_json::json!({ "ok": false, "error": format!("Invalid fact data: {}", e) }),
+            };
+
+            let engine = match kernel.get_or_create_engine(&data.store) {
+                Some(e) => e,
+                None => return serde_json::json!({ "ok": false, "error": "Invalid store name" }),
+            };
+
+            let result = engine.log.push_once(data, |fact| {
+                if let Some(ref fb) = engine.wal {
+                    fb.write_fact_data(fact)?;
+                }
+                Ok(())
+            });
+
+            match result {
+                Ok(WriteOnceResult::Inserted) => serde_json::json!({
+                    "ok": true,
+                    "committed": true,
+                    "idempotent_replay": false
+                }),
+                Ok(WriteOnceResult::Replay) => serde_json::json!({
+                    "ok": true,
+                    "committed": true,
+                    "idempotent_replay": true
+                }),
+                Ok(WriteOnceResult::Conflict { existing }) => serde_json::json!({
+                    "ok": false,
+                    "error": "Duplicate fact id conflict",
+                    "error_code": "duplicate_fact_id_conflict",
+                    "committed": false,
+                    "retryable": false,
+                    "existing_key": existing.key,
+                    "existing_value_hash": existing.value_hash
+                }),
+                Err(e) => serde_json::json!({ "ok": false, "error": format!("WAL write failed: {}", e) }),
+            }
         }));
 
         // 3. latest_for

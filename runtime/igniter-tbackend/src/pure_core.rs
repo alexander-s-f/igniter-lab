@@ -37,6 +37,14 @@ struct ShardInner {
 
 pub struct ShardedFactLog {
     shards: Vec<RwLock<ShardInner>>,
+    write_once_lock: Mutex<()>,
+}
+
+#[derive(Clone, Debug)]
+pub enum WriteOnceResult {
+    Inserted,
+    Replay,
+    Conflict { existing: FactData },
 }
 
 impl ShardedFactLog {
@@ -48,7 +56,10 @@ impl ShardedFactLog {
                 by_id: HashMap::new(),
             }));
         }
-        ShardedFactLog { shards }
+        ShardedFactLog {
+            shards,
+            write_once_lock: Mutex::new(()),
+        }
     }
 
     fn get_shard_index(&self, store: &str, key: &str) -> usize {
@@ -69,6 +80,24 @@ impl ShardedFactLog {
         }
     }
 
+    pub fn find_by_store_id(&self, store: &str, id: &str) -> Option<FactData> {
+        for shard_lock in &self.shards {
+            let shard = shard_lock.read();
+            if let Some((existing_store, existing_key, idx)) = shard.by_id.get(id) {
+                if existing_store != store {
+                    continue;
+                }
+                let k = (existing_store.clone(), existing_key.clone());
+                if let Some(timeline) = shard.by_key.get(&k) {
+                    if let Some(fact) = timeline.get(*idx) {
+                        return Some(fact.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn push(&self, data: FactData) {
         let idx = self.get_shard_index(&data.store, &data.key);
         let mut shard = self.shards[idx].write();
@@ -80,6 +109,26 @@ impl ShardedFactLog {
             .insert(data.id.clone(), (k.0.clone(), k.1.clone(), list_idx));
 
         shard.by_key.get_mut(&k).unwrap().push(data);
+    }
+
+    pub fn push_once<F>(&self, data: FactData, before_append: F) -> Result<WriteOnceResult, String>
+    where
+        F: FnOnce(&FactData) -> Result<(), String>,
+    {
+        let _guard = self.write_once_lock.lock();
+        if let Some(existing) = self.find_by_store_id(&data.store, &data.id) {
+            if existing.key == data.key
+                && existing.value_hash == data.value_hash
+                && existing.value == data.value
+            {
+                return Ok(WriteOnceResult::Replay);
+            }
+            return Ok(WriteOnceResult::Conflict { existing });
+        }
+
+        before_append(&data)?;
+        self.push(data);
+        Ok(WriteOnceResult::Inserted)
     }
 
     pub fn latest_for(&self, store: &str, key: &str, as_of: Option<f64>) -> Option<FactData> {

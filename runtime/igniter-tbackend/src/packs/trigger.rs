@@ -202,9 +202,13 @@ impl RequestMiddleware for TriggerPackMiddleware {
         resp: &mut serde_json::Value,
         _kernel: &ServerKernel,
     ) {
-        // Intercept successful write_fact operations
+        // Intercept successful write operations. write_fact_once replays are
+        // durable success responses, but they are not new writes.
         let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        if op == "write_fact" && resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+        let is_new_write = op == "write_fact"
+            || (op == "write_fact_once"
+                && resp.get("idempotent_replay").and_then(|v| v.as_bool()) == Some(false));
+        if is_new_write && resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             if let Some(fact_val) = req.get("fact") {
                 let store = fact_val.get("store").and_then(|v| v.as_str()).unwrap_or("");
                 let key = fact_val.get("key").and_then(|v| v.as_str()).unwrap_or("");

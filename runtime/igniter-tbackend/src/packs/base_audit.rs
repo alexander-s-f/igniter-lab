@@ -19,6 +19,7 @@ pub struct MetricsTracker {
     pub bytes_written: AtomicU64,
     pub ping_ops: AtomicU64,
     pub write_fact_ops: AtomicU64,
+    pub write_fact_once_ops: AtomicU64,
     pub latest_for_ops: AtomicU64,
     pub facts_for_ops: AtomicU64,
     pub query_scope_ops: AtomicU64,
@@ -38,6 +39,7 @@ impl MetricsTracker {
             bytes_written: AtomicU64::new(0),
             ping_ops: AtomicU64::new(0),
             write_fact_ops: AtomicU64::new(0),
+            write_fact_once_ops: AtomicU64::new(0),
             latest_for_ops: AtomicU64::new(0),
             facts_for_ops: AtomicU64::new(0),
             query_scope_ops: AtomicU64::new(0),
@@ -66,6 +68,7 @@ impl MetricsTracker {
             "ops": {
                 "ping": self.ping_ops.load(Ordering::Relaxed),
                 "write_fact": self.write_fact_ops.load(Ordering::Relaxed),
+                "write_fact_once": self.write_fact_once_ops.load(Ordering::Relaxed),
                 "latest_for": self.latest_for_ops.load(Ordering::Relaxed),
                 "facts_for": self.facts_for_ops.load(Ordering::Relaxed),
                 "query_scope": self.query_scope_ops.load(Ordering::Relaxed),
@@ -97,6 +100,10 @@ impl RequestMiddleware for AuditMiddleware {
             match op {
                 "ping" => self.metrics.ping_ops.fetch_add(1, Ordering::Relaxed),
                 "write_fact" => self.metrics.write_fact_ops.fetch_add(1, Ordering::Relaxed),
+                "write_fact_once" => self
+                    .metrics
+                    .write_fact_once_ops
+                    .fetch_add(1, Ordering::Relaxed),
                 "latest_for" => self.metrics.latest_for_ops.fetch_add(1, Ordering::Relaxed),
                 "facts_for" => self.metrics.facts_for_ops.fetch_add(1, Ordering::Relaxed),
                 "query_scope" => self.metrics.query_scope_ops.fetch_add(1, Ordering::Relaxed),

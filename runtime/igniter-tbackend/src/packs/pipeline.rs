@@ -452,9 +452,13 @@ impl crate::kernel::RequestMiddleware for PipelineMiddleware {
         resp: &mut serde_json::Value,
         kernel: &ServerKernel,
     ) {
-        // Intercept successful write_fact operations
+        // Intercept successful write operations. write_fact_once replays are
+        // durable success responses, but they are not new writes.
         let op = req.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        if op != "write_fact" {
+        let is_new_write = op == "write_fact"
+            || (op == "write_fact_once"
+                && resp.get("idempotent_replay").and_then(|v| v.as_bool()) == Some(false));
+        if !is_new_write {
             return;
         }
 
