@@ -16,6 +16,10 @@ use std::time::Instant;
 const TWO_PI: f64 = std::f64::consts::PI * 2.0;
 const MODE_ALL_TO_ALL_TICK: &str = "all_to_all_tick";
 const MODE_NODE_TICK: &str = "node_tick";
+const INIT_UNIFORM_SPREAD: &str = "uniform_spread";
+const INIT_SHUFFLED_UNIFORM_SPREAD: &str = "shuffled_uniform_spread";
+const OMEGA_LORENTZIAN_QUANTILE_GRID: &str = "lorentzian_quantile_grid";
+const OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID: &str = "shuffled_lorentzian_quantile_grid";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KuramotoConfig {
@@ -36,6 +40,12 @@ pub struct KuramotoConfig {
     pub cli_sample_ticks: usize,
     #[serde(default = "default_topologies")]
     pub topologies: Vec<String>,
+    #[serde(default = "default_init_phase_mode")]
+    pub init_phase_mode: String,
+    #[serde(default = "default_omega_assignment")]
+    pub omega_assignment: String,
+    #[serde(default)]
+    pub topology_relabel_seed: Option<u64>,
 }
 
 impl Default for KuramotoConfig {
@@ -54,6 +64,9 @@ impl Default for KuramotoConfig {
             series_sample_stride: 5,
             cli_sample_ticks: 3,
             topologies: default_topologies(),
+            init_phase_mode: INIT_UNIFORM_SPREAD.to_string(),
+            omega_assignment: OMEGA_LORENTZIAN_QUANTILE_GRID.to_string(),
+            topology_relabel_seed: None,
         }
     }
 }
@@ -72,6 +85,14 @@ fn default_cli_sample_ticks() -> usize {
 
 fn default_topologies() -> Vec<String> {
     vec!["all_to_all".to_string()]
+}
+
+fn default_init_phase_mode() -> String {
+    INIT_UNIFORM_SPREAD.to_string()
+}
+
+fn default_omega_assignment() -> String {
+    OMEGA_LORENTZIAN_QUANTILE_GRID.to_string()
 }
 
 #[derive(Debug)]
@@ -363,6 +384,29 @@ fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
     if config.dt <= 0.0 {
         return Err("config.dt must be > 0".to_string());
     }
+    match config.init_phase_mode.as_str() {
+        INIT_UNIFORM_SPREAD | INIT_SHUFFLED_UNIFORM_SPREAD => {}
+        other => {
+            return Err(format!(
+                "config.init_phase_mode must be '{}' or '{}', got '{}'",
+                INIT_UNIFORM_SPREAD, INIT_SHUFFLED_UNIFORM_SPREAD, other
+            ));
+        }
+    }
+    match config.omega_assignment.as_str() {
+        OMEGA_LORENTZIAN_QUANTILE_GRID | OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID => {}
+        other => {
+            return Err(format!(
+                "config.omega_assignment must be '{}' or '{}', got '{}'",
+                OMEGA_LORENTZIAN_QUANTILE_GRID, OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID, other
+            ));
+        }
+    }
+    if config.topology_relabel_seed.is_some() && config.kernel_mode != MODE_NODE_TICK {
+        return Err(
+            "config.topology_relabel_seed is only supported for node_tick mode".to_string(),
+        );
+    }
     if config.kernel_mode == MODE_NODE_TICK {
         if config.topologies.is_empty() {
             return Err("config.topologies must not be empty for node_tick mode".to_string());
@@ -549,9 +593,9 @@ async fn simulate_all_to_all_tick(
 
     for &n in &config.n_values {
         topologies.push(build_topology("all_to_all", n, config.seed)?);
-        let omegas = omega_vector(n, config.gamma, config.omega_clip);
+        let omegas = omega_vector_for_config(n, config);
         for &k in &config.k_values {
-            let mut thetas = init_phases(n);
+            let mut thetas = init_phases_for_config(n, config);
             let mut r_series = Vec::new();
             for tick in 0..config.ticks {
                 let tick_start = Instant::now();
@@ -610,13 +654,13 @@ async fn simulate_node_tick(
     let mut tick_ms = Vec::new();
 
     for &n in &config.n_values {
-        let omegas = omega_vector(n, config.gamma, config.omega_clip);
-        let topologies = build_topologies(n, &config.topologies, config.seed)?;
+        let omegas = omega_vector_for_config(n, config);
+        let topologies = build_topologies_for_config(n, config)?;
         topologies_out.extend(topologies.iter().cloned());
 
         for topology in &topologies {
             for &k in &config.k_values {
-                let mut thetas = init_phases(n);
+                let mut thetas = init_phases_for_config(n, config);
                 let mut global_r_series = Vec::new();
                 let mut local_r_series = Vec::new();
 
@@ -818,8 +862,8 @@ async fn run_cli_comparison(
     let n = *config.n_values.first().ok_or("empty n_values")?;
     let k = *config.k_values.last().ok_or("empty k_values")?;
     let sample_ticks = config.cli_sample_ticks.min(config.ticks).max(1);
-    let omegas = omega_vector(n, config.gamma, config.omega_clip);
-    let mut thetas = init_phases(n);
+    let omegas = omega_vector_for_config(n, config);
+    let mut thetas = init_phases_for_config(n, config);
     let mut dispatch_us = Vec::new();
     let tmp = args.out_dir.join("_cli_compare_inputs.json");
     for tick in 0..sample_ticks {
@@ -948,7 +992,14 @@ fn write_bundle(
         "plateau_window": config.plateau_window,
         "omega_clip": config.omega_clip,
         "omega_method": "lorentzian_quantile_grid: omega_i = gamma*tan(pi*((i+0.5)/N - 0.5)), clipped",
-        "init_phases": "uniform_spread: theta_i = 2*pi*i/N",
+        "omega_assignment": &config.omega_assignment,
+        "init_phase_mode": &config.init_phase_mode,
+        "init_phases": if config.init_phase_mode == INIT_SHUFFLED_UNIFORM_SPREAD {
+            "shuffled_uniform_spread: deterministic seed shuffle of theta_i = 2*pi*i/N"
+        } else {
+            "uniform_spread: theta_i = 2*pi*i/N"
+        },
+        "topology_relabel_seed": config.topology_relabel_seed,
         "integrator": "explicit_euler",
         "kernel_sha256": meta.kernel_hash,
         "config_sha256": meta.config_hash,
@@ -1097,10 +1148,7 @@ fn write_report(
         "compiler_version",
         "stdlib_version",
     ] {
-        let val = provenance
-            .get(*key)
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let val = provenance.get(*key).and_then(|v| v.as_str()).unwrap_or("-");
         text.push_str(&format!("| {} | `{}` |\n", key, val));
     }
     text.push('\n');
@@ -1182,8 +1230,26 @@ fn omega_vector(n: usize, gamma: f64, clip: f64) -> Vec<f64> {
         .collect()
 }
 
+fn omega_vector_for_config(n: usize, config: &KuramotoConfig) -> Vec<f64> {
+    let values = omega_vector(n, config.gamma, config.omega_clip);
+    if config.omega_assignment == OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID {
+        permute_values(&values, config.seed ^ 0x51f1_5eED_0bA5_E0A1)
+    } else {
+        values
+    }
+}
+
 fn init_phases(n: usize) -> Vec<f64> {
     (0..n).map(|i| TWO_PI * i as f64 / n as f64).collect()
+}
+
+fn init_phases_for_config(n: usize, config: &KuramotoConfig) -> Vec<f64> {
+    let values = init_phases(n);
+    if config.init_phase_mode == INIT_SHUFFLED_UNIFORM_SPREAD {
+        permute_values(&values, config.seed ^ 0xA11c_Ec0d_E001_D15c)
+    } else {
+        values
+    }
 }
 
 fn order_parameter(thetas: &[f64]) -> f64 {
@@ -1229,6 +1295,22 @@ fn build_topologies(n: usize, names: &[String], seed: u64) -> Result<Vec<Topolog
     names
         .iter()
         .map(|name| build_topology(name, n, seed))
+        .collect()
+}
+
+fn build_topologies_for_config(n: usize, config: &KuramotoConfig) -> Result<Vec<Topology>, String> {
+    build_topologies(n, &config.topologies, config.seed)?
+        .into_iter()
+        .map(|topology| {
+            if let Some(seed) = config.topology_relabel_seed {
+                Ok(relabel_topology(
+                    &topology,
+                    seed ^ stable_name_seed(&topology.name) ^ n as u64,
+                ))
+            } else {
+                Ok(topology)
+            }
+        })
         .collect()
 }
 
@@ -1365,6 +1447,45 @@ fn shuffled_indices(n: usize, seed: u64) -> Vec<usize> {
     out
 }
 
+fn permute_values<T: Clone>(values: &[T], seed: u64) -> Vec<T> {
+    shuffled_indices(values.len(), seed)
+        .into_iter()
+        .map(|idx| values[idx].clone())
+        .collect()
+}
+
+fn relabel_topology(topology: &Topology, seed: u64) -> Topology {
+    let old_to_new = shuffled_indices(topology.n, seed);
+    let mut neighbors = vec![Vec::new(); topology.n];
+    for old_node in 0..topology.n {
+        let new_node = old_to_new[old_node];
+        let mut edges: Vec<NeighborEdge> = topology.neighbors[old_node]
+            .iter()
+            .map(|edge| NeighborEdge {
+                target: old_to_new[edge.target],
+                weight: edge.weight,
+            })
+            .collect();
+        edges.sort_by_key(|edge| edge.target);
+        neighbors[new_node] = edges;
+    }
+    Topology {
+        name: topology.name.clone(),
+        n: topology.n,
+        weight_policy: format!(
+            "{}; random node-id relabel seed={}",
+            topology.weight_policy, seed
+        ),
+        neighbors,
+    }
+}
+
+fn stable_name_seed(name: &str) -> u64 {
+    name.bytes().fold(0xcbf2_9ce4_8422_2325, |acc, byte| {
+        (acc ^ byte as u64).wrapping_mul(0x1000_0000_01b3)
+    })
+}
+
 fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut z = *state;
@@ -1467,6 +1588,33 @@ mod tests {
     fn grid_topology_requires_square_n() {
         assert!(grid_topology(16).is_ok());
         assert!(grid_topology(18).is_err());
+    }
+
+    #[test]
+    fn deterministic_permutation_preserves_values() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let shuffled = permute_values(&values, 20260623);
+        let repeated = permute_values(&values, 20260623);
+        assert_eq!(shuffled, repeated);
+        assert_ne!(shuffled, values);
+
+        let mut sorted = shuffled;
+        sorted.sort_unstable();
+        assert_eq!(sorted, values);
+    }
+
+    #[test]
+    fn relabel_topology_preserves_ring_degree() {
+        let topology = ring_topology(8, "ring");
+        let relabeled = relabel_topology(&topology, 20260623);
+        assert_eq!(relabeled.name, "ring");
+        assert_eq!(relabeled.neighbors.len(), topology.neighbors.len());
+        assert!(relabeled.neighbors.iter().all(|edges| edges.len() == 2));
+        assert!(relabeled
+            .neighbors
+            .iter()
+            .flat_map(|edges| edges.iter())
+            .all(|edge| (edge.weight - 1.0).abs() < 1e-12));
     }
 
     #[test]
