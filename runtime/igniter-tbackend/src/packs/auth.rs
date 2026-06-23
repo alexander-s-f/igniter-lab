@@ -10,11 +10,64 @@ use std::sync::Arc;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TokenConfig {
-    pub token: String,
+    // LAB-TBACKEND-AUTH-STORAGE-HARDENING-P9: storage holds NO plaintext token. `id` and `token_hash`
+    // have no serde default, so a legacy P6A/P8 file (which carries `token` and lacks these) fails to
+    // deserialize and is refused at load (fail-closed). The bearer token never lands on disk.
+    /// Opaque short id (first 16 hex of `token_hash`) — safe to expose in list/delete responses.
+    pub id: String,
+    /// blake3 hex of the bearer token. Preimage-resistant: neither the filename (`<token_hash>.json`)
+    /// nor this body reveal the plaintext token.
+    pub token_hash: String,
     pub role: String,                // admin, read_only, write_only, peer
     pub allowed_stores: Vec<String>, // e.g. ["*"] or specific whitelists
     #[serde(default)]
     pub persist: bool,
+    /// Optional human label (never secret).
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+// ── P9 token hashing / generation ────────────────────────────────────────────
+// Storage holds only blake3(token), never the bearer token. Generated tokens are high-entropy
+// (256 bits from two UUIDv4), so a fast hash is sufficient here — no password KDF (card P9 §2).
+
+fn token_hash(token: &str) -> String {
+    blake3::hash(token.as_bytes()).to_hex().to_string()
+}
+
+/// Short opaque id derived from the full hash: 16 hex (64 bits). Collision-safe for a lab token set and
+/// safe to expose; the on-disk file still uses the full hash, so there is no filename collision.
+fn short_id(hash: &str) -> String {
+    hash[..16].to_string()
+}
+
+/// Generate a high-entropy bearer token (256 bits). Returned to the caller exactly once.
+fn generate_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+/// Build a stored config from a plaintext token without retaining the token itself.
+fn make_token_config(
+    token: &str,
+    role: String,
+    allowed_stores: Vec<String>,
+    persist: bool,
+    label: Option<String>,
+) -> TokenConfig {
+    let h = token_hash(token);
+    let id = short_id(&h);
+    TokenConfig {
+        id,
+        token_hash: h,
+        role,
+        allowed_stores,
+        persist,
+        label,
+    }
 }
 
 pub struct TokenRegistry {
@@ -59,10 +112,11 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
             None => return Err("Authentication failed: missing 'token' parameter".to_string()),
         };
 
+        // P9: look up by blake3(presented token); the plaintext token is never stored or compared.
         let reg = self.registry.read();
         let config = reg
             .tokens
-            .get(token_val)
+            .get(&token_hash(token_val))
             .ok_or_else(|| "Authentication failed: invalid token".to_string())?;
 
         // 1. Verify Role Permissions (RBAC)
@@ -246,20 +300,31 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
     if let Ok(entries) = std::fs::read_dir(&sec_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+            // P9: only new-format token files (`<token_hash>.json`, hash-only body) are accepted.
+            // Legacy P6A/P8 files (named by the bearer token, body carrying `token`) lack `id`/`token_hash`
+            // and fail to deserialize here — they are skipped (fail-closed), never loaded as credentials.
             if path.extension().map_or(false, |ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(mut config) = serde_json::from_str::<TokenConfig>(&content) {
-                        // P8: never log the bearer token value; report the role only.
-                        println!("[Security Preloader] Preloaded a '{}' token.", config.role);
-                        // P8: repair perms of pre-existing token files to 0600.
-                        if let Err(e) = set_mode(&path, 0o600) {
+                    match serde_json::from_str::<TokenConfig>(&content) {
+                        Ok(mut config) => {
+                            // Never log token material; report the role only.
+                            println!("[Security Preloader] Preloaded a '{}' token.", config.role);
+                            // P8: repair perms of pre-existing token files to 0600.
+                            if let Err(e) = set_mode(&path, 0o600) {
+                                eprintln!(
+                                    "[Security] WARNING: could not repair 0600 on a token file: {}",
+                                    e
+                                );
+                            }
+                            config.persist = true;
+                            map.insert(config.token_hash.clone(), config);
+                        }
+                        Err(_) => {
+                            // P9: refuse to load a token file that is not in the hash/id format.
                             eprintln!(
-                                "[Security] WARNING: could not repair 0600 on a token file: {}",
-                                e
+                                "[Security] WARNING: ignoring a token file not in the P9 hash/id format (fail-closed; re-create it with auth_token_create)."
                             );
                         }
-                        config.persist = true;
-                        map.insert(config.token.clone(), config);
                     }
                 }
             }
@@ -267,26 +332,39 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
     }
 
     if map.is_empty() {
-        // Ephemeral/First boot: populate default admin token
-        let default_admin = TokenConfig {
-            token: "admin_default".to_string(),
-            role: "admin".to_string(),
-            allowed_stores: vec!["*".to_string()],
-            persist: true,
-        };
-        let file_path = format!("{}/admin_default.json", sec_dir);
-        if let Ok(content) = serde_json::to_string_pretty(&default_admin) {
-            // P8: secure 0600 write instead of world-readable std::fs::write.
+        // P9 bootstrap: no valid new-format tokens → mint a RANDOM one-time admin token (retires the
+        // constant `admin_default`). Persist only its hash/id; write the plaintext exactly once to a
+        // 0600 handoff file the operator reads, uses, then deletes.
+        let token = generate_token();
+        let config = make_token_config(
+            &token,
+            "admin".to_string(),
+            vec!["*".to_string()],
+            true,
+            Some("bootstrap".to_string()),
+        );
+        let file_path = format!("{}/{}.json", sec_dir, config.token_hash);
+        if let Ok(content) = serde_json::to_string_pretty(&config) {
             if let Err(e) = secure_write_token(std::path::Path::new(&file_path), &content) {
                 eprintln!(
-                    "[Security] WARNING: could not write default admin token: {}",
+                    "[Security] WARNING: could not write bootstrap admin token metadata: {}",
                     e
                 );
             }
         }
-        // P8: do not print the token-file path (it is token material under the current design).
-        println!("[Security Preloader] Generated default administrator token.");
-        map.insert(default_admin.token.clone(), default_admin);
+        let handoff = format!("{}/BOOTSTRAP_ADMIN_TOKEN", sec_dir);
+        if let Err(e) = secure_write_token(std::path::Path::new(&handoff), &token) {
+            eprintln!(
+                "[Security] WARNING: could not write bootstrap handoff file: {}",
+                e
+            );
+        }
+        // Log the PATH and opaque id only — never the token value.
+        println!(
+            "[Security Preloader] Minted a random bootstrap admin token (id {}). Plaintext written once to {} — read it, use it, then delete it.",
+            config.id, handoff
+        );
+        map.insert(config.token_hash.clone(), config);
     }
 
     map
@@ -322,18 +400,21 @@ impl ServerPack for AuthPack {
             let loaded = load_persistent_tokens(dir);
             self.registry.write().tokens.extend(loaded);
         } else {
-            // Ephemeral Mode: preload admin_default strictly in-memory
-            let default_admin = TokenConfig {
-                token: "admin_default".to_string(),
-                role: "admin".to_string(),
-                allowed_stores: vec!["*".to_string()],
-                persist: false,
-            };
+            // P9 Ephemeral Mode (no --data-dir): in-memory dev/test admin only. NOT production auth —
+            // tokens cannot persist, so this uses a known dev constant CONFINED to the no-data-dir path
+            // (never written to disk, gone on restart). Real auth must run with --data-dir (P9 bootstrap).
+            let config = make_token_config(
+                "ephemeral_dev_admin",
+                "admin".to_string(),
+                vec!["*".to_string()],
+                false,
+                Some("ephemeral-dev".to_string()),
+            );
             self.registry
                 .write()
                 .tokens
-                .insert(default_admin.token.clone(), default_admin);
-            println!("[Security Preloader] Ephemeral in-memory default administrator token 'admin_default' generated.");
+                .insert(config.token_hash.clone(), config);
+            eprintln!("[Security] WARNING: auth enabled without --data-dir; using an in-memory dev admin token (not for production — run with --data-dir for persistent P9 token storage).");
         }
 
         let command_reg = &mut *kernel.command_registry.write();
@@ -342,33 +423,30 @@ impl ServerPack for AuthPack {
         let registry_c = self.registry.clone();
         let data_dir_c = kernel.data_dir.clone();
         command_reg.register("auth_token_create", Arc::new(move |req, _kernel| {
-            let token = match req.get("target_token").and_then(|v| v.as_str()) {
-                Some(t) => t.to_string(),
-                None => return serde_json::json!({ "ok": false, "error": "Missing 'target_token' parameter" }),
-            };
+            // P9: tokens are generated server-side. Reject legacy caller-supplied token material.
+            if req.get("target_token").is_some() {
+                return serde_json::json!({ "ok": false, "error": "'target_token' is no longer accepted: tokens are generated server-side and returned once (P9)" });
+            }
             let role = match req.get("target_role").and_then(|v| v.as_str()) {
                 Some(r) => r.to_string(),
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'target_role' parameter" }),
             };
-            let allowed_stores_arr = match req.get("allowed_stores").and_then(|v| v.as_array()) {
+            let allowed_stores_arr: Vec<String> = match req.get("allowed_stores").and_then(|v| v.as_array()) {
                 Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'allowed_stores' array" }),
             };
-
             let persist = req.get("persist").and_then(|v| v.as_bool()).unwrap_or(false);
+            let label = req.get("label").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let config = TokenConfig {
-                token: token.clone(),
-                role,
-                allowed_stores: allowed_stores_arr,
-                persist,
-            };
+            // High-entropy server-generated token — shown to the caller exactly once.
+            let token = generate_token();
+            let config = make_token_config(&token, role.clone(), allowed_stores_arr.clone(), persist, label);
 
             if persist {
                 if let Some(ref dir) = data_dir_c {
-                    let file_path = format!("{}/security/{}.json", dir, token);
+                    // P9: filename is the opaque hash, not the token value.
+                    let file_path = format!("{}/security/{}.json", dir, config.token_hash);
                     if let Ok(content) = serde_json::to_string_pretty(&config) {
-                        // P8: secure 0600 write (dir 0700) instead of world-readable std::fs::write.
                         if let Err(e) =
                             secure_write_token(std::path::Path::new(&file_path), &content)
                         {
@@ -378,8 +456,17 @@ impl ServerPack for AuthPack {
                 }
             }
 
-            registry_c.write().tokens.insert(token.clone(), config);
-            serde_json::json!({ "ok": true })
+            let id = config.id.clone();
+            registry_c.write().tokens.insert(config.token_hash.clone(), config);
+            // The ONLY place the plaintext token is returned (shown once).
+            serde_json::json!({
+                "ok": true,
+                "token": token,
+                "id": id,
+                "role": role,
+                "allowed_stores": allowed_stores_arr,
+                "persist": persist
+            })
         }));
 
         // 3. Register "auth_token_list" Route
@@ -394,7 +481,9 @@ impl ServerPack for AuthPack {
                     .tokens
                     .values()
                     .map(|c| {
+                        // P9: expose the opaque short id (for delete), never the token or full hash.
                         serde_json::json!({
+                            "id": c.id,
                             "role": c.role,
                             "allowed_stores": c.allowed_stores,
                             "persist": c.persist,
@@ -409,31 +498,49 @@ impl ServerPack for AuthPack {
         let registry_c = self.registry.clone();
         let data_dir_c = kernel.data_dir.clone();
         command_reg.register("auth_token_delete", Arc::new(move |req, _kernel| {
-            let token = match req.get("target_token").and_then(|v| v.as_str()) {
-                Some(t) => t,
-                None => return serde_json::json!({ "ok": false, "error": "Missing 'target_token' parameter" }),
+            let mut map = registry_c.write();
+
+            // P9: resolve the target token_hash from an opaque id (preferred). A deprecated plaintext
+            // `target_token` is accepted only to derive its hash — it is never stored or echoed.
+            let target_hash: String = if let Some(id) = req.get("target_id").and_then(|v| v.as_str()) {
+                let matches: Vec<String> = map
+                    .tokens
+                    .values()
+                    .filter(|c| c.id == id || c.token_hash.starts_with(id))
+                    .map(|c| c.token_hash.clone())
+                    .collect();
+                match matches.len() {
+                    1 => matches[0].clone(),
+                    0 => return serde_json::json!({ "ok": false, "error": "Token not found" }),
+                    _ => return serde_json::json!({ "ok": false, "error": "Ambiguous id: matches more than one token" }),
+                }
+            } else if let Some(t) = req.get("target_token").and_then(|v| v.as_str()) {
+                token_hash(t)
+            } else {
+                return serde_json::json!({ "ok": false, "error": "Missing 'target_id' parameter" });
             };
 
-            // Prevent deleting the last admin token to avoid lockout
-            {
-                let map = registry_c.read();
-                if map.tokens.len() <= 1 && map.tokens.contains_key(token) {
-                    return serde_json::json!({ "ok": false, "error": "Cannot delete the last remaining active token (Lockout Prevention)" });
+            let config = match map.tokens.get(&target_hash) {
+                Some(c) => c.clone(),
+                None => return serde_json::json!({ "ok": false, "error": "Token not found" }),
+            };
+
+            // P9 last-admin guard: never delete the final admin token (lockout prevention).
+            if config.role == "admin" {
+                let admin_count = map.tokens.values().filter(|c| c.role == "admin").count();
+                if admin_count <= 1 {
+                    return serde_json::json!({ "ok": false, "error": "Cannot delete the last remaining admin token (Lockout Prevention)" });
                 }
             }
 
-            let mut map = registry_c.write();
-            if let Some(config) = map.tokens.remove(token) {
-                if config.persist {
-                    if let Some(ref dir) = data_dir_c {
-                        let file_path = format!("{}/security/{}.json", dir, token);
-                        let _ = std::fs::remove_file(file_path);
-                    }
+            map.tokens.remove(&target_hash);
+            if config.persist {
+                if let Some(ref dir) = data_dir_c {
+                    let file_path = format!("{}/security/{}.json", dir, config.token_hash);
+                    let _ = std::fs::remove_file(file_path);
                 }
-                serde_json::json!({ "ok": true })
-            } else {
-                serde_json::json!({ "ok": false, "error": "Token not found" })
             }
+            serde_json::json!({ "ok": true, "id": config.id })
         }));
 
         // 5. Mount AuthMiddleware at the FRONT of the middleware chain

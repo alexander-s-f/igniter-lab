@@ -173,7 +173,8 @@ To support multi-tenant database safety and prevent cross-tenant partition leaks
 4.  **Wildcard Matching**: Whitelists matches for exact store names or the `*` wildcard (which grants access to all store partitions).
 
 ### D. Durable Lifecycle & Bootstrapping
-*   **Durable Preloads**: Configs with `persist: true` are written as pretty-printed JSON files to `<data_dir>/security/<token_value>.json`. Upon bootstrap, `MultiTenantScannerPack` sweeps this folder and loads active keys.
-*   **First-Boot Bootstrapping**: If no persistent keys are detected, the server automatically generates a default administrator token `admin_default` with `*` access and persists it to `<data_dir>/security/admin_default.json` to secure the system out-of-the-box.
-*   **Lockout Prevention**: The command handler for `auth_token_delete` validates that the registry contains at least one other active admin token before deleting the requested key.
+*   **Durable Preloads**: Configs with `persist: true` are written as pretty-printed JSON files named by the **opaque hash** `<data_dir>/security/<token_hash>.json` (mode `0600`, dir `0700`). The body stores `token_hash` and metadata only — **never the plaintext token**. Upon bootstrap the scanner sweeps this folder; files not in the hash/id format (e.g. legacy plaintext token files) are **refused** (fail-closed) rather than loaded as credentials.
+*   **First-Boot Bootstrapping**: If no persistent keys are detected, the server mints a **random** administrator token with `*` access. Only its `blake3` hash is persisted; the plaintext is written **once** to `<data_dir>/security/BOOTSTRAP_ADMIN_TOKEN` (mode `0600`) for the operator to retrieve and then delete. No fixed/default token value exists.
+*   **Token Lookup**: Requests present the bearer token in `token`; the middleware looks it up by `blake3(token)`, so the plaintext is never stored or compared directly. `auth_token_create` generates the token server-side and returns it once; `auth_token_list` exposes opaque ids + metadata only; `auth_token_delete` addresses tokens by id.
+*   **Lockout Prevention**: The command handler for `auth_token_delete` refuses to delete the **last remaining admin** token (counts admin-role tokens before removal).
 

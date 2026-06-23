@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 # verify_auth.rb
-# Security, Role-Based Access Control (RBAC) & Store Isolation (ACLs) Pack Verification Test
+# Security, Role-Based Access Control (RBAC), Store Isolation (ACLs) + P9 hash/id token storage.
 
 require "json"
 require "socket"
@@ -64,281 +64,253 @@ class AuthTestClient
   end
 end
 
-puts "\n#{BOLD}#{CYAN}=== TBACKEND SECURITY & ACCESS CONTROL TEST SUITE ===#{RESET}"
+def a_fact(store, key, value)
+  {
+    id: SecureRandom.uuid,
+    store: store,
+    key: key,
+    value: value,
+    value_hash: SecureRandom.hex(8),
+    transaction_time: Time.now.to_f,
+    valid_time: Time.now.to_f,
+    schema_version: 1
+  }
+end
 
-# Setup clean storage data folder
-DATA_DIR = "auth_data"
+puts "\n#{BOLD}#{CYAN}=== TBACKEND SECURITY & ACCESS CONTROL TEST SUITE (P9 hash/id storage) ===#{RESET}"
+
+DATA_DIR  = "auth_data"
+SEC_DIR   = File.join(DATA_DIR, "security")
+HANDOFF   = File.join(SEC_DIR, "BOOTSTRAP_ADMIN_TOKEN")
+LOG       = "auth_daemon.log"
+PORT      = 7409
+UNIX      = RUBY_PLATFORM !~ /mswin|mingw/
 FileUtils.rm_rf(DATA_DIR)
+FileUtils.rm_f(LOG)
 FileUtils.mkdir_p(DATA_DIR)
 
-# 1. Spawn the compiled TBackend standalone daemon on port 7409 pointing to auth_data/
-puts "\n[TBackend Daemon] Spawning daemon in the background on port 7409..."
-daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --auth-enabled true", out: "/dev/null", err: "/dev/null")
-sleep 1.0 # Allow socket to bind
+def spawn_daemon(mode)
+  spawn(
+    "./target/release/tbackend --host 127.0.0.1 --port #{PORT} --data-dir #{DATA_DIR} --pool-size 4 --auth-enabled true",
+    %i[out err] => [LOG, mode]
+  )
+end
+
+# 1. First persistent boot — should mint a RANDOM bootstrap admin token (no admin_default).
+puts "\n[TBackend Daemon] First boot on port #{PORT} (data-dir #{DATA_DIR})..."
+daemon_pid = spawn_daemon("w")
+sleep 1.0
+
+# Track every plaintext token value the suite ever holds, to prove none of them land on disk / in logs / in lists.
+all_token_values = []
 
 begin
-  client = AuthTestClient.new("127.0.0.1", 7409)
+  # ── P9 Bootstrap: random one-time admin token via a 0600 handoff file ──────────────────────────────
+  puts "\n[P9 Bootstrap] A random admin token must be handed off once; admin_default must be gone..."
+  assert(File.exist?(HANDOFF), "bootstrap handoff file #{HANDOFF} exists")
+  admin_tok = File.exist?(HANDOFF) ? File.read(HANDOFF).strip : ""
+  assert(!admin_tok.empty?, "handoff contains a non-empty bootstrap admin token")
+  all_token_values << admin_tok
+  assert(admin_tok != "admin_default", "bootstrap token is NOT the retired constant 'admin_default'")
+  assert(Dir.glob(File.join(SEC_DIR, "admin_default*")).empty?, "no admin_default* file is written")
 
-  # 2. Assert connection WITHOUT a token is rejected immediately!
-  puts "\n[Securing Check] Attempting to ping the server WITHOUT a token..."
-  res_no_token = client.send_req(op: "ping")
-  assert_equal(false, res_no_token[:ok], "Connection WITHOUT a token is successfully blocked by AuthMiddleware!")
-  assert(res_no_token[:error].include?("missing 'token' parameter"), "Error message points to missing token: #{res_no_token[:error]}")
+  first_boot_files = Dir.glob(File.join(SEC_DIR, "*.json"))
+  assert_equal(1, first_boot_files.length, "exactly one persisted token file after first boot")
+  assert(first_boot_files.all? { |f| File.basename(f, ".json") =~ /\A[0-9a-f]{64}\z/ },
+         "persisted filename is an opaque 64-hex hash, not a token value")
+  assert(first_boot_files.none? { |f| File.basename(f, ".json") == admin_tok },
+         "persisted filename does NOT equal the bootstrap token value")
 
-  # 3. Assert default preloaded token "admin_default" works
-  puts "\n[Admin Bootstrapping] Authenticating using default preloaded token 'admin_default'..."
-  res_admin_ping = client.send_req(op: "ping", token: "admin_default")
-  assert_equal(true, res_admin_ping[:ok], "Default admin_default token authenticates and executes successfully!")
-
-  # 4. Register whitelisted tokens for RBAC & ACL checks
-  puts "\n[RBAC Configuration] Registering three tokens with different roles and whitelists..."
-  
-  # A. write_token: write_only role, restricted to "lead_signals"
-  res_w = client.send_req(
-    op: "auth_token_create",
-    token: "admin_default",
-    target_token: "write_token",
-    target_role: "write_only",
-    allowed_stores: ["lead_signals"],
-    persist: true
-  )
-  assert_equal(true, res_w[:ok], "Token 'write_token' successfully created")
-
-  # B. read_token: read_only role, restricted to "lead_signals"
-  res_r = client.send_req(
-    op: "auth_token_create",
-    token: "admin_default",
-    target_token: "read_token",
-    target_role: "read_only",
-    allowed_stores: ["lead_signals"],
-    persist: true
-  )
-  assert_equal(true, res_r[:ok], "Token 'read_token' successfully created")
-
-  # C. finance_token: read_only role, restricted to "financial_ledger"
-  res_f = client.send_req(
-    op: "auth_token_create",
-    token: "admin_default",
-    target_token: "finance_token",
-    target_role: "read_only",
-    allowed_stores: ["financial_ledger"],
-    persist: true
-  )
-  assert_equal(true, res_f[:ok], "Token 'finance_token' successfully created")
-
-  # ── LAB-TBACKEND-AUTH-REDACTION-P8: redacted listing + token-file permissions ──────────────────────
-  puts "\n[P8 Redaction] auth_token_list must return metadata only, never token values..."
-  res_list = client.send_req(op: "auth_token_list", token: "admin_default")
-  assert_equal(true, res_list[:ok], "auth_token_list succeeds for admin")
-  list = res_list[:tokens] || []
-  assert(res_list[:count] == list.length && list.length >= 4, "auth_token_list returns a count and all tokens (>=4): #{res_list[:count]}")
-  # No token material in any entry: no :token / :token_hash / :id / :target_token keys.
-  bad_keys = list.flat_map(&:keys).map(&:to_s) & %w[token token_hash id target_token]
-  assert(bad_keys.empty?, "list entries expose no token/hash/id keys (found: #{bad_keys.inspect})")
-  # Metadata IS present.
-  assert(list.all? { |t| t.key?(:role) && t.key?(:allowed_stores) && t.key?(:persist) }, "list entries carry role/allowed_stores/persist")
-  # Known bearer token strings must not appear anywhere in the serialized list response.
-  list_json = res_list.to_json
-  %w[admin_default write_token read_token finance_token].each do |tok|
-    assert(!list_json.include?(tok), "bearer token '#{tok[0,4]}…' does NOT appear in the list response")
+  if UNIX
+    assert_equal("600", format("%o", File.stat(HANDOFF).mode & 0o777), "handoff file is mode 0600")
+    assert_equal("700", format("%o", File.stat(SEC_DIR).mode & 0o777), "security/ dir is mode 0700")
   end
 
-  puts "\n[P8 Permissions] security dir must be 0700; token files must be 0600 (Unix)..."
-  if RUBY_PLATFORM !~ /mswin|mingw/
-    sec_dir = File.join(DATA_DIR, "security")
-    dir_mode = format("%o", File.stat(sec_dir).mode & 0o777)
-    assert_equal("700", dir_mode, "#{sec_dir} is mode 0700")
-    token_files = Dir.glob(File.join(sec_dir, "*.json"))
-    assert(!token_files.empty?, "persisted token files exist")
+  client = AuthTestClient.new("127.0.0.1", PORT)
+
+  # No token -> rejected.
+  puts "\n[Securing Check] ping WITHOUT a token must be rejected..."
+  res_no_token = client.send_req(op: "ping")
+  assert_equal(false, res_no_token[:ok], "ping without a token is blocked by AuthMiddleware")
+  assert(res_no_token[:error].include?("missing 'token' parameter"), "error points to missing token")
+
+  # Bootstrap admin token authenticates.
+  puts "\n[Admin Bootstrapping] Authenticating with the handed-off bootstrap token..."
+  res_admin_ping = client.send_req(op: "ping", token: admin_tok)
+  assert_equal(true, res_admin_ping[:ok], "bootstrap admin token authenticates and pings successfully")
+
+  # Bad token -> rejected.
+  res_bad = client.send_req(op: "ping", token: "definitely-not-a-real-token")
+  assert_equal(false, res_bad[:ok], "an invalid token is rejected")
+  assert(res_bad[:error].include?("invalid token"), "error points to invalid token")
+
+  # ── P9 Create: tokens are generated server-side; legacy target_token is rejected ────────────────────
+  puts "\n[P9 Create] auth_token_create generates the bearer token server-side and returns it once..."
+  res_legacy = client.send_req(op: "auth_token_create", token: admin_tok, target_token: "i_pick_my_own",
+                               target_role: "read_only", allowed_stores: ["lead_signals"], persist: true)
+  assert_equal(false, res_legacy[:ok], "caller-supplied target_token is rejected")
+  assert(res_legacy[:error].to_s.include?("no longer accepted"), "rejection explains tokens are server-generated")
+
+  def create_token(client, admin_tok, role, stores)
+    res = client.send_req(op: "auth_token_create", token: admin_tok,
+                          target_role: role, allowed_stores: stores, persist: true)
+    assert_equal(true, res[:ok], "auth_token_create(#{role}, #{stores.inspect}) succeeds")
+    assert(res[:token].is_a?(String) && !res[:token].empty?, "create returns a one-time generated token")
+    assert(res[:id].is_a?(String) && res[:id] =~ /\A[0-9a-f]{16}\z/, "create returns a 16-hex opaque id")
+    assert_equal(role, res[:role], "create echoes the role")
+    res
+  end
+
+  res_w = create_token(client, admin_tok, "write_only", ["lead_signals"])
+  res_r = create_token(client, admin_tok, "read_only",  ["lead_signals"])
+  res_f = create_token(client, admin_tok, "read_only",  ["financial_ledger"])
+  write_tok, write_id = res_w[:token], res_w[:id]
+  read_tok            = res_r[:token]
+  finance_tok         = res_f[:token]
+  all_token_values.push(write_tok, read_tok, finance_tok)
+
+  # ── P9 Storage proof: no token material in filenames or file bodies ─────────────────────────────────
+  puts "\n[P9 Storage] persisted filenames + bodies must never contain a bearer token value..."
+  token_files = Dir.glob(File.join(SEC_DIR, "*.json"))
+  assert(token_files.length >= 4, "all four tokens persisted (#{token_files.length} files)")
+  assert(token_files.all? { |f| File.basename(f, ".json") =~ /\A[0-9a-f]{64}\z/ },
+         "every persisted filename is a 64-hex hash")
+  bad_name = token_files.select { |f| all_token_values.include?(File.basename(f, ".json")) }
+  assert(bad_name.empty?, "no persisted filename equals a bearer token value")
+  bodies = token_files.map { |f| File.read(f) }
+  leaked = all_token_values.select { |t| bodies.any? { |b| b.include?(t) } }
+  assert(leaked.empty?, "no persisted file body contains a bearer token value (#{leaked.length} leaks)")
+  parsed = bodies.map { |b| JSON.parse(b) }
+  assert(parsed.all? { |h| h.key?("token_hash") && !h.key?("token") },
+         "persisted bodies carry token_hash, never a plaintext token field")
+
+  if UNIX
+    assert_equal("700", format("%o", File.stat(SEC_DIR).mode & 0o777), "security/ remains 0700")
     bad_perm = token_files.reject { |f| (File.stat(f).mode & 0o777) == 0o600 }
     assert(bad_perm.empty?, "all token JSON files are mode 0600 (#{bad_perm.length} not 0600)")
-  else
-    puts "  (skipped on non-Unix)"
   end
 
-  # 5. Assert RBAC & ACL enforcement checks
-  puts "\n[RBAC/ACL Enforcement] Auditing write_token restrictions..."
-  
-  # Write matching store -> SUCCESS
-  res_w_ok = client.send_req(
-    op: "write_fact",
-    token: "write_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "lead_signals",
-      key: "lead-1",
-      value: { vendor: "eLocal" },
-      value_hash: "hash-1",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(true, res_w_ok[:ok], "write_token successfully writes to whitelisted store 'lead_signals'!")
+  # ── P9 List: id + metadata only; no token, no full hash ─────────────────────────────────────────────
+  puts "\n[P9 List] auth_token_list returns id/metadata only..."
+  res_list = client.send_req(op: "auth_token_list", token: admin_tok)
+  assert_equal(true, res_list[:ok], "auth_token_list succeeds for admin")
+  list = res_list[:tokens] || []
+  assert_equal(4, res_list[:count], "list count is 4 (admin + 3 created)")
+  assert_equal(res_list[:count], list.length, "count matches number of entries")
+  assert(list.all? { |t| t.key?(:id) && t.key?(:role) && t.key?(:allowed_stores) && t.key?(:persist) },
+         "each entry carries id/role/allowed_stores/persist")
+  assert(list.all? { |t| t[:id].to_s =~ /\A[0-9a-f]{16}\z/ }, "each entry id is a 16-hex opaque id")
+  bad_keys = list.flat_map(&:keys).map(&:to_s) & %w[token token_hash target_token]
+  assert(bad_keys.empty?, "list entries expose no token/token_hash keys (found: #{bad_keys.inspect})")
+  list_json = res_list.to_json
+  leaked_in_list = all_token_values.select { |t| list_json.include?(t) }
+  assert(leaked_in_list.empty?, "no bearer token value appears in the list response")
+  assert(list_json !~ /[0-9a-f]{64}/, "no full 64-hex hash appears in the list response")
 
-  # Write non-matching store -> BLOCKED (ACL violation!)
-  res_w_bad_store = client.send_req(
-    op: "write_fact",
-    token: "write_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "financial_ledger",
-      key: "tx-101",
-      value: { amount: 500 },
-      value_hash: "hash-2",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(false, res_w_bad_store[:ok], "write_token is successfully blocked from writing to non-whitelisted store 'financial_ledger'!")
-  assert(res_w_bad_store[:error].include?("not authorized for store"), "Error details store ACL violation: #{res_w_bad_store[:error]}")
+  # ── RBAC / ACL enforcement (using the generated tokens) ─────────────────────────────────────────────
+  puts "\n[RBAC/ACL] write_only token restrictions..."
+  res_w_ok = client.send_req(op: "write_fact", token: write_tok, fact: a_fact("lead_signals", "lead-1", { vendor: "eLocal" }))
+  assert_equal(true, res_w_ok[:ok], "write token writes to whitelisted store 'lead_signals'")
+  res_w_bad = client.send_req(op: "write_fact", token: write_tok, fact: a_fact("financial_ledger", "tx-101", { amount: 500 }))
+  assert_equal(false, res_w_bad[:ok], "write token blocked from non-whitelisted store 'financial_ledger'")
+  assert(res_w_bad[:error].include?("not authorized for store"), "error details store ACL violation")
+  res_w_read = client.send_req(op: "latest_for", token: write_tok, store: "lead_signals", key: "lead-1")
+  assert_equal(false, res_w_read[:ok], "write token blocked from read ops (RBAC)")
+  assert(res_w_read[:error].include?("role 'write_only' cannot execute"), "error details RBAC role violation")
 
-  # Read matching store using write_token -> BLOCKED (RBAC role violation!)
-  res_w_read = client.send_req(op: "latest_for", token: "write_token", store: "lead_signals", key: "lead-1")
-  assert_equal(false, res_w_read[:ok], "write_token is successfully blocked from executing read commands!")
-  assert(res_w_read[:error].include?("role 'write_only' cannot execute"), "Error details RBAC role violation: #{res_w_read[:error]}")
+  puts "\n[RBAC/ACL] read_only token restrictions..."
+  res_r_ok = client.send_req(op: "latest_for", token: read_tok, store: "lead_signals", key: "lead-1")
+  assert_equal(true, res_r_ok[:ok], "read token reads whitelisted store 'lead_signals'")
+  res_r_bad = client.send_req(op: "latest_for", token: read_tok, store: "financial_ledger", key: "tx-101")
+  assert_equal(false, res_r_bad[:ok], "read token blocked from non-whitelisted store 'financial_ledger'")
+  res_r_write = client.send_req(op: "write_fact", token: read_tok, fact: a_fact("lead_signals", "lead-2", { vendor: "eLocal" }))
+  assert_equal(false, res_r_write[:ok], "read token blocked from writing facts (RBAC)")
 
-  puts "\n[RBAC/ACL Enforcement] Auditing read_token restrictions..."
-
-  # Read matching store -> SUCCESS
-  res_r_ok = client.send_req(op: "latest_for", token: "read_token", store: "lead_signals", key: "lead-1")
-  assert_equal(true, res_r_ok[:ok], "read_token successfully reads whitelisted store 'lead_signals'!")
-
-  # Read non-matching store -> BLOCKED (ACL violation!)
-  res_r_bad_store = client.send_req(op: "latest_for", token: "read_token", store: "financial_ledger", key: "tx-101")
-  assert_equal(false, res_r_bad_store[:ok], "read_token is successfully blocked from reading non-whitelisted store 'financial_ledger'!")
-
-  # Write matching store using read_token -> BLOCKED (RBAC role violation!)
-  res_r_write = client.send_req(
-    op: "write_fact",
-    token: "read_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "lead_signals",
-      key: "lead-2",
-      value: { vendor: "eLocal" },
-      value_hash: "hash-3",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(false, res_r_write[:ok], "read_token is successfully blocked from writing facts!")
-
-  puts "\n[RBAC/ACL Enforcement] Auditing finance_token restrictions..."
-
-  # Seed a financial record using admin token first
-  client.send_req(
-    op: "write_fact",
-    token: "admin_default",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "financial_ledger",
-      key: "tx-101",
-      value: { amount: 5000 },
-      value_hash: "hash-4",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-
-  # Read whitelisted financial_ledger -> SUCCESS
-  res_f_ok = client.send_req(op: "latest_for", token: "finance_token", store: "financial_ledger", key: "tx-101")
-  assert_equal(true, res_f_ok[:ok], "finance_token successfully reads whitelisted store 'financial_ledger'!")
-  assert_equal(5000, res_f_ok[:fact][:value][:amount], "finance_token successfully reads correct financial value!")
-
-  # Read non-whitelisted lead_signals -> BLOCKED (ACL violation!)
-  res_f_bad_store = client.send_req(op: "latest_for", token: "finance_token", store: "lead_signals", key: "lead-1")
-  assert_equal(false, res_f_bad_store[:ok], "finance_token is successfully blocked from reading non-whitelisted store 'lead_signals'!")
+  puts "\n[RBAC/ACL] finance token store isolation..."
+  client.send_req(op: "write_fact", token: admin_tok, fact: a_fact("financial_ledger", "tx-101", { amount: 5000 }))
+  res_f_ok = client.send_req(op: "latest_for", token: finance_tok, store: "financial_ledger", key: "tx-101")
+  assert_equal(true, res_f_ok[:ok], "finance token reads whitelisted store 'financial_ledger'")
+  assert_equal(5000, res_f_ok[:fact][:value][:amount], "finance token reads the correct value")
+  res_f_bad = client.send_req(op: "latest_for", token: finance_tok, store: "lead_signals", key: "lead-1")
+  assert_equal(false, res_f_bad[:ok], "finance token blocked from non-whitelisted store 'lead_signals'")
 
   client.close
 
-  # 6. Restart Daemon to verify boot preload preloading
-  puts "\n[TBackend Daemon] Stopping daemon to test persistent token reboot recovery..."
+  # ── Restart: reload by hash/id + legacy fail-closed ─────────────────────────────────────────────────
+  puts "\n[TBackend Daemon] Stopping to test restart reload..."
   Process.kill("INT", daemon_pid)
   Process.wait(daemon_pid)
 
-  puts "\n[TBackend Daemon] Rebooting daemon on port 7409 using compacted storage..."
-  daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --auth-enabled true", out: "/dev/null", err: "/dev/null")
-  sleep 1.0 # Allow bind
+  # Inject a LEGACY plaintext token file (old P6A/P8 format) while the daemon is down.
+  legacy_plain = "legacy_plaintext_admin"
+  all_token_values << legacy_plain
+  File.write(File.join(SEC_DIR, "legacymock.json"),
+             JSON.pretty_generate("token" => legacy_plain, "role" => "admin", "allowed_stores" => ["*"], "persist" => true))
 
-  client2 = AuthTestClient.new("127.0.0.1", 7409)
+  puts "\n[TBackend Daemon] Rebooting; new-format tokens must reload, legacy plaintext must be refused..."
+  daemon_pid = spawn_daemon("a")
+  sleep 1.0
+  client2 = AuthTestClient.new("127.0.0.1", PORT)
 
-  # Check that the tokens are preloaded on reboot and maintain their RBAC/ACL whitelists
-  puts "\n[Warm Boot Verification] Testing preloaded write_token permissions..."
-  res_reboot_w = client2.send_req(
-    op: "write_fact",
-    token: "write_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "lead_signals",
-      key: "lead-3",
-      value: { vendor: "eLocal" },
-      value_hash: "hash-5",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(true, res_reboot_w[:ok], "Preloaded write_token successfully writes whitelisted stores on boot!")
+  puts "\n[Warm Boot] generated tokens still authenticate after restart (reload by hash)..."
+  res_reboot_w = client2.send_req(op: "write_fact", token: write_tok, fact: a_fact("lead_signals", "lead-3", { vendor: "eLocal" }))
+  assert_equal(true, res_reboot_w[:ok], "reloaded write token writes whitelisted store on boot")
+  res_reboot_w_bad = client2.send_req(op: "write_fact", token: write_tok, fact: a_fact("financial_ledger", "tx-102", { amount: 1000 }))
+  assert_equal(false, res_reboot_w_bad[:ok], "reloaded write token still blocked from non-whitelisted store")
+  res_admin_after = client2.send_req(op: "ping", token: admin_tok)
+  assert_equal(true, res_admin_after[:ok], "reloaded bootstrap admin token still authenticates")
 
-  res_reboot_w_bad = client2.send_req(
-    op: "write_fact",
-    token: "write_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "financial_ledger",
-      key: "tx-102",
-      value: { amount: 1000 },
-      value_hash: "hash-6",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(false, res_reboot_w_bad[:ok], "Preloaded write_token remains blocked from writing non-whitelisted stores!")
+  puts "\n[Legacy Fail-Closed] an old plaintext token file must NOT be accepted as a credential..."
+  res_legacy_login = client2.send_req(op: "ping", token: legacy_plain)
+  assert_equal(false, res_legacy_login[:ok], "legacy plaintext token is rejected after reboot")
+  assert(res_legacy_login[:error].to_s.include?("invalid token"), "legacy token yields 'invalid token'")
 
-  # 7. Clean up and delete token
-  puts "\n[Token Deletion] Deleting token write_token remotely..."
-  res_del = client2.send_req(op: "auth_token_delete", token: "admin_default", target_token: "write_token")
-  assert_equal(true, res_del[:ok], "Token write_token successfully deleted from registry")
+  # ── Delete by id + last-admin guard ─────────────────────────────────────────────────────────────────
+  puts "\n[P9 Delete] delete by opaque id removes the persisted file..."
+  res_del = client2.send_req(op: "auth_token_delete", token: admin_tok, target_id: write_id)
+  assert_equal(true, res_del[:ok], "auth_token_delete(target_id) succeeds")
+  assert(Dir.glob(File.join(SEC_DIR, "*.json")).none? { |f| File.basename(f).start_with?(write_id) },
+         "the deleted token's persisted file is gone")
+  res_w_deleted = client2.send_req(op: "write_fact", token: write_tok, fact: a_fact("lead_signals", "lead-4", { vendor: "eLocal" }))
+  assert_equal(false, res_w_deleted[:ok], "the deleted token is rejected on subsequent use")
+  assert(res_w_deleted[:error].include?("invalid token"), "deleted token yields 'invalid token'")
 
-  # Verify deleted token is rejected
-  res_w_deleted = client2.send_req(
-    op: "write_fact",
-    token: "write_token",
-    fact: {
-      id: SecureRandom.uuid,
-      store: "lead_signals",
-      key: "lead-4",
-      value: { vendor: "eLocal" },
-      value_hash: "hash-7",
-      transaction_time: Time.now.to_f,
-      valid_time: Time.now.to_f,
-      schema_version: 1
-    }
-  )
-  assert_equal(false, res_w_deleted[:ok], "Subsequent writes using deleted token are rejected immediately!")
-  assert(res_w_deleted[:error].include?("invalid token"), "Error message points to invalid token: #{res_w_deleted[:error]}")
+  puts "\n[P9 Last-Admin Guard] deleting the final admin must be refused..."
+  res_list2 = client2.send_req(op: "auth_token_list", token: admin_tok)
+  admin_entry = (res_list2[:tokens] || []).find { |t| t[:role] == "admin" }
+  assert(!admin_entry.nil?, "exactly one admin remains in the registry")
+  admin_count = (res_list2[:tokens] || []).count { |t| t[:role] == "admin" }
+  assert_equal(1, admin_count, "there is a single admin (last-admin condition holds)")
+  res_del_admin = client2.send_req(op: "auth_token_delete", token: admin_tok, target_id: admin_entry[:id])
+  assert_equal(false, res_del_admin[:ok], "deleting the last admin is refused")
+  assert(res_del_admin[:error].to_s.include?("last remaining admin"), "refusal cites the last-admin guard")
+  res_admin_alive = client2.send_req(op: "ping", token: admin_tok)
+  assert_equal(true, res_admin_alive[:ok], "admin token still works after the refused deletion")
 
   client2.close
-  puts "\n#{BOLD}#{GREEN}🏆 SECURITY & ACCESS CONTROL PACK VERIFICATION COMPLETED SUCCESSFULLY!#{RESET}\n\n"
+  puts "\n#{BOLD}#{GREEN}🏆 P9 STORAGE-HARDENING VERIFICATION COMPLETED!#{RESET}\n"
 rescue => e
   puts "#{RED}Error during auth test: #{e.message}#{RESET}"
   puts e.backtrace.join("\n")
   $failed_tests += 1
 ensure
-  # Graceful teardown
-  puts "\n[Tear Down] Stopping servers and cleaning up directories..."
+  puts "\n[Tear Down] Stopping daemon and scanning logs for token leakage..."
   begin
     Process.kill("INT", daemon_pid)
     Process.wait(daemon_pid)
-  rescue => e
-    # Process already closed
+  rescue
+    # already stopped
   end
+
+  # ── Audit: no bearer token value may appear in daemon logs ──────────────────────────────────────────
+  if File.exist?(LOG)
+    log_text = File.read(LOG)
+    leaked_log = all_token_values.reject(&:empty?).select { |t| log_text.include?(t) }
+    assert(leaked_log.empty?, "no bearer token value appears in daemon logs (#{leaked_log.length} leaks)")
+  end
+
   FileUtils.rm_rf(DATA_DIR)
+  FileUtils.rm_f(LOG)
 end
 
 if $failed_tests == 0

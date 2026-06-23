@@ -36,7 +36,7 @@ TBackend can be configured using command-line arguments or a JSON configuration 
     ```
 
 > [!NOTE]
-> When launching with `--auth-enabled true` for the first time, TBackend automatically generates a default administrator token `admin_default` with wildcard permissions, saving it to `data/security/admin_default.json` for secure bootstrapping.
+> When launching with `--auth-enabled true` for the first time (with a `--data-dir`), TBackend mints a **random** one-time administrator token with wildcard permissions. Only its hash is persisted (`data/security/<hash>.json`); the plaintext is written **once** to `data/security/BOOTSTRAP_ADMIN_TOKEN` (mode `0600`). Read it, use it to create your real tokens, then delete the handoff file. There is no fixed default token.
 
 ### C. Launching the Administrative Time-Traveling REPL
 TBackend comes with a FFI-free pure-Ruby administrative REPL shell supporting tab completion and command history:
@@ -172,34 +172,42 @@ Creates an event pipeline matching a triggering store. Obtains associated states
 ```
 
 ### G. Dynamic Token Creation (`auth_token_create`)
-Creates a new security token with a specified role and store ACL whitelists.
+Creates a new security token with a specified role and store ACL whitelists. The bearer token is
+**generated server-side** and returned **once** in the response (`token`) alongside an opaque `id`;
+the plaintext is never stored or echoed again. Callers must **not** supply `target_token`.
 ```json
 {
   "op": "auth_token_create",
-  "token": "admin_default",
-  "target_token": "finance_token",
+  "token": "<admin-token>",
   "target_role": "read_only",
   "allowed_stores": ["financial_ledger"],
-  "persist": true
+  "persist": true,
+  "label": "finance-readonly"
 }
+```
+Response (shown once):
+```json
+{ "ok": true, "token": "<new-token>", "id": "<opaque-id>", "role": "read_only", "allowed_stores": ["financial_ledger"], "persist": true }
 ```
 
 ### H. Security Token Auditing (`auth_token_list`)
-Lists all registered tokens in the node's registry.
+Lists registered tokens as metadata only — opaque `id`, `role`, `allowed_stores`, `persist`, and a
+`count`. It never returns a token value or hash.
 ```json
 {
   "op": "auth_token_list",
-  "token": "admin_default"
+  "token": "<admin-token>"
 }
 ```
 
 ### I. Security Token Deletion (`auth_token_delete`)
-Deletes an active token from memory and persistent disk registry.
+Deletes an active token from memory and persistent disk registry, addressed by the opaque `id` from
+`auth_token_list`. Deleting the last remaining admin is refused (lockout prevention).
 ```json
 {
   "op": "auth_token_delete",
-  "token": "admin_default",
-  "target_token": "finance_token"
+  "token": "<admin-token>",
+  "target_id": "<id-from-list>"
 }
 ```
 
