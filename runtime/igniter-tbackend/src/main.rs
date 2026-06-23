@@ -15,7 +15,7 @@ use pure_core::FactData;
 use parking_lot::Mutex;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
@@ -36,6 +36,64 @@ impl Drop for ConnectionGuard {
             metrics.active_connections.fetch_sub(1, Ordering::Relaxed);
         }
     }
+}
+
+#[derive(Clone)]
+struct InflightLimiter {
+    max: usize,
+    current: Arc<AtomicUsize>,
+}
+
+struct InflightPermit {
+    current: Arc<AtomicUsize>,
+}
+
+impl Drop for InflightPermit {
+    fn drop(&mut self) {
+        self.current.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl InflightLimiter {
+    fn new(max: usize) -> Option<Self> {
+        if max == 0 {
+            None
+        } else {
+            Some(Self {
+                max,
+                current: Arc::new(AtomicUsize::new(0)),
+            })
+        }
+    }
+
+    fn try_acquire(&self) -> Option<InflightPermit> {
+        loop {
+            let observed = self.current.load(Ordering::Acquire);
+            if observed >= self.max {
+                return None;
+            }
+            if self
+                .current
+                .compare_exchange(observed, observed + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Some(InflightPermit {
+                    current: self.current.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn overload_response(max_inflight_requests: usize) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "TBackend overloaded: max in-flight request limit reached",
+        "error_code": "overloaded",
+        "committed": false,
+        "retryable": true,
+        "max_inflight_requests": max_inflight_requests
+    })
 }
 
 fn read_frame(stream: &mut TcpStream) -> std::io::Result<Option<(Vec<u8>, usize)>> {
@@ -237,6 +295,7 @@ fn main() {
     let mut peers: Vec<String> = Vec::new();
     let mut auth_enabled = false;
     let mut mcp_enabled = mcp_enabled;
+    let mut max_inflight_requests = 0usize;
 
     // CLI argument parsing
     let mut i = 1;
@@ -315,13 +374,24 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            "--max-inflight-requests" => {
+                if i + 1 < args.len() {
+                    max_inflight_requests = args[i + 1]
+                        .parse()
+                        .expect("Max in-flight requests must be an integer");
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --max-inflight-requests");
+                    std::process::exit(1);
+                }
+            }
             "--mcp" => {
                 mcp_enabled = true;
                 i += 1;
             }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
-                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--mcp]");
+                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--max-inflight-requests <num>] [--mcp]");
                 std::process::exit(1);
             }
         }
@@ -366,6 +436,13 @@ fn main() {
                         auth_enabled = ae;
                     } else if let Some(ae) = json.get("auth_enabled").and_then(|v| v.as_str()) {
                         auth_enabled = ae.parse().unwrap_or(false);
+                    }
+                    if let Some(mi) = json.get("max_inflight_requests").and_then(|v| v.as_u64()) {
+                        max_inflight_requests = mi as usize;
+                    } else if let Some(mi) =
+                        json.get("max_inflight_requests").and_then(|v| v.as_str())
+                    {
+                        max_inflight_requests = mi.parse().unwrap_or(0);
                     }
                     if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_bool()) {
                         mcp_enabled = me;
@@ -437,6 +514,14 @@ fn main() {
     );
     println!("  Thread Pool: \x1b[1m{} workers\x1b[0m", kernel.pool_size);
     println!("  Auth Enabled:\x1b[1m{}\x1b[0m", kernel.auth_enabled);
+    println!(
+        "  Backpressure:\x1b[1m{} max in-flight requests\x1b[0m",
+        if max_inflight_requests == 0 {
+            "disabled".to_string()
+        } else {
+            max_inflight_requests.to_string()
+        }
+    );
     if let Some(ref dir) = kernel.data_dir {
         println!("  Data Folder: \x1b[1m{}\x1b[0m", dir);
     } else {
@@ -455,12 +540,14 @@ fn main() {
 
     let (tx, rx) = channel::<TcpStream>();
     let rx = Arc::new(Mutex::new(rx));
+    let inflight_limiter = InflightLimiter::new(max_inflight_requests);
 
     // Spawn fixed worker thread pool executing profile-based command routes
     for i in 0..kernel.pool_size {
         let rx_c = rx.clone();
         let kernel_c = kernel.clone();
         let profile_c = profile.clone();
+        let inflight_limiter_c = inflight_limiter.clone();
 
         thread::spawn(move || {
             loop {
@@ -503,6 +590,54 @@ fn main() {
                             };
 
                             // 3. Request routing through middlewares
+                            let _inflight_permit = if req_val.get("error").is_none() {
+                                match inflight_limiter_c.as_ref() {
+                                    Some(limiter) => match limiter.try_acquire() {
+                                        Some(permit) => Some(permit),
+                                        None => {
+                                            let resp = overload_response(limiter.max);
+                                            if let Some(metrics) =
+                                                packs::base_audit::AUDIT_METRICS.get()
+                                            {
+                                                metrics
+                                                    .overload_rejections
+                                                    .fetch_add(1, Ordering::Relaxed);
+                                                metrics
+                                                    .errors_encountered
+                                                    .fetch_add(1, Ordering::Relaxed);
+                                                let resp_bytes =
+                                                    serde_json::to_vec(&resp).unwrap_or_default();
+                                                match write_frame(&mut stream, &resp_bytes) {
+                                                    Ok(bytes_written) => {
+                                                        metrics.bytes_written.fetch_add(
+                                                            bytes_written as u64,
+                                                            Ordering::Relaxed,
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!(
+                                                            "[Worker Thread {}] Write error: {}",
+                                                            i, e
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                            } else {
+                                                let resp_bytes =
+                                                    serde_json::to_vec(&resp).unwrap_or_default();
+                                                if write_frame(&mut stream, &resp_bytes).is_err() {
+                                                    break;
+                                                }
+                                            }
+                                            continue;
+                                        }
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            };
+
                             let resp = if req_val.get("error").is_some() {
                                 req_val
                             } else {

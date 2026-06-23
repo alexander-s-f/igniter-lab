@@ -25,6 +25,7 @@ pub struct MetricsTracker {
     pub size_ops: AtomicU64,
     pub metrics_ops: AtomicU64,
     pub total_latency_us: AtomicU64,
+    pub overload_rejections: AtomicU64,
 }
 
 impl MetricsTracker {
@@ -43,6 +44,7 @@ impl MetricsTracker {
             size_ops: AtomicU64::new(0),
             metrics_ops: AtomicU64::new(0),
             total_latency_us: AtomicU64::new(0),
+            overload_rejections: AtomicU64::new(0),
         }
     }
 
@@ -72,6 +74,7 @@ impl MetricsTracker {
             },
             "total_latency_us": lat,
             "average_latency_us": avg_lat,
+            "overload_rejections": self.overload_rejections.load(Ordering::Relaxed),
         })
     }
 }
