@@ -256,12 +256,22 @@ pure contract AccountTodoShow {
 -- cross the seam as a JSON object (P7), and `idempotency_key` stays its own field (intent.key). `target`
 -- stays the logical route-level effect name (host binds it to a machine route); the app names NO
 -- capability id, scope, DSN, or SQL.
+-- Create enforces the v0 body contract (LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the request body
+-- MUST be a non-empty JSON string literal (the title). The host classifies the body's JSON shape into
+-- `req.body_kind` ("string" for a non-empty string; "empty" for empty/absent/malformed; otherwise the
+-- shape name). A non-string shape (object/array/number/bool) or an empty/malformed body fails closed to a
+-- product-owned 400 BEFORE any InvokeEffect — no DB mutation. `.ig` parses no JSON; it branches on the
+-- host-computed signal.
 pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx
   compute intent : WriteIntent =
     call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.idempotency_key, req.body)
-  compute d : Decision = InvokeEffect { target: "todo-create", input: intent, idempotency_key: intent.key }
+  compute d : Decision = if req.body_kind == "string" {
+    InvokeEffect { target: "todo-create", input: intent, idempotency_key: intent.key }
+  } else {
+    Respond { status: 400, body: "create body must be a non-empty JSON string title" }
+  }
   output d : Decision
 }
 

@@ -319,7 +319,8 @@ async fn get_todo_show(addr: std::net::SocketAddr, account_id: &str, todo_id: &s
 
 async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let body = "{}";
+    // P18: create body must be a JSON string literal (the title), not an object.
+    let body = "\"Buy milk\"";
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\n\
@@ -642,4 +643,188 @@ fn app_files_carry_no_forbidden_authority_surface() {
         handlers.contains("ReadThen"),
         "index handler now emits ReadThen"
     );
+}
+
+// ── P20: host-owned error contract (read-denied 403, conflict 409, unauthorized 401) ──────────────
+//
+// LAB-TODOAPP-API-ERROR-CONTRACT-P20. The host-owned product errors are pinned here (the app-owned
+// 404/405/400 errors live in todo_error_contract_tests.rs). Each asserts status + the stable body
+// shape + that nothing leaks a DSN / bearer token / raw SQL / host-config path. Host-owned bodies use
+// `{"error": "<message>"}`; the app-owned not-found uses `{"body": "<message>"}` (status carries the
+// class) — both are documented in API.md.
+
+/// Read host whose policy does NOT allow the `todos` source → the app's plan is host-denied (403).
+fn make_denying_read_host() -> StagedReadHost {
+    let policy = PostgresReadPolicy::new(100)
+        .allow_ops(&["select"])
+        .allow_source("some_other_table", &["x"]);
+    let adapter = Arc::new(FakePostgresAdapter::new());
+    let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
+    let mut registry = CapabilityExecutorRegistry::new();
+    registry.register(exec);
+    let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+    StagedReadHost::new(registry, receipts, READ_CAP)
+}
+
+/// Extract the JSON body from a raw HTTP/1.1 response.
+fn http_body_json(raw: &str) -> Value {
+    let body = raw.split("\r\n\r\n").nth(1).unwrap_or("");
+    serde_json::from_str(body).unwrap_or(Value::Null)
+}
+
+/// No error body may leak host-owned secrets or internals.
+fn assert_no_leak(raw: &str) {
+    let lower = raw.to_lowercase();
+    for forbidden in [
+        "postgres://",
+        "password",
+        "dsn",
+        "bearer ",
+        "select ",
+        "insert into",
+        "host.toml",
+    ] {
+        assert!(
+            !lower.contains(forbidden),
+            "error response leaks `{forbidden}`: {raw}"
+        );
+    }
+}
+
+async fn post_todo_titled(
+    addr: std::net::SocketAddr,
+    account_id: &str,
+    idem_key: &str,
+    title: &str,
+) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let body = format!("\"{title}\"");
+    let raw = format!(
+        "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
+         Authorization: Bearer vtok\r\nidempotency-key: {idem_key}\r\n\
+         Content-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
+async fn post_todo_noauth(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let body = "\"Buy milk\"";
+    let raw = format!(
+        "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
+         idempotency-key: {idem_key}\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
+// read denied by host policy → 403 {"error": ...}; no DSN/policy-secret leak.
+#[test]
+fn read_denied_by_host_is_403_no_leak() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+    let read_host = make_denying_read_host();
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move { get_todos(addr, "acct-denied").await });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(http_status(&raw), 403, "host-denied read → 403; raw={raw}");
+        let body = http_body_json(&raw);
+        assert!(
+            body.get("error").and_then(|v| v.as_str()).is_some(),
+            "host error body must be {{\"error\": \"<message>\"}}; got {body}"
+        );
+        assert_no_leak(&raw);
+    });
+}
+
+// reused idempotency key + different body → 409 {"error":"conflict"}.
+#[test]
+fn write_conflict_is_409_error_shape() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+    let read_host = make_read_host(Arc::new(FakePostgresAdapter::new()));
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let policy = ServingPolicy::new(2).loopback_only();
+        let client = tokio::spawn(async move {
+            let a = post_todo_titled(addr, "acct-conflict", "evt-err-conflict", "Buy milk").await;
+            let b = post_todo_titled(addr, "acct-conflict", "evt-err-conflict", "Buy bread").await;
+            (a, b)
+        });
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let (r1, r2) = client.await.unwrap();
+
+        assert_eq!(http_status(&r1), 200, "first create commits; raw={r1}");
+        assert_eq!(
+            http_status(&r2),
+            409,
+            "same key + different body → 409; raw={r2}"
+        );
+        assert_eq!(http_body_json(&r2)["error"], json!("conflict"));
+        assert_no_leak(&r2);
+    });
+}
+
+// missing/invalid passport → 401 {"error":"unauthorized"}.
+#[test]
+fn unauthorized_write_is_401_error_shape() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+    let read_host = make_read_host(Arc::new(FakePostgresAdapter::new()));
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client =
+            tokio::spawn(
+                async move { post_todo_noauth(addr, "acct-unauth", "evt-err-unauth").await },
+            );
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(http_status(&raw), 401, "no bearer → 401; raw={raw}");
+        assert_eq!(http_body_json(&raw)["error"], json!("unauthorized"));
+        assert_no_leak(&raw);
+    });
 }

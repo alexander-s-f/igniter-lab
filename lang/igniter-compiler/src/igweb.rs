@@ -23,6 +23,7 @@ type Request {
   method          : String
   path            : String
   body            : String
+  body_kind       : String
   correlation_id  : String
   idempotency_key : String
 }

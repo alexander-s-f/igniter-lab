@@ -9,6 +9,9 @@ The app names only logical effect targets and structured intents; all DB authori
 allowlist, receipts, passport) is host-owned — see [`host.example.toml`](host.example.toml) and
 [`host_policy.md`](host_policy.md).
 
+**New here? Start with the one-page [`RUNBOOK.md`](RUNBOOK.md)** — run it locally, what's real vs not
+product-ready, troubleshooting, and the command that proves each claim.
+
 ## Two run modes
 
 | Mode | How | Reads (`ReadThen`) | Writes (`InvokeEffect`) |
@@ -28,10 +31,48 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | `GET /health` | `Health` | — | 200 `ok` | — |
 | `GET /accounts/:account_id/todos` | `AccountTodoIndex` → `ReadThen` | — | 200 (rows JSON) | 404 if no todos for the account; 404 if account capture missing (guard); read denied by host policy → 403; host read error → 503 |
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
-| `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; sync mode → 202 observed |
-| `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; sync mode → 202 observed |
+| `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
+| `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
 
 Unmatched path → **404**; wrong method on a known pattern → **405**.
+
+## Error contract (v0)
+
+The status code carries the error class. Bodies have **two stable shapes by owner** (v0 does not yet
+unify them into a single `{"error": {"code", "message"}}` envelope — that would be a cross-crate change
+to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred to a separate card):
+
+- **App-owned** (`.ig` `Respond` decisions): `{"body": "<message>"}` — the same shape as a success body,
+  with the status carrying the error class.
+- **Host-owned** (machine ingress / staged-read / effect host): `{"error": "<message>"}`, or for write
+  outcomes `{"status": "<word>", "detail": "<message>"}`.
+
+| Condition | Owner | Status | Body | Leak risk |
+| --- | --- | --- | --- | --- |
+| route miss (unknown path) | app | **404** | `{"body":"…"}` | none |
+| wrong method on a known pattern | app | **405** | `{"body":"…"}` | none |
+| missing idempotency key | app | **400** | `{"body":"…"}` | none |
+| invalid create body (P18) | app | **400** | `{"body":"create body must be a non-empty JSON string title"}` | none |
+| account not found | app | **404** | `{"body":"account not found"}` | none |
+| todo not found (show) | app | **404** | `{"body":"todo not found"}` | none |
+| list empty (no todos) | app | **404** | `{"body":"no todos"}` | none |
+| read denied by host policy | host | **403** | `{"error":"…"}` (names the requested source/field/op) | no DSN/SQL |
+| read host unavailable | host | **503** | `{"error":"…"}` | no DSN |
+| write committed | host | **200** | `{"status":"committed","result":…}` | none |
+| write denied (target/op) | host | **403** | `{"status":"denied","detail":"…"}` | names target/op |
+| write conflict (same key, different body) | host | **409** | `{"error":"conflict"}` | none |
+| write duplicate-limit | host | **429** | `{"error":"duplicate limit reached"}` | none |
+| write retryable | host | **503** | `{"status":"retry_later"}` | none |
+| write permanent failure | host | **502** | `{"status":"failed","detail":"…"}` | none |
+| write state unknown | host | **202** | `{"status":"accepted_unknown","correlation_id":…}` | none |
+| unauthorized (missing/invalid passport) | host | **401** | `{"error":"unauthorized"}` | none |
+| unbound effect target | host | **502** | `{"error":"unbound target","target":"…"}` | none (logical target only) |
+| unknown/unmapped decision | runner | **500** | `{"error":"unknown decision tag: …","raw":…}` | app decision echo (no secrets in Todo) |
+
+No product error body leaks a DSN, bearer token, raw SQL, or a host-config path — the host-denied read
+reason names only what the *client* requested (the source/field/op), never the allowlist or connection
+string. Pinned by `tests/todo_error_contract_tests.rs` (app-owned, sync) and the `P20` tests in
+`tests/todo_postgres_async_runner_smoke_tests.rs` (host-owned, machine).
 
 ### Idempotency
 
@@ -42,11 +83,51 @@ second mutation. Note the two write keys differ:
 - **create**: business row primary key = the idempotency key (v0 — no generated ids).
 - **done**: business row primary key = the route `todo_id`; the idempotency key stays the effect key.
 
+#### Replay vs replay-conflict
+
+The same idempotency key is only safe to reuse with the **same** request payload. The host distinguishes
+a benign replay from a conflicting reuse:
+
+| Client sends | Result | Status |
+| --- | --- | --- |
+| same key + **same** body | dedup replay — no second mutation, prior response returned | **200** |
+| same key + **different** body (e.g. different create title, or `done` against a different `todo_id`) | **conflict** — refused before any mutation, never a silent success | **409** `{"error":"conflict"}` |
+
+A conflict is decided at the host **ingress dedup gate** (`duplicate_policy = dedup_strict`,
+`variant_payload = false`): the gate compares a blake3 digest of the full effect intent body — for
+`create` that includes the title; for `done` the `todo_id` (intent `key`). A mismatch against a prior
+attempt under the same key → 409 **before** a replica is activated, so the wrong row is never written.
+
+Defence in depth: even if a request reached the write-receipt layer, the machine receipt binds the
+idempotency key to `capability_id + operation + authority_digest + payload_digest`. A reused key with a
+different payload is **denied** there too (`WriteState::Denied`, detail *"idempotency key reused with a
+different payload"* → **403**), before the executor runs.
+
+Note the **PG `effect_receipts`** table is keyed by idempotency key **only** — it is a second
+mutation-prevention backstop (a reused key cannot write twice), **not** a payload-conflict detector.
+Conflict *detection* is the machine layer's job (ingress dedup + write-receipt digest); the PG unique
+key guarantees at-most-one mutation even if a receipt is lost.
+
 ## Request body (create)
 
-v0 create body contract: the body is a **JSON string literal** whose value becomes the todo title
-(e.g. `"Buy milk"`, with quotes). It is not a JSON object and there is no field parser; an empty/absent
-body → empty title. `done` ignores the body. (Reads carry no body.)
+v0 create body contract (**enforced**, LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the body MUST be a
+**non-empty JSON string literal** whose value becomes the todo title (e.g. `"Buy milk"`, with quotes).
+It is not a JSON object and there is no field parser.
+
+Any other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
+
+| Body | Result |
+| --- | --- |
+| `"Buy milk"` (non-empty JSON string) | accepted → title `Buy milk` |
+| `{...}` object · `[...]` array · `5` number · `true` bool | **400** `create body must be a non-empty JSON string title` |
+| `null` · empty body · `""` (empty string) | **400** (no title) |
+| malformed JSON | **400** |
+
+Enforcement seam: the runner classifies the body's JSON shape into a host-computed `req.body_kind`
+("string" only for a non-empty string; "empty" for empty/absent/malformed; otherwise the shape name) and
+the `AccountTodoCreate` handler guards on it — `.ig` parses no JSON. The runner cannot distinguish a
+malformed body from an absent one (the HTTP parse collapses malformed JSON to an empty body); both are
+rejected, so the distinction does not matter. `done` ignores the body. (Reads carry no body.)
 
 ```bash
 # title comes from the body
@@ -85,7 +166,8 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 ## Open product limitations (intentional v0)
 
 - No typed row destructuring — `ReadThen` continuations receive rows as a JSON **string**.
-- No request validation / no JSON-object body parsing.
+- Body validation is **shape-only** (string vs non-string, via `req.body_kind`); no JSON-object body
+  parser — a create title is the whole string literal, never a field of an object.
 - No generated ids (create key = idempotency key).
 - No schema migration runner (DDL is operator-owned).
 - No connection pool / backpressure; bounded, one-request-at-a-time loopback loop.

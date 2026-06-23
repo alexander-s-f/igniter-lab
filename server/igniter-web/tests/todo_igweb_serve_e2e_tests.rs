@@ -335,7 +335,8 @@ async fn get_todos(addr: std::net::SocketAddr, account_id: &str) -> String {
 
 async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let body = "{}";
+    // P18: create body must be a JSON string literal (the title), not an object.
+    let body = "\"Buy milk\"";
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\n\

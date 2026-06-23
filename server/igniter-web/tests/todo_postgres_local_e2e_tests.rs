@@ -818,7 +818,8 @@ fn binary_path_write_from_config_committed() {
 
         let build_post = |key: &str| {
             let tok = tok_val;
-            let body = "{}";
+            // P18: create body must be a JSON string literal (the title), not an object.
+            let body = "\"Buy milk\"";
             format!(
                 "POST /accounts/acct-p26-cfg/todos HTTP/1.1\r\nHost: x\r\n\
                  Authorization: Bearer {tok}\r\n\
@@ -1168,6 +1169,234 @@ fn subprocess_product_command_read_write_replay_e2e() {
             .await
             .ok();
         std::fs::remove_file(&tmp).ok();
+    });
+}
+
+// ── 9 (P19): same key + DIFFERENT payload → write-receipt conflict, real DB row UNCHANGED ─────────
+//
+// Defence-in-depth conflict at the write-receipt layer against a real Postgres adapter: the machine
+// receipt binds the idempotency key to `payload_digest`. A reused key with a different payload is
+// REFUSED before the executor (`WriteState::Denied`, detail "different payload") — the real business
+// row keeps the FIRST payload's values and the adapter performs exactly one transaction. Skips cleanly
+// without IGNITER_TODO_PG_DSN.
+
+#[test]
+fn local_write_same_key_different_payload_conflicts_row_unchanged() {
+    rt().block_on(async {
+        let key = "evt-local-conflict-1";
+        let Some((_client, dsn)) = prepare("acct-7", &[key], &[key]).await else {
+            return;
+        };
+        let m = load_app_contracts();
+        // First intent: title "Buy milk". Second intent: SAME key, DIFFERENT title "Buy bread".
+        let intent_a = m
+            .dispatch(
+                "BuildCreateTodoIntent",
+                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
+            )
+            .await
+            .unwrap();
+        let intent_b = m
+            .dispatch(
+                "BuildCreateTodoIntent",
+                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy bread"}),
+            )
+            .await
+            .unwrap();
+        assert_ne!(intent_a, intent_b, "different titles → different payloads");
+
+        let adapter = Arc::new(
+            TokioPostgresWriteAdapter::connect(
+                &dsn,
+                "todos",
+                "id",
+                &["account_id", "title", "done"],
+            )
+            .await
+            .expect("write adapter connect"),
+        );
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(Arc::new(PostgresWriteExecutor::new(
+            WRITE_CAP,
+            adapter.clone(),
+            write_policy(),
+        )));
+        let store = receipts();
+
+        // First write commits the "Buy milk" row.
+        let first = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &write_passport(),
+            "write",
+            &WriteRequest {
+                capability_id: WRITE_CAP.into(),
+                operation: "insert".into(),
+                idempotency_key: key.into(),
+                payload: intent_a.clone(),
+            },
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.state, WriteState::Committed);
+
+        // Second write: SAME key, DIFFERENT payload → refused at the receipt gate, executor NOT reached.
+        let second = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &write_passport(),
+            "write",
+            &WriteRequest {
+                capability_id: WRITE_CAP.into(),
+                operation: "insert".into(),
+                idempotency_key: key.into(),
+                payload: intent_b.clone(),
+            },
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            second.state,
+            WriteState::Denied,
+            "same key + different payload → Denied (conflict), not silent success"
+        );
+        assert!(
+            second
+                .detail
+                .as_deref()
+                .unwrap_or("")
+                .contains("different payload"),
+            "conflict detail names the payload mismatch; got {:?}",
+            second.detail
+        );
+
+        assert_eq!(
+            adapter.attempts(),
+            1,
+            "exactly one real transaction (conflict not executed)"
+        );
+        // The real business row keeps the FIRST payload's title — the conflicting write never mutated it.
+        assert_eq!(
+            adapter.read_business_text(key, "title").await.as_deref(),
+            Some("Buy milk"),
+            "conflicting write must NOT overwrite the row"
+        );
+    });
+}
+
+// ── P18: a non-string create body is rejected at the app; NO business row inserted (real DB) ──────
+//
+// Drives the REAL `igweb-serve` subprocess against local Postgres with a JSON OBJECT create body. The
+// body contract fails closed to 400 in the app BEFORE any InvokeEffect, so no `todos` row and no PG
+// `effect_receipts` row are written. Skips cleanly without IGNITER_TODO_PG_DSN.
+
+#[test]
+fn subprocess_non_string_create_body_writes_no_row() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    rt().block_on(async {
+        let bad_key = "p18-badbody-k1";
+        let Some((client, dsn)) = prepare("acct-p18-sub", &[bad_key], &[bad_key]).await else {
+            return;
+        };
+        client
+            .execute("DELETE FROM effect_receipts WHERE business_key = $1", &[&bad_key])
+            .await
+            .unwrap();
+
+        let read_env = "IGNITER_P18_PG_READ_DSN";
+        let write_env = "IGNITER_P18_PG_WRITE_DSN";
+        let tok_env = "IGNITER_P18_VENDOR_TOKEN";
+        let tok_val = "p18-vtok";
+        let toml = format!(
+            "[postgres.read]\n\
+             dsn_env = \"{read_env}\"\nsource = \"todos\"\n\
+             fields = \"id,account_id,title,done\"\nrow_limit = \"50\"\ncapability = \"IO.PostgresRead\"\n\
+             \n[postgres.write]\n\
+             dsn_env = \"{write_env}\"\ntargets = \"todos\"\nkey_column = \"id\"\n\
+             columns = \"account_id,title,done\"\nops = \"insert,upsert\"\ncapability = \"IO.TodoWrite\"\n\
+             \n[effects.todo-create]\nroute = \"/w\"\npassport_env = \"{tok_env}\"\n\
+             \n[effects.todo-done]\nroute = \"/w\"\npassport_env = \"{tok_env}\"\n"
+        );
+        let tmp = std::env::temp_dir().join(format!("igweb-p18-badbody-{}.toml", std::process::id()));
+        std::fs::write(&tmp, &toml).unwrap();
+        let app_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/todo_postgres_app");
+
+        let mut child = Command::new(env!("CARGO_BIN_EXE_igweb-serve"))
+            .arg("--host-config").arg(&tmp)
+            .arg("--addr").arg("127.0.0.1:0")
+            .arg("--max-requests").arg("1")
+            .arg(&app_dir)
+            .env(read_env, &dsn).env(write_env, &dsn).env(tok_env, tok_val)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn igweb-serve");
+
+        let stdout = child.stdout.take().unwrap();
+        let mut out = BufReader::new(stdout).lines();
+        let addr = loop {
+            match timeout(Duration::from_secs(30), out.next_line()).await {
+                Ok(Ok(Some(l))) => {
+                    if let Some(i) = l.find("listening http://") {
+                        let rest = &l[i + "listening http://".len()..];
+                        break rest.split_whitespace().next().unwrap_or("").to_string();
+                    }
+                }
+                _ => panic!("igweb-serve never reported a listening addr"),
+            }
+        };
+        let out_task = tokio::spawn(async move { while let Ok(Some(_)) = out.next_line().await {} });
+
+        // JSON OBJECT create body — must be rejected with 400, no mutation.
+        let body = "{\"title\":\"sneaky\"}";
+        let raw = format!(
+            "POST /accounts/acct-p18-sub/todos HTTP/1.1\r\nHost: x\r\n\
+             Authorization: Bearer {tok_val}\r\nidempotency-key: {bad_key}\r\n\
+             Content-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = {
+            let mut s = tokio::net::TcpStream::connect(&addr).await.unwrap();
+            s.write_all(raw.as_bytes()).await.unwrap();
+            s.flush().await.unwrap();
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        };
+        let status: u16 = resp.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let _ = timeout(Duration::from_secs(30), child.wait()).await;
+        out_task.await.ok();
+
+        assert_eq!(status, 400, "object create body → 400; raw={resp}");
+        // DB truth: no business row, no PG receipt for this key.
+        let n_row: i64 = client
+            .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&bad_key])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n_row, 0, "rejected body must NOT insert a todos row");
+        let n_rcpt: i64 = client
+            .query_one("SELECT count(*) FROM effect_receipts WHERE business_key = $1", &[&bad_key])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n_rcpt, 0, "rejected body must NOT write a PG effect receipt");
+
+        std::env::remove_var(read_env);
+        std::env::remove_var(write_env);
+        std::env::remove_var(tok_env);
+        std::fs::remove_file(&tmp).ok();
+        client.execute("DELETE FROM accounts WHERE id = $1", &[&"acct-p18-sub"]).await.ok();
     });
 }
 

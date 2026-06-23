@@ -220,15 +220,27 @@ fn build_request_input(req: &ServerRequest) -> Value {
     // `req.body` is a parsed JSON Value. The prelude `Request.body` is a String, so we cross it as text:
     // a JSON-string body (e.g. `"Buy milk"`) crosses as its INNER string (`Buy milk`, not re-quoted);
     // null/absent → ""; any other shape (object/number) crosses as its compact JSON text.
-    let body = match &req.body {
-        Value::Null => String::new(),
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
+    //
+    // `body_kind` (LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18) is the host-computed JSON SHAPE of the
+    // body — the only place that distinction survives (`host::parse_request` collapses malformed JSON to
+    // `Null`, so malformed and absent both read as "empty" here). `.ig` cannot tell a string body from
+    // compact object text once `body` is a String, so a route that requires a string body guards on this
+    // signal instead of parsing JSON in `.ig`. Shapes: non-empty string → "string"; empty string / null /
+    // absent / malformed → "empty"; otherwise the JSON shape name.
+    let (body, body_kind) = match &req.body {
+        Value::String(s) if !s.is_empty() => (s.clone(), "string"),
+        Value::String(_) => (String::new(), "empty"),
+        Value::Null => (String::new(), "empty"),
+        Value::Object(_) => (req.body.to_string(), "object"),
+        Value::Array(_) => (req.body.to_string(), "array"),
+        Value::Number(_) => (req.body.to_string(), "number"),
+        Value::Bool(_) => (req.body.to_string(), "bool"),
     };
     json!({ "req": {
         "method": req.method,
         "path": req.path,
         "body": body,
+        "body_kind": body_kind,
         "correlation_id": req.correlation_id.clone().unwrap_or_default(),
         "idempotency_key": req.idempotency_key.clone().unwrap_or_default(),
     }})

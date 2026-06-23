@@ -218,7 +218,8 @@ fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
 /// machine ingress passport `Authorization: Bearer vtok` rides in the headers — the app never sets/reads
 /// it).
 fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
-    let mut req = ServerRequest::new(method, path, json!({}));
+    // P18: create body must be a JSON string literal (the title); done ignores the body.
+    let mut req = ServerRequest::new(method, path, json!("Buy milk"));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = idem_key.map(|k| k.to_string());
@@ -430,6 +431,156 @@ fn app_decision_carries_no_capability_identity() {
         }
         other => panic!("expected InvokeEffect, got {other:?}"),
     }
+}
+
+// ── 7 (P19): same key + DIFFERENT body → 409 conflict, no second effect ───────────────────────────
+//
+// The Todo duplicate policy is `dedup_strict` + `variant_payload: false`. A client bug that reuses one
+// idempotency key with a different create body is caught at the ingress dedup gate (payload-digest
+// mismatch → `DuplicateDecision::Conflict`) and returns **409** BEFORE any replica is activated — never
+// a silent success, never a second mutation. The create body (a JSON string literal) is the todo title,
+// so two different titles produce two different body digests.
+
+fn titled_create(account: &str, idem_key: &str, title: &str) -> ServerRequest {
+    let mut req = ServerRequest::new("POST", &format!("/accounts/{account}/todos"), json!(title));
+    req.headers
+        .insert("authorization".to_string(), "Bearer vtok".to_string());
+    req.idempotency_key = Some(idem_key.to_string());
+    req
+}
+
+#[test]
+fn create_same_key_different_body_conflicts_no_second_effect() {
+    let app = build_app();
+    // SAME idempotency key, DIFFERENT title (different body → different payload digest).
+    let r1 = titled_create("7", "evt-create-conflict", "Buy milk");
+    let r2 = titled_create("7", "evt-create-conflict", "Buy bread");
+    let d1 = app.call(r1.clone());
+    let d2 = app.call(r2.clone());
+
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (s1, _b1, e1) = execute(&eh, &r1, d1).await;
+        let (s2, b2, e2) = execute(&eh, &r2, d2).await;
+
+        assert!(e1 && e2, "both keyed creates reach the effect host");
+        assert_eq!(s1, 200, "first create commits → 200");
+        assert_eq!(
+            s2, 409,
+            "same key + different body → 409 conflict, body={b2}"
+        );
+        assert_eq!(b2["error"], json!("conflict"), "distinct conflict body");
+        assert_eq!(
+            st.exec.attempts(),
+            1,
+            "conflict is refused before activation → exactly one effect"
+        );
+        assert_eq!(st.exec.applied_count(), 1, "no second mutation applied");
+    });
+}
+
+#[test]
+fn create_same_key_same_body_dedup_no_second_effect() {
+    let app = build_app();
+    // SAME idempotency key + SAME title → dedup replay (no conflict, no second effect).
+    let r1 = titled_create("7", "evt-create-same", "Buy milk");
+    let r2 = titled_create("7", "evt-create-same", "Buy milk");
+    let d1 = app.call(r1.clone());
+    let d2 = app.call(r2.clone());
+
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (s1, _b1, _e1) = execute(&eh, &r1, d1).await;
+        let (s2, _b2, _e2) = execute(&eh, &r2, d2).await;
+
+        assert_eq!(s1, 200, "first create commits");
+        assert_eq!(s2, 200, "same key + same body → dedup replay, still 200");
+        assert_eq!(st.exec.attempts(), 1, "same payload → exactly one effect");
+    });
+}
+
+// ── 8 (P19): done — same key + DIFFERENT todo_id → 409 conflict, no wrong-row mutation ────────────
+//
+// The done effect's business key is the route `todo_id` (carried in the intent `key`). Reusing one
+// idempotency key against a different `todo_id` changes the intent body → payload-digest mismatch →
+// 409 before activation: the WRONG row is never marked done (the executor is never reached a 2nd time).
+
+#[test]
+fn done_same_key_different_todo_id_conflicts_no_wrong_mutation() {
+    let app = build_app();
+    // SAME idempotency key, DIFFERENT route todo_id (42 vs 43) → different intent key → different body.
+    let r1 = app_request(
+        "POST",
+        "/accounts/7/todos/42/done",
+        Some("evt-done-conflict"),
+    );
+    let r2 = app_request(
+        "POST",
+        "/accounts/7/todos/43/done",
+        Some("evt-done-conflict"),
+    );
+    let d1 = app.call(r1.clone());
+    let d2 = app.call(r2.clone());
+
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (s1, _b1, e1) = execute(&eh, &r1, d1).await;
+        let (s2, b2, e2) = execute(&eh, &r2, d2).await;
+
+        assert!(e1 && e2, "both keyed dones reach the effect host");
+        assert_eq!(s1, 200, "first done commits → 200");
+        assert_eq!(
+            s2, 409,
+            "same key + different todo_id → 409 conflict, body={b2}"
+        );
+        assert_eq!(
+            st.exec.attempts(),
+            1,
+            "the wrong row's done is refused before activation → exactly one effect"
+        );
+    });
+}
+
+// ── P18: a non-string create body is rejected (400) BEFORE the machine effect host ────────────────
+//
+// The body-contract guard lives in the app handler (on the host-computed `req.body_kind`), so a create
+// with a JSON object body produces a `Respond { 400 }` decision — never an `InvokeEffect`. It therefore
+// never reaches `MachineEffectHost`: the write executor is untouched, no mutation.
+
+#[test]
+fn non_string_create_body_rejected_before_effect_host() {
+    let app = build_app();
+    // Keyed create with a JSON OBJECT body (not a string title).
+    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!({"title": "x"}));
+    req.headers
+        .insert("authorization".to_string(), "Bearer vtok".to_string());
+    req.idempotency_key = Some("evt-bad-body".to_string());
+    let decision = app.call(req.clone());
+
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (status, _b, executed) = execute(&eh, &req, decision).await;
+
+        assert!(!executed, "a rejected body never reaches the effect host");
+        assert_eq!(status, 400, "non-string create body → product-owned 400");
+        assert_eq!(st.exec.attempts(), 0, "write executor untouched");
+    });
 }
 
 // ── 6 (P7): the app's decision carries STRUCTURED `input` — a clean JSON object, not a string wrapper ─

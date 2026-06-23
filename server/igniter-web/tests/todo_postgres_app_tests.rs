@@ -38,6 +38,47 @@ fn app_files_exist_and_check_succeeds() {
     assert_eq!(report.source_count, 2);
 }
 
+// ── P18: create body contract — only a non-empty JSON string title is accepted ────────────────────
+//
+// `POST /accounts/:id/todos` requires the body to be a JSON string literal (the title). Every other
+// JSON shape — object / array / number / bool / null — and an empty or malformed body fail closed to a
+// product-owned 400 (the handler guards on the host-computed `req.body_kind`), with NO InvokeEffect
+// (sync mode: a valid create is observed as 202; a rejected one never produces that decision).
+
+#[test]
+fn create_body_contract_rejects_non_string_shapes() {
+    let app = build();
+    let key = &[("idempotency-key", "evt-body")][..];
+
+    // Accepted: a non-empty JSON string literal → observed InvokeEffect (202), no body-contract 400.
+    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, "\"Buy milk\"");
+    assert_eq!(s, 202, "JSON string body → observed create");
+    assert_eq!(b["target"], json!("todo-create"));
+
+    // Rejected shapes — each returns a product-owned 400, never an InvokeEffect.
+    for (label, body) in [
+        ("object", "{}"),
+        ("object-nonempty", "{\"title\":\"x\"}"),
+        ("array", "[]"),
+        ("number", "5"),
+        ("bool", "true"),
+        ("json-null", "null"),
+        ("empty", ""),
+        ("empty-string", "\"\""),
+        ("malformed", "{not valid json"),
+    ] {
+        let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, body);
+        assert_eq!(
+            s, 400,
+            "{label} body must be rejected with 400; got {s} body={b}"
+        );
+        assert!(
+            b.get("target").is_none(),
+            "{label} body must NOT produce an InvokeEffect; body={b}"
+        );
+    }
+}
+
 // ── 3: loopback behavior table (observed, no DB) ───────────────────────────────────────────────
 
 #[test]
@@ -67,19 +108,20 @@ fn loopback_behaviors() {
         "show emits ReadThen → sync path returns 500 (machine mode only)"
     );
 
-    // create without idempotency-key → keyless 400 (guard outermost, before the via match).
+    // create without idempotency-key → keyless 400 (guard outermost, before the via match). Body is a
+    // valid JSON string title (P18), so 400 is unambiguously the keyless guard, not the body contract.
     assert_eq!(
-        roundtrip(&*app, "POST", "/accounts/7/todos", &[], "{}").0,
+        roundtrip(&*app, "POST", "/accounts/7/todos", &[], "\"Buy milk\"").0,
         400
     );
 
-    // create with key → 202 observed InvokeEffect target `todo-create`, key preserved, no identity.
+    // create with key + JSON-string body → 202 observed InvokeEffect target `todo-create`.
     let (s, b) = roundtrip(
         &*app,
         "POST",
         "/accounts/7/todos",
         &[("idempotency-key", "evt-1")],
-        "{}",
+        "\"Buy milk\"",
     );
     assert_eq!(s, 202);
     assert_eq!(b["target"], json!("todo-create"));

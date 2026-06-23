@@ -163,18 +163,25 @@ never a production or SparkCRM database.
 
 ### Repeatable smoke
 
-[`scripts/todo_postgres_smoke.sh`](scripts/todo_postgres_smoke.sh) is a one-command operator smoke that
-runs the real `igweb-serve --host-config` against a local Postgres and prints a PASS/FAIL receipt. It
-reuses the committed `host.example.toml` (so it writes no config file), refuses to run without
-`IGNITER_TODO_PG_DSN`, exercises read-found → 200 / read-empty → 404 / write → committed row + receipt /
-replay → no second mutation, then cleans up its own rows and exits (bounded, no listener left running).
+[`scripts/todo_postgres_smoke.sh`](scripts/todo_postgres_smoke.sh) is the **one-command operator proof**:
+it runs the real `igweb-serve --host-config` against a local Postgres and prints a compact PASS/FAIL
+receipt covering health, list (empty/found), show, create-title, done, and replay-no-second-mutation. It
+reuses the committed `host.example.toml` (writes no config file), and is safe for a tired operator:
+
+- refuses missing `IGNITER_TODO_PG_DSN` / `IGNITER_TODO_EFFECT_TOKEN` with a clear, non-secret message;
+- refuses a non-local host (override with `IGNITER_TODO_SMOKE_ALLOW_NONLOCAL=1`) or a dbname that looks
+  like `spark`/`prod`/`production`/empty;
+- never echoes the token or full DSN;
+- cleans up its own rows on success or failure and leaves no listener (trap teardown).
 
 ```bash
-export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
-server/igniter-web/scripts/todo_postgres_smoke.sh
+IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test" \
+IGNITER_TODO_EFFECT_TOKEN="dev-token" \
+  server/igniter-web/scripts/todo_postgres_smoke.sh
 ```
 
-This is the human-runnable companion to the in-harness P12 Cargo subprocess test.
+This is the human-runnable companion to the in-harness P12 Cargo subprocess test. The preflight refusals
+are themselves covered by `tests/todo_postgres_smoke_guard_tests.rs` (DB-free).
 
 ## Current Limits
 

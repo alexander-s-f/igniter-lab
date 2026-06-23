@@ -1,68 +1,96 @@
 #!/usr/bin/env bash
-# todo_postgres_smoke.sh — repeatable local Postgres operator smoke for examples/todo_postgres_app.
-# LAB-TODOAPP-API-LOCAL-POSTGRES-SMOKE-P13.
+# todo_postgres_smoke.sh — operator-grade local Postgres smoke for examples/todo_postgres_app.
+# LAB-TODOAPP-API-LOCAL-POSTGRES-SMOKE-P13 / hardened by LAB-TODOAPP-API-OPERATOR-SMOKE-P21.
 #
-# Runs the SAME product command an operator would (real `igweb-serve --host-config` against a real
-# local Postgres) and prints a compact PASS/FAIL receipt. This is the human-runnable companion to the
-# P12 Cargo subprocess test — it lives outside the test harness so it can be run ad hoc.
-#
-# Requires a DEDICATED local test database via IGNITER_TODO_PG_DSN — NEVER a production or SparkCRM DB.
-# Reuses the committed, secret-free examples/todo_postgres_app/host.example.toml, so this script writes
-# NO config file: the only secrets are env vars (the DSN and a local bearer token), never on disk.
+# One command runs the real product path (`igweb-serve --host-config` against a real local Postgres)
+# and prints a compact PASS/FAIL receipt covering health, list, show, create-title, done, and replay.
+# It reuses the committed, secret-free examples/todo_postgres_app/host.example.toml, so it writes NO
+# config file: the only secrets are env vars, never on disk and never echoed.
 #
 # Usage:
-#   export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
-#   server/igniter-web/scripts/todo_postgres_smoke.sh
+#   IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test" \
+#   IGNITER_TODO_EFFECT_TOKEN="dev-token" \
+#     server/igniter-web/scripts/todo_postgres_smoke.sh
 #
-# Exit codes: 0 = PASS, 1 = a check failed, 2 = misuse (missing DSN / missing tool).
+# Safety: requires a DEDICATED local test DB. Refuses a non-local host (unless
+# IGNITER_TODO_SMOKE_ALLOW_NONLOCAL=1) and refuses a dbname that looks like spark/prod/production or is
+# empty. These checks target the libpq key=value conninfo form (host=… dbname=…) and do a coarse
+# extraction for postgres:// URLs; they are conservative, not a full parser.
+#
+# Exit codes: 0 = PASS, 1 = a check failed, 2 = preflight refusal (bad/missing env or missing tool).
 
-set -euo pipefail
+set -uo pipefail
 
-# ── 0. Require a dedicated local test DSN ─────────────────────────────────────────────────────────
-if [[ -z "${IGNITER_TODO_PG_DSN:-}" ]]; then
-  echo "FAIL: IGNITER_TODO_PG_DSN is not set." >&2
-  echo "  Set it to a DEDICATED local test database (never production / never SparkCRM), e.g.:" >&2
-  echo '    export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"' >&2
-  exit 2
+fail2() { echo "todo_postgres_smoke: REFUSED — $1" >&2; exit 2; }
+
+# ── Preflight (runs BEFORE any tool/DB use, so refusals are hermetic) ──────────────────────────────
+[[ -n "${IGNITER_TODO_PG_DSN:-}"   ]] || fail2 "IGNITER_TODO_PG_DSN must be set (a dedicated LOCAL test DB; never production / never SparkCRM)."
+[[ -n "${IGNITER_TODO_EFFECT_TOKEN:-}" ]] || fail2 "IGNITER_TODO_EFFECT_TOKEN must be set (a local bearer token; not echoed)."
+
+# Extract host + dbname (key=value conninfo, or a coarse postgres:// URL parse).
+if [[ "$IGNITER_TODO_PG_DSN" == *"://"* ]]; then
+  _u="${IGNITER_TODO_PG_DSN#*://}"; _hp="${_u#*@}"; _hp="${_hp%%/*}"
+  DSN_HOST="${_hp%%:*}"; _rest="${_u#*/}"; DSN_DB="${_rest%%\?*}"
+else
+  DSN_HOST="$(printf '%s' "$IGNITER_TODO_PG_DSN" | grep -oE '(^|[[:space:]])host=[^[:space:]]+' | head -1 | sed 's/.*host=//')"
+  DSN_DB="$(printf '%s' "$IGNITER_TODO_PG_DSN" | grep -oE '(^|[[:space:]])dbname=[^[:space:]]+' | head -1 | sed 's/.*dbname=//')"
 fi
+DSN_HOST_LC="$(printf '%s' "$DSN_HOST" | tr '[:upper:]' '[:lower:]')"
+DSN_DB_LC="$(printf '%s' "$DSN_DB" | tr '[:upper:]' '[:lower:]')"
+
+[[ -n "$DSN_DB" ]] || fail2 "could not find a dbname in IGNITER_TODO_PG_DSN (expected 'dbname=<name>')."
+case "$DSN_DB_LC" in
+  *spark*|*prod*|*production*) fail2 "dbname '$DSN_DB' looks like a production/SparkCRM database — refusing. Use a dedicated test DB." ;;
+esac
+if [[ -n "$DSN_HOST" ]]; then
+  case "$DSN_HOST_LC" in
+    localhost|127.0.0.1|::1|"") : ;;
+    *) [[ "${IGNITER_TODO_SMOKE_ALLOW_NONLOCAL:-0}" == "1" ]] \
+         || fail2 "host '$DSN_HOST' is not local — refusing (set IGNITER_TODO_SMOKE_ALLOW_NONLOCAL=1 to override for a lab box)." ;;
+  esac
+fi
+
 for tool in psql curl cargo; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "FAIL: required tool not found: $tool" >&2; exit 2; }
+  command -v "$tool" >/dev/null 2>&1 || fail2 "required tool not found: $tool"
 done
 
-# Local-only bearer token for the effect passport (not a secret; never written to a committed file).
-export IGNITER_TODO_EFFECT_TOKEN="${IGNITER_TODO_EFFECT_TOKEN:-smoke-tok}"
+echo "todo_postgres_smoke: preflight ok (db=$DSN_DB, loopback only; DSN/token not echoed)"
 
+# ── Config + identifiers ──────────────────────────────────────────────────────────────────────────
 CRATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$CRATE_DIR/examples/todo_postgres_app"
 HOST_CFG="$APP_DIR/host.example.toml"
 
 ACCT="acct-smoke"
+# A distinct never-populated account for the empty-list read. Using a SEPARATE account (not acct-smoke
+# pre-create) is deliberate: the staged read host dedups identical (plan,correlation) reads within one
+# server run, so two identical list reads on acct-smoke would replay the first's cached result. Distinct
+# accounts ⇒ distinct query plans ⇒ no read-cache collision.
 ACCT_EMPTY="acct-smoke-empty"
-TODO_SEED="todo-smoke-seed"
-WRITE_KEY="smoke-k1"
+CREATE_KEY="smoke-create-1"   # create idempotency key == created row id (create v0 keys by idem key)
+DONE_KEY="smoke-done-1"        # done idempotency key (business key = the todo id, P15)
 # v0 create body contract (P16): the request body is a JSON string literal carrying the todo title.
 WRITE_TITLE="Buy milk via smoke"
 
 psql_dsn() { psql "$IGNITER_TODO_PG_DSN" -v ON_ERROR_STOP=1 "$@"; }
 
 cleanup_rows() {
-  # FK-safe order: receipts (by stable business_key), then child todos, then accounts. Test-owned only.
-  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE business_key = '$WRITE_KEY';" >/dev/null 2>&1 || true
+  # FK-safe order. Test-owned ids only; never a blanket wipe.
+  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE business_key IN ('$CREATE_KEY','$DONE_KEY');" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM todos WHERE account_id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM accounts WHERE id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
 }
 
 SERVER_PID=""
-LOG="$(mktemp)"
-BODY="$(mktemp)"
+LOG="$(mktemp)"; FOUND_BODY="$(mktemp)"; SHOW_BODY="$(mktemp)"
 teardown() {
   [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true
-  rm -f "$LOG" "$BODY" >/dev/null 2>&1 || true
   cleanup_rows
+  rm -f "$LOG" "$FOUND_BODY" "$SHOW_BODY" >/dev/null 2>&1 || true
 }
 trap teardown EXIT
 
-# ── 1. Ensure schema in the dedicated DB (test-owned DDL; `done` is TEXT to match the app's values) ─
+# ── Schema + seed (test-owned DDL; `done` is TEXT to match the app's values; account only, no todos) ─
 psql_dsn -q >/dev/null <<'SQL'
 CREATE TABLE IF NOT EXISTS accounts (id text PRIMARY KEY, name text NOT NULL);
 CREATE TABLE IF NOT EXISTS todos (
@@ -72,82 +100,86 @@ CREATE TABLE IF NOT EXISTS effect_receipts (
   idempotency_key text PRIMARY KEY, correlation_id text, target text NOT NULL,
   business_key text NOT NULL, committed_at timestamptz NOT NULL DEFAULT now());
 SQL
-
-# ── 2. Seed: a fresh account with one todo (read-found); the empty account is never created ─────────
 cleanup_rows
 psql_dsn -qtAc "INSERT INTO accounts(id,name) VALUES ('$ACCT','Smoke');" >/dev/null
-psql_dsn -qtAc "INSERT INTO todos(id,account_id,title) VALUES ('$TODO_SEED','$ACCT','Smoke seed');" >/dev/null
+echo "todo_postgres_smoke: schema ready"
 
-# ── 3. Build + start the bounded loopback server (real read+write executors under --features postgres)
+# ── Build + start the bounded loopback server (real read+write executors under --features postgres) ─
 echo "todo_postgres_smoke: building igweb-serve (--features postgres) ..."
 if ! ( cd "$CRATE_DIR" && cargo build --quiet --features postgres --bin igweb-serve ) >>"$LOG" 2>&1; then
-  echo "FAIL: cargo build failed. Build log:" >&2
-  cat "$LOG" >&2
-  exit 1
+  echo "todo_postgres_smoke: FAIL — cargo build failed:" >&2; cat "$LOG" >&2; exit 1
 fi
 BIN="$CRATE_DIR/target/debug/igweb-serve"
 
-"$BIN" --host-config "$HOST_CFG" --addr 127.0.0.1:0 --max-requests 4 "$APP_DIR" >"$LOG" 2>&1 &
+REQS=8
+"$BIN" --host-config "$HOST_CFG" --addr 127.0.0.1:0 --max-requests "$REQS" "$APP_DIR" >"$LOG" 2>&1 &
 SERVER_PID=$!
-
 PORT=""
 for _ in $(seq 1 60); do
   PORT="$(grep -oE 'listening http://127\.0\.0\.1:[0-9]+' "$LOG" 2>/dev/null | head -1 | grep -oE '[0-9]+$' || true)"
   [[ -n "$PORT" ]] && break
-  # If the server died during startup (e.g. DSN connect failure), stop waiting.
   kill -0 "$SERVER_PID" >/dev/null 2>&1 || break
   sleep 0.5
 done
-if [[ -z "$PORT" ]]; then
-  echo "FAIL: server did not report a listening port. Server log:" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
+[[ -n "$PORT" ]] || { echo "todo_postgres_smoke: FAIL — server did not report a listening port:" >&2; cat "$LOG" >&2; exit 1; }
 BASE="http://127.0.0.1:$PORT"
-echo "todo_postgres_smoke: serving on $BASE (bounded to 4 loopback requests)"
+echo "todo_postgres_smoke: serving on $BASE (bounded to $REQS loopback requests)"
 
-# ── 4. Drive exactly four requests, in order: read found, read empty, write, replay ────────────────
-post_args=(-X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $WRITE_KEY" --data "\"$WRITE_TITLE\"")
-code_found="$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/accounts/$ACCT/todos" || echo ERR)"
-found_body="$(cat "$BODY" 2>/dev/null || true)"
-code_empty="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/accounts/$ACCT_EMPTY/todos" || echo ERR)"
-code_write="$(curl -s -o /dev/null -w '%{http_code}' "${post_args[@]}" "$BASE/accounts/$ACCT/todos" || echo ERR)"
-code_replay="$(curl -s -o /dev/null -w '%{http_code}' "${post_args[@]}" "$BASE/accounts/$ACCT/todos" || echo ERR)"
+# ── Drive exactly $REQS requests, in order ────────────────────────────────────────────────────────
+get_code()  { curl -s -o "${2:-/dev/null}" -w '%{http_code}' "$BASE$1" || echo ERR; }
+post_code() { # path  -> POST with bearer + idempotency-key; body is the create title (JSON string)
+  curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $3" \
+    --data "\"$WRITE_TITLE\"" -X POST "$BASE$1" || echo ERR
+}
 
-# The server is bounded to 4 requests; it exits on its own after the replay response.
+c_health="$(get_code  "/health")"
+c_empty="$(get_code   "/accounts/$ACCT_EMPTY/todos")"
+c_create="$(post_code "/accounts/$ACCT/todos" "" "$CREATE_KEY")"
+c_creplay="$(post_code "/accounts/$ACCT/todos" "" "$CREATE_KEY")"
+c_found="$(get_code   "/accounts/$ACCT/todos" "$FOUND_BODY")"
+c_show="$(get_code    "/accounts/$ACCT/todos/$CREATE_KEY" "$SHOW_BODY")"
+c_done="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
+            -H "idempotency-key: $DONE_KEY" --data "\"$WRITE_TITLE\"" -X POST \
+            "$BASE/accounts/$ACCT/todos/$CREATE_KEY/done" || echo ERR)"
+c_dreplay="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
+            -H "idempotency-key: $DONE_KEY" --data "\"$WRITE_TITLE\"" -X POST \
+            "$BASE/accounts/$ACCT/todos/$CREATE_KEY/done" || echo ERR)"
+
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""
 
-# ── 5. DB truth: exactly one business row + one receipt for the written key (replay = no 2nd row) ───
-n_row="$(psql_dsn -qtAc "SELECT count(*) FROM todos WHERE id='$WRITE_KEY';" | tr -d '[:space:]')"
-n_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$WRITE_KEY';" | tr -d '[:space:]')"
-db_title="$(psql_dsn -qtAc "SELECT title FROM todos WHERE id='$WRITE_KEY';" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+# ── DB truth (done persisted; replays performed no second mutation) ────────────────────────────────
+db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$CREATE_KEY';" | tr -d '[:space:]')"
+n_create_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$CREATE_KEY' AND target='todos' AND idempotency_key LIKE '$CREATE_KEY%';" | tr -d '[:space:]')"
+n_done_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE idempotency_key LIKE '$DONE_KEY%';" | tr -d '[:space:]')"
+show_has_title=no; grep -qF "$WRITE_TITLE" "$SHOW_BODY" 2>/dev/null && show_has_title=yes
+found_has_title=no; grep -qF "$WRITE_TITLE" "$FOUND_BODY" 2>/dev/null && found_has_title=yes
 
-# ── 6. Receipt ─────────────────────────────────────────────────────────────────────────────────────
+cleanup_rows
+echo "todo_postgres_smoke: cleanup done"
+
+# ── Receipt ────────────────────────────────────────────────────────────────────────────────────────
 pass=1
-chk() { # label expected actual
-  if [[ "$2" == "$3" ]]; then printf '  PASS  %-26s %s\n' "$1" "$3"
-  else printf '  FAIL  %-26s expected=%s actual=%s\n' "$1" "$2" "$3"; pass=0; fi
-}
+chk() { if [[ "$2" == "$3" ]]; then printf '  PASS  %-34s %s\n' "$1" "$3"; else printf '  FAIL  %-34s expected=%s actual=%s\n' "$1" "$2" "$3"; pass=0; fi; }
 echo "todo_postgres_smoke: results"
-chk "read found -> 200"        200 "$code_found"
-if grep -q "$TODO_SEED" <<<"$found_body"; then
-  printf '  PASS  %-26s %s\n' "read found body has seed" "$TODO_SEED"
-else
-  printf '  FAIL  %-26s seed=%s\n' "read found body has seed" "$TODO_SEED"; pass=0
-fi
-chk "read empty -> 404"        404 "$code_empty"
-chk "write -> 200"             200 "$code_write"
-chk "replay same key -> 200"   200 "$code_replay"
-chk "business row committed"   1   "$n_row"
-chk "effect receipt written"   1   "$n_rcpt"
-chk "create body -> db title"  "$WRITE_TITLE" "$db_title"
+chk "health -> 200"                        200 "$c_health"
+chk "list empty -> 404"                    404 "$c_empty"
+chk "create -> 200"                        200 "$c_create"
+chk "create replay -> 200"                 200 "$c_creplay"
+chk "list found -> 200"                    200 "$c_found"
+chk "list found carries title"             yes "$found_has_title"
+chk "show -> 200"                          200 "$c_show"
+chk "create title persisted (read back)"   yes "$show_has_title"
+chk "done -> 200"                          200 "$c_done"
+chk "done replay -> 200"                    200 "$c_dreplay"
+chk "done persisted (db done=true)"        true "$db_done"
+chk "create replay: one receipt"           1    "$n_create_rcpt"
+chk "done replay: one receipt"             1    "$n_done_rcpt"
 
 if [[ "$pass" == 1 ]]; then
   echo "todo_postgres_smoke: PASS"
   exit 0
 else
-  echo "todo_postgres_smoke: FAIL — server log:" >&2
-  cat "$LOG" >&2
-  exit 1
+  echo "todo_postgres_smoke: FAIL — server log:" >&2; cat "$LOG" >&2; exit 1
 fi
