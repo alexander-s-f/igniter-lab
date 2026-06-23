@@ -20,6 +20,8 @@ const INIT_UNIFORM_SPREAD: &str = "uniform_spread";
 const INIT_SHUFFLED_UNIFORM_SPREAD: &str = "shuffled_uniform_spread";
 const OMEGA_LORENTZIAN_QUANTILE_GRID: &str = "lorentzian_quantile_grid";
 const OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID: &str = "shuffled_lorentzian_quantile_grid";
+const WEIGHT_POLICY_TOPOLOGY_DEFAULT: &str = "topology_default";
+const WEIGHT_POLICY_DEGREE_NORMALIZED: &str = "degree_normalized";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KuramotoConfig {
@@ -46,6 +48,8 @@ pub struct KuramotoConfig {
     pub omega_assignment: String,
     #[serde(default)]
     pub topology_relabel_seed: Option<u64>,
+    #[serde(default = "default_weight_policy")]
+    pub weight_policy: String,
 }
 
 impl Default for KuramotoConfig {
@@ -67,6 +71,7 @@ impl Default for KuramotoConfig {
             init_phase_mode: INIT_UNIFORM_SPREAD.to_string(),
             omega_assignment: OMEGA_LORENTZIAN_QUANTILE_GRID.to_string(),
             topology_relabel_seed: None,
+            weight_policy: WEIGHT_POLICY_TOPOLOGY_DEFAULT.to_string(),
         }
     }
 }
@@ -93,6 +98,10 @@ fn default_init_phase_mode() -> String {
 
 fn default_omega_assignment() -> String {
     OMEGA_LORENTZIAN_QUANTILE_GRID.to_string()
+}
+
+fn default_weight_policy() -> String {
+    WEIGHT_POLICY_TOPOLOGY_DEFAULT.to_string()
 }
 
 #[derive(Debug)]
@@ -406,6 +415,15 @@ fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
         return Err(
             "config.topology_relabel_seed is only supported for node_tick mode".to_string(),
         );
+    }
+    match config.weight_policy.as_str() {
+        WEIGHT_POLICY_TOPOLOGY_DEFAULT | WEIGHT_POLICY_DEGREE_NORMALIZED => {}
+        other => {
+            return Err(format!(
+                "config.weight_policy must be '{}' or '{}', got '{}'",
+                WEIGHT_POLICY_TOPOLOGY_DEFAULT, WEIGHT_POLICY_DEGREE_NORMALIZED, other
+            ));
+        }
     }
     if config.kernel_mode == MODE_NODE_TICK {
         if config.topologies.is_empty() {
@@ -1000,6 +1018,7 @@ fn write_bundle(
             "uniform_spread: theta_i = 2*pi*i/N"
         },
         "topology_relabel_seed": config.topology_relabel_seed,
+        "weight_policy": &config.weight_policy,
         "integrator": "explicit_euler",
         "kernel_sha256": meta.kernel_hash,
         "config_sha256": meta.config_hash,
@@ -1302,14 +1321,15 @@ fn build_topologies_for_config(n: usize, config: &KuramotoConfig) -> Result<Vec<
     build_topologies(n, &config.topologies, config.seed)?
         .into_iter()
         .map(|topology| {
-            if let Some(seed) = config.topology_relabel_seed {
-                Ok(relabel_topology(
+            let topology = if let Some(seed) = config.topology_relabel_seed {
+                relabel_topology(
                     &topology,
                     seed ^ stable_name_seed(&topology.name) ^ n as u64,
-                ))
+                )
             } else {
-                Ok(topology)
-            }
+                topology
+            };
+            Ok(apply_weight_policy(topology, &config.weight_policy))
         })
         .collect()
 }
@@ -1422,6 +1442,22 @@ fn grid_topology(n: usize) -> Result<Topology, String> {
         weight_policy: format!("{}x{} periodic grid 4-neighbor weight=1", side, side),
         neighbors,
     })
+}
+
+fn apply_weight_policy(mut topology: Topology, policy: &str) -> Topology {
+    if policy == WEIGHT_POLICY_DEGREE_NORMALIZED {
+        for edges in &mut topology.neighbors {
+            let degree = edges.len();
+            if degree > 0 {
+                let weight = 1.0 / degree as f64;
+                for edge in edges {
+                    edge.weight = weight;
+                }
+            }
+        }
+        topology.weight_policy = "degree_normalized: each non-empty row sums to 1.0".to_string();
+    }
+    topology
 }
 
 fn square_side(n: usize) -> Option<usize> {
@@ -1615,6 +1651,33 @@ mod tests {
             .iter()
             .flat_map(|edges| edges.iter())
             .all(|edge| (edge.weight - 1.0).abs() < 1e-12));
+    }
+
+    #[test]
+    fn degree_normalized_policy_rows_sum_to_one() {
+        let config = KuramotoConfig {
+            kernel_mode: MODE_NODE_TICK.to_string(),
+            topologies: vec![
+                "all_to_all".to_string(),
+                "ring".to_string(),
+                "grid".to_string(),
+                "shuffled_ring".to_string(),
+            ],
+            weight_policy: WEIGHT_POLICY_DEGREE_NORMALIZED.to_string(),
+            ..KuramotoConfig::default()
+        };
+        let topologies = build_topologies_for_config(16, &config).unwrap();
+        assert_eq!(topologies.len(), 4);
+        for topology in topologies {
+            assert_eq!(
+                topology.weight_policy,
+                "degree_normalized: each non-empty row sums to 1.0"
+            );
+            for edges in topology.neighbors {
+                let row_sum = edges.iter().map(|edge| edge.weight).sum::<f64>();
+                assert!((row_sum - 1.0).abs() < 1e-12, "{row_sum}");
+            }
+        }
     }
 
     #[test]
