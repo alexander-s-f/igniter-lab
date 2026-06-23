@@ -66,10 +66,12 @@ fn command_contracts_produce_write_intents() {
     rt().block_on(async {
         let m = load_app_contracts();
 
+        // P36: create takes a host-minted `surrogate_id` (NOT the idempotency key) and the business
+        // `key` is the product-prefixed surrogate — decoupled from the idempotency key.
         let create = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": "evt-1", "title": "Buy milk"}),
+                json!({"account_id": "acct-7", "surrogate_id": "abc123", "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -77,8 +79,8 @@ fn command_contracts_produce_write_intents() {
         assert_eq!(create["target"], json!("todos"));
         assert_eq!(
             create["key"],
-            json!("evt-1"),
-            "intent key = the app idempotency key"
+            json!("todo_abc123"),
+            "intent key = product-prefixed host surrogate, NOT the idempotency key"
         );
         // P16: the create title is the supplied body string.
         assert_eq!(create["values"]["title"], json!("Buy milk"));
@@ -116,6 +118,46 @@ fn command_contracts_produce_write_intents() {
     });
 }
 
+// ── 1b (P36): Done can TARGET the host-minted surrogate id ────────────────────────────────────────
+//
+// The decouple is only useful if a client can act on the minted id afterwards. A create mints
+// `todo_<surrogate>` as the business key; a subsequent Done whose route `todo_id` IS that minted id
+// produces a WriteIntent keyed to the same business row — so update routes target the minted resource,
+// not the idempotency key.
+
+#[test]
+fn done_targets_the_minted_surrogate_id() {
+    rt().block_on(async {
+        let m = load_app_contracts();
+        // The host mints `todo_<surrogate>`; here the surrogate input stands in for the host digest.
+        let create = m
+            .dispatch(
+                "BuildCreateTodoIntent",
+                json!({"account_id": "acct-7", "surrogate_id": "abc123", "title": "Buy milk"}),
+            )
+            .await
+            .unwrap();
+        let minted = create["key"].as_str().unwrap().to_string();
+        assert_eq!(minted, "todo_abc123");
+
+        // A client now marks THAT todo done by passing the minted id as the route `todo_id`.
+        let done = m
+            .dispatch(
+                "BuildMarkTodoDoneIntent",
+                json!({"account_id": "acct-7", "todo_id": minted, "idempotency_key": "evt-done-9"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            done["key"],
+            create["key"],
+            "Done targets the minted business id (same row), NOT the idempotency key"
+        );
+        // The Done effect still carries the request idempotency key separately (correlation/receipts).
+        assert_eq!(done["correlation_id"], json!("evt-done-9"));
+    });
+}
+
 // ── 2: the mutating handlers are wired to the command contracts, no capability identity in the app ─
 
 #[test]
@@ -125,10 +167,16 @@ fn handlers_wire_command_contracts_with_no_identity() {
     // the handlers now build the intent via the command contract and derive the effect from it.
     assert!(handlers.contains("call_contract(\"BuildCreateTodoIntent\""));
     assert!(handlers.contains("call_contract(\"BuildMarkTodoDoneIntent\""));
-    // create's business key IS the idempotency key (intent.key); done's effect idempotency key is the
-    // request's, while its business key is the route todo_id (P15).
-    assert!(handlers.contains("idempotency_key: intent.key"));
+    // P36: create's business key is a host-minted surrogate (`todo_` + req.surrogate_id), DECOUPLED
+    // from the idempotency key; BOTH effects set their idempotency key from the request's. The literal
+    // `idempotency_key: intent.key` coupling is gone.
+    assert!(handlers.contains("req.surrogate_id"));
+    assert!(handlers.contains("concat(\"todo_\", surrogate_id)"));
     assert!(handlers.contains("idempotency_key: req.idempotency_key"));
+    assert!(
+        !handlers.contains("idempotency_key: intent.key"),
+        "the idempotency-key-as-business-id coupling must be removed (P36)"
+    );
     assert!(handlers.contains("target: \"todo-create\""));
     assert!(handlers.contains("target: \"todo-done\""));
 
@@ -165,7 +213,7 @@ fn structured_intent_maps_to_postgres_write_values() {
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": "evt-1", "title": "Buy milk"}),
+                json!({"account_id": "acct-7", "surrogate_id": "abc123", "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -186,7 +234,7 @@ fn structured_intent_maps_to_postgres_write_values() {
             PostgresWriteIntent::from_args(&intent).expect("from_args on the structured intent");
         assert_eq!(pg.operation, "insert");
         assert_eq!(pg.target, "todos");
-        assert_eq!(pg.key, "evt-1");
+        assert_eq!(pg.key, "todo_abc123", "P36: business key = host surrogate, not the idem key");
         // the TYPED values survive nested + structured (the whole point of P7).
         assert_eq!(pg.values["account_id"], json!("acct-7"));
         assert_eq!(pg.values["title"], json!("Buy milk"));

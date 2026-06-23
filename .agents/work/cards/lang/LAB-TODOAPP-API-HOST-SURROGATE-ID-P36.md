@@ -1,6 +1,11 @@
 # LAB-TODOAPP-API-HOST-SURROGATE-ID-P36 - decouple Todo id from idempotency key
 
-Status: TODO
+Status: DONE (2026-06-23) — host mints `todo_<blake3(method␟path␟idempotency_key)[..32]>` as
+`req.surrogate_id` (igniter-web), `.ig` prefixes `todo_` and uses it as the business key; effect
+idempotency key stays the request's. Proof: `lab-docs/lang/lab-todoapp-api-host-surrogate-id-p36-v0.md`.
+Evidence: machine-feature suites green; igniter-compiler green; 12/12 real-Postgres gated tests pass
+(`--test-threads=1`), incl. live-binary subprocess proving the row is stored under the surrogate and the
+idempotency key is NOT a Todo id. All acceptance boxes checked; `git diff --check` clean.
 Lane: TodoApp API / effect host / product hardening
 Type: implementation after verify-first
 Delegation code: OPUS-TODOAPP-API-HOST-SURROGATE-ID-P36
@@ -48,15 +53,15 @@ machine code.
 
 ## Acceptance
 
-- [ ] Create no longer stores the raw idempotency key as the Todo business id.
-- [ ] Same idempotency key + same create request resolves to the same Todo id on replay.
-- [ ] Same key + different body is rejected or reconciled according to existing idempotency policy; no silent second row.
-- [ ] Done/update routes can target the minted id in tests.
-- [ ] Receipts still use the idempotency key and remain auditable.
-- [ ] Host logs/proof show the id recipe without exposing body values or secrets.
-- [ ] Local/fake tests pass; real Postgres-gated tests compile or skip cleanly if no DSN.
-- [ ] Docs/runbooks updated to stop teaching idempotency-key-as-id.
-- [ ] `git diff --check` clean.
+- [x] Create no longer stores the raw idempotency key as the Todo business id.
+- [x] Same idempotency key + same create request resolves to the same Todo id on replay.
+- [x] Same key + different body is rejected or reconciled according to existing idempotency policy; no silent second row.
+- [x] Done/update routes can target the minted id in tests.
+- [x] Receipts still use the idempotency key and remain auditable.
+- [x] Host logs/proof show the id recipe without exposing body values or secrets.
+- [x] Local/fake tests pass; real Postgres-gated tests compile or skip cleanly if no DSN.
+- [x] Docs/runbooks updated to stop teaching idempotency-key-as-id.
+- [x] `git diff --check` clean.
 
 ## Proof
 

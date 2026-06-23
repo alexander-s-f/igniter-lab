@@ -19,6 +19,10 @@ igniter_compiler = { path = "../../lang/igniter-compiler" }
 igniter_machine = { path = "../../runtime/igniter-machine" }
 # Needed for IntentBridgeExecutor in host_binding.rs under --features postgres (P26).
 async-trait = "0.1"
+# Host-minted Todo surrogate id recipe (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36): a deterministic,
+# replay-safe opaque digest of (method, path, idempotency_key). Same crate already in the workspace via
+# igniter-machine; the recipe is HOST policy, so it lives here, not in generic machine code.
+blake3 = "1.5"
 # Render decision (LAB-IGNITER-WEB-RENDER-DECISION-P16): ViewArtifact JSON → HTML via the P3 projector.
 # igniter-web carries the renderer weight so igniter-server core stays renderer/view-free.
 igniter_render_html = { path = "../../frame-ui/igniter-render-html" }

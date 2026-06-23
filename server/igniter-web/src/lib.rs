@@ -214,6 +214,35 @@ impl ServerApp for IgWebServerApp {
     }
 }
 
+/// Host-minted Todo surrogate id recipe (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36).
+///
+/// A deterministic, replay-safe, opaque digest of the request's *identity* — `(method, path,
+/// idempotency_key)` — used by `.ig` to mint a Todo resource id that is DECOUPLED from the
+/// idempotency key. The id-minting recipe is HOST policy (it owns request/effect identity), so it
+/// lives here rather than in generic machine code or in `.ig` (which has no hash builtin); `.ig`
+/// only consumes the crossed `req.surrogate_id` and adds the product `"todo_"` prefix.
+///
+/// Properties (all required by the card): deterministic across replay (pure function, no clock /
+/// randomness); leaks no body values or secrets (the title and any bearer token are NOT inputs, and
+/// blake3 is one-way so the idempotency key is not recoverable from the id); namespaced — the same
+/// idempotency key on a different account/route mints a different id (the account scope and resource
+/// live in `path`). An empty idempotency key yields an empty surrogate (a keyless mutating request is
+/// already refused by the route-level idempotency guard before it reaches intent construction).
+pub fn surrogate_id(method: &str, path: &str, idempotency_key: &str) -> String {
+    if idempotency_key.is_empty() {
+        return String::new();
+    }
+    // Unit-separator (0x1f) framing so distinct field tuples can never collide via concatenation.
+    let mut h = blake3::Hasher::new();
+    h.update(method.as_bytes());
+    h.update(&[0x1f]);
+    h.update(path.as_bytes());
+    h.update(&[0x1f]);
+    h.update(idempotency_key.as_bytes());
+    // 128 bits (32 hex chars) — ample collision resistance for a resource id, half the full digest.
+    h.finalize().to_hex()[..32].to_string()
+}
+
 /// Build the `{ "req": { ... } }` input value from a `ServerRequest`. Shared between the async
 /// dispatch path and the sync compat adapter — one source of truth for the input shape.
 fn build_request_input(req: &ServerRequest) -> Value {
@@ -236,13 +265,20 @@ fn build_request_input(req: &ServerRequest) -> Value {
         Value::Number(_) => (req.body.to_string(), "number"),
         Value::Bool(_) => (req.body.to_string(), "bool"),
     };
+    // `surrogate_id` (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36) is the host-minted opaque resource-id
+    // digest crossed to `.ig` — the SAME host-computed-signal pattern as `body_kind`. `.ig` uses it as
+    // the Todo business key (prefixed `todo_`), so the resource id is decoupled from the idempotency
+    // key while receipts/dedup keep keying on the idempotency key itself. Empty for keyless requests.
+    let idem = req.idempotency_key.clone().unwrap_or_default();
+    let surrogate = surrogate_id(&req.method, &req.path, &idem);
     json!({ "req": {
         "method": req.method,
         "path": req.path,
         "body": body,
         "body_kind": body_kind,
         "correlation_id": req.correlation_id.clone().unwrap_or_default(),
-        "idempotency_key": req.idempotency_key.clone().unwrap_or_default(),
+        "idempotency_key": idem,
+        "surrogate_id": surrogate,
     }})
 }
 
@@ -934,5 +970,46 @@ app TodoWeb entry Serve {
             .nth(1)
             .and_then(|x| x.parse().ok())
             .unwrap_or(0)
+    }
+}
+
+// ── Host surrogate-id recipe (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36) ─────────────────────────────
+#[cfg(test)]
+mod surrogate_id_tests {
+    use super::surrogate_id;
+
+    #[test]
+    fn empty_key_yields_empty_surrogate() {
+        // A keyless mutating request is refused by the route guard before intent construction; no id.
+        assert_eq!(surrogate_id("POST", "/accounts/7/todos", ""), "");
+    }
+
+    #[test]
+    fn deterministic_across_replay() {
+        // Same (method, path, key) → same id, every time (replay-safe; no clock/randomness inputs).
+        let a = surrogate_id("POST", "/accounts/7/todos", "evt-1");
+        let b = surrogate_id("POST", "/accounts/7/todos", "evt-1");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 32, "128-bit hex digest");
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()), "opaque hex, leaks nothing: {a}");
+    }
+
+    #[test]
+    fn namespaced_by_account_route_and_key() {
+        let base = surrogate_id("POST", "/accounts/7/todos", "evt-1");
+        // Different account (in the path) → different id, even with the same idempotency key.
+        assert_ne!(base, surrogate_id("POST", "/accounts/8/todos", "evt-1"));
+        // Different idempotency key → different id.
+        assert_ne!(base, surrogate_id("POST", "/accounts/7/todos", "evt-2"));
+        // Different method → different id (the unit-separator framing prevents concat collisions).
+        assert_ne!(base, surrogate_id("PUT", "/accounts/7/todos", "evt-1"));
+    }
+
+    #[test]
+    fn does_not_embed_the_idempotency_key() {
+        // The id must not be the raw key (or trivially contain it) — blake3 is one-way.
+        let id = surrogate_id("POST", "/accounts/7/todos", "secret-correlation-evt-1");
+        assert!(!id.contains("secret-correlation-evt-1"));
+        assert_ne!(id, "secret-correlation-evt-1");
     }
 }

@@ -322,7 +322,12 @@ fn local_read_empty_returns_200_empty_list() {
 fn local_write_creates_business_row_and_receipt() {
     rt().block_on(async {
         let key = "evt-local-create-1";
-        let Some((client, dsn)) = prepare("acct-7", &[key], &[key]).await else {
+        // P36: the business row id is the host-minted surrogate (`todo_` + digest), DECOUPLED from the
+        // idempotency key. The test plays the host: it mints the same surrogate the runner would and
+        // reads the business row by THAT id — the idempotency key is only the receipt/replay identity.
+        let surrogate = igniter_web::surrogate_id("POST", "/accounts/acct-7/todos", key);
+        let business_id = format!("todo_{surrogate}");
+        let Some((client, dsn)) = prepare("acct-7", &[&business_id], &[key]).await else {
             return;
         };
         let m = load_app_contracts();
@@ -330,11 +335,16 @@ fn local_write_creates_business_row_and_receipt() {
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
+                json!({"account_id": "acct-7", "surrogate_id": surrogate, "title": "Buy milk"}),
             )
             .await
             .unwrap();
         assert!(intent.is_object());
+        assert_eq!(
+            intent["key"],
+            json!(business_id),
+            "P36: business key = host surrogate, not the idempotency key"
+        );
         assert_eq!(
             intent["values"]["title"],
             json!("Buy milk"),
@@ -379,20 +389,24 @@ fn local_write_creates_business_row_and_receipt() {
 
         assert_eq!(out.state, WriteState::Committed);
         assert_eq!(adapter.attempts(), 1, "exactly one real transaction");
-        // real business row present, with the app-authored values (incl. the body-derived title — P16).
+        // real business row present under the SURROGATE id, with the app-authored values (incl. the
+        // body-derived title — P16). Querying by the raw idempotency key would find nothing (P36).
         assert_eq!(
             adapter
-                .read_business_text(key, "account_id")
+                .read_business_text(&business_id, "account_id")
                 .await
                 .as_deref(),
             Some("acct-7")
         );
         assert_eq!(
-            adapter.read_business_text(key, "title").await.as_deref(),
+            adapter
+                .read_business_text(&business_id, "title")
+                .await
+                .as_deref(),
             Some("Buy milk"),
             "P16: real business row title = the create body"
         );
-        // machine receipt records committed.
+        // machine receipt records committed — still keyed by the idempotency key (P36 auditability).
         assert_eq!(
             receipt_state(&store, WRITE_CAP, key).await,
             WriteState::Committed
@@ -416,14 +430,16 @@ fn local_write_creates_business_row_and_receipt() {
 fn local_write_replay_no_second_mutation() {
     rt().block_on(async {
         let key = "evt-local-replay-1";
-        let Some((_client, dsn)) = prepare("acct-7", &[key], &[key]).await else {
+        let surrogate = igniter_web::surrogate_id("POST", "/accounts/acct-7/todos", key);
+        let business_id = format!("todo_{surrogate}");
+        let Some((_client, dsn)) = prepare("acct-7", &[&business_id], &[key]).await else {
             return;
         };
         let m = load_app_contracts();
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
+                json!({"account_id": "acct-7", "surrogate_id": surrogate, "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -983,10 +999,16 @@ fn subprocess_product_command_read_write_replay_e2e() {
     rt().block_on(async {
         let write_key = "p12-write-k1";
         let seeded = ["todo-p12-a", "todo-p12-b"];
+        // P36: the created business row lands under the host-minted surrogate id, not the idempotency
+        // key. Recompute the SAME id the running binary mints, so the DB assertions target the real row.
+        let written_id = format!(
+            "todo_{}",
+            igniter_web::surrogate_id("POST", "/accounts/acct-p12-sub/todos", write_key)
+        );
         // prepare seeds the account + cleans the keys/ids this test owns (incl. the written row).
         let Some((client, dsn)) = prepare(
             "acct-p12-sub",
-            &["todo-p12-a", "todo-p12-b", write_key],
+            &["todo-p12-a", "todo-p12-b", &written_id],
             &[write_key],
         )
         .await
@@ -1004,11 +1026,12 @@ fn subprocess_product_command_read_write_replay_e2e() {
         }
         // The ingress/coordination path keys PG `effect_receipts` by `intent.key + ":<attempt>"`, so the
         // exact-key clean in `prepare` (which only knows the un-suffixed key) cannot reach it. Clear it by
-        // the stable `business_key` (== intent.key) so a re-run starts from a genuinely fresh write.
+        // the stable `business_key` (== intent.key == the minted surrogate id, P36) so a re-run starts
+        // from a genuinely fresh write.
         client
             .execute(
                 "DELETE FROM effect_receipts WHERE business_key = $1",
-                &[&write_key],
+                &[&written_id],
             )
             .await
             .unwrap();
@@ -1196,15 +1219,23 @@ fn subprocess_product_command_read_write_replay_e2e() {
             "replay same key → 200 dedup; raw={r_replay}"
         );
 
-        // DB truth: exactly one business row + one PG receipt for the written key (replay = no 2nd mutation).
+        // DB truth: exactly one business row + one PG receipt for the MINTED id (replay = no 2nd
+        // mutation). The row id is the surrogate (P36), NOT the idempotency key — proving the decouple.
         let n_row: i64 = client
+            .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&written_id])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n_row, 1, "exactly one business row under the minted surrogate id");
+        // The raw idempotency key is NOT a business row id (the coupling is gone).
+        let n_by_key: i64 = client
             .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&write_key])
             .await
             .unwrap()
             .get(0);
-        assert_eq!(n_row, 1, "exactly one business row for the written key");
+        assert_eq!(n_by_key, 0, "P36: the idempotency key is NOT stored as a Todo id");
         let acct: Option<String> = client
-            .query_one("SELECT account_id FROM todos WHERE id = $1", &[&write_key])
+            .query_one("SELECT account_id FROM todos WHERE id = $1", &[&written_id])
             .await
             .unwrap()
             .get(0);
@@ -1215,7 +1246,7 @@ fn subprocess_product_command_read_write_replay_e2e() {
         );
         // P16: the real business row title equals the submitted create body (HTTP body → DB).
         let title: Option<String> = client
-            .query_one("SELECT title FROM todos WHERE id = $1", &[&write_key])
+            .query_one("SELECT title FROM todos WHERE id = $1", &[&written_id])
             .await
             .unwrap()
             .get(0);
@@ -1224,25 +1255,27 @@ fn subprocess_product_command_read_write_replay_e2e() {
             Some("Buy milk via P16"),
             "P16: real row title = the submitted create body"
         );
+        // The PG effect_receipts row is keyed by the idempotency key (auditable) and records the minted
+        // surrogate as its business_key (P36).
         let n_rcpt: i64 = client
             .query_one(
                 "SELECT count(*) FROM effect_receipts WHERE business_key = $1",
-                &[&write_key],
+                &[&written_id],
             )
             .await
             .unwrap()
             .get(0);
-        assert_eq!(n_rcpt, 1, "exactly one PG effect_receipts row for the key");
+        assert_eq!(n_rcpt, 1, "exactly one PG effect_receipts row for the minted id");
 
         // Cleanup test-owned rows (children first for the FK), then the temp file.
         client
             .execute(
                 "DELETE FROM effect_receipts WHERE business_key = $1",
-                &[&write_key],
+                &[&written_id],
             )
             .await
             .ok();
-        for id in [seeded[0], seeded[1], write_key] {
+        for id in [seeded[0], seeded[1], written_id.as_str()] {
             client
                 .execute("DELETE FROM todos WHERE id = $1", &[&id])
                 .await
@@ -1268,7 +1301,10 @@ fn subprocess_product_command_read_write_replay_e2e() {
 fn local_write_same_key_different_payload_conflicts_row_unchanged() {
     rt().block_on(async {
         let key = "evt-local-conflict-1";
-        let Some((_client, dsn)) = prepare("acct-7", &[key], &[key]).await else {
+        // SAME idempotency key → SAME minted surrogate id for both attempts (P36); only the title differs.
+        let surrogate = igniter_web::surrogate_id("POST", "/accounts/acct-7/todos", key);
+        let business_id = format!("todo_{surrogate}");
+        let Some((_client, dsn)) = prepare("acct-7", &[&business_id], &[key]).await else {
             return;
         };
         let m = load_app_contracts();
@@ -1276,17 +1312,18 @@ fn local_write_same_key_different_payload_conflicts_row_unchanged() {
         let intent_a = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
+                json!({"account_id": "acct-7", "surrogate_id": surrogate, "title": "Buy milk"}),
             )
             .await
             .unwrap();
         let intent_b = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy bread"}),
+                json!({"account_id": "acct-7", "surrogate_id": surrogate, "title": "Buy bread"}),
             )
             .await
             .unwrap();
+        assert_eq!(intent_a["key"], json!(business_id), "same key → same surrogate id");
         assert_ne!(intent_a, intent_b, "different titles → different payloads");
 
         let adapter = Arc::new(
@@ -1365,7 +1402,10 @@ fn local_write_same_key_different_payload_conflicts_row_unchanged() {
         );
         // The real business row keeps the FIRST payload's title — the conflicting write never mutated it.
         assert_eq!(
-            adapter.read_business_text(key, "title").await.as_deref(),
+            adapter
+                .read_business_text(&business_id, "title")
+                .await
+                .as_deref(),
             Some("Buy milk"),
             "conflicting write must NOT overwrite the row"
         );
@@ -1386,11 +1426,16 @@ fn subprocess_non_string_create_body_writes_no_row() {
 
     rt().block_on(async {
         let bad_key = "p18-badbody-k1";
-        let Some((client, dsn)) = prepare("acct-p18-sub", &[bad_key], &[bad_key]).await else {
+        // If a row were wrongly written it would land under the minted surrogate id (P36), so target that.
+        let would_be_id = format!(
+            "todo_{}",
+            igniter_web::surrogate_id("POST", "/accounts/acct-p18-sub/todos", bad_key)
+        );
+        let Some((client, dsn)) = prepare("acct-p18-sub", &[&would_be_id], &[bad_key]).await else {
             return;
         };
         client
-            .execute("DELETE FROM effect_receipts WHERE business_key = $1", &[&bad_key])
+            .execute("DELETE FROM effect_receipts WHERE business_key = $1", &[&would_be_id])
             .await
             .unwrap();
 
@@ -1462,15 +1507,15 @@ fn subprocess_non_string_create_body_writes_no_row() {
         out_task.await.ok();
 
         assert_eq!(status, 400, "object create body → 400; raw={resp}");
-        // DB truth: no business row, no PG receipt for this key.
+        // DB truth: no business row, no PG receipt for the id this request would have minted.
         let n_row: i64 = client
-            .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&bad_key])
+            .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&would_be_id])
             .await
             .unwrap()
             .get(0);
         assert_eq!(n_row, 0, "rejected body must NOT insert a todos row");
         let n_rcpt: i64 = client
-            .query_one("SELECT count(*) FROM effect_receipts WHERE business_key = $1", &[&bad_key])
+            .query_one("SELECT count(*) FROM effect_receipts WHERE business_key = $1", &[&would_be_id])
             .await
             .unwrap()
             .get(0);

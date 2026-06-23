@@ -26,6 +26,7 @@ type Request {
   body_kind       : String
   correlation_id  : String
   idempotency_key : String
+  surrogate_id    : String
 }
 
 -- LAB-TODOAPP-VIEW-MANIFEST-P2: a tiny, domain-free structured-view envelope. `RespondView` lets a

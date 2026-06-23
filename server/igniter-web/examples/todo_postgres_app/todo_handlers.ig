@@ -129,15 +129,21 @@ pure contract AccountTodoShowFromRows {
 -- Create carries the request body as the v0 todo title (LAB-TODOAPP-API-CREATE-BODY-P16). v0 body
 -- contract: the request body is a JSON string literal whose value is the title (e.g. `"Buy milk"`);
 -- the host crosses a JSON-string body to `.ig` as its inner string. No JSON object parsing — `title`
--- is just that string (empty body → empty title). `key` stays the idempotency key (create v0).
+-- is just that string (empty body → empty title).
+-- LAB-TODOAPP-API-HOST-SURROGATE-ID-P36: the Todo business `key` is a host-minted SURROGATE id,
+-- DECOUPLED from the idempotency key. The host crosses an opaque deterministic digest as
+-- `req.surrogate_id` (the same host-computed-signal pattern as `body_kind`); this contract owns the
+-- product shape `todo_<digest>`. `.ig` does no hashing — it only prefixes the host digest. The effect
+-- idempotency key (set on `InvokeEffect`) stays the request's, so replay/receipts still key on it.
 pure contract BuildCreateTodoIntent {
-  input account_id      : String
-  input idempotency_key : String
-  input title           : String
+  input account_id   : String
+  input surrogate_id : String
+  input title        : String
   compute values = call_contract("MakeWriteValues", account_id, title, "false")
+  compute todo_id : String = concat("todo_", surrogate_id)
   compute intent : WriteIntent = {
     operation: "insert", target: "todos",
-    key: idempotency_key, values: values, correlation_id: ""
+    key: todo_id, values: values, correlation_id: ""
   }
   output intent : WriteIntent
 }
@@ -252,9 +258,10 @@ pure contract AccountTodoShow {
 -- The mutating handlers build a structured WriteIntent via the command contract (the product source of
 -- write meaning), then emit a logical observed/executed InvokeEffect. The effect carries the WHOLE
 -- structured `intent` as `input` (operation/target/key/values/correlation_id) — so the typed `values`
--- cross the seam as a JSON object (P7), and `idempotency_key` stays its own field (intent.key). `target`
--- stays the logical route-level effect name (host binds it to a machine route); the app names NO
--- capability id, scope, DSN, or SQL.
+-- cross the seam as a JSON object (P7). The effect `idempotency_key` is its OWN field set from
+-- `req.idempotency_key` (replay/correlation identity), now DISTINCT from the Todo business `intent.key`
+-- (a host-minted surrogate, P36). `target` stays the logical route-level effect name (host binds it to a
+-- machine route); the app names NO capability id, scope, DSN, or SQL.
 -- Create enforces the v0 body contract (LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the request body
 -- MUST be a non-empty JSON string literal (the title). The host classifies the body's JSON shape into
 -- `req.body_kind` ("string" for a non-empty string; "empty" for empty/absent/malformed; otherwise the
@@ -265,9 +272,9 @@ pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx
   compute intent : WriteIntent =
-    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.idempotency_key, req.body)
+    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.surrogate_id, req.body)
   compute d : Decision = if req.body_kind == "string" {
-    InvokeEffect { target: "todo-create", input: intent, idempotency_key: intent.key }
+    InvokeEffect { target: "todo-create", input: intent, idempotency_key: req.idempotency_key }
   } else {
     Respond { status: 400, body: "create body must be a non-empty JSON string title" }
   }

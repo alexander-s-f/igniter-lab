@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "igniter_stdlib"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -566,6 +566,7 @@ name = "igniter_web"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "igniter_compiler",
  "igniter_machine",
  "igniter_render_html",

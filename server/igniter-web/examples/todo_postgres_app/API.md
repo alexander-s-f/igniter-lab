@@ -98,11 +98,18 @@ string. Pinned by `tests/todo_error_contract_tests.rs` (app-owned, sync) and the
 ### Idempotency
 
 `create` and `done` require an `idempotency-key` header (the `.igweb` `requires idempotency` guard;
-keyless → 400). The header value is the **effect** idempotency key; replaying the same key performs no
-second mutation. Note the two write keys differ:
+keyless → 400). The header value is the **effect** idempotency key (replay/correlation identity);
+replaying the same key performs no second mutation. The **resource id is a separate identity** from the
+idempotency key (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36):
 
-- **create**: business row primary key = the idempotency key (v0 — no generated ids).
-- **done**: business row primary key = the route `todo_id`; the idempotency key stays the effect key.
+- **create**: the business row primary key is a **host-minted surrogate id** —
+  `todo_<blake3(method ␟ path ␟ idempotency_key)[..32]>` — minted by the host and crossed to `.ig` as
+  `req.surrogate_id`; the `.ig` create contract prefixes it `todo_`. The raw idempotency key is **never**
+  stored as the Todo id. The recipe is deterministic, so the *same* key + *same* request resolves to the
+  *same* id on replay; it depends on no body value, secret, clock, or randomness, and a different account
+  or route (carried in `path`) mints a different id.
+- **done**: the business row primary key is the route `todo_id` — which is the previously-minted create
+  id (a client takes the id returned by create and targets it). The idempotency key stays the effect key.
 
 #### Replay vs replay-conflict
 
@@ -194,7 +201,8 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 - No typed row destructuring — `ReadThen` continuations receive rows as a JSON **string**.
 - Body validation is **shape-only** (string vs non-string, via `req.body_kind`); no JSON-object body
   parser — a create title is the whole string literal, never a field of an object.
-- No generated ids (create key = idempotency key).
+- Create ids are **host-minted deterministic surrogates** (`todo_<digest>`), decoupled from the
+  idempotency key (P36) — but they are derived from request identity, not a DB sequence or random id.
 - No schema migration runner (DDL is operator-owned).
 - No connection pool / backpressure; bounded, one-request-at-a-time loopback loop.
 - No public listener mode, no deployment story, no stable CLI/API promise.
