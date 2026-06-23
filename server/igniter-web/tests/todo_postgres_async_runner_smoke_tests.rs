@@ -305,6 +305,18 @@ async fn get_todos(addr: std::net::SocketAddr, account_id: &str) -> String {
     String::from_utf8_lossy(&buf).to_string()
 }
 
+async fn get_todo_show(addr: std::net::SocketAddr, account_id: &str, todo_id: &str) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let raw = format!(
+        "GET /accounts/{account_id}/todos/{todo_id} HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n"
+    );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
 async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     let body = "{}";
@@ -404,6 +416,93 @@ fn read_empty_todos_via_runner_404() {
             "empty rows → app-owned HTTP 404; raw={raw}"
         );
         assert_eq!(adapter.query_count(), 1, "adapter was still queried");
+    });
+}
+
+// ── 2b: show — found row → AccountTodoShowFromRows → HTTP 200 with row JSON (P14) ────────────────
+
+#[test]
+fn show_found_todo_via_runner_200() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+
+    let account_id = "acct-show-found";
+    // FindTodo carries limit 1; the fake adapter applies the effective limit, so one row comes back.
+    let adapter =
+        Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(account_id)));
+    let read_host = make_read_host(adapter.clone());
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let acct = account_id.to_string();
+        let client = tokio::spawn(async move { get_todo_show(addr, &acct, "t1").await });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(
+            http_status(&raw),
+            200,
+            "show found row → HTTP 200; raw={raw}"
+        );
+        assert!(
+            raw.contains("t1") && raw.contains("Buy milk"),
+            "show response carries the row JSON (id + title), not the raw path param; raw={raw}"
+        );
+        assert_eq!(adapter.query_count(), 1, "one read adapter query for show");
+    });
+}
+
+// ── 2c: show — no such todo → AccountTodoShowFromRows → app-owned HTTP 404 (P14) ─────────────────
+
+#[test]
+fn show_missing_todo_via_runner_404() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+
+    let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
+    let read_host = make_read_host(adapter.clone());
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client =
+            tokio::spawn(async move { get_todo_show(addr, "acct-show-empty", "nope").await });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(
+            http_status(&raw),
+            404,
+            "show missing todo → app-owned HTTP 404; raw={raw}"
+        );
+        assert!(
+            raw.contains("todo not found"),
+            "404 body is the app's show message; raw={raw}"
+        );
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "adapter was still queried for show"
+        );
     });
 }
 

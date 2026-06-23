@@ -3,6 +3,11 @@ name = "igniter_web"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+# `igniter-web` has no doctest examples; coverage lives in the focused integration suites below.
+# Keep plain `cargo test --features machine` on the integration path instead of rustdoc path-dep setup.
+doctest = false
+
 # Lab home for the IgWeb package builder (LAB-IGNITER-WEB-CRATE-P8). Owns `build_igweb_app`: lower
 # `.igweb` (igniter_compiler) → load the generated `.ig` (igniter_machine) → an erased
 # `Arc<dyn igniter_server::protocol::ServerApp>`. This crate carries the compiler+machine weight so

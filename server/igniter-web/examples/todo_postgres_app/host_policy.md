@@ -3,6 +3,8 @@
 This is the host-owned configuration reference for mapping this app's read/write intents to `igniter-machine` Postgres capability executors. The configuration is parsed by the web runner from the `--host-config host.toml` file at runtime.
 
 > **Runnable, commit-safe config:** see [`host.example.toml`](host.example.toml) in this directory — it is the exact, parseable config (env-var names only) the runner accepts, plus the run command. The crate README's "Postgres Host Config (Operator)" section walks through it. The tables below are the conceptual policy this config expresses.
+>
+> **Product API contract:** see [`API.md`](API.md) for the route table, run modes (sync observed vs async machine), status semantics, idempotency, and the v0 request-body contract.
 
 The app names only logical effect targets and structured intents; everything below is the **host's** concern. Schema/migrations are operator-owned and are managed at the database layer (not by the application compiler).
 

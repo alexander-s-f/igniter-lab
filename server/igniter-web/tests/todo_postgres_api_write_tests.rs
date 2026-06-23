@@ -69,7 +69,7 @@ fn command_contracts_produce_write_intents() {
         let create = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": "evt-1"}),
+                json!({"account_id": "acct-7", "idempotency_key": "evt-1", "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -80,17 +80,28 @@ fn command_contracts_produce_write_intents() {
             json!("evt-1"),
             "intent key = the app idempotency key"
         );
+        // P16: the create title is the supplied body string.
+        assert_eq!(create["values"]["title"], json!("Buy milk"));
 
         let done = m
             .dispatch(
                 "BuildMarkTodoDoneIntent",
-                json!({"todo_id": "todo-42", "idempotency_key": "evt-2"}),
+                json!({"account_id": "acct-7", "todo_id": "todo-42", "idempotency_key": "evt-2"}),
             )
             .await
             .unwrap();
-        assert_eq!(done["operation"], json!("update"));
+        // P15: done targets the route todo_id as the business key (NOT the idempotency key), and uses
+        // "upsert" (the host adapter is an INSERT … ON CONFLICT DO UPDATE; "update" is not in the op
+        // allowlist). account_id is carried so the on-conflict update stays FK-valid.
+        assert_eq!(done["operation"], json!("upsert"));
         assert_eq!(done["target"], json!("todos"));
-        assert_eq!(done["key"], json!("evt-2"));
+        assert_eq!(
+            done["key"],
+            json!("todo-42"),
+            "business key = route todo_id"
+        );
+        assert_eq!(done["values"]["account_id"], json!("acct-7"));
+        assert_eq!(done["values"]["done"], json!("true"));
 
         // no capability identity smuggled into the structured intent.
         for k in [
@@ -114,7 +125,10 @@ fn handlers_wire_command_contracts_with_no_identity() {
     // the handlers now build the intent via the command contract and derive the effect from it.
     assert!(handlers.contains("call_contract(\"BuildCreateTodoIntent\""));
     assert!(handlers.contains("call_contract(\"BuildMarkTodoDoneIntent\""));
+    // create's business key IS the idempotency key (intent.key); done's effect idempotency key is the
+    // request's, while its business key is the route todo_id (P15).
     assert!(handlers.contains("idempotency_key: intent.key"));
+    assert!(handlers.contains("idempotency_key: req.idempotency_key"));
     assert!(handlers.contains("target: \"todo-create\""));
     assert!(handlers.contains("target: \"todo-done\""));
 
@@ -151,7 +165,7 @@ fn structured_intent_maps_to_postgres_write_values() {
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": "evt-1"}),
+                json!({"account_id": "acct-7", "idempotency_key": "evt-1", "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -175,7 +189,7 @@ fn structured_intent_maps_to_postgres_write_values() {
         assert_eq!(pg.key, "evt-1");
         // the TYPED values survive nested + structured (the whole point of P7).
         assert_eq!(pg.values["account_id"], json!("acct-7"));
-        assert_eq!(pg.values["title"], json!(""));
+        assert_eq!(pg.values["title"], json!("Buy milk"));
         assert_eq!(pg.values["done"], json!("false"));
         assert!(
             pg.values.is_object(),

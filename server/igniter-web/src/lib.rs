@@ -217,10 +217,18 @@ impl ServerApp for IgWebServerApp {
 /// Build the `{ "req": { ... } }` input value from a `ServerRequest`. Shared between the async
 /// dispatch path and the sync compat adapter — one source of truth for the input shape.
 fn build_request_input(req: &ServerRequest) -> Value {
+    // `req.body` is a parsed JSON Value. The prelude `Request.body` is a String, so we cross it as text:
+    // a JSON-string body (e.g. `"Buy milk"`) crosses as its INNER string (`Buy milk`, not re-quoted);
+    // null/absent → ""; any other shape (object/number) crosses as its compact JSON text.
+    let body = match &req.body {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
     json!({ "req": {
         "method": req.method,
         "path": req.path,
-        "body": if req.body.is_null() { Value::String(String::new()) } else { Value::String(req.body.to_string()) },
+        "body": body,
         "correlation_id": req.correlation_id.clone().unwrap_or_default(),
         "idempotency_key": req.idempotency_key.clone().unwrap_or_default(),
     }})

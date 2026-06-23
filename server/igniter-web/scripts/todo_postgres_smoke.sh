@@ -40,6 +40,8 @@ ACCT="acct-smoke"
 ACCT_EMPTY="acct-smoke-empty"
 TODO_SEED="todo-smoke-seed"
 WRITE_KEY="smoke-k1"
+# v0 create body contract (P16): the request body is a JSON string literal carrying the todo title.
+WRITE_TITLE="Buy milk via smoke"
 
 psql_dsn() { psql "$IGNITER_TODO_PG_DSN" -v ON_ERROR_STOP=1 "$@"; }
 
@@ -105,7 +107,7 @@ BASE="http://127.0.0.1:$PORT"
 echo "todo_postgres_smoke: serving on $BASE (bounded to 4 loopback requests)"
 
 # ── 4. Drive exactly four requests, in order: read found, read empty, write, replay ────────────────
-post_args=(-X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $WRITE_KEY" --data '{}')
+post_args=(-X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $WRITE_KEY" --data "\"$WRITE_TITLE\"")
 code_found="$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/accounts/$ACCT/todos" || echo ERR)"
 found_body="$(cat "$BODY" 2>/dev/null || true)"
 code_empty="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/accounts/$ACCT_EMPTY/todos" || echo ERR)"
@@ -119,6 +121,7 @@ SERVER_PID=""
 # ── 5. DB truth: exactly one business row + one receipt for the written key (replay = no 2nd row) ───
 n_row="$(psql_dsn -qtAc "SELECT count(*) FROM todos WHERE id='$WRITE_KEY';" | tr -d '[:space:]')"
 n_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$WRITE_KEY';" | tr -d '[:space:]')"
+db_title="$(psql_dsn -qtAc "SELECT title FROM todos WHERE id='$WRITE_KEY';" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 
 # ── 6. Receipt ─────────────────────────────────────────────────────────────────────────────────────
 pass=1
@@ -138,6 +141,7 @@ chk "write -> 200"             200 "$code_write"
 chk "replay same key -> 200"   200 "$code_replay"
 chk "business row committed"   1   "$n_row"
 chk "effect receipt written"   1   "$n_rcpt"
+chk "create body -> db title"  "$WRITE_TITLE" "$db_title"
 
 if [[ "$pass" == 1 ]]; then
   echo "todo_postgres_smoke: PASS"

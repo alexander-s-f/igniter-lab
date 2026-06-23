@@ -58,10 +58,14 @@ fn loopback_behaviors() {
         "index emits ReadThen → sync path returns 500 (machine mode only)"
     );
 
-    // show — todo context (capture 2) threaded through the two-capture guard.
-    let (s, b) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");
-    assert_eq!(s, 200);
-    assert_eq!(b["body"], json!("42"));
+    // show — now a real read (P14): AccountTodoShow emits ReadThen { FindTodo plan }, so the sync path
+    // returns 500 for the unhandled decision tag (same as index). The machine-mode read (found→200 /
+    // missing→404) is proven in todo_postgres_async_runner_smoke_tests.
+    let (s, _) = roundtrip(&*app, "GET", "/accounts/7/todos/42", &[], "");
+    assert_eq!(
+        s, 500,
+        "show emits ReadThen → sync path returns 500 (machine mode only)"
+    );
 
     // create without idempotency-key → keyless 400 (guard outermost, before the via match).
     assert_eq!(

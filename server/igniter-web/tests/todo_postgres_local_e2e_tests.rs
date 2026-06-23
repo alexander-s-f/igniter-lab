@@ -329,11 +329,16 @@ fn local_write_creates_business_row_and_receipt() {
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key}),
+                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
             )
             .await
             .unwrap();
         assert!(intent.is_object());
+        assert_eq!(
+            intent["values"]["title"],
+            json!("Buy milk"),
+            "P16: title from body"
+        );
 
         // host write contour: real adapter bound to `todos(id; account_id,title,done)`.
         let adapter = Arc::new(
@@ -373,13 +378,18 @@ fn local_write_creates_business_row_and_receipt() {
 
         assert_eq!(out.state, WriteState::Committed);
         assert_eq!(adapter.attempts(), 1, "exactly one real transaction");
-        // real business row present, with the app-authored values.
+        // real business row present, with the app-authored values (incl. the body-derived title — P16).
         assert_eq!(
             adapter
                 .read_business_text(key, "account_id")
                 .await
                 .as_deref(),
             Some("acct-7")
+        );
+        assert_eq!(
+            adapter.read_business_text(key, "title").await.as_deref(),
+            Some("Buy milk"),
+            "P16: real business row title = the create body"
         );
         // machine receipt records committed.
         assert_eq!(
@@ -412,7 +422,7 @@ fn local_write_replay_no_second_mutation() {
         let intent = m
             .dispatch(
                 "BuildCreateTodoIntent",
-                json!({"account_id": "acct-7", "idempotency_key": key}),
+                json!({"account_id": "acct-7", "idempotency_key": key, "title": "Buy milk"}),
             )
             .await
             .unwrap();
@@ -473,6 +483,128 @@ fn local_write_replay_no_second_mutation() {
             1,
             "same key → exactly one real mutation"
         );
+    });
+}
+
+// ── 4b: done → marks an EXISTING row done=true by business key (todo_id); replay = no 2nd mutation ─
+//
+// LAB-TODOAPP-API-DONE-BUSINESS-KEY-P15. The app's BuildMarkTodoDoneIntent keys the write by the route
+// `todo_id` (the business row), with operation "upsert" (the adapter is INSERT … ON CONFLICT DO UPDATE).
+// v0 is a full-row upsert: account_id is carried (so the FK stays valid) and done flips to "true"; the
+// title is NOT preserved (no partial PATCH). The effect idempotency key is the request's.
+
+#[test]
+fn local_done_marks_existing_row_done() {
+    rt().block_on(async {
+        let key = "evt-local-done-1";
+        let todo_id = "todo-p15-done";
+        let Some((client, dsn)) = prepare("acct-p15", &[todo_id], &[key]).await else {
+            return;
+        };
+        // an existing todo for this account, not yet done, with a real title.
+        client
+            .execute(
+                "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                &[&todo_id, &"acct-p15", &"Original title"],
+            )
+            .await
+            .unwrap();
+
+        let m = load_app_contracts();
+        let intent = m
+            .dispatch(
+                "BuildMarkTodoDoneIntent",
+                json!({"account_id": "acct-p15", "todo_id": todo_id, "idempotency_key": key}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            intent["key"],
+            json!(todo_id),
+            "business key = route todo_id"
+        );
+        assert_eq!(intent["operation"], json!("upsert"));
+
+        let adapter = Arc::new(
+            TokioPostgresWriteAdapter::connect(
+                &dsn,
+                "todos",
+                "id",
+                &["account_id", "title", "done"],
+            )
+            .await
+            .expect("write adapter connect"),
+        );
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(Arc::new(PostgresWriteExecutor::new(
+            WRITE_CAP,
+            adapter.clone(),
+            write_policy(),
+        )));
+        let store = receipts();
+        let req = WriteRequest {
+            capability_id: WRITE_CAP.into(),
+            operation: "upsert".into(),
+            idempotency_key: key.into(),
+            payload: intent.clone(),
+        };
+        let out = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &write_passport(),
+            "write",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.state, WriteState::Committed);
+
+        // the existing row is now done, with its FK-valid account preserved.
+        assert_eq!(
+            adapter.read_business_text(todo_id, "done").await.as_deref(),
+            Some("true"),
+            "existing row flipped to done=true"
+        );
+        assert_eq!(
+            adapter
+                .read_business_text(todo_id, "account_id")
+                .await
+                .as_deref(),
+            Some("acct-p15"),
+            "account_id preserved (FK intact)"
+        );
+
+        // replay same idempotency key → no second mutation (machine receipt short-circuits).
+        let again = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &write_passport(),
+            "write",
+            &req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(again.state, WriteState::Committed, "replay still committed");
+        assert_eq!(
+            adapter.attempts(),
+            1,
+            "same done key → exactly one real mutation"
+        );
+
+        // PG-side effect_receipts keyed by THIS done idempotency key (business_key = todo_id).
+        let n: i64 = client
+            .query_one(
+                "SELECT count(*) FROM effect_receipts WHERE business_key = $1",
+                &[&todo_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n, 1, "exactly one PG effect_receipts row for the done");
     });
 }
 
@@ -926,10 +1058,14 @@ fn subprocess_product_command_read_write_replay_e2e() {
             "GET /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
         let get_empty =
             "GET /accounts/acct-p12-empty/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
+        // v0 create body contract (P16): a JSON string literal whose value becomes the todo title.
+        let title_body = "\"Buy milk via P16\"";
         let post = format!(
             "POST /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\n\
              Authorization: Bearer {tok_val}\r\nidempotency-key: {write_key}\r\n\
-             Content-Length: 2\r\n\r\n{{}}"
+             Content-Length: {}\r\n\r\n{}",
+            title_body.len(),
+            title_body
         );
 
         let r_found = http_send(&addr, get_found).await;
@@ -991,6 +1127,17 @@ fn subprocess_product_command_read_write_replay_e2e() {
             acct.as_deref(),
             Some("acct-p12-sub"),
             "business row carries the app-authored account_id"
+        );
+        // P16: the real business row title equals the submitted create body (HTTP body → DB).
+        let title: Option<String> = client
+            .query_one("SELECT title FROM todos WHERE id = $1", &[&write_key])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(
+            title.as_deref(),
+            Some("Buy milk via P16"),
+            "P16: real row title = the submitted create body"
         );
         let n_rcpt: i64 = client
             .query_one(

@@ -291,6 +291,31 @@ fn keyed_create_executes_via_machine_host() {
     });
 }
 
+// ── 1b: create carries the request body as the todo title (P16) ──────────────────────────────────
+
+#[test]
+fn create_carries_request_body_as_title() {
+    let app = build_app();
+    // v0 body contract: the request body is a JSON string literal; here Value::String("Buy milk").
+    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!("Buy milk"));
+    req.headers
+        .insert("authorization".to_string(), "Bearer vtok".to_string());
+    req.idempotency_key = Some("evt-body".to_string());
+
+    match app.call(req) {
+        ServerDecision::InvokeEffect { input, .. } => {
+            assert_eq!(
+                input["values"]["title"],
+                json!("Buy milk"),
+                "P16: the structured intent title carries the request body"
+            );
+            assert_eq!(input["values"]["account_id"], json!("7"));
+            assert_eq!(input["values"]["done"], json!("false"));
+        }
+        other => panic!("expected InvokeEffect for create, got {other:?}"),
+    }
+}
+
 // ── 2: keyed done EXECUTES through the machine host ───────────────────────────────────────────────
 
 #[test]
@@ -298,6 +323,30 @@ fn keyed_done_executes_via_machine_host() {
     let app = build_app();
     let req = app_request("POST", "/accounts/7/todos/42/done", Some("evt-2"));
     let decision = app.call(req.clone());
+
+    // P15: the done effect reaches the host with the BUSINESS key = route todo_id ("42"), the effect
+    // idempotency key = the request key ("evt-2"), and op "upsert"; account_id is carried for the FK.
+    if let ServerDecision::InvokeEffect {
+        ref target,
+        ref input,
+        ref idempotency_key,
+        ..
+    } = decision
+    {
+        assert_eq!(target, "todo-done");
+        assert_eq!(input["key"], json!("42"), "business key = route todo_id");
+        assert_eq!(input["operation"], json!("upsert"));
+        assert_eq!(input["values"]["account_id"], json!("7"));
+        assert_eq!(input["values"]["done"], json!("true"));
+        assert_eq!(
+            idempotency_key.as_deref(),
+            Some("evt-2"),
+            "effect idempotency key = request key, not the business key"
+        );
+    } else {
+        panic!("expected InvokeEffect for done, got {decision:?}");
+    }
+
     rt().block_on(async move {
         let (h, r) = prod(3).await;
         let st = effect_state();

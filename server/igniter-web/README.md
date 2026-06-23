@@ -133,6 +133,9 @@ To run `examples/todo_postgres_app` against a local Postgres, use the committed,
 config [`examples/todo_postgres_app/host.example.toml`](examples/todo_postgres_app/host.example.toml).
 It references env-var **names** only — it never contains a DSN, password, or bearer token.
 
+For the Todo API itself — routes, run modes, status semantics, idempotency, and the request-body
+contract — see [`examples/todo_postgres_app/API.md`](examples/todo_postgres_app/API.md).
+
 ```bash
 export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
 export IGNITER_TODO_EFFECT_TOKEN="some-local-bearer-token"

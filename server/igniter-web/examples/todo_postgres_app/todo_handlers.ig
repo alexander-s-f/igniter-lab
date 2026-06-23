@@ -112,11 +112,30 @@ pure contract AccountTodoIndexFromRows {
   output d : Decision
 }
 
+-- Show read continuation (LAB-TODOAPP-API-SHOW-READTHEN-P14): the single-todo analogue of
+-- AccountTodoIndexFromRows. The host re-enters here with the FindTodo rows as a JSON string. Empty
+-- rows (no such todo for this account) are the APP's 404; a found row returns 200 carrying its JSON.
+pure contract AccountTodoShowFromRows {
+  input req       : Request
+  input rows_json : String
+  compute d : Decision = if rows_json == "[]" {
+    Respond { status: 404, body: "todo not found" }
+  } else {
+    Respond { status: 200, body: rows_json }
+  }
+  output d : Decision
+}
+
 -- ── Write intent contracts — structured WriteIntent; return intent only, never execute ──────────
+-- Create carries the request body as the v0 todo title (LAB-TODOAPP-API-CREATE-BODY-P16). v0 body
+-- contract: the request body is a JSON string literal whose value is the title (e.g. `"Buy milk"`);
+-- the host crosses a JSON-string body to `.ig` as its inner string. No JSON object parsing — `title`
+-- is just that string (empty body → empty title). `key` stays the idempotency key (create v0).
 pure contract BuildCreateTodoIntent {
   input account_id      : String
   input idempotency_key : String
-  compute values = call_contract("MakeWriteValues", account_id, "", "false")
+  input title           : String
+  compute values = call_contract("MakeWriteValues", account_id, title, "false")
   compute intent : WriteIntent = {
     operation: "insert", target: "todos",
     key: idempotency_key, values: values, correlation_id: ""
@@ -124,13 +143,20 @@ pure contract BuildCreateTodoIntent {
   output intent : WriteIntent
 }
 
+-- Done marks the todo identified by `todo_id` (LAB-TODOAPP-API-DONE-BUSINESS-KEY-P15): the business
+-- key is the route `todo_id`, NOT the idempotency key. `operation` is "upsert" because the host write
+-- adapter is a single-statement INSERT … ON CONFLICT DO UPDATE (the label only gates the host op
+-- allowlist; the adapter does not distinguish update from upsert). `account_id` is carried so the
+-- on-conflict update keeps the row's FK-valid account (v0 is a full-row upsert, no partial PATCH; the
+-- title is not preserved). The effect idempotency key stays the request's, set on the InvokeEffect.
 pure contract BuildMarkTodoDoneIntent {
+  input account_id      : String
   input todo_id         : String
   input idempotency_key : String
-  compute values = call_contract("MakeWriteValues", "", "", "true")
+  compute values = call_contract("MakeWriteValues", account_id, "", "true")
   compute intent : WriteIntent = {
-    operation: "update", target: "todos",
-    key: idempotency_key, values: values, correlation_id: ""
+    operation: "upsert", target: "todos",
+    key: todo_id, values: values, correlation_id: idempotency_key
   }
   output intent : WriteIntent
 }
@@ -211,10 +237,16 @@ pure contract AccountTodoIndex {
   output d : Decision
 }
 
+-- Show is now a REAL read (LAB-TODOAPP-API-SHOW-READTHEN-P14): build the FindTodo QueryPlan from the
+-- guard-loaded context and hand off to the host via ReadThen, exactly like AccountTodoIndex. The route
+-- therefore needs machine mode (the sync path returns 500 for the ReadThen tag, same as index).
 pure contract AccountTodoShow {
   input req : Request
   input ctx : TodoCtx
-  compute d : Decision = Respond { status: 200, body: or_else(ctx.todo_id, "none") }
+  compute account_id = or_else(ctx.account_id, "")
+  compute todo_id = or_else(ctx.todo_id, "")
+  compute plan = call_contract("FindTodo", account_id, todo_id)
+  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoShowFromRows" }
   output d : Decision
 }
 
@@ -228,7 +260,7 @@ pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx
   compute intent : WriteIntent =
-    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.idempotency_key)
+    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.idempotency_key, req.body)
   compute d : Decision = InvokeEffect { target: "todo-create", input: intent, idempotency_key: intent.key }
   output d : Decision
 }
@@ -237,7 +269,7 @@ pure contract AccountTodoDone {
   input req : Request
   input ctx : TodoCtx
   compute intent : WriteIntent =
-    call_contract("BuildMarkTodoDoneIntent", or_else(ctx.todo_id, "none"), req.idempotency_key)
-  compute d : Decision = InvokeEffect { target: "todo-done", input: intent, idempotency_key: intent.key }
+    call_contract("BuildMarkTodoDoneIntent", or_else(ctx.account_id, "none"), or_else(ctx.todo_id, "none"), req.idempotency_key)
+  compute d : Decision = InvokeEffect { target: "todo-done", input: intent, idempotency_key: req.idempotency_key }
   output d : Decision
 }
