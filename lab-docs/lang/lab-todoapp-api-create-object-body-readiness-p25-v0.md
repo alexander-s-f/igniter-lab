@@ -12,12 +12,23 @@ object (`{ "title": "Buy milk" }`) without `.ig` gaining hidden JSON-parsing aut
 This is the only option that keeps the authority boundary honest: the **host parses transport** (JSON →
 Map, never knowing "title" is special); the **app owns the product field meaning**.
 
-**It is NOT tiny today — it is blocked on a language/VM gate, not on the Todo app.** The Map type exists
-only in the typechecker (LAB-MAP-RUST-P1); the **VM has no `Value::Map` and no `stdlib.map.get`
-evaluation**. So the first card after this packet is a **machine/VM card**, and **until it lands the
-Todo API stays on string-body v0 (P18)** — which is already shipped, fail-closed, and honest. Forcing
-object body sooner (host-projected `req.body_title`) is rejected: it leaks a product field name into the
-generic prelude/runner.
+**[CORRECTED 2026-06-23 by LAB-MACHINE-MAP-VALUE-AND-STDLIB-GET-P28]** This packet originally claimed
+the Map runtime gate was missing ("the VM has no `Value::Map` and no `stdlib.map.get` evaluation"). That
+was **wrong** — verify-first archaeology under-counted the live support. P28 proved the gate is **already
+live**: the VM represents a Map as `Value::Record(BTreeMap<String,Value>)` (no separate `Value::Map`),
+`Value::from_json` crosses JSON objects into it, and the authored `map_get` / `map_has_key` (normalized
+to `stdlib.map.get` / `stdlib.map.has_key`) execute end-to-end through `IgniterMachine::dispatch`
+(proof: `runtime/igniter-machine/tests/map_body_proof_tests.rs`). The authored surface is the BARE name
+`map_get(body, "title")` — the dotted `stdlib.map.*` form does not parse as a callee.
+
+So the object-body work is **not** blocked on a VM/machine card. The one real friction is ergonomic:
+`map_get` returns `Option[Unknown]`, so a `String`-typed output needs a typed coercion (the Todo body
+matrix wants to reject a non-string title). The remaining choice is therefore an *app/host* one — a
+`Request.body_json : Map[String, Unknown]` prelude surface + an `Unknown`→`String` strategy (a typed
+`map_get_string` helper, or a host body-field shape signal like P18's `body_kind`). The original "string-
+body v0 (P18) until a language gate lands" framing is superseded: hold on v0 only until the object-body
+*app* card is scheduled, not a language card. Forcing object body via a host-projected `req.body_title`
+is still rejected (it leaks a product field name into the generic prelude/runner).
 
 ## Verify-first: live-code constraints (cited)
 
@@ -34,15 +45,19 @@ generic prelude/runner.
   `intent.key`) whose field types the typechecker resolves — never on an untyped/`Unknown` value.
 - **stdlib surfaces** —
   - `stdlib.map.get|has_key|from_pairs|empty` have **typechecker signatures**
-    (`typechecker/stdlib_calls.rs:2468+`, `stdlib.map.get(Map[String,V], String) → Option[V]`) but
-    **no VM dispatch** (`grep` of `runtime/igniter-machine/src` finds zero `stdlib.map.*` evaluation).
-    `Map[String,V]` is compile-time inference only (LAB-MAP-RUST-P1).
+    (`typechecker/stdlib_calls.rs:2468+`, `stdlib.map.get(Map[String,V], String) → Option[V]`).
+    **[CORRECTED by P28]** This bullet originally claimed "no VM dispatch" — that grep was for
+    `stdlib.map.*` and MISSED the live handlers, which match the BARE names: `vm.rs` handles
+    `"map_get" | "stdlib.map.get"` and `"map_has_key" | "stdlib.map.has_key"` over `Value::Record`.
+    The VM dispatch is live; `Map[String,V]` is not compile-time-only.
   - **No `stdlib.json.*`** anywhere (no parse / get_string).
   - `string` ops exist (`stdlib.string.{concat,char_at,substring}`) — character surgery, not JSON.
   - `VMValue::from_json` is the **host→VM input bridge** (crosses a serde `Value` into a VMValue for
     contract inputs), not an `.ig`-callable accessor.
-- **Conclusion:** `.ig` cannot extract a JSON-object field today. Any object-body path needs EITHER a new
-  host-projected field (product-meaning leak) OR a real VM Map/JSON surface (language gate).
+- **Conclusion [CORRECTED by P28]:** `.ig` CAN extract a JSON-object field today via `map_get` over a
+  `Map[String, Unknown]` input (proven through `IgniterMachine::dispatch`). The object-body path needs no
+  language gate — only an app/host decision on the `Option[Unknown]`→`String` coercion. (A host-projected
+  `req.body_title` field remains rejected as a product-meaning leak.)
 
 ## Options compared
 
