@@ -148,7 +148,7 @@ fn run_machine_mode(
         build_loaded_app_from_dir(&cli.app_dir).map_err(|e| classify_runner_error(&e))?;
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
 
-    // 3. Build a no-op effect host (v0: InvokeEffect from continuation is the next card)
+    // 3. Build a default no-op effect host (fallback path when no write binding is configured)
     let router = IngressRouter::new();
     let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
     let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);

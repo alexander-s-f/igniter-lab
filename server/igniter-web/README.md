@@ -6,6 +6,10 @@ without writing a Rust runner per app.
 
 This is lab v0, not a stable public CLI or canon web framework.
 
+> **"Is X actually implemented?"** See [`IMPLEMENTED_SURFACE.md`](IMPLEMENTED_SURFACE.md) — the
+> code-anchored map of what `ReadThen`, `MachineEffectHost`, `host.toml`, and `igweb-serve` do today,
+> with exact evidence commands. Trust it and live source over older readiness/proof prose.
+
 ## Mental Model
 
 ```text
