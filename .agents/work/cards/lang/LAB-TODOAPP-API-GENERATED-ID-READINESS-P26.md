@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-GENERATED-ID-READINESS-P26 - create ids beyond idempotency key
 
-Status: TODO
+Status: CLOSED
 Lane: TodoApp API / product semantics / readiness
 Type: readiness packet
 Delegation code: OPUS-TODOAPP-API-GENERATED-ID-READINESS-P26
@@ -60,14 +60,14 @@ Pay attention to what the write adapter returns today and whether it can surface
 
 ## Acceptance
 
-- [ ] Packet chooses a recommended v1 id strategy.
-- [ ] Replay semantics are explicit: same idempotency key returns the same business result.
-- [ ] Conflict semantics are explicit: same key + different title/id refuses.
-- [ ] Host/app authority boundary preserved.
-- [ ] Necessary adapter changes, if any, are named.
-- [ ] Next implementation card is specific and bounded.
-- [ ] No production code changes except optional doc link.
-- [ ] `git diff --check` clean.
+- [x] Packet chooses a recommended v1 id strategy.
+- [x] Replay semantics are explicit: same idempotency key returns the same business result.
+- [x] Conflict semantics are explicit: same key + different title/id refuses.
+- [x] Host/app authority boundary preserved.
+- [x] Necessary adapter changes, if any, are named.
+- [x] Next implementation card is specific and bounded.
+- [x] No production code changes except optional doc link.
+- [x] `git diff --check` clean.
 
 ## Deliverable
 
@@ -76,6 +76,43 @@ Preferred:
 ```text
 lab-docs/lang/lab-todoapp-api-generated-id-readiness-p26-v0.md
 ```
+
+## Closing report
+
+**Date:** 2026-06-23
+**Deliverable:** [`lab-docs/lang/lab-todoapp-api-generated-id-readiness-p26-v0.md`](../../../../lab-docs/lang/lab-todoapp-api-generated-id-readiness-p26-v0.md)
+**Outcome:** Readiness packet, doc-only. No production code changed; `git diff --check` clean.
+
+### Recommendation (sequenced)
+
+- **v1 (next, smallest, no dependency):** host-minted **deterministic surrogate** id —
+  `id = "todo-" + blake3(idempotency_key)[..16]`, computed host-side. Replay-safe by pure determinism
+  (no clock/random/readback), **zero adapter or schema change**, conflict unchanged. Decouples the row id
+  from the literal request key within every closed surface.
+- **v2 (after P25 object-body):** client-provided `id` in the JSON object body — natural REST shape;
+  blocked on object-body parsing.
+- **deferred:** Postgres-generated id (`gen_random_uuid()` + `RETURNING`) — needs a write-adapter
+  refactor (the adapter currently does `RETURNING 1`, surfaces no id); out of this card's closed surface.
+
+### Key live-code facts that drove it
+
+- The real write adapter returns no id (`RETURNING 1` sentinel); business id = `intent.key` today.
+- `effect_receipts.business_key` already exists → a readback path is available for any recorded id.
+- `blake3` is already an `igniter-machine` dep → a deterministic surrogate needs no new crate.
+- Conflict already keys on a blake3 digest of the whole intent body → a client id in the body gets 409
+  on mismatch for free (the P19 mechanism).
+
+### Authority boundary
+
+Opaque surrogate id = host transport authority (sequence-equivalent); meaningful id value = app/client.
+A host minting a *meaningful* id would be an authority leak (rejected), same principle that rejects
+host-side body parsing (option 5).
+
+### Next card
+
+`LAB-TODOAPP-API-HOST-SURROGATE-ID-P27` — fully scoped in the packet (host-side write-key derivation
+preferred to keep `.ig` hash-free; fake + real-PG tests for id≠key, replay-same-id-one-mutation,
+same-key/different-title→409; API.md v0→v1 note). No client id, no PG-generated id, no schema change.
 
 ## Closed surfaces
 

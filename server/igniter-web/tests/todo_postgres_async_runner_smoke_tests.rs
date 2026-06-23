@@ -385,10 +385,10 @@ fn read_found_todos_via_runner_200() {
     });
 }
 
-// ── 2: read — empty rows → AccountTodoIndexFromRows → app-owned HTTP 404 ─────────────────────────
+// ── 2: read — empty rows → AccountTodoIndexFromRows → HTTP 200 [] (a list, not 404) — P24 ────────
 
 #[test]
-fn read_empty_todos_via_runner_404() {
+fn read_empty_todos_via_runner_200_empty_list() {
     let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
 
     let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
@@ -413,9 +413,10 @@ fn read_empty_todos_via_runner_404() {
 
         assert_eq!(
             http_status(&raw),
-            404,
-            "empty rows → app-owned HTTP 404; raw={raw}"
+            200,
+            "empty rows → 200 [] (a list, not a not-found); raw={raw}"
         );
+        assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
         assert_eq!(adapter.query_count(), 1, "adapter was still queried");
     });
 }

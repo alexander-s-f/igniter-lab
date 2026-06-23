@@ -62,10 +62,11 @@ APP_DIR="$CRATE_DIR/examples/todo_postgres_app"
 HOST_CFG="$APP_DIR/host.example.toml"
 
 ACCT="acct-smoke"
-# A distinct never-populated account for the empty-list read. Using a SEPARATE account (not acct-smoke
-# pre-create) is deliberate: the staged read host dedups identical (plan,correlation) reads within one
-# server run, so two identical list reads on acct-smoke would replay the first's cached result. Distinct
-# accounts ⇒ distinct query plans ⇒ no read-cache collision.
+# A distinct never-populated account for the empty-list read. As of P23 this is only for clarity, NOT a
+# correctness workaround: the staged read host now runs each uncorrelated read fresh (replay is opt-in
+# via an explicit x-correlation-id), so a same-account `list → create → list` would observe the new row
+# rather than replay an earlier empty result. Using a separate empty account just keeps the receipt
+# obviously empty for the 404 check.
 ACCT_EMPTY="acct-smoke-empty"
 CREATE_KEY="smoke-create-1"   # create idempotency key == created row id (create v0 keys by idem key)
 DONE_KEY="smoke-done-1"        # done idempotency key (business key = the todo id, P15)

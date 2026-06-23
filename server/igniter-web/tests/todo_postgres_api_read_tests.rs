@@ -149,10 +149,10 @@ fn product_todos_index_found_returns_200() {
     });
 }
 
-// ── 2: empty rows → product continuation returns app-owned 404 ────────────────────────────────────
+// ── 2: empty rows → product continuation returns 200 [] (a list, not a not-found) — P24 ──────────
 
 #[test]
-fn product_todos_index_empty_returns_app_404() {
+fn product_todos_index_empty_returns_200_empty_list() {
     rt().block_on(async {
         let m = load_app_contracts();
         let plan = m
@@ -174,7 +174,8 @@ fn product_todos_index_empty_returns_app_404() {
             .await
             .unwrap();
         assert_eq!(decision["__arm"], json!("Respond"));
-        assert_eq!(decision["status"], json!(404), "empty rows = app not-found");
+        assert_eq!(decision["status"], json!(200), "empty list = 200 []");
+        assert_eq!(decision["body"], json!("[]"), "body carries the empty array");
     });
 }
 

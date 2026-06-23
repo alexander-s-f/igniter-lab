@@ -97,18 +97,17 @@ pure contract FindTodo {
   output plan : QueryPlan
 }
 
--- Read continuation (LAB-TODOAPP-API-READ-P3): the host re-enters here with the read rows as a JSON
--- string (P5/P6 humble v0; typed row destructuring deferred). Not-found (empty rows) is the APP's
--- product decision (404); a found set returns 200 carrying the rows. No machine internals here — the
--- query/read authority is host-owned; this contract is pure.
+-- Read continuation (LAB-TODOAPP-API-READ-P3; list-empty semantics LAB-TODOAPP-API-LIST-EMPTY-P24):
+-- the host re-enters here with the read rows as a JSON string (P5/P6 humble v0; typed row destructuring
+-- deferred). A LIST is a collection — an empty list is a valid 200 result (`[]`), NOT a 404. v0 does not
+-- verify account existence on list beyond the route capture (the guard's non-empty capture check), so an
+-- unknown account also lists `200 []`; an account-table existence read is a separate future card. (Show,
+-- which addresses a single resource, still 404s when the row is absent — see AccountTodoShowFromRows.)
+-- No machine internals here — the query/read authority is host-owned; this contract is pure.
 pure contract AccountTodoIndexFromRows {
   input req       : Request
   input rows_json : String
-  compute d : Decision = if rows_json == "[]" {
-    Respond { status: 404, body: "no todos" }
-  } else {
-    Respond { status: 200, body: rows_json }
-  }
+  compute d : Decision = Respond { status: 200, body: rows_json }
   output d : Decision
 }
 

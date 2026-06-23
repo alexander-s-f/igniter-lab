@@ -18,7 +18,7 @@ Zero authored Rust — the whole product is `.igweb` routes + `.ig` handlers, bu
 
 - **`.igweb` routes + `.ig` handlers** — [routes.igweb](routes.igweb), [todo_handlers.ig](todo_handlers.ig).
 - **`ReadThen` reads** — a handler emits a typed `QueryPlan`; the host runs it and re-enters the
-  continuation with the rows. List/show → 200, empty → app-owned 404.
+  continuation with the rows. List → 200 (empty list → `200 []`); show of a missing row → app-owned 404.
 - **`InvokeEffect` writes** — a handler emits a logical `target` (`todo-create` / `todo-done`) + a typed
   `WriteIntent`; the host binds the target to a Postgres write capability and executes it.
 - **Host-owned Postgres authority** — DSN, capability id, source/field/target allowlists, bearer token,
@@ -110,7 +110,8 @@ cargo run --features postgres --bin igweb-serve -- \
 From `server/igniter-web/`:
 
 ```bash
-scripts/check_implemented_surface.sh        # bounded guard: ReadThen + effect path + diagnostics + example + postgres-free tree
+scripts/check_todo_product_surface.sh       # NO-DB CI guard for THIS app: body contract + idempotency conflict + error contract + list-empty + host.example parse + smoke-refusal (needs no env, no DB)
+scripts/check_implemented_surface.sh        # bounded guard: ReadThen + effect path + diagnostics + example + postgres-free tree (runner machinery)
 cargo test --features machine               # ReadThen + StagedReadHost + MachineEffectHost + diagnostics + error contract (no DB)
 cargo test --test todo_error_contract_tests # app-owned error shapes (404/405/400), sync, no DB
 cargo test --features postgres --test todo_postgres_local_e2e_tests -- --test-threads=1   # real binary vs local Postgres; skips cleanly without IGNITER_TODO_PG_DSN

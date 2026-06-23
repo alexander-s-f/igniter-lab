@@ -261,3 +261,91 @@ fn fixture_carries_no_authority_surface() {
 
 // (Covered by `todo_postgres_read_host_tests.rs` running in the same feature-gated suite.
 // This comment marks the acceptance criterion explicitly.)
+
+// ── 8: read freshness — replay is opt-in via explicit x-correlation-id (LAB-…-READ-FRESHNESS-P23) ─
+//
+// `query_count()` is the probe: a REPLAY returns the cached outcome without re-entering the executor,
+// so the adapter count stays flat; a FRESH run increments it.
+
+fn freshness_req(account: &str, correlation: Option<&str>) -> ServerRequest {
+    ServerRequest {
+        protocol: PROTOCOL_VERSION.to_string(),
+        method: "GET".to_string(),
+        path: account.to_string(),
+        body: Value::Null,
+        correlation_id: correlation.map(|c| c.to_string()),
+        idempotency_key: None,
+        headers: Default::default(),
+    }
+}
+
+fn list_plan() -> Value {
+    json!({
+        "source": "todos", "op": "select",
+        "projection": ["id", "account_id", "title", "done"],
+        "filters": [], "limit": 50
+    })
+}
+
+/// No client correlation: the SAME plan run twice on one host executes twice (no stale replay), so a
+/// read after a write in the same process observes the new state instead of a replayed empty list.
+#[test]
+fn uncorrelated_same_plan_reads_run_fresh() {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+        let host = make_read_host(adapter.clone(), todos_policy(100));
+        let plan = list_plan();
+
+        let _ = host.execute(&plan, &freshness_req("acct-7", None)).await;
+        let _ = host.execute(&plan, &freshness_req("acct-7", None)).await;
+
+        assert_eq!(
+            adapter.query_count(),
+            2,
+            "uncorrelated reads of the same plan must each run fresh (no cross-request replay)"
+        );
+    });
+}
+
+/// Explicit, equal `x-correlation-id` + same plan: the second read REPLAYS the first snapshot (the
+/// intended retry semantics) — the executor is not re-entered.
+#[test]
+fn explicit_same_correlation_same_plan_replays() {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+        let host = make_read_host(adapter.clone(), todos_policy(100));
+        let plan = list_plan();
+
+        let _ = host.execute(&plan, &freshness_req("acct-7", Some("corr-1"))).await;
+        let _ = host.execute(&plan, &freshness_req("acct-7", Some("corr-1"))).await;
+
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "same explicit correlation + same plan replays (executor entered once)"
+        );
+    });
+}
+
+/// P12 regression: two DIFFERENT plans must never collide — even under the same/empty correlation each
+/// runs its own query.
+#[test]
+fn distinct_plans_never_collide() {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+        let host = make_read_host(adapter.clone(), todos_policy(100));
+
+        let plan_a = list_plan();
+        let mut plan_b = list_plan();
+        plan_b["limit"] = json!(1); // a different query
+
+        let _ = host.execute(&plan_a, &freshness_req("acct-7", Some("corr-x"))).await;
+        let _ = host.execute(&plan_b, &freshness_req("acct-7", Some("corr-x"))).await;
+
+        assert_eq!(
+            adapter.query_count(),
+            2,
+            "distinct plans under one correlation run independently (P12 fix holds)"
+        );
+    });
+}

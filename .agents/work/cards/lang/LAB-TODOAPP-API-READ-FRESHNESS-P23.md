@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-READ-FRESHNESS-P23 - staged read freshness after writes
 
-Status: TODO
+Status: CLOSED
 Lane: TodoApp API / product hardening / read path
 Type: implementation + regression tests
 Delegation code: OPUS-TODOAPP-API-READ-FRESHNESS-P23
@@ -67,16 +67,16 @@ receipt/correlation path.
 
 ## Acceptance
 
-- [ ] Reproduces or disproves the stale same-plan-after-write risk with live evidence.
-- [ ] If reproduced, fixes it at the smallest correct layer.
-- [ ] Same-plan read after write returns fresh rows.
-- [ ] Distinct-plan read replay regression from P12 stays fixed.
-- [ ] Explicit client `x-correlation-id` semantics are documented or tested.
-- [ ] `scripts/todo_postgres_smoke.sh` no longer needs a workaround comment, or the comment is updated with the new truth.
-- [ ] `scripts/check_implemented_surface.sh` PASS.
-- [ ] `cargo test --features machine` PASS.
-- [ ] `cargo test --features postgres --test todo_postgres_local_e2e_tests -- --test-threads=1` passes or skips cleanly without DSN.
-- [ ] `git diff --check` clean.
+- [x] Reproduces or disproves the stale same-plan-after-write risk with live evidence.
+- [x] If reproduced, fixes it at the smallest correct layer.
+- [x] Same-plan read after write returns fresh rows.
+- [x] Distinct-plan read replay regression from P12 stays fixed.
+- [x] Explicit client `x-correlation-id` semantics are documented or tested.
+- [x] `scripts/todo_postgres_smoke.sh` no longer needs a workaround comment, or the comment is updated with the new truth.
+- [x] `scripts/check_implemented_surface.sh` PASS.
+- [x] `cargo test --features machine` PASS.
+- [x] `cargo test --features postgres --test todo_postgres_local_e2e_tests -- --test-threads=1` passes or skips cleanly without DSN.
+- [x] `git diff --check` clean.
 
 ## Closed surfaces
 
@@ -84,4 +84,58 @@ receipt/correlation path.
 - No request body contract changes.
 - No public production claim.
 - No broad rewrite of receipts or machine idempotency unless verify-first proves it is the only safe fix.
+
+## Closing report
+
+**Date:** 2026-06-23
+
+### Reproduced — by code inspection + live evidence
+
+The stale same-plan-after-write risk was **real**. Mechanism (verify-first, live source):
+- `run_effect_core` (`igniter-machine/src/capability.rs:375`) replays the cached outcome on a receipt-key
+  hit — the executor is NOT re-entered.
+- `StagedReadHost::execute` keyed reads as `"{correlation_id}:{plan_digest}"`, and `correlation_id`
+  comes only from the `x-correlation-id` header (`host::parse_request`); absent → it fell back to the
+  **constant** `"staged-read"`.
+- The async runner does **not** assign a fresh per-request correlation.
+⇒ Two identical-plan reads with no client correlation, sharing one `StagedReadHost` (one process),
+collided on one key → the second replayed the first's rows. So `list → [] ; create ; list` replayed `[]`.
+
+### Fix — smallest correct layer (`StagedReadHost`)
+
+Read replay is now **opt-in via an explicit `x-correlation-id`** (`server/igniter-web/src/read_dispatch.rs`):
+- **with** a non-empty correlation: key = `"{corr}:{plan_digest}"` → a genuine client retry replays.
+- **without**: a monotonic per-host `AtomicU64` makes the key unique per execution
+  (`"auto-{n}:{plan_digest}"`) → every read runs fresh, never replaying across requests.
+
+Chosen at the read-host layer (not the runner) so it touches only read idempotency — write correlation
+and response-echo correlation are untouched (authority split preserved). No machine/receipt rewrite.
+Tradeoff: an uncorrelated read writes a fresh in-memory host receipt each time; bounded for the bounded
+loopback runner (acceptable v0).
+
+### Proof
+
+- `tests/readthen_dispatch_tests.rs` (always-on, no DSN; `query_count()` distinguishes fresh vs replay):
+  `uncorrelated_same_plan_reads_run_fresh` (==2), `explicit_same_correlation_same_plan_replays` (==1),
+  `distinct_plans_never_collide` (==2, P12 regression holds).
+- `tests/todo_postgres_local_e2e_tests.rs::local_read_after_write_is_fresh_same_process` (live, real
+  product contour): list `fresh-p23` → 404; real `INSERT`; same list, same read host, no correlation →
+  **200 carrying the new row** (would replay 404 without the fix). Skips cleanly without DSN.
+
+### Acceptance
+
+- Reproduced (code + live) and fixed at the smallest correct layer.
+- Same-plan read after write returns fresh rows; P12 distinct-plan regression stays fixed.
+- Explicit `x-correlation-id` semantics tested (`explicit_same_correlation_same_plan_replays`) and
+  documented (`API.md` → "Reads & freshness").
+- `scripts/todo_postgres_smoke.sh`: the "separate empty account" comment updated to the new truth (it is
+  now a clarity choice, not a correctness workaround); smoke PASS.
+- `scripts/check_implemented_surface.sh` PASS; `cargo test --features machine` green;
+  `--features postgres --test todo_postgres_local_e2e_tests -- --test-threads=1` → 12 pass with DSN /
+  skips cleanly without; `git diff --check` clean.
+
+### Scope honored
+
+No new DB schema, no body-contract change, no public claim; receipts/machine idempotency untouched (the
+fix is a read-host key-derivation change only).
 

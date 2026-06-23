@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-CREATE-OBJECT-BODY-READINESS-P25 - JSON object create body shape
 
-Status: TODO
+Status: CLOSED
 Lane: TodoApp API / request body ergonomics / readiness
 Type: readiness packet
 Delegation code: OPUS-TODOAPP-API-CREATE-OBJECT-BODY-READINESS-P25
@@ -60,14 +60,34 @@ Do not implement unless the packet finds a clearly tiny and safe slice. This car
 
 ## Acceptance
 
-- [ ] Packet names the recommended v1 body shape.
-- [ ] At least 5 options compared with tradeoffs.
-- [ ] Live code constraints cited; no stale-doc claims.
-- [ ] Failure matrix for malformed/missing/non-string/empty title included.
-- [ ] Authority boundary explicit: app owns product field meaning; host owns parsing transport only.
-- [ ] Next implementation card specified with file/test scope.
-- [ ] No production code changes except optional doc link to the packet.
-- [ ] `git diff --check` clean.
+- [x] Packet names the recommended v1 body shape. (`{ "title": "…" }` via generic `Map[String,Unknown]` + `stdlib.map.get`)
+- [x] At least 5 options compared with tradeoffs. (6: host-projected field, generic Map, Unknown field-access interim, json extractor, keep-string, host capability)
+- [x] Live code constraints cited; no stale-doc claims. (build_request_input, prelude Request, todo_handlers, stdlib_calls.rs:2468 Map-typechecker-only, no VM map dispatch, no stdlib.json)
+- [x] Failure matrix for malformed/missing/non-string/empty title included.
+- [x] Authority boundary explicit: app owns product field meaning; host owns parsing transport only.
+- [x] Next implementation card specified with file/test scope. (Card A machine/VM Map; Card B Todo object body)
+- [x] No production code changes except optional doc link to the packet. (only API.md roadmap pointer)
+- [x] `git diff --check` clean.
+
+## Closing report
+
+**Date:** 2026-06-23
+**Deliverable:** `lab-docs/lang/lab-todoapp-api-create-object-body-readiness-p25-v0.md`
+
+**Recommendation:** target v1 = `{ "title": "…" }` consumed via a GENERIC `req.body_json :
+Map[String, Unknown]` host surface + a real `stdlib.map.get(req.body_json, "title")` in `.ig` (Option 2)
+— the only path that keeps the host as pure transport (JSON→Map) and the app as the owner of which field
+means the title. **It is blocked on a small machine/VM gate, not on the Todo app:** the `Map` type is
+typechecker-only (LAB-MAP-RUST-P1, signature at `typechecker/stdlib_calls.rs:2468`); the VM has **no
+`Value::Map` and no `stdlib.map.get` evaluation**, and there is **no `stdlib.json.*`** at all. So the Todo
+API **holds at string-body v0 (P18)** until the language gate lands. Host-projected `req.body_title`
+(Option 1) is rejected — it leaks a product field name into the generic prelude/runner.
+
+**Two next cards specified:** (A) machine/VM `LAB-MACHINE-MAP-VALUE-AND-STDLIB-GET-Pxx` — `Value::Map` +
+`from_json` object→Map + `stdlib.map.get` eval (+ optional `get_string`); (B) after A,
+`LAB-TODOAPP-API-CREATE-OBJECT-BODY-Pxx` — `body_json` crossing, prelude field, `AccountTodoCreate`
+extraction + 400 matrix, API.md + tests. Doc-only change to the repo: a roadmap pointer added to
+`API.md`'s body-contract section. `git diff --check` clean.
 
 ## Deliverable
 

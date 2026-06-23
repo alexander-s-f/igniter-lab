@@ -284,10 +284,10 @@ fn local_read_found_returns_app_200() {
     });
 }
 
-// ── 2: empty read → app-owned 404 (product decision, not infra failure) ───────────────────────────
+// ── 2: empty read → 200 [] (a list, not a not-found) — P24 ────────────────────────────────────────
 
 #[test]
-fn local_read_empty_returns_app_404() {
+fn local_read_empty_returns_200_empty_list() {
     rt().block_on(async {
         let Some((_client, dsn)) = prepare("acct-empty", &[], &[]).await else {
             return;
@@ -300,7 +300,7 @@ fn local_read_empty_returns_app_404() {
         let out = host_read(&dsn, &plan).await;
         assert_eq!(out.result["count"], json!(0), "no rows for this account");
         let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
-        let not_found = m
+        let empty_list = m
             .dispatch(
                 "AccountTodoIndexFromRows",
                 json!({"req": min_req("acct-empty"), "rows_json": rows_json}),
@@ -308,10 +308,11 @@ fn local_read_empty_returns_app_404() {
             .await
             .unwrap();
         assert_eq!(
-            not_found["status"],
-            json!(404),
-            "empty rows → app 404, not infra error"
+            empty_list["status"],
+            json!(200),
+            "empty list → 200 [], not a not-found"
         );
+        assert_eq!(empty_list["body"], json!("[]"), "body carries the empty array");
     });
 }
 
@@ -608,6 +609,85 @@ fn local_done_marks_existing_row_done() {
     });
 }
 
+// ── 4c: read freshness — a same-plan list AFTER a write, in one process, returns the new row ──────
+//
+// LAB-TODOAPP-API-READ-FRESHNESS-P23. With NO client correlation, two identical-plan reads sharing one
+// `StagedReadHost` (one receipts store, like a single server process) must each run fresh — so an empty
+// list, then a write, then the same list, observes the new row instead of replaying the empty result.
+
+#[test]
+fn local_read_after_write_is_fresh_same_process() {
+    rt().block_on(async {
+        let acct = "fresh-p23";
+        let todo_id = "todo-fresh-1";
+        let Some((client, dsn)) = prepare(acct, &[todo_id], &[]).await else {
+            return;
+        };
+
+        // One real read host, persisting receipts across reads (mirrors one server process).
+        let radapter = Arc::new(
+            TokioPostgresReadAdapter::connect(&dsn)
+                .await
+                .expect("read adapter connect"),
+        );
+        let mut rreg = CapabilityExecutorRegistry::new();
+        rreg.register(Arc::new(PostgresReadExecutor::new(
+            READ_CAP,
+            radapter,
+            read_policy(),
+        )));
+        let rrecs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP);
+        let (app, _) = build_loaded_app_from_dir(&app_dir()).unwrap();
+
+        let list_req = || {
+            igniter_server::protocol::ServerRequest::new(
+                "GET",
+                &format!("/accounts/{acct}/todos"),
+                Value::Null,
+            )
+        };
+        let respond_parts = |d: igniter_server::protocol::ServerDecision| -> (u16, Value) {
+            match d {
+                igniter_server::protocol::ServerDecision::Respond { response } => {
+                    let body = match response.body {
+                        igniter_server::protocol::ResponseBody::Json(v) => v,
+                        _ => Value::Null,
+                    };
+                    (response.status, body)
+                }
+                other => panic!("expected Respond, got {other:?}"),
+            }
+        };
+
+        // 1. empty account → 200 [] (P24: an empty list is a valid 200, not a 404)
+        let (s1, b1) = respond_parts(app.dispatch_with_read(list_req(), &read_host).await);
+        assert_eq!(s1, 200, "empty account lists 200 [] first");
+        assert!(
+            !b1.to_string().contains(todo_id),
+            "first list is empty — no row yet; body={b1}"
+        );
+
+        // 2. a real row appears in the same DB
+        client
+            .execute(
+                "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                &[&todo_id, &acct, &"Fresh row"],
+            )
+            .await
+            .unwrap();
+
+        // 3. same list, same read host (same receipts), no correlation → MUST be fresh: the new row
+        //    appears, proving the prior empty result was NOT replayed (freshness, P23).
+        let (s2, b2) = respond_parts(app.dispatch_with_read(list_req(), &read_host).await);
+        assert_eq!(s2, 200, "post-write list still 200");
+        assert!(
+            b2.to_string().contains(todo_id),
+            "fresh list carries the newly written row id (not a replayed empty list); body={b2}"
+        );
+    });
+}
+
 // ── 6: binary path — build_staged_read_host_from_resolved → real adapter → HTTP 200 ─────────────
 //
 // Proves the binary's actual construction path (P25): same function the binary calls under
@@ -888,7 +968,7 @@ fn binary_path_write_from_config_committed() {
 // env-var resolution before bind, the combined [postgres.read] + [postgres.write] + [effects.*] wiring,
 // and deterministic `--max-requests` exit. One operator-owned host.toml (env-var refs only); both DSN refs
 // point at the same dedicated test DB. Proves all four product behaviors in one run:
-//   read found  → 200    read empty → app-owned 404
+//   read found  → 200    read empty → 200 [] (a list, not a not-found; P24)
 //   write       → 200 committed (real business row + PG effect_receipts row)
 //   replay key  → 200, NO second mutation (exactly one business row)
 // The binary is located via CARGO_BIN_EXE_igweb-serve (compiled with the same --features as this test).
@@ -1098,8 +1178,12 @@ fn subprocess_product_command_read_write_replay_e2e() {
         );
         assert_eq!(
             status_of(&r_empty),
-            404,
-            "read empty → app-owned 404; raw={r_empty}"
+            200,
+            "read empty → 200 [] (a list, not a not-found); raw={r_empty}"
+        );
+        assert!(
+            r_empty.contains("[]"),
+            "empty read body carries the empty array; raw={r_empty}"
         );
         assert_eq!(
             status_of(&r_write),

@@ -367,7 +367,7 @@ fn product_read_then_write_e2e() {
         assert_eq!(found["status"], json!(200), "found rows → app 200");
         assert!(found["body"].as_str().unwrap().contains("todo-1"));
 
-        // ── READ: empty path → app-owned 404 (product decision, not infra failure) ──
+        // ── READ: empty path → 200 [] (a list, not a not-found) — P24 ──
         let empty_plan = m
             .dispatch("ListTodosByAccount", json!({"account_id": "acct-none"}))
             .await
@@ -377,7 +377,7 @@ fn product_read_then_write_e2e() {
         assert_eq!(empty_out.result["count"], json!(0));
         let empty_rows = serde_json::to_string(&empty_out.result["rows"]).unwrap();
         assert_eq!(empty_rows, "[]");
-        let not_found = m
+        let empty_list = m
             .dispatch(
                 "AccountTodoIndexFromRows",
                 json!({"req": min_req(), "rows_json": empty_rows}),
@@ -385,10 +385,11 @@ fn product_read_then_write_e2e() {
             .await
             .unwrap();
         assert_eq!(
-            not_found["status"],
-            json!(404),
-            "empty rows → app 404, not infra error"
+            empty_list["status"],
+            json!(200),
+            "empty list → 200 [], not a not-found"
         );
+        assert_eq!(empty_list["body"], json!("[]"), "body carries the empty array");
 
         // ── WRITE: keyed create EXECUTES through the machine effect host → committed receipt ──
         let (h, r) = prod(3).await;

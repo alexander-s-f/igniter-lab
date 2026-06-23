@@ -15,6 +15,7 @@ use igniter_machine::capability::{
 };
 use igniter_server::protocol::ServerRequest;
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Digest of a query plan, used to scope the in-memory read idempotency key per query.
@@ -46,6 +47,9 @@ pub struct StagedReadHost {
     /// Operator-supplied authority reference (a passport or host-level scope token). Required by
     /// `run_effect_with_clock` — a missing authority is a preflight denial before the executor.
     authority_ref: String,
+    /// Monotonic per-host counter that makes an uncorrelated read's receipt key unique per execution,
+    /// so reads without an explicit client correlation never replay across HTTP requests (freshness).
+    read_seq: AtomicU64,
 }
 
 impl StagedReadHost {
@@ -59,6 +63,7 @@ impl StagedReadHost {
             receipts,
             capability_id: capability_id.into(),
             authority_ref: "host:read".to_string(),
+            read_seq: AtomicU64::new(0),
         }
     }
 
@@ -68,19 +73,29 @@ impl StagedReadHost {
         self
     }
 
-    /// Execute the staged read for `plan`. Reads are idempotent *per query*, so the idempotency key
-    /// folds a digest of the `plan` into the (optional) `req.correlation_id`. Without the plan
-    /// digest, two DIFFERENT queries served on one host instance with the same/empty correlation id
-    /// would collide on one key — the second read would replay the first's cached rows instead of
-    /// executing its own query (e.g. an empty-account read returning a populated account's rows).
-    /// Same correlation + same plan still replays safely; distinct plans never collide.
+    /// Execute the staged read for `plan`. Read replay is **opt-in via an explicit client
+    /// `x-correlation-id`** (LAB-TODOAPP-API-READ-FRESHNESS-P23):
+    ///
+    /// - **With** a correlation id: the receipt key is `"{corr}:{plan_digest}"`, so a genuine client
+    ///   retry of the same logical read (same correlation + same plan) replays the prior snapshot.
+    ///   The plan digest keeps two *different* queries under one correlation from colliding (the P12 fix).
+    /// - **Without** a correlation id: each execution gets a unique key (`"auto-{n}:{plan_digest}"` via
+    ///   a monotonic per-host counter), so the read always runs fresh and never replays a stale result
+    ///   across HTTP requests — e.g. `list → [] ; create ; list` returns the new row, not a replayed `[]`.
     pub async fn execute(&self, plan: &Value, req: &ServerRequest) -> StagedReadResult {
-        let corr = req
+        let digest = plan_digest(plan);
+        let idem_key = match req
             .correlation_id
-            .clone()
+            .as_deref()
+            .map(str::trim)
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "staged-read".to_string());
-        let idem_key = format!("{corr}:{:016x}", plan_digest(plan));
+        {
+            Some(corr) => format!("{corr}:{digest:016x}"),
+            None => {
+                let n = self.read_seq.fetch_add(1, Ordering::Relaxed);
+                format!("auto-{n}:{digest:016x}")
+            }
+        };
 
         let effect_req = EffectRequest {
             capability_id: self.capability_id.clone(),

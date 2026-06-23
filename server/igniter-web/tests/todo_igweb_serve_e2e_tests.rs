@@ -435,10 +435,10 @@ fn e2e_read_found_via_host_config_200() {
     std::env::remove_var(&write_var);
 }
 
-// ── 2: read — empty rows → app-owned HTTP 404 ────────────────────────────────────────────────────
+// ── 2: read — empty rows → HTTP 200 [] (a list, not a not-found) — P24 ───────────────────────────
 
 #[test]
-fn e2e_read_empty_via_host_config_404() {
+fn e2e_read_empty_via_host_config_200_empty_list() {
     let s = stamp();
     let (host_toml_path, read_var, write_var) = write_host_toml(s);
 
@@ -479,9 +479,10 @@ fn e2e_read_empty_via_host_config_404() {
         let raw = client.await.unwrap();
         assert_eq!(
             http_status(&raw),
-            404,
-            "empty rows → app-owned 404; raw={raw}"
+            200,
+            "empty rows → 200 [] (a list, not a not-found); raw={raw}"
         );
+        assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
     });
 
     std::env::remove_var(&read_var);

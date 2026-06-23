@@ -29,12 +29,33 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | Method & path | Handler | Idempotency | Success | Not-found / denied |
 | --- | --- | --- | --- | --- |
 | `GET /health` | `Health` | — | 200 `ok` | — |
-| `GET /accounts/:account_id/todos` | `AccountTodoIndex` → `ReadThen` | — | 200 (rows JSON) | 404 if no todos for the account; 404 if account capture missing (guard); read denied by host policy → 403; host read error → 503 |
+| `GET /accounts/:account_id/todos` | `AccountTodoIndex` → `ReadThen` | — | 200 (rows JSON; **empty list → `200 []`**, P24) | 404 if account capture missing (guard); read denied by host policy → 403; host read error → 503 |
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
 
 Unmatched path → **404**; wrong method on a known pattern → **405**.
+
+### List-empty semantics (P24)
+
+`GET /accounts/:id/todos` is a **collection**: zero todos is a valid result and returns **`200 []`**, not
+a 404. v0 does **not** verify account existence on list beyond the route capture (the guard only checks
+the `:account_id` segment is non-empty), so a request for an unknown account also returns `200 []` rather
+than `404 account not found`. Distinguishing "account exists, no todos" from "no such account" needs an
+accounts-table existence read — a separate future card (out of P24's scope). `show`
+(`GET …/todos/:todo_id`) addresses a **single resource** and still returns **404 `todo not found`** when
+the row is absent.
+
+### Reads & freshness (`x-correlation-id`)
+
+Reads run **fresh by default**: each `GET` without an `x-correlation-id` header executes its query anew,
+so a `list → create → list` against the same account in one server run observes the new row (it never
+replays an earlier empty result). Read **replay is opt-in**: a client that wants a stable snapshot
+across a retry sends the same `x-correlation-id` — the host then returns the prior result for that
+(correlation, query) pair. Different queries never share a cache even under one correlation. Pinned by
+`uncorrelated_same_plan_reads_run_fresh` / `explicit_same_correlation_same_plan_replays` /
+`distinct_plans_never_collide` (`tests/readthen_dispatch_tests.rs`) and the live
+`local_read_after_write_is_fresh_same_process` (`tests/todo_postgres_local_e2e_tests.rs`).
 
 ## Error contract (v0)
 
@@ -55,7 +76,7 @@ to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred
 | invalid create body (P18) | app | **400** | `{"body":"create body must be a non-empty JSON string title"}` | none |
 | account not found | app | **404** | `{"body":"account not found"}` | none |
 | todo not found (show) | app | **404** | `{"body":"todo not found"}` | none |
-| list empty (no todos) | app | **404** | `{"body":"no todos"}` | none |
+| list empty (no todos) | app | **200** | `{"body":"[]"}` (P24: an empty list is a valid 200, not a not-found) | none |
 | read denied by host policy | host | **403** | `{"error":"…"}` (names the requested source/field/op) | no DSN/SQL |
 | read host unavailable | host | **503** | `{"error":"…"}` | no DSN |
 | write committed | host | **200** | `{"status":"committed","result":…}` | none |
@@ -113,6 +134,11 @@ key guarantees at-most-one mutation even if a receipt is lost.
 v0 create body contract (**enforced**, LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the body MUST be a
 **non-empty JSON string literal** whose value becomes the todo title (e.g. `"Buy milk"`, with quotes).
 It is not a JSON object and there is no field parser.
+
+> **Object body (`{ "title": "…" }`) roadmap:** intentionally deferred. It needs a generic
+> `Map[String, Unknown]` body surface + a real VM `stdlib.map.get`, which is a small machine/VM gate
+> (the Map type is typechecker-only today). See the readiness packet
+> `lab-docs/lang/lab-todoapp-api-create-object-body-readiness-p25-v0.md` (P25).
 
 Any other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
 

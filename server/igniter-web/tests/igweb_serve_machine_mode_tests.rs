@@ -276,7 +276,7 @@ fn machine_mode_smoke_serves_health_request() {
 //
 // Mirrors what `igweb-serve --host-config` does after P23:
 //   machine_mode_readthen_found_rows_http_200     — fake executor, found rows → ReadThen → 200
-//   machine_mode_readthen_empty_rows_http_404     — fake executor, empty table → ReadThen → 404
+//   machine_mode_readthen_empty_rows_http_200_empty_list — fake executor, empty table → ReadThen → 200 []
 //   machine_mode_readthen_no_executor_host_denied — empty registry (v0 binary posture) → 403
 //
 // All use serve_loop_loaded_with_read + build_loaded_app_from_dir(&app_dir()) + no-op write host.
@@ -435,7 +435,7 @@ mod readthen_p23 {
     }
 
     #[test]
-    fn machine_mode_readthen_empty_rows_http_404() {
+    fn machine_mode_readthen_empty_rows_http_200_empty_list() {
         let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
         let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
         let read_host = make_read_host(adapter);
@@ -474,9 +474,10 @@ mod readthen_p23 {
             let raw = client.await.unwrap();
             assert_eq!(
                 http_status(&raw),
-                404,
-                "empty rows → app-owned 404 in machine-mode path; raw={raw}"
+                200,
+                "empty rows → 200 [] in machine-mode path (a list, not 404); raw={raw}"
             );
+            assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
         });
     }
 
