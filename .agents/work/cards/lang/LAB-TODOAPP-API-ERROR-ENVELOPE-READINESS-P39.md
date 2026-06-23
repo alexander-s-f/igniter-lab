@@ -1,6 +1,15 @@
 # LAB-TODOAPP-API-ERROR-ENVELOPE-READINESS-P39 - decide product error envelope
 
-Status: TODO
+Status: DONE (2026-06-23) — readiness packet, NO production code (only the proof doc + an optional
+one-line API.md pointer). Recommendation: PROCEED with the smallest app-scoped slice — a typed IgWeb
+prelude `RespondError { status, error: ApiError{code,message} }` (mirrors the proven RespondView typed-body
+pattern) for app-AUTHORED errors only; host read/write shapes stay as-is (write outcomes carry
+status/detail/correlation_id/result that a flat envelope would lose — cited ingress.rs:111-120). `code`
+values owned by the app; prelude owns only the shape (IgWeb framework, not igniter-server/canon). Defer the
+global protocol envelope (option 4). 5 options compared; Todo code taxonomy defined; follow-up
+RespondError implementation slice files/tests named (incl. a separate igweb.rs lowering follow-on for
+compiler-generated guard errors). Proof:
+`lab-docs/lang/lab-todoapp-api-error-envelope-readiness-p39-v0.md`. `git diff --check` clean.
 Lane: TodoApp API / product polish / error contract
 Type: readiness packet
 Delegation code: OPUS-TODOAPP-API-ERROR-ENVELOPE-READINESS-P39
@@ -65,19 +74,19 @@ Answer:
 - Can `.ig` author structured error objects without stringly JSON today?
 - Would host-owned effect outcomes lose useful status/detail if normalized?
 - What is the migration/compatibility risk for existing tests/apps?
-- What first implementation slice is small enough for P40?
+- What first implementation slice is small enough for the next implementation card?
 
 ## Acceptance
 
-- [ ] Packet cites live current error mappings and tests.
-- [ ] At least 5 alternatives compared.
-- [ ] Recommends one path: proceed / defer / no-op.
-- [ ] Defines a concrete code taxonomy for Todo errors if proceeding.
-- [ ] Keeps host secrets and raw SQL out of every proposed body shape.
-- [ ] Separates Todo product contract from global Igniter canon.
-- [ ] Names exact files/tests for the next implementation slice.
-- [ ] No production code changes except optional doc pointer.
-- [ ] `git diff --check` clean.
+- [x] Packet cites live current error mappings and tests.
+- [x] At least 5 alternatives compared.
+- [x] Recommends one path: proceed / defer / no-op.
+- [x] Defines a concrete code taxonomy for Todo errors if proceeding.
+- [x] Keeps host secrets and raw SQL out of every proposed body shape.
+- [x] Separates Todo product contract from global Igniter canon.
+- [x] Names exact files/tests for the next implementation slice.
+- [x] No production code changes except optional doc pointer.
+- [x] `git diff --check` clean.
 
 ## Proof
 

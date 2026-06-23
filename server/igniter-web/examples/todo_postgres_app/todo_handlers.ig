@@ -71,6 +71,21 @@ pure contract MakeWriteValues {
 }
 
 -- ── Read intent contracts — structured QueryPlan; SHAPED, not executed (no effect-host seam yet) ─
+-- Account-existence read (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38): a single-row lookup of the `accounts`
+-- table by id. Empty rows ⇒ the account does not exist (→ 404); a row ⇒ it exists (→ list its todos). The
+-- host read policy must allowlist the `accounts` source + its fields (multi-source `[postgres.read.*]`).
+pure contract FindAccount {
+  input account_id : String
+  compute projection : Collection[String] = ["id", "name"]
+  compute f_id = call_contract("MakeFilter", "id", "eq", account_id)
+  compute filters : Collection[QueryFilter] = [f_id]
+  compute plan : QueryPlan = {
+    source: "accounts", op: "select",
+    projection: projection, filters: filters, limit: 1
+  }
+  output plan : QueryPlan
+}
+
 pure contract ListTodosByAccount {
   input account_id : String
   compute projection : Collection[String] = ["id", "account_id", "title", "done"]
@@ -253,13 +268,34 @@ pure contract LoadTodoContext {
   output r : Result[TodoCtx, Decision]
 }
 
--- Handlers receive the loaded context; reads return canned shapes, writes return logical observed effects.
+-- Index is a TWO-STAGE read (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38): first prove the account exists,
+-- then list its todos. This distinguishes "account exists, no todos → 200 []" from "no such account →
+-- 404", which a single `todos` read cannot (both yield empty rows). Stage 1 reads the `accounts` table;
+-- `account_id` is threaded to the continuation via the host-opaque `carry` (a continuation does not see the
+-- route-captured `ctx`). Stage 2 + the not-found 404 live in `CheckAccountThenList`.
 pure contract AccountTodoIndex {
   input req : Request
   input ctx : TodoListCtx
   compute account_id = or_else(ctx.account_id, "")
-  compute plan = call_contract("ListTodosByAccount", account_id)
-  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoIndexFromRows" }
+  compute plan = call_contract("FindAccount", account_id)
+  compute d : Decision = ReadThen { plan: plan, then: "CheckAccountThenList", carry: account_id }
+  output d : Decision
+}
+
+-- Stage-1 continuation (P38): the host re-enters with the `accounts` rows (JSON string) and the carried
+-- `account_id`. Empty rows → the account does not exist → app-owned 404. Otherwise issue the stage-2 todos
+-- list, carrying nothing further (the list continuation needs no carry). The app owns this 404/empty-list
+-- distinction; the host owns the reads.
+pure contract CheckAccountThenList {
+  input req       : Request
+  input rows_json : String
+  input carry     : String
+  compute plan = call_contract("ListTodosByAccount", carry)
+  compute d : Decision = if rows_json == "[]" {
+    Respond { status: 404, body: "account not found" }
+  } else {
+    ReadThen { plan: plan, then: "AccountTodoIndexFromRows", carry: "" }
+  }
   output d : Decision
 }
 
@@ -272,7 +308,7 @@ pure contract AccountTodoShow {
   compute account_id = or_else(ctx.account_id, "")
   compute todo_id = or_else(ctx.todo_id, "")
   compute plan = call_contract("FindTodo", account_id, todo_id)
-  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoShowFromRows" }
+  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoShowFromRows", carry: "" }
   output d : Decision
 }
 

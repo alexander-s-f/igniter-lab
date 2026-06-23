@@ -31,6 +31,11 @@ fields = "id,account_id,title,done"
 row_limit = "100"
 capability = "IO.PostgresRead"
 
+# Additional allowlisted read source(s) — the index route's two-stage read first proves the account
+# exists in `accounts` (404 if not), then lists `todos` (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38).
+[postgres.read.accounts]
+fields = "id,name"
+
 # Real Postgres writes (requires the `postgres` build feature). `targets`/`ops` are the write
 # allowlist; `key_column`/`columns` describe the v0 single-target adapter schema. The DSN here may
 # point at the same database as the read DSN (one env var) or a separate one.

@@ -1,6 +1,12 @@
 # LAB-TODOAPP-API-CREATE-BODY-COMPAT-POLICY-P40 - decide legacy string body window
 
-Status: TODO
+Status: DONE (2026-06-23) — readiness + small doc hardening, NO behavior change. Policy: KEEP legacy
+string body for the compatibility window but mark it DEPRECATED (object body is the sole canonical shape).
+Removal deferred (broad: ~10 test files + the smoke still use string bodies) → named follow-up
+LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL. Hardened: API.md + RUNBOOK relabel legacy "deprecated", object
+body canonical. Live finding flagged: scripts/todo_postgres_smoke.sh is stale/broken (legacy body AND a
+pre-P36 id==idempotency_key assumption) → separate fix task spawned. Proof:
+`lab-docs/lang/lab-todoapp-api-create-body-compat-policy-p40-v0.md`. `git diff --check` clean.
 Lane: TodoApp API / product polish / compatibility
 Type: readiness + optional doc/test hardening
 Delegation code: OPUS-TODOAPP-API-CREATE-BODY-COMPAT-POLICY-P40
@@ -62,14 +68,14 @@ Answer:
 
 ## Acceptance
 
-- [ ] Packet or closing report states the chosen compatibility policy.
-- [ ] API.md clearly labels object body as canonical.
-- [ ] API.md clearly labels legacy string body as kept/deprecated/removed.
-- [ ] Product smoke/docs use object body as the primary example.
-- [ ] Tests still intentionally cover legacy compatibility if it remains supported.
-- [ ] No accidental stale claim says non-string/object bodies are categorically invalid.
-- [ ] If removal is recommended, a follow-up implementation card is named.
-- [ ] `git diff --check` clean.
+- [x] Packet or closing report states the chosen compatibility policy.
+- [x] API.md clearly labels object body as canonical.
+- [x] API.md clearly labels legacy string body as kept/deprecated/removed.
+- [x] Product smoke/docs use object body as the primary example.
+- [x] Tests still intentionally cover legacy compatibility if it remains supported.
+- [x] No accidental stale claim says non-string/object bodies are categorically invalid.
+- [x] If removal is recommended, a follow-up implementation card is named.
+- [x] `git diff --check` clean.
 
 ## Proof
 

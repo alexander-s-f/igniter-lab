@@ -94,6 +94,13 @@ pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
             &cfg.fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
         );
     }
+    // Additional `[postgres.read.<name>]` sources (P38) — a two-stage read needs >1 allowlisted table.
+    for (source, fields) in &cfg.extra_sources {
+        policy = policy.allow_source(
+            source,
+            &fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        );
+    }
     let capability_id = cfg
         .capability_id
         .as_deref()

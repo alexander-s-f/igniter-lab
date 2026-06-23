@@ -1,6 +1,13 @@
 # LAB-TODOAPP-API-PRODUCT-SURFACE-P41 - refresh implemented API surface and smoke contract
 
-Status: TODO
+Status: DONE (2026-06-23) — drift-prevention, NO behavior change. Verify-first: API.md/RUNBOOK/host.example.toml
+already current for P35/P36/P38/P40; host_policy.md was stale and fixed (write cap IO.PostgresWrite→IO.TodoWrite,
+op update→upsert, env IGNITER_PG_DSN→IGNITER_TODO_PG_DSN, done boolean→text, + surrogate/two-stage notes). Hardened
+scripts/check_todo_product_surface.sh with a DB-free doc-marker step (asserts current body/id/account/error markers
+present + superseded P18 string-only + idem-key-as-id absent). Wrote the single live-current surface proof
+`lab-docs/lang/lab-todoapp-api-product-surface-p41-v0.md` (route table, body, id/idempotency, read impl-vs-designed,
+error shapes, host env, canonical object-body curl, test commands, explicit designed-vs-implemented table). Smoke
+staleness already flagged (P40 task). check script PASS; no-DB Todo tests pass; `git diff --check` clean.
 Lane: TodoApp API / product polish / implemented surface
 Type: documentation + CI/smoke hardening
 Delegation code: OPUS-TODOAPP-API-PRODUCT-SURFACE-P41
@@ -55,15 +62,15 @@ Update `check_todo_product_surface.sh` only if it can cheaply catch stale docs/c
 
 ## Acceptance
 
-- [ ] API.md/RUNBOOK/host_policy agree on current object body and surrogate-id semantics.
-- [ ] Designed vs implemented account-existence semantics are not blurred.
-- [ ] Canonical examples use `{ "title": "..." }`, not legacy string bodies.
-- [ ] No stale P18/P20/P35 wording contradicts current behavior.
-- [ ] No docs claim DSN/token/raw SQL can appear in app code.
-- [ ] Product-surface check script catches at least one current contract marker for body/id/error docs.
-- [ ] `scripts/check_todo_product_surface.sh` passes.
-- [ ] Relevant no-DB Todo tests pass.
-- [ ] `git diff --check` clean.
+- [x] API.md/RUNBOOK/host_policy agree on current object body and surrogate-id semantics.
+- [x] Designed vs implemented account-existence semantics are not blurred.
+- [x] Canonical examples use `{ "title": "..." }`, not legacy string bodies.
+- [x] No stale P18/P20/P35 wording contradicts current behavior.
+- [x] No docs claim DSN/token/raw SQL can appear in app code.
+- [x] Product-surface check script catches at least one current contract marker for body/id/error docs.
+- [x] `scripts/check_todo_product_surface.sh` passes.
+- [x] Relevant no-DB Todo tests pass.
+- [x] `git diff --check` clean.
 
 ## Proof
 

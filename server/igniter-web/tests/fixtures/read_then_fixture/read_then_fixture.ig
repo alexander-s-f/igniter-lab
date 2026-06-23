@@ -33,7 +33,7 @@ pure contract FetchTodosEntry {
     source: "todos", op: "select",
     projection: projection, filters: filters, limit: 20
   }
-  compute d : Decision = ReadThen { plan: plan, then: "FetchTodosContinuation" }
+  compute d : Decision = ReadThen { plan: plan, then: "FetchTodosContinuation", carry: "" }
   output d : Decision
 }
 
@@ -46,5 +46,20 @@ pure contract FetchTodosContinuation {
   } else {
     Respond { status: 200, body: rows_json }
   }
+  output d : Decision
+}
+
+-- Pathological continuation that ALWAYS re-issues a ReadThen naming itself (P38 bound test): the host's
+-- sequential-ReadThen loop must terminate it at MAX_READ_HOPS with a 500, never spin forever.
+pure contract LoopForever {
+  input req : Request
+  compute projection : Collection[String] = ["id"]
+  compute f = { field: "account_id", op: "eq", value: req.path }
+  compute filters : Collection[QueryFilter] = [f]
+  compute plan = {
+    source: "todos", op: "select",
+    projection: projection, filters: filters, limit: 1
+  }
+  compute d : Decision = ReadThen { plan: plan, then: "LoopForever", carry: "" }
   output d : Decision
 }

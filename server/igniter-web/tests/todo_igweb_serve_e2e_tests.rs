@@ -237,6 +237,9 @@ fn write_host_toml(stamp: u128) -> (PathBuf, String, String) {
          row_limit = \"100\"\n\
          capability = \"IO.PostgresRead\"\n\
          \n\
+         [postgres.read.accounts]\n\
+         fields = \"id,name\"\n\
+         \n\
          [postgres.write]\n\
          dsn_env = \"{write_var}\"\n\
          targets = \"todos\"\n\
@@ -366,6 +369,11 @@ fn sample_todos(account_id: &str) -> Vec<Value> {
     ]
 }
 
+/// P38: an `accounts` row so the index's stage-1 existence read finds the account.
+fn sample_account(account_id: &str) -> Vec<Value> {
+    vec![json!({"id": account_id, "name": "Test Account"})]
+}
+
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -389,8 +397,11 @@ fn e2e_read_found_via_host_config_200() {
     let rc = cfg.postgres_read.as_ref().unwrap();
     let read_binding = read_policy_binding(rc);
     let account_id = format!("acct-p11-found-{s}");
-    let read_adapter =
-        Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(&account_id)));
+    let read_adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", sample_account(&account_id))
+            .with_table("todos", sample_todos(&account_id)),
+    );
     let read_host = build_staged_read_host_with_adapter(&read_binding, read_adapter.clone());
 
     // Write host: capability + policy + bind_targets all from host.toml.
@@ -428,7 +439,11 @@ fn e2e_read_found_via_host_config_200() {
             "found rows → ReadThen → 200; raw={raw}"
         );
         assert!(raw.contains("Buy milk"), "response body carries todo title");
-        assert_eq!(read_adapter.query_count(), 1, "adapter queried once");
+        assert_eq!(
+            read_adapter.query_count(),
+            2,
+            "P38: two reads — stage-1 account existence + stage-2 todos list"
+        );
     });
 
     std::env::remove_var(&read_var);
@@ -447,7 +462,12 @@ fn e2e_read_empty_via_host_config_200_empty_list() {
 
     let rc = cfg.postgres_read.as_ref().unwrap();
     let read_binding = read_policy_binding(rc);
-    let read_adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
+    // P38: the account EXISTS (stage 1) but has zero todos (stage 2) → 200 [].
+    let read_adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", sample_account("acct-p11-empty"))
+            .with_table("todos", vec![]),
+    );
     let read_host = build_staged_read_host_with_adapter(&read_binding, read_adapter);
 
     let plan = write_binding_plan(&cfg);

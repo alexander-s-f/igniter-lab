@@ -29,22 +29,29 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | Method & path | Handler | Idempotency | Success | Not-found / denied |
 | --- | --- | --- | --- | --- |
 | `GET /health` | `Health` | — | 200 `ok` | — |
-| `GET /accounts/:account_id/todos` | `AccountTodoIndex` → `ReadThen` | — | 200 (rows JSON; **empty list → `200 []`**, P24) | 404 if account capture missing (guard); read denied by host policy → 403; host read error → 503 |
+| `GET /accounts/:account_id/todos` | `AccountTodoIndex` → two-stage `ReadThen` | — | 200 (rows JSON; existing account + **empty list → `200 []`**, P24) | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
 
 Unmatched path → **404**; wrong method on a known pattern → **405**.
 
-### List-empty semantics (P24)
+### List-empty vs missing-account semantics (P24 + P38)
 
-`GET /accounts/:id/todos` is a **collection**: zero todos is a valid result and returns **`200 []`**, not
-a 404. v0 does **not** verify account existence on list beyond the route capture (the guard only checks
-the `:account_id` segment is non-empty), so a request for an unknown account also returns `200 []` rather
-than `404 account not found`. Distinguishing "account exists, no todos" from "no such account" needs an
-accounts-table existence read — a separate future card (out of P24's scope). `show`
-(`GET …/todos/:todo_id`) addresses a **single resource** and still returns **404 `todo not found`** when
-the row is absent.
+`GET /accounts/:id/todos` is a **collection**, and the two empty-ish outcomes are now distinguished
+(LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38):
+
+- **account exists, zero todos → `200 []`** (an empty collection is a valid 200, not a 404).
+- **account does not exist → `404 account not found`** (app-owned).
+
+The handler is a **two-stage staged read**: stage 1 reads the `accounts` table to prove the account
+exists (empty rows ⇒ 404); only then does stage 2 issue the `todos` list (empty rows ⇒ `200 []`). A single
+`todos` read could not tell the two apart (both yield `[]`). The host read policy must allowlist **both**
+the `todos` and `accounts` sources (multi-source `[postgres.read.*]`, see [`host_policy.md`](host_policy.md));
+the generic runner threads the route-captured `account_id` from stage 1 to stage 2 via an opaque `carry`
+on `ReadThen` and bounds the staged-read chain (no infinite continuation loop). `show`
+(`GET …/todos/:todo_id`) addresses a **single resource** and returns **404 `todo not found`** when the row
+is absent.
 
 ### Reads & freshness (`x-correlation-id`)
 
@@ -61,7 +68,12 @@ across a retry sends the same `x-correlation-id` — the host then returns the p
 
 The status code carries the error class. Bodies have **two stable shapes by owner** (v0 does not yet
 unify them into a single `{"error": {"code", "message"}}` envelope — that would be a cross-crate change
-to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred to a separate card):
+to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred to a separate card).
+
+> **Envelope decision (P39):** the readiness packet
+> `lab-docs/lang/lab-todoapp-api-error-envelope-readiness-p39-v0.md` recommends a small, **app-scoped**
+> typed `RespondError { error: {code, message} }` for app-authored errors (host shapes unchanged; no global
+> protocol change). Until that slice lands, the two owner-shaped families below are the contract.
 
 - **App-owned** (`.ig` `Respond` decisions): `{"body": "<message>"}` — the same shape as a success body,
   with the status carrying the error class.
@@ -149,9 +161,12 @@ The host parses the transport object into the generic `req.body_json : Map[Strin
 the `title` field via `map_get_string` (a fail-closed `Option[String]`). The host owns transport parsing;
 the **app owns the field meaning** — extra object fields are ignored.
 
-**Legacy v0 (compatibility window):** a bare **non-empty JSON string literal** whose whole value is the
-title (e.g. `"Buy milk"`, with quotes) is still accepted. It remains supported for now; the object body is
-the documented main shape. (No removal date; this window closes in a later card.)
+**Legacy v0 (DEPRECATED — compatibility window):** a bare **non-empty JSON string literal** whose whole
+value is the title (e.g. `"Buy milk"`, with quotes) is still accepted, but it is **deprecated**: the object
+body above is the only canonical shape and the one new clients should use. Legacy support is retained only
+while existing tests/agents converge and will be removed in a named follow-up card
+(LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL) once no caller depends on it. Policy decided in the readiness
+packet `lab-docs/lang/lab-todoapp-api-create-body-compat-policy-p40-v0.md` (P40).
 
 Every other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
 

@@ -59,67 +59,92 @@ impl IgWebLoadedApp {
         }
     }
 
-    /// Dispatch with staged-read support (LAB-IGNITER-WEB-READTHEN-DISPATCH-P11).
-    /// If the entry returns `ReadThen { plan, then }` the host executes the read through `read_host`,
-    /// then re-dispatches `then` with the rows result. The continuation returns any final Decision arm.
-    /// Never calls `block_on` — all awaits are explicit.
+    /// Dispatch with staged-read support (LAB-IGNITER-WEB-READTHEN-DISPATCH-P11; sequential/nested
+    /// `ReadThen` LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38).
+    ///
+    /// If a contract returns `ReadThen { plan, then, carry }` the host executes the read through
+    /// `read_host`, then re-dispatches `then` with `{ req, rows_json, carry }`. The continuation may
+    /// itself return another `ReadThen` (e.g. "prove the account exists, then list its todos") — the host
+    /// loops, executing each staged read in turn, until a non-`ReadThen` decision is reached. `carry` is
+    /// an OPAQUE string the host threads from a `ReadThen` to its continuation (e.g. a route capture the
+    /// continuation needs to build the next plan); the host never interprets it.
+    ///
+    /// The loop is **bounded** by `MAX_READ_HOPS` so a buggy continuation chain can never spin forever:
+    /// exceeding the bound fails closed to a host 500. Never calls `block_on` — all awaits are explicit.
     #[cfg(feature = "machine")]
     pub async fn dispatch_with_read(
         &self,
         req: ServerRequest,
         read_host: &read_dispatch::StagedReadHost,
     ) -> ServerDecision {
-        let input = build_request_input(&req);
-        let raw = match self.machine.dispatch(&self.entry, input).await {
-            Ok(v) => v,
-            Err(e) => {
-                return ServerDecision::Respond {
-                    response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
-                }
-            }
-        };
+        /// Upper bound on chained staged reads per request (generic safety rail, not a product limit).
+        const MAX_READ_HOPS: usize = 8;
 
-        // Intercept ReadThen before map_decision (which is synchronous).
-        if let Some((tag, fields)) = variant_of(&raw) {
-            if tag == "ReadThen" {
-                let plan = fields.get("plan").cloned().unwrap_or(Value::Null);
-                let then = fields
-                    .get("then")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+        // First dispatch is the route entry; subsequent ones are named continuations.
+        let mut entry = self.entry.clone();
+        let mut input = build_request_input(&req);
 
-                // Execute the staged read through the host.
-                let read_result = read_host.execute(&plan, &req).await;
-
-                return match read_result {
-                    read_dispatch::StagedReadResult::Rows(rows_json) => {
-                        // Dispatch the continuation: feeds original req + rows_json.
-                        let cont_input = json!({
-                            "req": build_request_input(&req)["req"],
-                            "rows_json": rows_json,
-                        });
-                        match self.machine.dispatch(&then, cont_input).await {
-                            Ok(cont_val) => map_decision(&cont_val, req.correlation_id),
-                            Err(e) => ServerDecision::Respond {
-                                response: ServerResponse::json(
-                                    500,
-                                    json!({ "error": format!("continuation dispatch: {e:?}") }),
-                                ),
-                            },
-                        }
+        for _hop in 0..MAX_READ_HOPS {
+            let raw = match self.machine.dispatch(&entry, input).await {
+                Ok(v) => v,
+                Err(e) => {
+                    return ServerDecision::Respond {
+                        response: ServerResponse::json(500, json!({ "error": format!("{e:?}") })),
                     }
-                    read_dispatch::StagedReadResult::Denied(reason) => ServerDecision::Respond {
+                }
+            };
+
+            // Intercept ReadThen before map_decision (which is synchronous). Anything else is terminal.
+            let (plan, then, carry) = match variant_of(&raw) {
+                Some((tag, fields)) if tag == "ReadThen" => {
+                    let plan = fields.get("plan").cloned().unwrap_or(Value::Null);
+                    let then = fields
+                        .get("then")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let carry = fields
+                        .get("carry")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    (plan, then, carry)
+                }
+                _ => return map_decision(&raw, req.correlation_id),
+            };
+
+            // Execute this staged read through the host.
+            match read_host.execute(&plan, &req).await {
+                read_dispatch::StagedReadResult::Rows(rows_json) => {
+                    // Re-dispatch the continuation: original req + this read's rows + the carried value.
+                    input = json!({
+                        "req": build_request_input(&req)["req"],
+                        "rows_json": rows_json,
+                        "carry": carry,
+                    });
+                    entry = then;
+                    // loop: the continuation may emit another ReadThen (sequential staged reads).
+                }
+                read_dispatch::StagedReadResult::Denied(reason) => {
+                    return ServerDecision::Respond {
                         response: ServerResponse::json(403, json!({ "error": reason })),
-                    },
-                    read_dispatch::StagedReadResult::HostError(msg) => ServerDecision::Respond {
+                    }
+                }
+                read_dispatch::StagedReadResult::HostError(msg) => {
+                    return ServerDecision::Respond {
                         response: ServerResponse::json(503, json!({ "error": msg })),
-                    },
-                };
+                    }
+                }
             }
         }
 
-        map_decision(&raw, req.correlation_id)
+        // Exceeded the staged-read bound — a continuation chain that never terminates. Fail closed.
+        ServerDecision::Respond {
+            response: ServerResponse::json(
+                500,
+                json!({ "error": "staged read exceeded maximum hops" }),
+            ),
+        }
     }
 }
 

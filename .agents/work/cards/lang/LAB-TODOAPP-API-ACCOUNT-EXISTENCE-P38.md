@@ -1,6 +1,15 @@
 # LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38 - implement missing-account vs empty-list semantics
 
-Status: TODO
+Status: DONE (2026-06-23) — verify-first: nested ReadThen was NOT implemented but is a small generic
+loop (not a broad rewrite) → implemented the slice, no readiness delta. Generic bounded sequential
+ReadThen loop + opaque `carry` on the ReadThen variant (host runner); `.ig` two-stage FindAccount →
+CheckAccountThenList (empty→404 account not found, else→ListTodos→200/200[]); multi-source
+`[postgres.read.<name>]` config so the real binary reads `accounts`. Server stays generic. Mapping:
+denied→403, adapter failure→503, runaway chain→500 (MAX_READ_HOPS=8). Proof:
+`lab-docs/lang/lab-todoapp-api-account-existence-p38-v0.md`. Evidence: machine-feature 28 suites green;
+compiler green; 13/13 real-Postgres gated tests pass (`--test-threads=1`), incl. live-binary 404 for a
+missing account + dedicated missing/empty matrix + bounded-loop test. All acceptance boxes checked;
+`git diff --check` clean.
 Lane: TodoApp API / ReadThen semantics / product polish
 Type: implementation
 Delegation code: OPUS-TODOAPP-API-ACCOUNT-EXISTENCE-P38
@@ -66,20 +75,20 @@ shipping product-specific magic.
 
 ## Acceptance
 
-- [ ] Existing account with rows -> `200` and rows JSON.
-- [ ] Existing account with zero todos -> `200 []`.
-- [ ] Missing account -> `404` app-owned response, not host infra error.
-- [ ] Denied account source/field -> host-owned `403`, adapter not called.
-- [ ] Adapter/read failure remains host-owned infra status (document exact live mapping).
-- [ ] Nested/sequential `ReadThen`, if implemented, is generic and bounded (no infinite continuation loop).
-- [ ] No DB-specific or Todo-specific logic enters `igniter-server`.
-- [ ] API.md and RUNBOOK reflect the account existence semantics.
-- [ ] Fake/no-DB tests cover the semantic matrix.
-- [ ] Real/local Postgres e2e covers at least missing account and existing-empty account, or skips cleanly without DSN.
-- [ ] `cargo test --features machine` in `server/igniter-web` passes.
-- [ ] `cargo test --features "machine postgres" --test todo_postgres_local_e2e_tests -- --test-threads=1`
+- [x] Existing account with rows -> `200` and rows JSON.
+- [x] Existing account with zero todos -> `200 []`.
+- [x] Missing account -> `404` app-owned response, not host infra error.
+- [x] Denied account source/field -> host-owned `403`, adapter not called.
+- [x] Adapter/read failure remains host-owned infra status (document exact live mapping).
+- [x] Nested/sequential `ReadThen`, if implemented, is generic and bounded (no infinite continuation loop).
+- [x] No DB-specific or Todo-specific logic enters `igniter-server`.
+- [x] API.md and RUNBOOK reflect the account existence semantics.
+- [x] Fake/no-DB tests cover the semantic matrix.
+- [x] Real/local Postgres e2e covers at least missing account and existing-empty account, or skips cleanly without DSN.
+- [x] `cargo test --features machine` in `server/igniter-web` passes.
+- [x] `cargo test --features "machine postgres" --test todo_postgres_local_e2e_tests -- --test-threads=1`
       passes or skips cleanly without DSN.
-- [ ] `git diff --check` clean.
+- [x] `git diff --check` clean.
 
 ## Proof
 

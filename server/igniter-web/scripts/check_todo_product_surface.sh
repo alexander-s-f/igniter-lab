@@ -68,6 +68,35 @@ else
   pass=0
 fi
 
+# 7. Doc-contract markers (P41) — DB-free guard that API.md still states the CURRENT product contract and
+#    carries no superseded claim. Catches doc drift the test steps above cannot (the docs are the surface
+#    agents read). Fixed-string, case-insensitive greps; no DB, no build.
+API_MD="examples/todo_postgres_app/API.md"
+doc_has() { # <label> <fixed-string marker that MUST be present>
+  if grep -qiF "$2" "$API_MD"; then
+    echo "todo-product: doc marker [$1] ok"
+  else
+    echo "todo-product: doc marker [$1] MISSING — expected '$2' in $API_MD"
+    pass=0
+  fi
+}
+doc_absent() { # <label> <superseded string that must NOT be present>
+  if grep -qiF "$2" "$API_MD"; then
+    echo "todo-product: stale doc claim [$1] PRESENT — '$2' in $API_MD"
+    pass=0
+  else
+    echo "todo-product: no stale [$1] ok"
+  fi
+}
+# body contract (P35 object body), id (P36 surrogate), account-existence (P38), error contract (P20).
+doc_has    "body: object via body_json"  'req.body_json'
+doc_has    "id: host surrogate"          'surrogate id'
+doc_has    "account-existence 404"       'account not found'
+doc_has    "error contract table"        'Error contract'
+# superseded claims that must never creep back in.
+doc_absent "stale P18 string-only body"  'must be a non-empty JSON string title'
+doc_absent "stale idem-key-as-id"        'create key = idempotency'
+
 echo "----"
 if [[ "$pass" -eq 1 ]]; then
   echo "todo-product: PASS"

@@ -72,7 +72,7 @@ variant Decision {
   RespondView  { status : Integer, view : View }
   Render       { status : Integer, artifact_json : String }
   RenderView   { status : Integer, view : ViewArtifact }
-  ReadThen     { plan : Unknown, then : String }
+  ReadThen     { plan : Unknown, then : String, carry : String }
 }
 ";
 

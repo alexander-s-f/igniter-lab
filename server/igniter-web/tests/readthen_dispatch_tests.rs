@@ -64,6 +64,27 @@ fn load_fixture_app() -> Arc<igniter_web::IgWebLoadedApp> {
     .expect("load read_then_fixture")
 }
 
+/// Same fixture, but entered at an arbitrary contract (used to drive the self-looping `LoopForever`).
+fn load_fixture_app_with_entry(entry: &str) -> Arc<igniter_web::IgWebLoadedApp> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "igweb_readthen_loop_{}_{}",
+        std::process::id(),
+        stamp
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fixture_path = dir.join("read_then_fixture.ig");
+    std::fs::write(&fixture_path, FIXTURE).unwrap();
+    build_igweb_loaded_app(IgWebBuildInput {
+        sources: vec![fixture_path],
+        entry: entry.to_string(),
+    })
+    .expect("load read_then_fixture")
+}
+
 /// Build a host policy: SELECT-only on `todos`, four allowed columns, cap clamp.
 fn todos_policy(cap: i64) -> PostgresReadPolicy {
     PostgresReadPolicy::new(cap)
@@ -122,6 +143,33 @@ fn found_rows_flow_to_continuation_200() {
             other => panic!("expected Respond, got {other:?}"),
         }
         assert_eq!(adapter.query_count(), 1, "exactly one adapter query");
+    });
+}
+
+// ── 1c (P38): a self-looping ReadThen chain is BOUNDED → host 500, never an infinite loop ─────────
+
+#[test]
+fn runaway_readthen_chain_is_bounded() {
+    // `LoopForever` re-issues a ReadThen naming itself every hop; the read always succeeds (rows present),
+    // so only the host's MAX_READ_HOPS bound can stop it. The runner must fail closed to a 500.
+    let app = load_fixture_app_with_entry("LoopForever");
+    let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+    let read_host = make_read_host(adapter.clone(), todos_policy(100));
+
+    rt().block_on(async {
+        let decision = app.dispatch_with_read(get_req("acct-loop"), &read_host).await;
+        match decision {
+            ServerDecision::Respond { response } => {
+                assert_eq!(
+                    response.status, 500,
+                    "an unbounded continuation chain must fail closed to 500"
+                );
+            }
+            other => panic!("expected a bounded 500 Respond, got {other:?}"),
+        }
+        // The adapter ran a bounded number of times — the loop did NOT spin forever.
+        let n = adapter.query_count();
+        assert!(n >= 1 && n <= 8, "bounded staged reads (got {n}, bound 8)");
     });
 }
 

@@ -77,10 +77,15 @@ pub struct PostgresWriteConfig {
 pub struct PostgresReadConfig {
     /// Env-var name for the Postgres read DSN. Required.
     pub dsn_env: String,
-    /// Single allowlisted source name for v0 (e.g. `"todos"`). None = no source configured.
+    /// Primary allowlisted source name (e.g. `"todos"`). None = no primary source configured.
     pub source: Option<String>,
-    /// Allowlisted fields for the source. Empty = not configured.
+    /// Allowlisted fields for the primary source. Empty = not configured.
     pub fields: Vec<String>,
+    /// Additional allowlisted `(source, fields)` from `[postgres.read.<name>]` sections
+    /// (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38). A two-stage read (e.g. prove `accounts` exists, then list
+    /// `todos`) needs more than one allowlisted table. The read adapter is already source-generic; only
+    /// the policy must allow each table.
+    pub extra_sources: Vec<(String, Vec<String>)>,
     /// Max-row clamp. Default 100.
     pub row_limit: u32,
     /// Host capability id for the read executor (e.g. `"IO.PostgresRead"`). Optional.
@@ -93,6 +98,7 @@ impl Default for PostgresReadConfig {
             dsn_env: String::new(),
             source: None,
             fields: Vec::new(),
+            extra_sources: Vec::new(),
             row_limit: 100,
             capability_id: None,
         }
@@ -226,11 +232,14 @@ enum Section {
     Effect(String),
     PostgresWrite,
     PostgresRead,
+    /// `[postgres.read.<name>]` — an additional allowlisted read source (P38).
+    PostgresReadSource(String),
 }
 
 fn section_label(s: &Section) -> String {
     match s {
         Section::None => String::new(),
+        Section::PostgresReadSource(name) => format!("postgres.read.{name}"),
         Section::Host => "host".to_string(),
         Section::Effect(t) => format!("effects.{t}"),
         Section::PostgresWrite => "postgres.write".to_string(),
@@ -297,6 +306,8 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut pg_read_row_limit: Option<u32> = None;
     let mut pg_read_capability: Option<String> = None;
     let mut pg_read_seen = false;
+    // Extra `[postgres.read.<name>]` sources → fields (P38). Ordered, insertion-preserving.
+    let mut pg_read_extra: Vec<(String, Vec<String>)> = Vec::new();
 
     for raw in text.lines() {
         let line = raw.trim();
@@ -318,6 +329,15 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             } else if s == "postgres.write" {
                 pg_write_seen = true;
                 Section::PostgresWrite
+            } else if let Some(src) = s.strip_prefix("postgres.read.") {
+                // Additional read source `[postgres.read.<name>]` (P38). The trailing dot means the exact
+                // `postgres.read` header below never matches here.
+                let src = src.trim();
+                if src.is_empty() {
+                    return Err(HostConfigError::UnknownSection("postgres.read.".to_string()));
+                }
+                pg_read_seen = true;
+                Section::PostgresReadSource(src.to_string())
             } else if s == "postgres.read" {
                 pg_read_seen = true;
                 Section::PostgresRead
@@ -458,6 +478,20 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                     })
                 }
             },
+            Section::PostgresReadSource(name) => match key {
+                "fields" => {
+                    let fields = parse_comma_list(&val, key)?;
+                    // Last write wins per source name (a repeated section overrides its fields).
+                    pg_read_extra.retain(|(n, _)| n != name);
+                    pg_read_extra.push((name.clone(), fields));
+                }
+                _ => {
+                    return Err(HostConfigError::UnknownKey {
+                        section: label,
+                        key: key.to_string(),
+                    })
+                }
+            },
         }
     }
 
@@ -500,6 +534,7 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             dsn_env,
             source: pg_read_source,
             fields: pg_read_fields,
+            extra_sources: pg_read_extra,
             row_limit: pg_read_row_limit.unwrap_or(100),
             capability_id: pg_read_capability,
         });
@@ -901,6 +936,34 @@ capability = "IO.PostgresRead"
         let text = "[postgres.read]\ndsn_env = \"PG_R\"\n";
         let cfg = parse_host_config(text).expect("valid");
         assert_eq!(cfg.postgres_read.unwrap().row_limit, 100);
+    }
+
+    #[test]
+    fn postgres_read_extra_sources_parse() {
+        // P38: a primary `[postgres.read]` source plus an extra `[postgres.read.accounts]` source.
+        let text = r#"
+[postgres.read]
+dsn_env = "PG_READ"
+source = "todos"
+fields = "id,account_id,title,done"
+capability = "IO.PostgresRead"
+
+[postgres.read.accounts]
+fields = "id,name"
+"#;
+        let cfg = parse_host_config(text).expect("valid");
+        let rc = cfg.postgres_read.unwrap();
+        assert_eq!(rc.source.as_deref(), Some("todos"));
+        assert_eq!(
+            rc.extra_sources,
+            vec![("accounts".to_string(), vec!["id".to_string(), "name".to_string()])]
+        );
+    }
+
+    #[test]
+    fn postgres_read_extra_source_empty_name_rejected() {
+        let err = parse_host_config("[postgres.read.]\nfields = \"x\"\n").unwrap_err();
+        assert!(matches!(err, HostConfigError::UnknownSection(_)));
     }
 
     #[test]

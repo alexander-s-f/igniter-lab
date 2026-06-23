@@ -96,6 +96,8 @@ fn read_policy() -> PostgresReadPolicy {
     PostgresReadPolicy::new(100)
         .allow_ops(&["select"])
         .allow_source("todos", &["id", "account_id", "title", "done"])
+        // P38: the index route's stage-1 existence read needs the `accounts` source allowlisted.
+        .allow_source("accounts", &["id", "name"])
 }
 fn write_policy() -> PostgresWritePolicy {
     PostgresWritePolicy::new()
@@ -704,6 +706,86 @@ fn local_read_after_write_is_fresh_same_process() {
     });
 }
 
+// ── 4d (P38): account existence — missing account → 404; existing account, zero todos → 200 [] ────
+//
+// LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38, against REAL Postgres. The index route is a two-stage read:
+// stage 1 proves the account exists in `accounts`; only then is the `todos` list issued. This isolates
+// the semantic the single-`todos` read could not express — "no such account → 404" vs "exists, empty → 200 []".
+
+#[test]
+fn local_account_existence_missing_404_and_existing_empty_200() {
+    rt().block_on(async {
+        let existing = "acct-p38-empty";
+        let missing = "acct-p38-missing";
+        let Some((client, dsn)) = prepare(existing, &[], &[]).await else {
+            return;
+        };
+        // `prepare` cleans + inserts `existing`; ensure `missing` truly does not exist (children first).
+        client
+            .execute("DELETE FROM todos WHERE account_id = $1", &[&missing])
+            .await
+            .unwrap();
+        client
+            .execute("DELETE FROM accounts WHERE id = $1", &[&missing])
+            .await
+            .unwrap();
+
+        let radapter = Arc::new(
+            TokioPostgresReadAdapter::connect(&dsn)
+                .await
+                .expect("read adapter connect"),
+        );
+        let mut rreg = CapabilityExecutorRegistry::new();
+        rreg.register(Arc::new(PostgresReadExecutor::new(
+            READ_CAP,
+            radapter,
+            read_policy(),
+        )));
+        let rrecs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP);
+        let (app, _) = build_loaded_app_from_dir(&app_dir()).unwrap();
+
+        let list = |acct: &str| {
+            igniter_server::protocol::ServerRequest::new(
+                "GET",
+                &format!("/accounts/{acct}/todos"),
+                Value::Null,
+            )
+        };
+        let parts = |d: igniter_server::protocol::ServerDecision| -> (u16, Value) {
+            match d {
+                igniter_server::protocol::ServerDecision::Respond { response } => {
+                    let body = match response.body {
+                        igniter_server::protocol::ResponseBody::Json(v) => v,
+                        _ => Value::Null,
+                    };
+                    (response.status, body)
+                }
+                other => panic!("expected Respond, got {other:?}"),
+            }
+        };
+
+        // Existing account, zero todos → 200 [] (stage 1 found the account; stage 2 list is empty).
+        let (s_empty, b_empty) = parts(app.dispatch_with_read(list(existing), &read_host).await);
+        assert_eq!(s_empty, 200, "existing account, no todos → 200 []; body={b_empty}");
+        assert_eq!(b_empty["body"], json!("[]"), "empty list body, not a 404");
+
+        // Missing account → 404 (stage-1 existence read empty → app-owned 404; list never issued).
+        let (s_missing, b_missing) = parts(app.dispatch_with_read(list(missing), &read_host).await);
+        assert_eq!(s_missing, 404, "missing account → 404; body={b_missing}");
+        assert_eq!(
+            b_missing["body"],
+            json!("account not found"),
+            "app-owned account-existence 404 message"
+        );
+
+        client
+            .execute("DELETE FROM accounts WHERE id = $1", &[&existing])
+            .await
+            .ok();
+    });
+}
+
 // ── 6: binary path — build_staged_read_host_from_resolved → real adapter → HTTP 200 ─────────────
 //
 // Proves the binary's actual construction path (P25): same function the binary calls under
@@ -733,7 +815,8 @@ fn binary_path_readhost_from_config_found_200() {
         let toml = format!(
             "[postgres.read]\ndsn_env = \"{dsn_env}\"\nsource = \"todos\"\n\
              fields = \"id,account_id,title,done\"\nrow_limit = \"50\"\n\
-             capability = \"IO.PostgresRead\"\n"
+             capability = \"IO.PostgresRead\"\n\
+             \n[postgres.read.accounts]\nfields = \"id,name\"\n"
         );
         let tmp = std::env::temp_dir().join("igweb-p25-binary-path.toml");
         std::fs::write(&tmp, &toml).unwrap();
@@ -1049,6 +1132,9 @@ fn subprocess_product_command_read_write_replay_e2e() {
              row_limit = \"50\"\n\
              capability = \"IO.PostgresRead\"\n\
              \n\
+             [postgres.read.accounts]\n\
+             fields = \"id,name\"\n\
+             \n\
              [postgres.write]\n\
              dsn_env = \"{write_env}\"\n\
              targets = \"todos\"\n\
@@ -1160,8 +1246,10 @@ fn subprocess_product_command_read_write_replay_e2e() {
         // 4 requests, strictly sequential (one connection each, read to EOF) → bounded loop serves & exits.
         let get_found =
             "GET /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
-        let get_empty =
-            "GET /accounts/acct-p12-empty/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
+        // P38: `acct-p12-missing` is never inserted → the two-stage read's stage-1 existence check is
+        // empty → app-owned 404 (NOT the old conflated 200 []). Proves the fix through the real binary.
+        let get_missing =
+            "GET /accounts/acct-p12-missing/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
         // v1 create body (P35): the preferred JSON OBJECT body `{ "title": … }`. Proves the object path
         // end-to-end through the REAL binary: host parses it to `req.body_json`, the app extracts `title`.
         let title_body = "{\"title\":\"Buy milk via P35\"}";
@@ -1174,7 +1262,7 @@ fn subprocess_product_command_read_write_replay_e2e() {
         );
 
         let r_found = http_send(&addr, get_found).await;
-        let r_empty = http_send(&addr, get_empty).await;
+        let r_missing = http_send(&addr, get_missing).await;
         let r_write = http_send(&addr, &post).await;
         let r_replay = http_send(&addr, &post).await;
 
@@ -1201,13 +1289,13 @@ fn subprocess_product_command_read_write_replay_e2e() {
             "found response carries a seeded todo id; raw={r_found}"
         );
         assert_eq!(
-            status_of(&r_empty),
-            200,
-            "read empty → 200 [] (a list, not a not-found); raw={r_empty}"
+            status_of(&r_missing),
+            404,
+            "P38: missing account → app-owned 404 (not the old conflated 200 []); raw={r_missing}"
         );
         assert!(
-            r_empty.contains("[]"),
-            "empty read body carries the empty array; raw={r_empty}"
+            r_missing.contains("account not found"),
+            "404 body is the app's account-existence message; raw={r_missing}"
         );
         assert_eq!(
             status_of(&r_write),

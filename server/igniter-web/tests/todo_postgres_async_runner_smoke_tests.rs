@@ -272,11 +272,13 @@ fn app_dir() -> PathBuf {
     ))
 }
 
-/// Read host with a policy matching `host_policy.md`: SELECT-only on `todos`, 4 columns.
+/// Read host with a policy matching `host_policy.md`: SELECT-only on `todos` (4 cols) and `accounts`
+/// (2 cols) — the index route's two-stage account-existence read needs both allowlisted (P38).
 fn make_read_host(adapter: Arc<FakePostgresAdapter>) -> StagedReadHost {
     let policy = PostgresReadPolicy::new(100)
         .allow_ops(&["select"])
-        .allow_source("todos", &["id", "account_id", "title", "done"]);
+        .allow_source("todos", &["id", "account_id", "title", "done"])
+        .allow_source("accounts", &["id", "name"]);
     let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
@@ -289,6 +291,11 @@ fn sample_todos(account_id: &str) -> Vec<Value> {
         json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": false}),
         json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": true}),
     ]
+}
+
+/// A single `accounts` row so the index's stage-1 existence read finds the account (P38).
+fn sample_account(account_id: &str) -> Vec<Value> {
+    vec![json!({"id": account_id, "name": "Test Account"})]
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────────────────────────
@@ -350,8 +357,12 @@ fn read_found_todos_via_runner_200() {
     let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
 
     let account_id = "acct-p10-found";
-    let adapter =
-        Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(account_id)));
+    // P38: the account exists (stage 1) AND has todos (stage 2).
+    let adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", sample_account(account_id))
+            .with_table("todos", sample_todos(account_id)),
+    );
     let read_host = make_read_host(adapter.clone());
 
     rt().block_on(async {
@@ -381,7 +392,11 @@ fn read_found_todos_via_runner_200() {
             raw.contains("Write spec"),
             "response body carries the second todo title"
         );
-        assert_eq!(adapter.query_count(), 1, "one read adapter query");
+        assert_eq!(
+            adapter.query_count(),
+            2,
+            "two read queries: stage-1 account existence + stage-2 todos list"
+        );
     });
 }
 
@@ -391,7 +406,12 @@ fn read_found_todos_via_runner_200() {
 fn read_empty_todos_via_runner_200_empty_list() {
     let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
 
-    let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
+    // P38: the account EXISTS (stage 1 non-empty) but has zero todos (stage 2 empty) → 200 [].
+    let adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", sample_account("acct-p10-empty"))
+            .with_table("todos", vec![]),
+    );
     let read_host = make_read_host(adapter.clone());
 
     rt().block_on(async {
@@ -414,10 +434,62 @@ fn read_empty_todos_via_runner_200_empty_list() {
         assert_eq!(
             http_status(&raw),
             200,
-            "empty rows → 200 [] (a list, not a not-found); raw={raw}"
+            "existing account + zero todos → 200 [] (a list, not a not-found); raw={raw}"
         );
         assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
-        assert_eq!(adapter.query_count(), 1, "adapter was still queried");
+        assert_eq!(
+            adapter.query_count(),
+            2,
+            "two read queries: account exists (stage 1) + empty todos list (stage 2)"
+        );
+    });
+}
+
+// ── 2a (P38): index — MISSING account → app-owned HTTP 404, todos list never read ────────────────
+
+#[test]
+fn read_missing_account_via_runner_404() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+
+    // The accounts table has no row for the requested id → stage-1 existence read is empty → 404.
+    let adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", vec![])
+            .with_table("todos", vec![]),
+    );
+    let read_host = make_read_host(adapter.clone());
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = tokio::spawn(async move { get_todos(addr, "acct-does-not-exist").await });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(
+            http_status(&raw),
+            404,
+            "missing account → app-owned 404 (not a 200 []); raw={raw}"
+        );
+        assert!(
+            raw.contains("account not found"),
+            "404 body is the app's account-existence message; raw={raw}"
+        );
+        assert_eq!(
+            adapter.query_count(),
+            1,
+            "only the stage-1 account read ran; the todos list was never issued"
+        );
     });
 }
 

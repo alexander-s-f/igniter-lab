@@ -311,10 +311,16 @@ mod readthen_p23 {
         ]
     }
 
+    /// P38: an `accounts` row so the index's stage-1 existence read finds the account.
+    fn sample_account(account_id: &str) -> Vec<serde_json::Value> {
+        vec![json!({"id": account_id, "name": "Test Account"})]
+    }
+
     fn make_read_host(adapter: Arc<FakePostgresAdapter>) -> StagedReadHost {
         let policy = PostgresReadPolicy::new(100)
             .allow_ops(&["select"])
-            .allow_source("todos", &["id", "account_id", "title", "done"]);
+            .allow_source("todos", &["id", "account_id", "title", "done"])
+            .allow_source("accounts", &["id", "name"]);
         let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
         let mut registry = CapabilityExecutorRegistry::new();
         registry.register(exec);
@@ -385,8 +391,11 @@ mod readthen_p23 {
     fn machine_mode_readthen_found_rows_http_200() {
         let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
         let account_id = format!("acct-p23-found-{}", stamp());
-        let adapter =
-            Arc::new(FakePostgresAdapter::new().with_table("todos", sample_todos(&account_id)));
+        let adapter = Arc::new(
+            FakePostgresAdapter::new()
+                .with_table("accounts", sample_account(&account_id))
+                .with_table("todos", sample_todos(&account_id)),
+        );
         let read_host = make_read_host(adapter);
 
         let parts = NoopParts::new();
@@ -437,7 +446,11 @@ mod readthen_p23 {
     #[test]
     fn machine_mode_readthen_empty_rows_http_200_empty_list() {
         let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
-        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", vec![]));
+        let adapter = Arc::new(
+            FakePostgresAdapter::new()
+                .with_table("accounts", sample_account("acct-p23-empty"))
+                .with_table("todos", vec![]),
+        );
         let read_host = make_read_host(adapter);
 
         let parts = NoopParts::new();
