@@ -268,7 +268,7 @@ fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
         .0
 }
 fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
-    // P18: create body must be a JSON string literal (the title); done ignores the body.
+    // P35: legacy JSON-string title remains accepted during the object-body compatibility window; done ignores the body.
     let mut req = ServerRequest::new(method, path, json!("Buy milk"));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());

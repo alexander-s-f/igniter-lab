@@ -87,7 +87,7 @@ fn keyless_create_is_400() {
     assert_app_error(&b, "keyless");
 }
 
-// ── invalid create body → 400 (P18 landed) ────────────────────────────────────────────────────────
+// ── invalid create body → 400 (P35 object body contract) ──────────────────────────────────────────
 
 #[test]
 fn invalid_create_body_is_400() {
@@ -102,9 +102,9 @@ fn invalid_create_body_is_400() {
         let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, raw);
         assert_eq!(s, 400, "{label} body → 400; body={b}");
         assert_app_error(&b, label);
-        // The product 400 names the contract, never the offending shape's contents.
+        // The product 400 names the contract (a non-empty title), never the offending shape's contents.
         assert!(
-            b["body"].as_str().unwrap_or("").contains("JSON string"),
+            b["body"].as_str().unwrap_or("").contains("title"),
             "{label}: 400 body should explain the contract; got {b}"
         );
     }

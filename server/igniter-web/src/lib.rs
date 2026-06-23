@@ -271,6 +271,15 @@ fn build_request_input(req: &ServerRequest) -> Value {
     // key while receipts/dedup keep keying on the idempotency key itself. Empty for keyless requests.
     let idem = req.idempotency_key.clone().unwrap_or_default();
     let surrogate = surrogate_id(&req.method, &req.path, &idem);
+    // `body_json` (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35) is GENERIC transport parsing: a JSON OBJECT
+    // body crosses as a `Map[String, Unknown]` so `.ig` can read typed fields via `map_get_string`. Any
+    // non-object body crosses as an explicit EMPTY map — the shape distinction stays in `body_kind`, and
+    // a handler keys on `body_kind` before reading fields. The host parses transport ONLY; it never
+    // interprets a field's product meaning (e.g. `title`) — that authority stays in `.ig`.
+    let body_json = match &req.body {
+        Value::Object(_) => req.body.clone(),
+        _ => json!({}),
+    };
     json!({ "req": {
         "method": req.method,
         "path": req.path,
@@ -279,6 +288,7 @@ fn build_request_input(req: &ServerRequest) -> Value {
         "correlation_id": req.correlation_id.clone().unwrap_or_default(),
         "idempotency_key": idem,
         "surrogate_id": surrogate,
+        "body_json": body_json,
     }})
 }
 

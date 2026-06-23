@@ -148,6 +148,27 @@ pure contract BuildCreateTodoIntent {
   output intent : WriteIntent
 }
 
+-- Resolve the create title from the request (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35). The v1 (preferred)
+-- body is a JSON OBJECT `{ "title": "Buy milk" }`: the host crosses it as the generic transport map
+-- `req.body_json`, and THIS app owns the field meaning — it reads `title` via `map_get_string` (fail-closed
+-- Option[String]: missing/non-string/null → none → ""). The legacy v0 body is a bare JSON string literal
+-- whose whole value is the title (kept working during the compatibility window). Any other shape resolves
+-- to "" so the handler fails closed to a 400. `.ig` parses no transport JSON — it only reads typed fields.
+pure contract ResolveCreateTitle {
+  input req : Request
+  compute obj_title : String = or_else(map_get_string(req.body_json, "title"), "")
+  compute t : String = if req.body_kind == "object" {
+    obj_title
+  } else {
+    if req.body_kind == "string" {
+      req.body
+    } else {
+      ""
+    }
+  }
+  output t : String
+}
+
 -- Done marks the todo identified by `todo_id` (LAB-TODOAPP-API-DONE-BUSINESS-KEY-P15): the business
 -- key is the route `todo_id`, NOT the idempotency key. `operation` is "upsert" because the host write
 -- adapter is a single-statement INSERT … ON CONFLICT DO UPDATE (the label only gates the host op
@@ -262,21 +283,21 @@ pure contract AccountTodoShow {
 -- `req.idempotency_key` (replay/correlation identity), now DISTINCT from the Todo business `intent.key`
 -- (a host-minted surrogate, P36). `target` stays the logical route-level effect name (host binds it to a
 -- machine route); the app names NO capability id, scope, DSN, or SQL.
--- Create enforces the v0 body contract (LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the request body
--- MUST be a non-empty JSON string literal (the title). The host classifies the body's JSON shape into
--- `req.body_kind` ("string" for a non-empty string; "empty" for empty/absent/malformed; otherwise the
--- shape name). A non-string shape (object/array/number/bool) or an empty/malformed body fails closed to a
--- product-owned 400 BEFORE any InvokeEffect — no DB mutation. `.ig` parses no JSON; it branches on the
--- host-computed signal.
+-- Create enforces the body contract (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35, hardening P18). The title
+-- comes from `ResolveCreateTitle`: the v1 OBJECT body `{ "title": "…" }` (preferred) or the legacy v0 JSON
+-- string body (compatibility window). A blank/missing/non-string title, or any non-object/non-string shape
+-- (array/number/bool/null/empty/malformed), resolves to "" and fails closed to a product-owned 400 BEFORE
+-- any InvokeEffect — no DB mutation. `trim` rejects whitespace-only titles. `.ig` parses no transport JSON.
 pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx
+  compute title : String = call_contract("ResolveCreateTitle", req)
   compute intent : WriteIntent =
-    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.surrogate_id, req.body)
-  compute d : Decision = if req.body_kind == "string" {
-    InvokeEffect { target: "todo-create", input: intent, idempotency_key: req.idempotency_key }
+    call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.surrogate_id, title)
+  compute d : Decision = if trim(title) == "" {
+    Respond { status: 400, body: "create body must provide a non-empty title" }
   } else {
-    Respond { status: 400, body: "create body must be a non-empty JSON string title" }
+    InvokeEffect { target: "todo-create", input: intent, idempotency_key: req.idempotency_key }
   }
   output d : Decision
 }

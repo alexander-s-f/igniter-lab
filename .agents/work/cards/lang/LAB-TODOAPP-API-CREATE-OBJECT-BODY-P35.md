@@ -1,6 +1,12 @@
 # LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35 - accept JSON object create bodies
 
-Status: TODO
+Status: DONE (2026-06-23) — host crosses `req.body_json : Map[String, Unknown]` (object→map, else empty
+map); `.ig` `ResolveCreateTitle` reads `title` via P34 `map_get_string` (object) / body string (legacy
+v0) / "" else; `AccountTodoCreate` rejects empty/blank title (`trim`) → 400. Legacy string body kept
+(compatibility window). No schema/id change (P36 surrogate wiring untouched). Proof:
+`lab-docs/lang/lab-todoapp-api-create-object-body-p35-v0.md`. Evidence: machine-feature 28 suites green;
+compiler green; 12/12 real-Postgres gated tests pass (`--test-threads=1`), incl. live-binary subprocess
+sending `{"title":…}`. Full accept/reject matrix tested; `git diff --check` clean.
 Lane: TodoApp API / IgWeb request surface
 Type: implementation
 Delegation code: OPUS-TODOAPP-API-CREATE-OBJECT-BODY-P35
@@ -78,15 +84,15 @@ Read live source and tests:
 
 ## Acceptance
 
-- [ ] `Request.body_json : Map[String, Unknown]` is available to IgWeb handlers.
-- [ ] Todo create accepts `{ "title": "Buy milk" }`.
-- [ ] Failure matrix above is covered by tests.
-- [ ] Legacy string body behavior is either preserved or intentionally removed with proof and docs.
-- [ ] `API.md` and any runbook/product guard docs describe object-body v1 and compatibility status.
-- [ ] No schema change.
-- [ ] No id-generation change; that belongs to P36.
-- [ ] Sync observed path and async machine runner path are both checked as applicable.
-- [ ] `git diff --check` clean.
+- [x] `Request.body_json : Map[String, Unknown]` is available to IgWeb handlers.
+- [x] Todo create accepts `{ "title": "Buy milk" }`.
+- [x] Failure matrix above is covered by tests.
+- [x] Legacy string body behavior is either preserved or intentionally removed with proof and docs.
+- [x] `API.md` and any runbook/product guard docs describe object-body v1 and compatibility status.
+- [x] No schema change.
+- [x] No id-generation change; that belongs to P36.
+- [x] Sync observed path and async machine runner path are both checked as applicable.
+- [x] `git diff --check` clean.
 
 ## Proof
 

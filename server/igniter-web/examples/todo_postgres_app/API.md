@@ -73,7 +73,7 @@ to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred
 | route miss (unknown path) | app | **404** | `{"body":"…"}` | none |
 | wrong method on a known pattern | app | **405** | `{"body":"…"}` | none |
 | missing idempotency key | app | **400** | `{"body":"…"}` | none |
-| invalid create body (P18) | app | **400** | `{"body":"create body must be a non-empty JSON string title"}` | none |
+| invalid create body (P35) | app | **400** | `{"body":"create body must provide a non-empty title"}` | none |
 | account not found | app | **404** | `{"body":"account not found"}` | none |
 | todo not found (show) | app | **404** | `{"body":"todo not found"}` | none |
 | list empty (no todos) | app | **200** | `{"body":"[]"}` (P24: an empty list is a valid 200, not a not-found) | none |
@@ -138,34 +138,49 @@ key guarantees at-most-one mutation even if a receipt is lost.
 
 ## Request body (create)
 
-v0 create body contract (**enforced**, LAB-TODOAPP-API-BODY-CONTRACT-HARDENING-P18): the body MUST be a
-**non-empty JSON string literal** whose value becomes the todo title (e.g. `"Buy milk"`, with quotes).
-It is not a JSON object and there is no field parser.
+**v1 (preferred, LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35):** the create body is a JSON **object** with a
+non-empty string `title`:
 
-> **Object body (`{ "title": "…" }`) roadmap:** intentionally deferred. It needs a generic
-> `Map[String, Unknown]` body surface + a real VM `stdlib.map.get`, which is a small machine/VM gate
-> (the Map type is typechecker-only today). See the readiness packet
-> `lab-docs/lang/lab-todoapp-api-create-object-body-readiness-p25-v0.md` (P25).
+```json
+{ "title": "Buy milk" }
+```
 
-Any other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
+The host parses the transport object into the generic `req.body_json : Map[String, Unknown]`; the app reads
+the `title` field via `map_get_string` (a fail-closed `Option[String]`). The host owns transport parsing;
+the **app owns the field meaning** — extra object fields are ignored.
+
+**Legacy v0 (compatibility window):** a bare **non-empty JSON string literal** whose whole value is the
+title (e.g. `"Buy milk"`, with quotes) is still accepted. It remains supported for now; the object body is
+the documented main shape. (No removal date; this window closes in a later card.)
+
+Every other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
 
 | Body | Result |
 | --- | --- |
-| `"Buy milk"` (non-empty JSON string) | accepted → title `Buy milk` |
-| `{...}` object · `[...]` array · `5` number · `true` bool | **400** `create body must be a non-empty JSON string title` |
+| `{ "title": "Buy milk" }` (object, non-empty string title) | accepted → title `Buy milk` |
+| `"Buy milk"` (legacy non-empty JSON string) | accepted → title `Buy milk` |
+| object missing `title` · `title` non-string · `title` empty/blank | **400** `create body must provide a non-empty title` |
+| `[...]` array · `5` number · `true` bool | **400** |
 | `null` · empty body · `""` (empty string) | **400** (no title) |
 | malformed JSON | **400** |
 
 Enforcement seam: the runner classifies the body's JSON shape into a host-computed `req.body_kind`
-("string" only for a non-empty string; "empty" for empty/absent/malformed; otherwise the shape name) and
-the `AccountTodoCreate` handler guards on it — `.ig` parses no JSON. The runner cannot distinguish a
-malformed body from an absent one (the HTTP parse collapses malformed JSON to an empty body); both are
-rejected, so the distinction does not matter. `done` ignores the body. (Reads carry no body.)
+("object" for an object; "string" for a non-empty string; "empty" for empty/absent/malformed; otherwise the
+shape name) and parses an object into `req.body_json`. `ResolveCreateTitle` reads the title from
+`body_json.title` (object) or the body string (legacy) and resolves anything else to `""`; the handler
+rejects an empty/blank title (via `trim`) with a 400. `.ig` parses no transport JSON — it reads typed
+fields only. The runner cannot distinguish a malformed body from an absent one (the HTTP parse collapses
+malformed JSON to an empty body); both are rejected. `done` ignores the body. (Reads carry no body.)
 
 ```bash
-# title comes from the body
+# v1 (preferred): title is a field of the JSON object body
 curl -X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
-     -H 'idempotency-key: k1' --data '"Buy milk"' \
+     -H 'idempotency-key: k1' --data '{"title":"Buy milk"}' \
+     http://127.0.0.1:PORT/accounts/acct-1/todos
+
+# legacy (compatibility window): a bare JSON string title
+curl -X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
+     -H 'idempotency-key: k2' --data '"Buy milk"' \
      http://127.0.0.1:PORT/accounts/acct-1/todos
 ```
 
@@ -199,8 +214,9 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 ## Open product limitations (intentional v0)
 
 - No typed row destructuring — `ReadThen` continuations receive rows as a JSON **string**.
-- Body validation is **shape-only** (string vs non-string, via `req.body_kind`); no JSON-object body
-  parser — a create title is the whole string literal, never a field of an object.
+- Object create bodies are parsed generically into `req.body_json : Map[String, Unknown]` (P35); the app
+  reads only the `title` field. There is no general JSON query language and no nested/typed destructuring
+  beyond `map_get_string`.
 - Create ids are **host-minted deterministic surrogates** (`todo_<digest>`), decoupled from the
   idempotency key (P36) — but they are derived from request identity, not a DB sequence or random id.
 - No schema migration runner (DDL is operator-owned).

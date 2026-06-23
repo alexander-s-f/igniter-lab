@@ -914,7 +914,7 @@ fn binary_path_write_from_config_committed() {
 
         let build_post = |key: &str| {
             let tok = tok_val;
-            // P18: create body must be a JSON string literal (the title), not an object.
+            // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
             let body = "\"Buy milk\"";
             format!(
                 "POST /accounts/acct-p26-cfg/todos HTTP/1.1\r\nHost: x\r\n\
@@ -1162,8 +1162,9 @@ fn subprocess_product_command_read_write_replay_e2e() {
             "GET /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
         let get_empty =
             "GET /accounts/acct-p12-empty/todos HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n";
-        // v0 create body contract (P16): a JSON string literal whose value becomes the todo title.
-        let title_body = "\"Buy milk via P16\"";
+        // v1 create body (P35): the preferred JSON OBJECT body `{ "title": … }`. Proves the object path
+        // end-to-end through the REAL binary: host parses it to `req.body_json`, the app extracts `title`.
+        let title_body = "{\"title\":\"Buy milk via P35\"}";
         let post = format!(
             "POST /accounts/acct-p12-sub/todos HTTP/1.1\r\nHost: x\r\n\
              Authorization: Bearer {tok_val}\r\nidempotency-key: {write_key}\r\n\
@@ -1244,7 +1245,7 @@ fn subprocess_product_command_read_write_replay_e2e() {
             Some("acct-p12-sub"),
             "business row carries the app-authored account_id"
         );
-        // P16: the real business row title equals the submitted create body (HTTP body → DB).
+        // P35: the real business row title equals the `title` field of the submitted OBJECT body.
         let title: Option<String> = client
             .query_one("SELECT title FROM todos WHERE id = $1", &[&written_id])
             .await
@@ -1252,8 +1253,8 @@ fn subprocess_product_command_read_write_replay_e2e() {
             .get(0);
         assert_eq!(
             title.as_deref(),
-            Some("Buy milk via P16"),
-            "P16: real row title = the submitted create body"
+            Some("Buy milk via P35"),
+            "P35: real row title = the `title` field of the object create body"
         );
         // The PG effect_receipts row is keyed by the idempotency key (auditable) and records the minted
         // surrogate as its business_key (P36).
@@ -1412,7 +1413,7 @@ fn local_write_same_key_different_payload_conflicts_row_unchanged() {
     });
 }
 
-// ── P18: a non-string create body is rejected at the app; NO business row inserted (real DB) ──────
+// ── P35: a title-less object body is rejected at the app; NO business row inserted (real DB) ──────
 //
 // Drives the REAL `igweb-serve` subprocess against local Postgres with a JSON OBJECT create body. The
 // body contract fails closed to 400 in the app BEFORE any InvokeEffect, so no `todos` row and no PG
@@ -1439,9 +1440,9 @@ fn subprocess_non_string_create_body_writes_no_row() {
             .await
             .unwrap();
 
-        let read_env = "IGNITER_P18_PG_READ_DSN";
-        let write_env = "IGNITER_P18_PG_WRITE_DSN";
-        let tok_env = "IGNITER_P18_VENDOR_TOKEN";
+        let read_env = "IGNITER_P35_PG_READ_DSN";
+        let write_env = "IGNITER_P35_PG_WRITE_DSN";
+        let tok_env = "IGNITER_P35_VENDOR_TOKEN";
         let tok_val = "p18-vtok";
         let toml = format!(
             "[postgres.read]\n\
@@ -1485,8 +1486,8 @@ fn subprocess_non_string_create_body_writes_no_row() {
         };
         let out_task = tokio::spawn(async move { while let Ok(Some(_)) = out.next_line().await {} });
 
-        // JSON OBJECT create body — must be rejected with 400, no mutation.
-        let body = "{\"title\":\"sneaky\"}";
+        // P35: object body MISSING a usable `title` — must be rejected with 400, no mutation.
+        let body = "{\"note\":\"sneaky\"}";
         let raw = format!(
             "POST /accounts/acct-p18-sub/todos HTTP/1.1\r\nHost: x\r\n\
              Authorization: Bearer {tok_val}\r\nidempotency-key: {bad_key}\r\n\

@@ -38,27 +38,40 @@ fn app_files_exist_and_check_succeeds() {
     assert_eq!(report.source_count, 2);
 }
 
-// ── P18: create body contract — only a non-empty JSON string title is accepted ────────────────────
+// ── P35: create body contract — v1 OBJECT body `{ "title": … }` + legacy v0 string body ───────────
 //
-// `POST /accounts/:id/todos` requires the body to be a JSON string literal (the title). Every other
-// JSON shape — object / array / number / bool / null — and an empty or malformed body fail closed to a
-// product-owned 400 (the handler guards on the host-computed `req.body_kind`), with NO InvokeEffect
-// (sync mode: a valid create is observed as 202; a rejected one never produces that decision).
+// `POST /accounts/:id/todos` accepts the preferred v1 object body `{ "title": "Buy milk" }` OR the legacy
+// v0 bare JSON string title (compatibility window). The host parses an object into the generic
+// `req.body_json` map; the app reads `title` via `map_get_string` (fail-closed). A blank/missing/non-string
+// title, or any non-object/non-string shape (array/number/bool/null/empty/malformed), fails closed to a
+// product-owned 400 with NO InvokeEffect (sync mode: a valid create is observed as 202).
 
 #[test]
-fn create_body_contract_rejects_non_string_shapes() {
+fn create_body_contract_object_and_legacy_string() {
     let app = build();
     let key = &[("idempotency-key", "evt-body")][..];
 
-    // Accepted: a non-empty JSON string literal → observed InvokeEffect (202), no body-contract 400.
-    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, "\"Buy milk\"");
-    assert_eq!(s, 202, "JSON string body → observed create");
-    assert_eq!(b["target"], json!("todo-create"));
+    // Accepted shapes → observed InvokeEffect (202), target `todo-create`.
+    for (label, body) in [
+        ("v1-object", "{\"title\":\"Buy milk\"}"),
+        ("v1-object-extra-fields", "{\"title\":\"Buy milk\",\"done\":true,\"n\":1}"),
+        ("legacy-string", "\"Buy milk\""),
+    ] {
+        let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, body);
+        assert_eq!(s, 202, "{label} body → observed create; got {s} body={b}");
+        assert_eq!(b["target"], json!("todo-create"), "{label}");
+    }
 
     // Rejected shapes — each returns a product-owned 400, never an InvokeEffect.
     for (label, body) in [
-        ("object", "{}"),
-        ("object-nonempty", "{\"title\":\"x\"}"),
+        ("object-missing-title", "{}"),
+        ("object-other-field", "{\"note\":\"x\"}"),
+        ("object-title-nonstring", "{\"title\":5}"),
+        ("object-title-bool", "{\"title\":true}"),
+        ("object-title-null", "{\"title\":null}"),
+        ("object-title-object", "{\"title\":{\"x\":1}}"),
+        ("object-title-empty", "{\"title\":\"\"}"),
+        ("object-title-blank", "{\"title\":\"   \"}"),
         ("array", "[]"),
         ("number", "5"),
         ("bool", "true"),

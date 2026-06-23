@@ -218,7 +218,7 @@ fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
 /// machine ingress passport `Authorization: Bearer vtok` rides in the headers — the app never sets/reads
 /// it).
 fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
-    // P18: create body must be a JSON string literal (the title); done ignores the body.
+    // P35: legacy JSON-string title remains accepted during the object-body compatibility window; done ignores the body.
     let mut req = ServerRequest::new(method, path, json!("Buy milk"));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
@@ -292,12 +292,12 @@ fn keyed_create_executes_via_machine_host() {
     });
 }
 
-// ── 1b: create carries the request body as the todo title (P16) ──────────────────────────────────
+// ── 1b: create carries the request body as the todo title (legacy string path) ───────────────────
 
 #[test]
 fn create_carries_request_body_as_title() {
     let app = build_app();
-    // v0 body contract: the request body is a JSON string literal; here Value::String("Buy milk").
+    // P35 legacy compatibility: a JSON string body still resolves to the title.
     let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!("Buy milk"));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
@@ -439,7 +439,8 @@ fn app_decision_carries_no_capability_identity() {
 // idempotency key with a different create body is caught at the ingress dedup gate (payload-digest
 // mismatch → `DuplicateDecision::Conflict`) and returns **409** BEFORE any replica is activated — never
 // a silent success, never a second mutation. The create body (a JSON string literal) is the todo title,
-// so two different titles produce two different body digests.
+// so two different titles produce two different body digests. This helper intentionally exercises the
+// legacy string path; object-body coverage lives in the P35 tests below.
 
 fn titled_create(account: &str, idem_key: &str, title: &str) -> ServerRequest {
     let mut req = ServerRequest::new("POST", &format!("/accounts/{account}/todos"), json!(title));
@@ -553,17 +554,17 @@ fn done_same_key_different_todo_id_conflicts_no_wrong_mutation() {
     });
 }
 
-// ── P18: a non-string create body is rejected (400) BEFORE the machine effect host ────────────────
+// ── P35: an object body MISSING `title` is rejected (400) BEFORE the machine effect host ───────────
 //
-// The body-contract guard lives in the app handler (on the host-computed `req.body_kind`), so a create
-// with a JSON object body produces a `Respond { 400 }` decision — never an `InvokeEffect`. It therefore
-// never reaches `MachineEffectHost`: the write executor is untouched, no mutation.
+// The body-contract guard lives in the app handler (`ResolveCreateTitle` → empty title → 400), so a
+// create whose object body has no usable `title` produces a `Respond { 400 }` decision — never an
+// `InvokeEffect`. It therefore never reaches `MachineEffectHost`: the write executor is untouched.
 
 #[test]
-fn non_string_create_body_rejected_before_effect_host() {
+fn titleless_object_create_body_rejected_before_effect_host() {
     let app = build_app();
-    // Keyed create with a JSON OBJECT body (not a string title).
-    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!({"title": "x"}));
+    // Keyed create with a JSON OBJECT body that carries no `title` field.
+    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!({"note": "x"}));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = Some("evt-bad-body".to_string());
@@ -578,8 +579,45 @@ fn non_string_create_body_rejected_before_effect_host() {
         let (status, _b, executed) = execute(&eh, &req, decision).await;
 
         assert!(!executed, "a rejected body never reaches the effect host");
-        assert_eq!(status, 400, "non-string create body → product-owned 400");
+        assert_eq!(status, 400, "object body missing title → product-owned 400");
         assert_eq!(st.exec.attempts(), 0, "write executor untouched");
+    });
+}
+
+// ── P35: the preferred v1 OBJECT body `{ "title": … }` EXECUTES through the machine host ───────────
+
+#[test]
+fn object_create_body_executes_via_machine_host() {
+    let app = build_app();
+    // Keyed create with the v1 object body — title carried as a JSON object field.
+    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!({"title": "Buy milk"}));
+    req.headers
+        .insert("authorization".to_string(), "Bearer vtok".to_string());
+    req.idempotency_key = Some("evt-obj-1".to_string());
+    let decision = app.call(req.clone());
+
+    // The decision carries the title extracted from the object body into the structured intent.
+    if let ServerDecision::InvokeEffect { ref input, .. } = decision {
+        assert_eq!(
+            input["values"]["title"],
+            json!("Buy milk"),
+            "P35: object-body title flows into the write intent values"
+        );
+    } else {
+        panic!("expected InvokeEffect for object-body create, got {decision:?}");
+    }
+
+    rt().block_on(async move {
+        let (h, r) = prod(3).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+
+        let (status, body, executed) = execute(&eh, &req, decision).await;
+
+        assert!(executed, "object-body create produces a final InvokeEffect");
+        assert_eq!(status, 200, "committed effect → 200, body={body}");
+        assert_eq!(st.exec.attempts(), 1, "exactly one write effect performed");
     });
 }
 

@@ -102,8 +102,9 @@ cargo run --features postgres --bin igweb-serve -- \
   (`todo_<digest of method+path+idempotency_key>`), decoupled from the idempotency key (P36); not a DB
   sequence or random id.
 - **No typed row destructuring** — `ReadThen` continuations receive rows as a JSON **string**.
-- **No JSON-object request parser** — a create body must be a JSON **string** literal (the title); body
-  validation is shape-only.
+- **Object create body (preferred) + legacy string** — create accepts `{ "title": "…" }` (parsed into the
+  generic `req.body_json` map; the app reads `title`) and, during the compatibility window, a bare JSON
+  string title (P35). No general JSON query language / nested destructuring.
 - **No pooling / backpressure** — one request at a time, bounded by `--max-requests`.
 - **Single read source per `[postgres.read]`** — multi-source config is not implemented.
 

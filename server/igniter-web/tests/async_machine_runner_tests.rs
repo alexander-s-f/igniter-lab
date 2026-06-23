@@ -257,7 +257,7 @@ fn app_dir() -> PathBuf {
 
 async fn post_todo(addr: std::net::SocketAddr, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    // P18: create body must be a JSON string literal (the title), not an object.
+    // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
     let body = "\"Buy milk\"";
     let raw = format!(
         "POST /accounts/acct-1/todos HTTP/1.1\r\nHost: x\r\n\
