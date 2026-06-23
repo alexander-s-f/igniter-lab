@@ -178,10 +178,70 @@ impl crate::kernel::RequestMiddleware for AuthMiddleware {
 
 // ── Persistent Preloading Scanner ────────────────────────────────────────────
 
+// ── LAB-TBACKEND-AUTH-REDACTION-P8: token-file permission hardening ──────────────────────────────────
+// The persistent token store is secret material (the filename IS the bearer token until P9 reworks storage).
+// Lock `security/` to 0700 and every token file to 0600 so the daemon never leaves token material readable.
+// macOS + Linux are both `unix`; non-unix is a documented no-op (dev only).
+
+#[cfg(unix)]
+fn set_mode(path: &std::path::Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+}
+#[cfg(not(unix))]
+fn set_mode(_path: &std::path::Path, _mode: u32) -> std::io::Result<()> {
+    Ok(()) // permissions are a Unix concern; no-op on other platforms (dev only)
+}
+
+/// Write a token JSON file `0600` (creating the parent `security/` dir `0700`). On Unix the file is created
+/// `0600` and re-`chmod`ed in case it pre-existed with looser perms. Permission failures surface as a warning
+/// rather than silently claiming hardening.
+fn secure_write_token(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+        if let Err(e) = set_mode(parent, 0o700) {
+            eprintln!(
+                "[Security] WARNING: could not set 0700 on {:?}: {}",
+                parent, e
+            );
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        f.write_all(content.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content)?;
+    }
+    if let Err(e) = set_mode(path, 0o600) {
+        eprintln!(
+            "[Security] WARNING: could not set 0600 on {:?}: {}",
+            path, e
+        );
+    }
+    Ok(())
+}
+
 fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
     let mut map = HashMap::new();
     let sec_dir = format!("{}/security", dir_path);
     let _ = std::fs::create_dir_all(&sec_dir);
+    // P8: lock the security directory to 0700 on every startup.
+    if let Err(e) = set_mode(std::path::Path::new(&sec_dir), 0o700) {
+        eprintln!(
+            "[Security] WARNING: could not set 0700 on {}: {}",
+            sec_dir, e
+        );
+    }
 
     if let Ok(entries) = std::fs::read_dir(&sec_dir) {
         for entry in entries.flatten() {
@@ -189,10 +249,15 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
             if path.extension().map_or(false, |ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(mut config) = serde_json::from_str::<TokenConfig>(&content) {
-                        println!(
-                            "[Security Preloader] Preloaded token '{}' (role: {})",
-                            config.token, config.role
-                        );
+                        // P8: never log the bearer token value; report the role only.
+                        println!("[Security Preloader] Preloaded a '{}' token.", config.role);
+                        // P8: repair perms of pre-existing token files to 0600.
+                        if let Err(e) = set_mode(&path, 0o600) {
+                            eprintln!(
+                                "[Security] WARNING: could not repair 0600 on a token file: {}",
+                                e
+                            );
+                        }
                         config.persist = true;
                         map.insert(config.token.clone(), config);
                     }
@@ -211,12 +276,16 @@ fn load_persistent_tokens(dir_path: &str) -> HashMap<String, TokenConfig> {
         };
         let file_path = format!("{}/admin_default.json", sec_dir);
         if let Ok(content) = serde_json::to_string_pretty(&default_admin) {
-            let _ = std::fs::write(&file_path, content);
+            // P8: secure 0600 write instead of world-readable std::fs::write.
+            if let Err(e) = secure_write_token(std::path::Path::new(&file_path), &content) {
+                eprintln!(
+                    "[Security] WARNING: could not write default admin token: {}",
+                    e
+                );
+            }
         }
-        println!(
-            "[Security Preloader] Generated default administrator token 'admin_default' at: {}",
-            file_path
-        );
+        // P8: do not print the token-file path (it is token material under the current design).
+        println!("[Security Preloader] Generated default administrator token.");
         map.insert(default_admin.token.clone(), default_admin);
     }
 
@@ -299,7 +368,12 @@ impl ServerPack for AuthPack {
                 if let Some(ref dir) = data_dir_c {
                     let file_path = format!("{}/security/{}.json", dir, token);
                     if let Ok(content) = serde_json::to_string_pretty(&config) {
-                        let _ = std::fs::write(file_path, content);
+                        // P8: secure 0600 write (dir 0700) instead of world-readable std::fs::write.
+                        if let Err(e) =
+                            secure_write_token(std::path::Path::new(&file_path), &content)
+                        {
+                            eprintln!("[Security] WARNING: could not persist token file: {}", e);
+                        }
                     }
                 }
             }
@@ -313,9 +387,21 @@ impl ServerPack for AuthPack {
         command_reg.register(
             "auth_token_list",
             Arc::new(move |_req, _kernel| {
+                // LAB-TBACKEND-AUTH-REDACTION-P8: inventory-only — never return the bearer token value
+                // (nor a hash/prefix/filename). Metadata only: role, allowed_stores, persist + a count.
                 let map = registry_c.read();
-                let list: Vec<TokenConfig> = map.tokens.values().cloned().collect();
-                serde_json::json!({ "ok": true, "tokens": list })
+                let list: Vec<serde_json::Value> = map
+                    .tokens
+                    .values()
+                    .map(|c| {
+                        serde_json::json!({
+                            "role": c.role,
+                            "allowed_stores": c.allowed_stores,
+                            "persist": c.persist,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "ok": true, "count": list.len(), "tokens": list })
             }),
         );
 

@@ -126,6 +126,36 @@ begin
   )
   assert_equal(true, res_f[:ok], "Token 'finance_token' successfully created")
 
+  # ── LAB-TBACKEND-AUTH-REDACTION-P8: redacted listing + token-file permissions ──────────────────────
+  puts "\n[P8 Redaction] auth_token_list must return metadata only, never token values..."
+  res_list = client.send_req(op: "auth_token_list", token: "admin_default")
+  assert_equal(true, res_list[:ok], "auth_token_list succeeds for admin")
+  list = res_list[:tokens] || []
+  assert(res_list[:count] == list.length && list.length >= 4, "auth_token_list returns a count and all tokens (>=4): #{res_list[:count]}")
+  # No token material in any entry: no :token / :token_hash / :id / :target_token keys.
+  bad_keys = list.flat_map(&:keys).map(&:to_s) & %w[token token_hash id target_token]
+  assert(bad_keys.empty?, "list entries expose no token/hash/id keys (found: #{bad_keys.inspect})")
+  # Metadata IS present.
+  assert(list.all? { |t| t.key?(:role) && t.key?(:allowed_stores) && t.key?(:persist) }, "list entries carry role/allowed_stores/persist")
+  # Known bearer token strings must not appear anywhere in the serialized list response.
+  list_json = res_list.to_json
+  %w[admin_default write_token read_token finance_token].each do |tok|
+    assert(!list_json.include?(tok), "bearer token '#{tok[0,4]}…' does NOT appear in the list response")
+  end
+
+  puts "\n[P8 Permissions] security dir must be 0700; token files must be 0600 (Unix)..."
+  if RUBY_PLATFORM !~ /mswin|mingw/
+    sec_dir = File.join(DATA_DIR, "security")
+    dir_mode = format("%o", File.stat(sec_dir).mode & 0o777)
+    assert_equal("700", dir_mode, "#{sec_dir} is mode 0700")
+    token_files = Dir.glob(File.join(sec_dir, "*.json"))
+    assert(!token_files.empty?, "persisted token files exist")
+    bad_perm = token_files.reject { |f| (File.stat(f).mode & 0o777) == 0o600 }
+    assert(bad_perm.empty?, "all token JSON files are mode 0600 (#{bad_perm.length} not 0600)")
+  else
+    puts "  (skipped on non-Unix)"
+  end
+
   # 5. Assert RBAC & ACL enforcement checks
   puts "\n[RBAC/ACL Enforcement] Auditing write_token restrictions..."
   
