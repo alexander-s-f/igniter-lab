@@ -1,10 +1,10 @@
-# todo_postgres_app — host policy sketch (NOT runtime authority, NOT applied in P2)
+# todo_postgres_app — host policy (LAB-TODOAPP-API-IGWEB-SERVE-LOCAL-POSTGRES-P12)
 
-This is **future host-owned config evidence** for when an effect-host seam wires this app's read/write
-intents to the `igniter-machine` Postgres capability executors. It is **not** read by the runner today and
-is **not** authored in `.igweb`/`.ig`. The app names only logical effect targets and structured intents;
-everything below is the **host's** concern. Schema/migrations are operator-owned and are **not applied
-here** (no DB connection in P2).
+This is the host-owned configuration reference for mapping this app's read/write intents to `igniter-machine` Postgres capability executors. The configuration is parsed by the web runner from the `--host-config host.toml` file at runtime.
+
+> **Runnable, commit-safe config:** see [`host.example.toml`](host.example.toml) in this directory — it is the exact, parseable config (env-var names only) the runner accepts, plus the run command. The crate README's "Postgres Host Config (Operator)" section walks through it. The tables below are the conceptual policy this config expresses.
+
+The app names only logical effect targets and structured intents; everything below is the **host's** concern. Schema/migrations are operator-owned and are managed at the database layer (not by the application compiler).
 
 ## Read policy (host-declared; mirrors `PostgresReadPolicy::allow_source_typed`)
 
@@ -26,23 +26,22 @@ Row limit cap: e.g. `100`. SELECT-only (mutating ops refused before the adapter)
 - key column: `id`
 - writable columns: `account_id`, `title`, `done`
 
-## Effect-target → capability map (the future effect-host seam's lookup)
+## Effect-target → capability map (the host effect-host seam's lookup)
 
 | logical target (named in `.ig`) | capability | operation |
 |---|---|---|
 | `todo-create` | `IO.PostgresWrite` | insert |
 | `todo-done` | `IO.PostgresWrite` | update |
 
-The app's `InvokeEffect { target: "todo-create" | "todo-done" }` carries the logical target only; the
-capability id / operation binding lives here, host-side.
+The app's `InvokeEffect { target: "todo-create" | "todo-done" }` carries the logical target only; the capability id / operation binding lives here, host-side.
 
-## Environment / connection (future, local-only)
+## Environment / connection
 
 - `IGNITER_PG_DSN` — read DSN (a dedicated local DB; never SparkCRM/dev business DBs)
 - `IGNITER_PG_WRITE_DSN` — write DSN (dedicated `igniter_pg_test`-style DB)
 - loopback-only server; secret provider = env; no inline secrets, no TLS/pool in v0.
 
-## Suggested local DDL (operator-owned; documentation only, NOT applied here)
+## Suggested local DDL (operator-owned; documentation only, applied externally)
 
 ```sql
 CREATE TABLE accounts ( id text PRIMARY KEY, name text );
@@ -55,5 +54,4 @@ CREATE TABLE effect_receipts (
 );
 ```
 
-Status: **shape only**. P2 executes no reads/writes; the effect-host seam (`LAB-IGNITER-WEB-EFFECT-HOST-READINESS`)
-must land before any of this is wired.
+Status: **Implemented and Active**. The policy is loaded and enforced at startup. Postgres capability executors run queries and writes against the database using either a fake in-memory adapter or a real local Postgres connection (under the `postgres` cargo feature and `IGNITER_PG_DSN`/`IGNITER_PG_WRITE_DSN` env variables).

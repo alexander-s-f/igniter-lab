@@ -982,6 +982,41 @@ capability = "IO.PostgresRead"
         let _ = std::fs::remove_file(&path);
     }
 
+    /// P28: the committed operator example must always parse, carry both Postgres sections and both
+    /// Todo effect targets, and remain secret-free (parser already rejects inline secrets, so a
+    /// successful parse proves the example holds env-var NAMES only).
+    #[test]
+    fn committed_host_example_toml_parses() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/todo_postgres_app/host.example.toml");
+        let cfg = load_host_config(&path).expect("host.example.toml must parse");
+        assert_eq!(cfg.host_mode.as_deref(), Some("loopback"));
+
+        let rc = cfg.postgres_read.expect("[postgres.read] present");
+        assert_eq!(rc.dsn_env, "IGNITER_TODO_PG_DSN");
+        assert_eq!(rc.source.as_deref(), Some("todos"));
+        assert_eq!(rc.fields, vec!["id", "account_id", "title", "done"]);
+        assert_eq!(rc.row_limit, 100);
+        assert_eq!(rc.capability_id.as_deref(), Some("IO.PostgresRead"));
+
+        let wc = cfg.postgres_write.expect("[postgres.write] present");
+        assert_eq!(wc.dsn_env, "IGNITER_TODO_PG_DSN");
+        assert_eq!(wc.targets, vec!["todos"]);
+        assert_eq!(wc.ops, vec!["insert", "upsert"]);
+        assert_eq!(wc.capability_id.as_deref(), Some("IO.TodoWrite"));
+        assert_eq!(wc.key_column.as_deref(), Some("id"));
+        assert_eq!(wc.columns, vec!["account_id", "title", "done"]);
+
+        for target in ["todo-create", "todo-done"] {
+            let ec = cfg.effects.get(target).expect("effect target present");
+            assert_eq!(ec.route, "/w");
+            assert_eq!(
+                ec.passport_env.as_deref(),
+                Some("IGNITER_TODO_EFFECT_TOKEN")
+            );
+        }
+    }
+
     // ── resolve_with_env ─────────────────────────────────────────────────────────────────────────
 
     #[test]

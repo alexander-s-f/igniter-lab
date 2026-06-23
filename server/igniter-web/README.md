@@ -123,6 +123,52 @@ operation, scope, credentials, and receipts belongs to the host side:
 - **Default (Sync) Mode:** Effects are observed as protocol decisions without being executed.
 - **Async Machine Mode (`--host-config`):** Real/fake database effects and staged reads are executed dynamically based on the configured policies in `host.toml`.
 
+## Postgres Host Config (Operator)
+
+To run `examples/todo_postgres_app` against a local Postgres, use the committed, commit-safe example
+config [`examples/todo_postgres_app/host.example.toml`](examples/todo_postgres_app/host.example.toml).
+It references env-var **names** only — it never contains a DSN, password, or bearer token.
+
+```bash
+export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
+export IGNITER_TODO_EFFECT_TOKEN="some-local-bearer-token"
+
+cargo run --features postgres --bin igweb-serve -- \
+  --host-config examples/todo_postgres_app/host.example.toml \
+  --addr 127.0.0.1:0 \
+  --max-requests 8 \
+  examples/todo_postgres_app
+```
+
+The example wires:
+
+- `[postgres.read]` — real reads, clamped to the `todos` source / field allowlist / row limit.
+- `[postgres.write]` — real writes, allowlisted to `insert,upsert` on `todos`.
+- `[effects.todo-create]` / `[effects.todo-done]` — both Todo effect targets, bound to route `/w`
+  with the bearer token from `IGNITER_TODO_EFFECT_TOKEN`.
+
+**Commit safety.** `host.toml` (the example or any working copy) is commit-safe *by construction*: the
+parser rejects inline secret keys (`dsn`, `password`, `secret`, `token`, `passport`, `api_key`) and
+template syntax, so the file can only ever hold env-var names. The material that must **never** be
+committed is the environment that backs those names — the actual DSN string and bearer token (e.g. a
+`.env` file or your shell exports). Use a dedicated local test database (e.g. `igniter_todo_test`),
+never a production or SparkCRM database.
+
+### Repeatable smoke
+
+[`scripts/todo_postgres_smoke.sh`](scripts/todo_postgres_smoke.sh) is a one-command operator smoke that
+runs the real `igweb-serve --host-config` against a local Postgres and prints a PASS/FAIL receipt. It
+reuses the committed `host.example.toml` (so it writes no config file), refuses to run without
+`IGNITER_TODO_PG_DSN`, exercises read-found → 200 / read-empty → 404 / write → committed row + receipt /
+replay → no second mutation, then cleans up its own rows and exits (bounded, no listener left running).
+
+```bash
+export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
+server/igniter-web/scripts/todo_postgres_smoke.sh
+```
+
+This is the human-runnable companion to the in-harness P12 Cargo subprocess test.
+
 ## Current Limits
 
 - No stable CLI promise.

@@ -14,10 +14,22 @@ use igniter_web::runner::RunnerCliOptions;
 use igniter_web::runner::{
     build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
 };
+use igniter_web::runner_diag::{classify_runner_error, RunnerDiagnostic};
 use std::net::TcpListener;
 
+/// Print a coded, redacted diagnostic to stderr and exit with its stable non-zero code.
+/// stdout stays reserved for the machine-readable `listening http://…` line.
+fn fail(diag: RunnerDiagnostic) -> ! {
+    eprintln!("{diag}");
+    std::process::exit(diag.exit_code());
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = match parse_cli_args(std::env::args().skip(1))? {
+    let parsed = match parse_cli_args(std::env::args().skip(1)) {
+        Ok(p) => p,
+        Err(e) => fail(classify_runner_error(&e)),
+    };
+    let cli = match parsed {
         RunnerCliCommand::Help(text) => {
             println!("{text}");
             return Ok(());
@@ -38,7 +50,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Machine-mode path: async tokio loop, no ServerApp::call
     if let Some(host_config_path) = &cli.host_config_path {
         #[cfg(feature = "machine")]
-        return run_machine_mode(&cli, host_config_path);
+        match run_machine_mode(&cli, host_config_path) {
+            Ok(()) => return Ok(()),
+            Err(diag) => fail(diag),
+        }
 
         #[cfg(not(feature = "machine"))]
         {
@@ -81,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_machine_mode(
     cli: &RunnerCliOptions,
     host_config_path: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), RunnerDiagnostic> {
     use igniter_machine::backend::{InMemoryBackend, TBackend};
     use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport};
     use igniter_machine::clock::{ClockProvider, SystemClock};
@@ -94,11 +109,14 @@ fn run_machine_mode(
     use igniter_web::machine_runner;
     use igniter_web::read_dispatch::StagedReadHost;
     use igniter_web::runner::build_loaded_app_from_dir;
+    use igniter_web::runner_diag::{classify_host_config_error, classify_runner_error, DiagCode};
     use std::sync::Arc;
 
-    // 1. Parse + resolve host config — env var expansion happens here; secrets never interpolated
-    let host_cfg = load_host_config(host_config_path)?;
-    let resolved = resolve_host_config(&host_cfg)?;
+    // 1. Parse + resolve host config — env var expansion happens here; secrets never interpolated.
+    //    Both failures happen BEFORE any socket bind and name the section/key/env-var, not values.
+    let host_cfg =
+        load_host_config(host_config_path).map_err(|e| classify_host_config_error(&e))?;
+    let resolved = resolve_host_config(&host_cfg).map_err(|e| classify_host_config_error(&e))?;
 
     if !resolved.effects.is_empty() {
         println!(
@@ -126,7 +144,8 @@ fn run_machine_mode(
     }
 
     // 2. Build the loaded app (async dispatch path, never calls ServerApp::call)
-    let (app, manifest) = build_loaded_app_from_dir(&cli.app_dir)?;
+    let (app, manifest) =
+        build_loaded_app_from_dir(&cli.app_dir).map_err(|e| classify_runner_error(&e))?;
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
 
     // 3. Build a no-op effect host (v0: InvokeEffect from continuation is the next card)
@@ -164,8 +183,22 @@ fn run_machine_mode(
     let addr = cli.addr;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?;
+        .build()
+        .map_err(|e| {
+            RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("tokio runtime: {e}"))
+        })?;
     rt.block_on(async {
+        // Known DSN values the runner holds — passed to the POSTGRES_CONNECT redactor so an adapter
+        // connect error (which can embed the connection string) never reaches the operator log.
+        #[cfg(feature = "postgres")]
+        let known_dsns: Vec<&str> = [
+            resolved.postgres_read_dsn.as_deref(),
+            resolved.postgres_write_dsn.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
         // Build the active read host: real executor under --features postgres when [postgres.read]
         // is configured; fail-closed empty registry otherwise (ReadThen → 403 host-denied).
         #[cfg(feature = "postgres")]
@@ -182,9 +215,9 @@ fn run_machine_mode(
                     StagedReadHost::new(reg, recs, "IO.PostgresRead")
                 }
                 Err(e) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    return Err(RunnerDiagnostic::postgres_connect(
                         format!("postgres.read: {e}"),
+                        &known_dsns,
                     ))
                 }
             }
@@ -206,9 +239,9 @@ fn run_machine_mode(
             let write_opt = match build_write_host_from_resolved(&host_cfg, &resolved).await {
                 Ok(opt) => opt,
                 Err(e) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    return Err(RunnerDiagnostic::postgres_connect(
                         format!("postgres.write: {e}"),
+                        &known_dsns,
                     ))
                 }
             };
@@ -231,8 +264,12 @@ fn run_machine_mode(
                 for (target, route) in &state.bind_targets {
                     real_effect_host.bind_target(target, route);
                 }
-                let listener = tokio::net::TcpListener::bind(addr).await?;
-                let bound = listener.local_addr()?;
+                let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+                    RunnerDiagnostic::new(DiagCode::BindRefused, format!("bind {addr}: {e}"))
+                })?;
+                let bound = listener.local_addr().map_err(|e| {
+                    RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("local_addr: {e}"))
+                })?;
                 println!(
                     "igweb-serve: machine-mode app_dir={} entry={} listening http://{} \
                      (loopback, bounded to {} request(s))",
@@ -242,7 +279,10 @@ fn run_machine_mode(
                 let report = machine_runner::serve_loop_loaded_with_read(
                     &listener, &app, &real_effect_host, &read_host, &policy,
                 )
-                .await?;
+                .await
+                .map_err(|e| {
+                    RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
+                })?;
                 println!(
                     "igweb-serve: machine-mode served {} request(s); exiting",
                     report.requests_served
@@ -253,20 +293,28 @@ fn run_machine_mode(
 
         // Fallback: no-op effect host (no [postgres.write] section, no passport_env, or no
         // --features postgres). InvokeEffect → 502 "unbound target" (fail-closed).
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        let bound = listener.local_addr()?;
+        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+            RunnerDiagnostic::new(DiagCode::BindRefused, format!("bind {addr}: {e}"))
+        })?;
+        let bound = listener.local_addr().map_err(|e| {
+            RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("local_addr: {e}"))
+        })?;
         println!(
             "igweb-serve: machine-mode app_dir={} entry={} listening http://{} (loopback, bounded to {} request(s))",
             app_dir_str, entry, bound, max
         );
         let policy = ServingPolicy::new(max).loopback_only();
         let report =
-            machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy).await?;
+            machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
+                .await
+                .map_err(|e| {
+                    RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
+                })?;
         println!(
             "igweb-serve: machine-mode served {} request(s); exiting",
             report.requests_served
         );
-        Ok::<(), std::io::Error>(())
+        Ok::<(), RunnerDiagnostic>(())
     })?;
 
     Ok(())

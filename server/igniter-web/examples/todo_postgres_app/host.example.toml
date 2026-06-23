@@ -1,0 +1,55 @@
+# host.example.toml — operator-owned host config for `todo_postgres_app` (LAB-IGNITER-WEB-HOST-CONFIG-EXAMPLE-P28)
+#
+# COMMIT-SAFE. This file holds env-var NAMES only — never raw DSNs, passwords, or bearer tokens.
+# The parser (`load_host_config`) rejects inline secret keys (`dsn`, `password`, `secret`, `token`,
+# `passport`, `api_key`), template syntax in `*_env` values, unknown sections, and unknown keys.
+#
+# To run, copy this verbatim (or keep it as-is) and export the env vars it references — the SECRETS
+# live in the environment, not in any committed file:
+#
+#   export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
+#   export IGNITER_TODO_EFFECT_TOKEN="some-local-bearer-token"
+#   cargo run --features postgres --bin igweb-serve -- \
+#     --host-config examples/todo_postgres_app/host.example.toml \
+#     --addr 127.0.0.1:0 \
+#     --max-requests 8 \
+#     examples/todo_postgres_app
+#
+# Use a DEDICATED local test database (e.g. `igniter_todo_test`) — never a production or SparkCRM DB.
+# Inline comments after a value are NOT supported; keep comments on their own `#` lines.
+
+# Host process policy. Only "loopback" is accepted in v0 (public bind is refused).
+[host]
+mode = "loopback"
+
+# Real Postgres reads (requires the `postgres` build feature). The app's `ReadThen` QueryPlan is
+# clamped to this host-declared source/field allowlist and row limit before the adapter runs.
+[postgres.read]
+dsn_env = "IGNITER_TODO_PG_DSN"
+source = "todos"
+fields = "id,account_id,title,done"
+row_limit = "100"
+capability = "IO.PostgresRead"
+
+# Real Postgres writes (requires the `postgres` build feature). `targets`/`ops` are the write
+# allowlist; `key_column`/`columns` describe the v0 single-target adapter schema. The DSN here may
+# point at the same database as the read DSN (one env var) or a separate one.
+[postgres.write]
+dsn_env = "IGNITER_TODO_PG_DSN"
+targets = "todos"
+ops = "insert,upsert"
+capability = "IO.TodoWrite"
+key_column = "id"
+columns = "account_id,title,done"
+
+# Logical effect targets the app emits via `InvokeEffect { target: "todo-create" | "todo-done" }`.
+# The host binds each to a machine ingress `route`; `passport_env` names the env var holding the
+# bearer token the client must present (`Authorization: Bearer <value>`). The app never names the
+# route, capability, DSN, or token.
+[effects.todo-create]
+route = "/w"
+passport_env = "IGNITER_TODO_EFFECT_TOKEN"
+
+[effects.todo-done]
+route = "/w"
+passport_env = "IGNITER_TODO_EFFECT_TOKEN"
