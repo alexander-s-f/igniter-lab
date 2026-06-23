@@ -1,0 +1,85 @@
+# LAB-TODOAPP-API-GENERATED-ID-READINESS-P26 - create ids beyond idempotency key
+
+Status: TODO
+Lane: TodoApp API / product semantics / readiness
+Type: readiness packet
+Delegation code: OPUS-TODOAPP-API-GENERATED-ID-READINESS-P26
+Date: 2026-06-23
+Skill: idd-agent-protocol
+
+## Context
+
+Current v0 create uses the idempotency key as the business todo id:
+
+```text
+idempotency-key: create-123
+todo.id = create-123
+```
+
+That was perfect for proving exactly-once write semantics, but it is not a natural product API. A real API
+usually separates:
+
+- idempotency key = request/effect dedup identity;
+- business id = todo identity.
+
+The design must preserve replay safety and authority separation.
+
+## Goal
+
+Decide the first safe path for generated or client-provided todo ids.
+
+Compare at least:
+
+1. client-provided `todo_id` in request body;
+2. host-generated UUID in effect host;
+3. app-generated deterministic id from idempotency key (current, documented v0);
+4. Postgres-generated id (`DEFAULT gen_random_uuid()`), then receipt/readback;
+5. two-step create: write request returns receipt only, follow-up read by correlation/business key.
+
+## Verify first
+
+Read:
+
+- `server/igniter-web/examples/todo_postgres_app/todo_handlers.ig`
+- `server/igniter-web/examples/todo_postgres_app/API.md`
+- `server/igniter-web/examples/todo_postgres_app/host_policy.md`
+- `runtime/igniter-machine/src/postgres_write*.rs`
+- `runtime/igniter-machine/tests/postgres*_write*`
+- `server/igniter-web/tests/todo_postgres_local_e2e_tests.rs`
+
+Pay attention to what the write adapter returns today and whether it can surface a generated id.
+
+## Questions to answer
+
+1. Who owns business id generation in Igniter's authority model?
+2. Can a host-generated id be deterministic under replay?
+3. Does Postgres-generated id require a readback path or RETURNING support?
+4. How does replay return the same business id without a second mutation?
+5. How does conflict detection change if body contains a client id?
+6. What is the smallest implementation after this readiness card?
+
+## Acceptance
+
+- [ ] Packet chooses a recommended v1 id strategy.
+- [ ] Replay semantics are explicit: same idempotency key returns the same business result.
+- [ ] Conflict semantics are explicit: same key + different title/id refuses.
+- [ ] Host/app authority boundary preserved.
+- [ ] Necessary adapter changes, if any, are named.
+- [ ] Next implementation card is specific and bounded.
+- [ ] No production code changes except optional doc link.
+- [ ] `git diff --check` clean.
+
+## Deliverable
+
+Preferred:
+
+```text
+lab-docs/lang/lab-todoapp-api-generated-id-readiness-p26-v0.md
+```
+
+## Closed surfaces
+
+- No DB schema migration in this card.
+- No write adapter refactor in this card.
+- No public API stability claim.
+
