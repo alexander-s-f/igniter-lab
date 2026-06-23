@@ -2483,6 +2483,53 @@ impl TypeChecker {
                 // map_has_key(Map[String,V], String) → Bool
                 resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
             }
+            // LAB-MACHINE-MAP-GET-STRING-P34: typed, fail-closed string extractor.
+            // map_get_string(Map[String,V], String) → Option[String]: Some ONLY for a present STRING
+            // value; None for missing / non-string / null. Stricter than map_get (which is permissive):
+            // a clearly-non-Map first arg or non-String key is a typecheck error (Unknown is allowed for
+            // dynamic inputs like `req.body_json`).
+            "map_get_string" | "stdlib.map.get_string" => {
+                is_resolved = true;
+                if args.len() != 2 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!(
+                            "stdlib.map.get_string: expected 2 arguments (map, key), got {}",
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    let map_name = self.type_name(&typed_args[0].resolved_type);
+                    if map_name != "Map" && map_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!(
+                                "stdlib.map.get_string arg 1: expected Map[String, V], got {}",
+                                map_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                    let key_name = self.type_name(&typed_args[1].resolved_type);
+                    if key_name != "String" && key_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!(
+                                "stdlib.map.get_string arg 2: expected String key, got {}",
+                                key_name
+                            ),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+                // Always Option[String] (the typed contract), regardless of the map's value type.
+                let str_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                resolved_type = self.make_option_type_ir(str_type);
+            }
             "map_from_pairs" | "stdlib.map.from_pairs" => {
                 is_resolved = true;
                 // map_from_pairs(Collection[Pair[String,V]]) → Map[String,V]

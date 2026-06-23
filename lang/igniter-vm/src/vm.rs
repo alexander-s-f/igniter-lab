@@ -2691,6 +2691,32 @@ impl VM {
                                 }
                             }
                         }
+                        // LAB-MACHINE-MAP-GET-STRING-P34: typed, fail-closed string extractor.
+                        // get_string(map, key) → Option[String]: Some(v) ONLY when the present value is a
+                        // String; missing key / non-string value / null all return None (Nil). Same Option
+                        // representation as map_get (None = Nil, Some(v) = raw v). No body value echoed.
+                        "map_get_string" | "stdlib.map.get_string" => {
+                            if args.len() != 2 {
+                                return Err(format!(
+                                    "map_get_string expects exactly 2 arguments, got {}",
+                                    args.len()
+                                ));
+                            }
+                            let key = args[1].as_str()?;
+                            match &args[0] {
+                                Value::Record(map) => match map.get(key) {
+                                    Some(Value::String(s)) => Value::String(s.clone()),
+                                    _ => Value::Nil,
+                                },
+                                Value::Nil => Value::Nil,
+                                _ => {
+                                    return Err(format!(
+                                    "map_get_string: first argument must be a Map (Record), got {:?}",
+                                    args[0]
+                                ))
+                                }
+                            }
+                        }
                         // ── end LAB-VM-MAP-P1 ────────────────────────────────────────────────
                         _ => {
                             return Err(format!(

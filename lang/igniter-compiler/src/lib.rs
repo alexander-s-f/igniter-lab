@@ -21,4 +21,4 @@ pub mod liveness;
 /// so this constant is the authoritative, compiler-owned stdlib version — mirrored from
 /// `igniter-stdlib/Cargo.toml` and guarded by a test (`stdlib_version_mirrors_crate`) against silent
 /// divergence. Bump this when the baked-in stdlib surface changes.
-pub const STDLIB_VERSION: &str = "0.1.4";
+pub const STDLIB_VERSION: &str = "0.1.5";
