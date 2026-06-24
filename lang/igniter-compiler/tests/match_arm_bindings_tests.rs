@@ -149,3 +149,26 @@ fn plain_match_arm_still_compiles() {
         compile(src, "plain")
     );
 }
+
+// ── 7: LAB-COMPILER-MATCH-ARM-RECORD-LITERAL-FIX-P1 — an arm body that starts with `{` is a record
+//        literal, not a forced block. Was `Unexpected token in expression: Colon` (web_router Respond).
+#[test]
+fn match_arm_record_literal_body_compiles() {
+    let src = "type Resp {
+  status : Integer
+  body   : String
+}
+contract Compose {
+  input r : Result[String, String]
+  compute resp : Resp = match r {
+    Ok  { value } => { status: 200, body: value }
+    Err { error } => { status: 500, body: error }
+  }
+  output resp : Resp
+}";
+    assert!(
+        is_ok(&compile(src, "armrecord")),
+        "match arm record-literal body must compile: {}",
+        compile(src, "armrecord")
+    );
+}

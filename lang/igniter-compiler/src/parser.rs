@@ -3951,13 +3951,13 @@ impl Parser {
         };
         self.expect_type(TokenType::FatArrow)?;
         // LAB-LANG-MATCH-ARM-BINDINGS-P2: an arm body may be a block `{ let x = e  ...  expr }` with
-        // branch-local bindings, or (unchanged) a single expression. A `{` in expression position is a
-        // record literal, so block arms are recognized only here, at the arm-body position.
-        let body = if self.peek_type(TokenType::LBrace) {
-            Expr::Block(self.parse_block_body()?)
-        } else {
-            self.parse_expr()?
-        };
+        // branch-local bindings, or (unchanged) a single expression.
+        // LAB-COMPILER-MATCH-ARM-RECORD-LITERAL-FIX-P1: an arm body that starts with `{` is no longer
+        // forced to a block — `parse_expr` routes `{` through `parse_record_or_block`, which disambiguates
+        // a `{ let … }` block from a `{ field: value }` record literal (the FALLIBLE-BINDING-P2 rule). This
+        // lets `Created { body } => { status: 201, body: body }` parse as a record literal arm while every
+        // `{ let … }` block body from MATCH-ARM-BINDINGS-P2 still lowers as a block.
+        let body = self.parse_expr()?;
         Ok(Some(MatchArm {
             pattern,
             body: Box::new(body),

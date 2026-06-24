@@ -6070,6 +6070,42 @@ fn eval_ast<'a>(
                     )),
                 }
             }
+            // LAB-VM-EVALAST-VARIANT-CONSTRUCT-IMPL-P5: a `variant_construct` built inside a
+            // lambda/HOF body (e.g. `map(rows, r -> ValidateRow(r))` where ValidateRow returns
+            // `Valid {..}` / `Invalid {..}`) is lowered to this SIR node, which the bytecode path
+            // runs (compiler.rs Path B → OP_PUSH_RECORD) but `eval_ast` did not — so it crashed
+            // here ("Unsupported AST kind"). Mirror the bytecode record shape exactly: an ordinary
+            // Record carrying `__arm` (compiler-owned discriminant), `__variant` (diagnostic), plus
+            // the payload fields verbatim. No Value::Variant. This is the same shape `match_node`
+            // reads via `__arm`, so a variant constructed in a lambda matches downstream.
+            "variant_construct" => {
+                let arm_name = node
+                    .get("arm")
+                    .and_then(|a| a.as_str())
+                    .ok_or("variant_construct: missing arm")?;
+                let variant_name = node
+                    .get("variant")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(arm_name);
+                let fields_obj = node
+                    .get("fields")
+                    .and_then(|f| f.as_object())
+                    .ok_or("variant_construct: missing fields object")?;
+                let mut map = std::collections::BTreeMap::new();
+                for (k, v) in fields_obj {
+                    let val = eval_ast(v, inputs, temporal_context, local_env, backend, vm).await?;
+                    map.insert(k.clone(), val);
+                }
+                map.insert(
+                    "__arm".to_string(),
+                    Value::String(Arc::from(arm_name)),
+                );
+                map.insert(
+                    "__variant".to_string(),
+                    Value::String(Arc::from(variant_name)),
+                );
+                Ok(Value::Record(Arc::new(map)))
+            }
             _ => Err(format!("Unsupported AST kind in VM evaluator: {}", kind)),
         }
     })

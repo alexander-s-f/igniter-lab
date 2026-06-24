@@ -1,6 +1,6 @@
 # LAB-COMPILER-MATCH-ARM-RECORD-LITERAL-FIX-P1 - disambiguate match-arm record literals from blocks
 
-Status: OPEN
+Status: CLOSED (2026-06-24)
 Lane: compiler / fleet recovery
 Type: implementation + proof
 Date: 2026-06-24
@@ -37,12 +37,38 @@ added by match-arm binding work.
 
 ## Acceptance
 
-- [ ] Focused parser/compiler test covers match arm returning a record literal beginning with `{`.
-- [ ] Existing match-arm block-body tests still pass.
-- [ ] `web_router` compiles through the machine multifile path.
-- [ ] `cargo test --test machine_tests test_machine_loads_multifile_app -- --nocapture` passes.
-- [ ] `cargo test --test machine_tests test_machine_fleet_sweep -- --nocapture` improves; if `batch_importer` still fails, report exact remaining blocker.
-- [ ] `git diff --check` clean.
+- [x] Focused parser/compiler test covers match arm returning a record literal beginning with `{`.
+- [x] Existing match-arm block-body tests still pass.
+- [x] `web_router` compiles through the machine multifile path.
+- [x] `cargo test --test machine_tests test_machine_loads_multifile_app -- --nocapture` passes.
+- [x] `cargo test --test machine_tests test_machine_fleet_sweep -- --nocapture` improves; if `batch_importer` still fails, report exact remaining blocker.
+- [x] `git diff --check` clean.
+
+## Result (2026-06-24)
+
+Root cause: `parse_match_arm_inner` (parser.rs ~L3956) forced **any** arm body starting with `{` to
+`parse_block_body`, so a record literal `{ status: 201, body: body }` was parsed as a block and died on
+the field `:` (`Unexpected token in expression: Colon`). The comment claiming "a `{` in expression
+position is a record literal" was stale: FALLIBLE-BINDING-P2 later taught `parse_record_or_block` to
+disambiguate `{ let … }` (block) from `{ field: value }` (record) in expression position.
+
+Fix (parser.rs): the arm body is now parsed unconditionally via `self.parse_expr()`, which routes a
+leading `{` through `parse_primary → parse_record_or_block`. That single disambiguation point keeps
+`{ let … }` block arms (MATCH-ARM-BINDINGS-P2) lowering as blocks while record-literal arms parse as
+records. No record-literal runtime semantics touched; `eval_ast variant_construct` untouched; fleet app
+source unchanged (real parser repair, not a fixture patch).
+
+Evidence:
+- New focused test `match_arm_record_literal_body_compiles` in `tests/match_arm_bindings_tests.rs` (arm
+  body record literal beginning with `{`) — **passes via the real compiler binary**.
+- All 6 prior MATCH-ARM-BINDINGS-P2 tests still pass (7/7 in that file).
+- Full `igniter-compiler` suite green (no regressions).
+- `test_machine_loads_multifile_app` — passes.
+- `test_machine_fleet_sweep` — **13/13 ok** (was HOLD 11/13). `web_router` recovered; `batch_importer`
+  also clean — no remaining fleet blocker.
+- `git diff --check` — clean.
+
+Next route: none required. Fleet at full 13/13.
 
 ## Closed Surfaces
 
