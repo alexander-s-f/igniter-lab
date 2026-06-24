@@ -68,6 +68,12 @@ pub struct KuramotoConfig {
     // node_tick bundles byte-identical.
     #[serde(default)]
     pub emit_spatial_profiles: bool,
+    // EMERGENCE-STAGE2-NODE-TIMESERIES-P17: emit node_series.csv — the per-node micro time series theta_i(t)
+    // (and omega_i), sampled at series_sample_stride, for cross-scale measures (transfer entropy / EI). It is
+    // a DATA SURFACE, not a claim; no TE/EI is computed in the runner. node_tick mode only. Default off keeps
+    // prior bundles byte-identical.
+    #[serde(default)]
+    pub emit_node_series: bool,
     // EMERGENCE-STAGE2-ABLATION-MAP-P16: deterministic knockout intervention. When Some(k), oscillator k is
     // removed from the dynamics (every other node's neighbour list drops edges to k → k exerts no coupling)
     // AND excluded from the global order-parameter measurement. Everything else is byte-identical, so the
@@ -101,6 +107,7 @@ impl Default for KuramotoConfig {
             coupling_radius: None,
             incoherent_fraction: None,
             emit_spatial_profiles: false,
+            emit_node_series: false,
             ablate_node: None,
         }
     }
@@ -170,6 +177,18 @@ struct SeriesRow {
     local_r_mean: Option<f64>,
 }
 
+// EMERGENCE-STAGE2-NODE-TIMESERIES-P17: one row per (sampled tick, node) — the micro time series for TE/EI.
+#[derive(Debug)]
+struct NodeSeriesRow {
+    topology: String,
+    n: usize,
+    k: f64,
+    tick: usize,
+    node: usize,
+    theta: f64,
+    omega: f64,
+}
+
 #[derive(Debug)]
 struct LocalOrderRow {
     topology: String,
@@ -217,6 +236,8 @@ struct SimulationResult {
     spatial_profile_rows: Vec<ProfileRow>,
     omega_profile_rows: Vec<ProfileRow>,
     phase_snapshot_rows: Vec<ProfileRow>,
+    // EMERGENCE-STAGE2-NODE-TIMESERIES-P17: per-node micro time series. Empty unless emit_node_series.
+    node_series_rows: Vec<NodeSeriesRow>,
 }
 
 struct LoadedKernel {
@@ -727,6 +748,7 @@ async fn simulate_all_to_all_tick(
         spatial_profile_rows: Vec::new(),
         omega_profile_rows: Vec::new(),
         phase_snapshot_rows: Vec::new(),
+        node_series_rows: Vec::new(),
     })
 }
 
@@ -743,6 +765,7 @@ async fn simulate_node_tick(
     let mut spatial_profile_rows = Vec::new();
     let mut omega_profile_rows = Vec::new();
     let mut phase_snapshot_rows = Vec::new();
+    let mut node_series_rows: Vec<NodeSeriesRow> = Vec::new();
     let plateau_start = config.ticks - config.plateau_window;
 
     for &n in &config.n_values {
@@ -845,6 +868,21 @@ async fn simulate_node_tick(
                             min: local_stats.min,
                             max: local_stats.max,
                         });
+                        // P17: per-node micro time series theta_i(t) (+ omega_i), same sampled ticks as the
+                        // macro series so cross-scale (micro<->macro) measures align in time.
+                        if config.emit_node_series {
+                            for i in 0..n {
+                                node_series_rows.push(NodeSeriesRow {
+                                    topology: topology.name.clone(),
+                                    n,
+                                    k,
+                                    tick,
+                                    node: i,
+                                    theta: thetas[i],
+                                    omega: omegas[i],
+                                });
+                            }
+                        }
                     }
                 }
 
@@ -907,6 +945,7 @@ async fn simulate_node_tick(
         spatial_profile_rows,
         omega_profile_rows,
         phase_snapshot_rows,
+        node_series_rows,
     })
 }
 
@@ -1192,6 +1231,7 @@ fn write_bundle(
         "coupling_radius": config.coupling_radius,
         "incoherent_fraction": config.incoherent_fraction,
         "ablate_node": config.ablate_node,
+        "emit_node_series": config.emit_node_series,
         "coupling_form": if config.phase_lag_alpha.is_some() {
             "sakaguchi: sin(theta_j - theta_i - alpha)"
         } else {
@@ -1244,6 +1284,19 @@ fn write_bundle(
     }
     fs::write(args.out_dir.join("local_order.csv"), local_order)
         .map_err(|e| format!("failed to write local_order.csv: {}", e))?;
+
+    // EMERGENCE-STAGE2-NODE-TIMESERIES-P17: the micro time series data surface for TE/EI (only when requested).
+    if config.emit_node_series {
+        let mut node_series = String::from("topology,N,K,tick,node,theta,omega\n");
+        for row in &simulation.node_series_rows {
+            node_series.push_str(&format!(
+                "{},{},{},{},{},{},{}\n",
+                row.topology, row.n, row.k, row.tick, row.node, row.theta, row.omega
+            ));
+        }
+        fs::write(args.out_dir.join("node_series.csv"), node_series)
+            .map_err(|e| format!("failed to write node_series.csv: {}", e))?;
+    }
 
     if config.emit_spatial_profiles {
         let mut spatial = String::from("topology,N,K,node,plateau_local_r\n");
