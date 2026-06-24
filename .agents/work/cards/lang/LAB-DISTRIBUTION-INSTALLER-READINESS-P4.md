@@ -1,6 +1,6 @@
 # LAB-DISTRIBUTION-INSTALLER-READINESS-P4 - choose v0 installer/distribution channel
 
-Status: CLOSED (readiness — v0 = repo-local bootstrap script; impl → LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6)
+Status: CLOSED (readiness — v0 = repo-local bootstrap script; impl → LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8)
 Lane: distribution / installer readiness
 Type: readiness
 Date: 2026-06-24
@@ -82,7 +82,7 @@ Packet: `lab-docs/lang/lab-distribution-installer-readiness-p4-v0.md`.
 **v0 channel = repo-local bootstrap script** (`bin/igniter-install`): build the **5 green release binaries**
 (igc/igniter-vm/igweb-serve/igniter-mcp/tbackend), stage to a PATH prefix behind the P2 `bin/igniter` wrapper,
 verify the `igniter-lang` sibling, install `igniter_compiler` as `igc`, loopback smoke. No new infra, no root
-workspace (P5), no cross-compile, no DB. **Impl card → `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6`.**
+workspace (P5), no cross-compile, no DB. **Impl card → `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8`.**
 
 **Verify-first (live source):** binaries are **self-contained** — `stdlib/*.ig` are source sketches (read
 only by Ruby proofs), stdlib symbols are compiled-in builtins, IgWeb prelude is an embedded const → **no
@@ -94,7 +94,7 @@ runtime asset to ship**. **Build prereq:** compiler `include_str!`s canon `ignit
 + repl; (3) self-contained binaries + config *templates* + optional demo app + build-time igniter-lang
 sibling; (4) pure default install, `machine`/`postgres`/`tls`/`ffi`/`repl` opt-in variants only; (5)
 public-bind refused (igweb-serve gate, preserved by wrapper), secrets env-only/templates, postgres opt-in
-needs DSN; (6) `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6`; (7) staged ladder — **tarball first for tools,
+needs DSN; (6) `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8`; (7) staged ladder — **tarball first for tools,
 release-bundle+systemd (Model E) first for apps**, then `.deb`→Docker, never Docker as first Pi-edge default.
 
 **≥5 channels compared (8).** Release-bundle+systemd compared **separately** from `.deb` (E = app-shaped,

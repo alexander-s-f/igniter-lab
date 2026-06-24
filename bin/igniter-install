@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# igniter-install — repo-local BOOTSTRAP installer for the Igniter control center.
+#
+# LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8 (v0 install channel chosen by P4). It builds the 5 green release
+# binaries package-locally from THIS checkout (no root workspace), stages them + the `igniter` front door
+# into a prefix, writes a provenance manifest, and runs a local smoke. It is BOOTSTRAP-ONLY: once it has
+# installed `igniter`, daily work is `igniter …` and ongoing updates are `igniter toolchain …` — this is
+# NOT a second package manager.
+#
+# Never installs: secrets, host-config with inline secrets, DB DSNs, systemd units, Docker files, public
+# listeners. No network/registry/upload/signing. `igniter-repl` is excluded (build-broken — P3).
+set -euo pipefail
+
+PROG="igniter-install"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LANG_INVENTORY="$REPO_ROOT/../igniter-lang/docs/spec/stdlib-inventory.json"
+
+PREFIX="${HOME}/.igniter"   # default; override with --prefix
+
+usage() {
+  cat <<EOF
+usage: igniter-install [--prefix PATH]
+
+Bootstrap the Igniter control center from this checkout into PATH (default: \$HOME/.igniter).
+Builds 5 release binaries package-locally (no root workspace), stages them + the \`igniter\` front door,
+writes <prefix>/igniter-manifest.json, and runs a local smoke.
+
+  --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $PREFIX]
+  -h | --help     this help
+
+Bootstrap-only: afterwards use \`igniter …\`. Excludes igniter-repl (build-broken, P3). No secrets, no
+systemd/Docker, no network/registry.
+EOF
+}
+
+# ── args ──────────────────────────────────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prefix) PREFIX="${2:?--prefix requires a PATH}"; shift 2 ;;
+    --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "$PROG: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
+  esac
+done
+BIN_DIR="$PREFIX/bin"
+
+# ── helpers ─────────────────────────────────────────────────────────────────────────────────────────
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  else echo "unavailable"; fi
+}
+target_triple() { rustc -vV 2>/dev/null | awk '/^host:/{print $2}'; }
+
+echo "$PROG: prefix=$PREFIX  repo=$REPO_ROOT"
+command -v cargo >/dev/null 2>&1 || { echo "$PROG: cargo not found — install Rust (https://rustup.rs)" >&2; exit 1; }
+if [[ ! -f "$LANG_INVENTORY" ]]; then
+  echo "$PROG: missing build prerequisite: $LANG_INVENTORY" >&2
+  echo "  → the compiler include_str!s the canon stdlib inventory; check out 'igniter-lang' beside igniter-lab." >&2
+  exit 1
+fi
+
+mkdir -p "$BIN_DIR"
+
+# fleet rows: install-name | crate-dir (rel) | cargo bin target | built artifact filename
+FLEET="igc|lang/igniter-compiler|igniter_compiler|igniter_compiler
+igniter-vm|lang/igniter-vm|igniter-vm|igniter-vm
+igweb-serve|server/igniter-web|igweb-serve|igweb-serve
+igniter-mcp|runtime/igniter-machine|igniter-mcp|igniter-mcp
+tbackend|runtime/igniter-tbackend|tbackend|tbackend"
+
+# ── build + stage ─────────────────────────────────────────────────────────────────────────────────
+declare -a MANIFEST_BINS=()
+while IFS='|' read -r name crate binname artifact; do
+  [[ -z "$name" ]] && continue
+  echo "$PROG: building $name (cargo build --release --bin $binname in $crate)…"
+  ( cd "$REPO_ROOT/$crate" && cargo build --release --bin "$binname" ) >&2
+  src="$REPO_ROOT/$crate/target/release/$artifact"
+  if [[ ! -x "$src" ]]; then echo "$PROG: expected artifact missing: $src" >&2; exit 1; fi
+  cp -f "$src" "$BIN_DIR/$name"
+  chmod +x "$BIN_DIR/$name"
+  sum="$(sha256 "$BIN_DIR/$name")"
+  echo "$PROG: staged $name  ($sum)"
+  MANIFEST_BINS+=("    {\"name\": \"$name\", \"path\": \"$BIN_DIR/$name\", \"crate\": \"$crate\", \"feature_set\": [], \"sha256\": \"$sum\"}")
+done <<EOF
+$FLEET
+EOF
+
+# stage the durable front door
+cp -f "$SCRIPT_DIR/igniter" "$BIN_DIR/igniter"
+chmod +x "$BIN_DIR/igniter"
+echo "$PROG: staged igniter front door → $BIN_DIR/igniter"
+
+# ── manifest (provenance; no secrets) ────────────────────────────────────────────────────────────────
+commit="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)" ]]; then dirty=true; else dirty=false; fi
+triple="$(target_triple)"
+igniter_sum="$(sha256 "$BIN_DIR/igniter")"
+{
+  echo "{"
+  echo "  \"tool\": \"igniter-install\","
+  echo "  \"prefix\": \"$PREFIX\","
+  echo "  \"source_git_commit\": \"$commit\","
+  echo "  \"dirty\": $dirty,"
+  echo "  \"target_triple\": \"$triple\","
+  echo "  \"public_release\": false,"
+  echo "  \"excluded\": [{\"name\": \"igniter-repl\", \"reason\": \"build-broken: async checkpoint/resume not awaited (P3)\"}],"
+  echo "  \"front_door\": {\"name\": \"igniter\", \"path\": \"$BIN_DIR/igniter\", \"sha256\": \"$igniter_sum\"},"
+  echo "  \"binaries\": ["
+  # join manifest bin lines with commas
+  local_n=${#MANIFEST_BINS[@]}
+  i=0
+  for line in "${MANIFEST_BINS[@]}"; do
+    i=$((i+1))
+    if [[ $i -lt $local_n ]]; then echo "$line,"; else echo "$line"; fi
+  done
+  echo "  ]"
+  echo "}"
+} > "$PREFIX/igniter-manifest.json"
+echo "$PROG: wrote manifest → $PREFIX/igniter-manifest.json"
+
+# ── local smoke (no network, no DB, no mutation beyond the prefix) ─────────────────────────────────────
+echo "$PROG: smoke — igniter --help"
+"$BIN_DIR/igniter" --help >/dev/null
+TODO_APP="$REPO_ROOT/server/igniter-web/examples/todo_app"
+echo "$PROG: smoke — igniter check (no socket)"
+"$BIN_DIR/igniter" check "$TODO_APP" >/dev/null
+
+cat <<EOF
+
+$PROG: done. Installed the control center + 5 binaries into $BIN_DIR (igniter-repl excluded: build-broken).
+  Add to PATH:   export PATH="$BIN_DIR:\$PATH"
+  Then try:      igniter doctor   |   igniter serve $TODO_APP
+Re-run igniter-install any time to rebuild + restage (idempotent overwrite).
+EOF

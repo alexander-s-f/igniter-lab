@@ -1,21 +1,61 @@
 #!/usr/bin/env bash
-# igniter — thin Rails-`s`-style DX dispatcher over the package-local Igniter binaries.
+# igniter — the Igniter control-center front door (thin dispatcher over the package-local binaries).
 #
-# LAB-DISTRIBUTION-RAILS-SERVE-DX-P2 (shape decided by P1 §5, wrapper "C"): v0 implements ONE verb,
-# `serve`, forwarding to `igweb-serve` (server/igniter-web). This wrapper adds NO authority of its own —
-# loopback-only bind, the public-bind refusal, and the request bound all live in `igweb-serve`. All it
-# hides is the binary name, the per-crate build path, and target-dir plumbing (exactly what P1 asked for).
+# Taxonomy decided by LAB-DISTRIBUTION-CONTROL-CENTER-READINESS-P6; this v0 SKELETON
+# (LAB-DISTRIBUTION-CONTROL-CENTER-CLI-SKELETON-P7) wires the verbs with HONEST delegation and fail-closed
+# placeholders. It adds NO authority of its own: loopback-only bind, the public-bind refusal, the request
+# bound, package trust and host-config all stay in the owners (igweb-serve / igc / igniter-machine). The
+# dispatcher only routes and hides the binary name / build path / target-dir plumbing.
 #
-# No root workspace, no systemd/Docker/Homebrew, no daemon, no public listener — see the card's closed
-# surfaces. Point IGNITER_IGWEB_SERVE_BIN at a prebuilt binary (e.g. a release-bundle path) to skip building.
+#   igniter serve <app_dir> ...   → igweb-serve            (live; P2-compatible)
+#   igniter check <app_dir>       → igweb-serve check      (live; dry build, no socket)
+#   igniter doctor                → local non-mutating environment report (live)
+#   igniter toolchain list        → report the v0 tool fleet present in the repo (live)
+#   igniter toolchain install|update , igniter package ... , igniter app ...  → fail-closed placeholders
+#
+# No root workspace, no installer, no registry/download, no systemd/Docker/Homebrew. Point
+# IGNITER_IGWEB_SERVE_BIN at a prebuilt igweb-serve (e.g. a release-bundle path) to skip building.
 set -euo pipefail
 
 PROG="igniter"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_CRATE="$REPO_ROOT/server/igniter-web"
+# Build-time prerequisite: the compiler `include_str!`s this from the canon sibling repo (verified by doctor).
+LANG_SIBLING="$REPO_ROOT/../igniter-lang"
+LANG_INVENTORY="$LANG_SIBLING/docs/spec/stdlib-inventory.json"
 
 usage() {
+  cat <<'EOF'
+usage: igniter <command> [args]
+
+The Igniter control center — one front door that delegates to the package-local tools.
+
+App lifecycle:
+  serve <app_dir> [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH]
+                        build + serve a local IgWeb app on loopback (→ igweb-serve)
+  serve --check <app_dir> | check <app_dir>
+                        dry build/verify the app and exit; opens NO socket (→ igweb-serve check)
+
+Diagnostics & toolchain:
+  doctor                local, non-mutating environment report (binaries, repo, igniter-lang sibling, rustc)
+  toolchain list        show the v0 tool fleet and whether each binary is built in the repo
+  toolchain install|update   (not implemented in v0 — see LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8)
+
+Packaging & deployment (delegation owners; not yet first-class here):
+  package ...           package trust is owned by `igc` (lock/verify/package graph|pack|verify|admit)
+  app ...               app deployment is the release-bundle + systemd scripts (home-lab Model E)
+
+  -h | --help           this help
+
+Safety: every verb routes to a named owner that enforces its authority — loopback/public-bind refusal and
+the request bound live in igweb-serve; package trust + STDLIB_VERSION in igc; host authority in --host-config.
+This dispatcher grants nothing new. Env: IGNITER_IGWEB_SERVE_BIN=/path/to/igweb-serve.
+EOF
+}
+
+# Serve-specific help (shown by `igniter serve --help`) — keeps the P2 contract detail discoverable.
+serve_usage() {
   cat <<'EOF'
 usage: igniter serve <app_dir> [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH]
        igniter serve --check <app_dir>
@@ -36,11 +76,17 @@ Env: IGNITER_IGWEB_SERVE_BIN=/path/to/igweb-serve  # use a prebuilt binary inste
 EOF
 }
 
-# Resolve the igweb-serve binary: explicit override → existing release/debug build → build it (release).
+# ── binary resolution ──────────────────────────────────────────────────────────────────────────────
+
+# Resolve the igweb-serve binary:
+#   explicit override → co-located (staged prefix: a sibling next to this script) → repo target → build.
+# The co-located case is what a bootstrap install (LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8) relies on:
+# `<prefix>/bin/{igniter,igweb-serve,…}` is self-contained and never rebuilds from a source checkout.
 resolve_igweb_serve() {
   if [[ -n "${IGNITER_IGWEB_SERVE_BIN:-}" ]]; then
     printf '%s' "$IGNITER_IGWEB_SERVE_BIN"; return 0
   fi
+  if [[ -x "$SCRIPT_DIR/igweb-serve" ]]; then printf '%s' "$SCRIPT_DIR/igweb-serve"; return 0; fi
   local cand
   for cand in "$WEB_CRATE/target/release/igweb-serve" "$WEB_CRATE/target/debug/igweb-serve"; do
     if [[ -x "$cand" ]]; then printf '%s' "$cand"; return 0; fi
@@ -50,30 +96,169 @@ resolve_igweb_serve() {
   printf '%s' "$WEB_CRATE/target/release/igweb-serve"
 }
 
+# Echo the path to an already-built binary (release preferred, then debug); return 1 if not present.
+#   $1 = crate dir relative to REPO_ROOT   $2 = built artifact filename
+probe_built() {
+  local d p
+  for d in release debug; do
+    p="$REPO_ROOT/$1/target/$d/$2"
+    if [[ -x "$p" ]]; then printf '%s' "$p"; return 0; fi
+  done
+  return 1
+}
+
+# ── verbs: live ─────────────────────────────────────────────────────────────────────────────────────
+
 cmd_serve() {
-  # `serve --help` shows wrapper usage without requiring an app dir.
-  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then serve_usage; exit 0; fi
   local bin; bin="$(resolve_igweb_serve)"
   if [[ ! -x "$bin" ]]; then
-    echo "$PROG: igweb-serve not found or not executable at: $bin" >&2
-    exit 1
+    echo "$PROG: igweb-serve not found or not executable at: $bin" >&2; exit 1
   fi
-  # `serve --check <app_dir>` → `igweb-serve check <app_dir>` (dry build, no socket). Otherwise pass
-  # arguments straight through; igweb-serve owns parsing, defaults, and the loopback/bounded semantics.
-  if [[ "${1:-}" == "--check" ]]; then
-    shift
-    exec "$bin" check "$@"
-  fi
+  # `serve --check <app_dir>` → `igweb-serve check <app_dir>`; otherwise pass through (igweb-serve owns
+  # parsing, defaults, and the loopback/bounded semantics — unchanged from P2).
+  if [[ "${1:-}" == "--check" ]]; then shift; exec "$bin" check "$@"; fi
   exec "$bin" "$@"
 }
+
+cmd_check() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
+    echo "usage: igniter check <app_dir>   # dry build/verify; opens no socket (→ igweb-serve check)"
+    [[ $# -eq 0 ]] && exit 2 || exit 0
+  fi
+  local bin; bin="$(resolve_igweb_serve)"
+  if [[ ! -x "$bin" ]]; then
+    echo "$PROG: igweb-serve not found or not executable at: $bin" >&2; exit 1
+  fi
+  exec "$bin" check "$@"
+}
+
+cmd_doctor() {
+  # Local, non-mutating: no network, no DB, no build. Inspect, report, suggest. Always exits 0 (a report).
+  echo "igniter doctor — local environment (non-mutating)"
+  echo "  repo_root: $REPO_ROOT"
+
+  local ok="ok    " miss="MISSING"
+  # rustc / cargo (cheap version probe)
+  if command -v rustc >/dev/null 2>&1; then echo "  [$ok] rustc: $(rustc --version 2>/dev/null)"
+  else echo "  [$miss] rustc — install Rust (https://rustup.rs) to build the tools"; fi
+  if command -v cargo >/dev/null 2>&1; then echo "  [$ok] cargo: $(cargo --version 2>/dev/null)"
+  else echo "  [$miss] cargo — install Rust toolchain"; fi
+
+  # canon sibling (build prerequisite: compiler include_str!s the stdlib inventory from it)
+  if [[ -f "$LANG_INVENTORY" ]]; then echo "  [$ok] igniter-lang sibling: $LANG_SIBLING (stdlib-inventory.json present)"
+  else echo "  [$miss] igniter-lang sibling at $LANG_SIBLING — required to BUILD igc (stdlib-inventory.json)"; fi
+
+  # the v0 tool fleet
+  echo "  tools:"
+  toolchain_report "    "
+
+  echo "  next: 'igniter toolchain list' for build commands; 'igniter serve <app_dir>' to run an app."
+  exit 0
+}
+
+# Shared fleet report used by `doctor` and `toolchain list`. $1 = indent.
+toolchain_report() {
+  local indent="${1:-}"
+  # rows: label | crate-dir (rel) | artifact | build command
+  # NOTE: igniter_compiler self-names `igc`; artifact file is `igniter_compiler` (P1/P3 name caveat).
+  local rows="igc|lang/igniter-compiler|igniter_compiler|cargo build --release
+igniter-vm|lang/igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
+igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-serve
+igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
+tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend"
+  local label crate artifact build path
+  while IFS='|' read -r label crate artifact build; do
+    [[ -z "$label" ]] && continue
+    if [[ -x "$SCRIPT_DIR/$label" ]]; then
+      echo "${indent}[present] $label → $SCRIPT_DIR/$label (staged)"
+    elif [[ "$label" == "igweb-serve" && -n "${IGNITER_IGWEB_SERVE_BIN:-}" && -x "${IGNITER_IGWEB_SERVE_BIN}" ]]; then
+      echo "${indent}[present] $label → $IGNITER_IGWEB_SERVE_BIN (IGNITER_IGWEB_SERVE_BIN)"
+    elif path="$(probe_built "$crate" "$artifact")"; then
+      echo "${indent}[present] $label → $path"
+    else
+      echo "${indent}[absent ] $label — build: (cd $crate && $build)"
+    fi
+  done <<EOF
+$rows
+EOF
+  # igniter-repl is a known v0 NON-member: its build is broken (P3, async checkpoint/resume not awaited).
+  echo "${indent}[blocked] igniter-repl — unavailable in v0 (build fails: async resume; see P3 / repl-fix card)"
+}
+
+cmd_toolchain() {
+  local sub="${1:-}"
+  case "$sub" in
+    list)
+      echo "igniter toolchain — v0 fleet (5 supported binaries; igniter-repl excluded):"
+      toolchain_report "  "
+      exit 0 ;;
+    install|update)
+      echo "$PROG: 'toolchain $sub' is not implemented in v0." >&2
+      echo "  → bootstrap install/update is LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8 (build+stage the fleet)." >&2
+      echo "  → for now build per-crate, e.g.: (cd server/igniter-web && cargo build --release --bin igweb-serve)" >&2
+      exit 3 ;;
+    ""|-h|--help)
+      echo "usage: igniter toolchain list | install | update"
+      echo "  list             show the v0 tool fleet and whether each binary is built (live)"
+      echo "  install|update   not implemented in v0 (→ LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8)"
+      [[ "$sub" == "" ]] && exit 2 || exit 0 ;;
+    *)
+      echo "$PROG: unknown 'toolchain' subcommand '$sub' (try: list)" >&2; exit 2 ;;
+  esac
+}
+
+# ── verbs: fail-closed placeholders (named owner, never silent success) ───────────────────────────────
+
+cmd_package() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
+    cat <<'EOF'
+igniter package — package trust is owned by `igc` (no second resolver). Planned delegation (P6):
+  igniter package lock                → igc lock
+  igniter package verify              → igc verify        (workspace drift + assembly integrity)
+  igniter package graph|pack|admit    → igc package graph|pack|admit
+  igniter package verify <file.igpkg> → igc package verify
+
+First-class `igniter package` delegation is not wired in this v0 skeleton. For now run `igc` directly
+(e.g. `igc lock`, `igc verify --strict`, `igc package graph --project-root .`).
+EOF
+    [[ $# -eq 0 ]] && exit 2 || exit 0
+  fi
+  echo "$PROG: 'package $*' is not wired in v0 — package trust is owned by 'igc'." >&2
+  echo "  → run 'igc' directly for now (see 'igniter package --help'); first-class delegation is a follow-on." >&2
+  exit 3
+}
+
+cmd_app() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
+    cat <<'EOF'
+igniter app — app deployment (bundle/install) is NOT owned here in v0.
+The proven shape is the home-lab release bundle + systemd (Model E):
+  deploy/igniter-stack-deployment-models.md  and  deploy/pi5-lab/*  (runner + app dir + checks + unit).
+A first-class `igniter app bundle` is deferred (it would assemble {runner + app + checks + manifest} only;
+systemd/exposure/secrets stay host-owned).
+EOF
+    [[ $# -eq 0 ]] && exit 2 || exit 0
+  fi
+  echo "$PROG: 'app $*' is not implemented in v0 (release-bundle/systemd scripts own deployment)." >&2
+  echo "  → see deploy/igniter-stack-deployment-models.md; first-class 'igniter app bundle' is deferred." >&2
+  exit 3
+}
+
+# ── dispatch ──────────────────────────────────────────────────────────────────────────────────────
 
 main() {
   local sub="${1:-}"
   case "$sub" in
     ""|-h|--help|help) usage; exit 0 ;;
-    serve) shift; cmd_serve "$@" ;;
+    serve)     shift; cmd_serve "$@" ;;
+    check)     shift; cmd_check "$@" ;;
+    doctor)    shift; cmd_doctor "$@" ;;
+    toolchain) shift; cmd_toolchain "$@" ;;
+    package)   shift; cmd_package "$@" ;;
+    app)       shift; cmd_app "$@" ;;
     *)
-      echo "$PROG: unknown command '$sub' (v0 supports only: serve)" >&2
+      echo "$PROG: unknown command '$sub'" >&2
       echo >&2
       usage >&2
       exit 2 ;;

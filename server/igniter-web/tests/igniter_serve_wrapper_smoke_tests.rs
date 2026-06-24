@@ -114,7 +114,7 @@ fn igniter_serve_refuses_public_bind() {
     );
 }
 
-/// `igniter serve --help` prints the wrapper usage naming app dir, bind default, --host-config, safety.
+/// `igniter serve --help` prints the serve-specific usage naming app dir, bind default, --host-config, safety.
 #[test]
 fn igniter_serve_help_names_contract() {
     let out = Command::new(wrapper())
@@ -126,4 +126,119 @@ fn igniter_serve_help_names_contract() {
     for needle in ["<app_dir>", "127.0.0.1:0", "--host-config", "loopback-only", "--check"] {
         assert!(help.contains(needle), "help must name `{needle}`:\n{help}");
     }
+}
+
+// ── P7 control-center skeleton ──────────────────────────────────────────────────────────────────────
+
+/// `igniter check <app>` (top-level) delegates to `igweb-serve check` and opens no socket.
+#[test]
+fn igniter_check_top_level_opens_no_socket() {
+    let out = Command::new(wrapper())
+        .args(["check", &app_dir()])
+        .env("IGNITER_IGWEB_SERVE_BIN", igweb_serve_bin())
+        .output()
+        .expect("run igniter check");
+    assert!(out.status.success(), "check must succeed: {out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("check ok"), "check ok line: {stdout}");
+    assert!(stdout.contains("(no socket opened)"), "must not bind: {stdout}");
+}
+
+/// `igniter doctor` runs non-mutating (no network/DB/build), exits 0, prints actionable local status.
+#[test]
+fn igniter_doctor_reports_local_status() {
+    let out = Command::new(wrapper())
+        .arg("doctor")
+        .output()
+        .expect("run igniter doctor");
+    assert!(out.status.success(), "doctor exits 0 (it is a report): {out:?}");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("repo_root:"), "names repo root: {s}");
+    assert!(s.contains("igniter-lang sibling"), "checks the build prereq: {s}");
+    assert!(s.contains("rustc"), "checks rustc: {s}");
+    assert!(s.contains("igweb-serve"), "lists the fleet: {s}");
+}
+
+/// `igniter toolchain list` names the 5 green binaries and marks igniter-repl as unavailable.
+#[test]
+fn igniter_toolchain_list_names_fleet_and_marks_repl() {
+    let out = Command::new(wrapper())
+        .args(["toolchain", "list"])
+        .output()
+        .expect("run igniter toolchain list");
+    assert!(out.status.success());
+    let s = String::from_utf8_lossy(&out.stdout);
+    for bin in ["igc", "igniter-vm", "igweb-serve", "igniter-mcp", "tbackend"] {
+        assert!(s.contains(bin), "fleet must name `{bin}`:\n{s}");
+    }
+    assert!(s.contains("igniter-repl"), "must mention repl: {s}");
+    assert!(s.contains("[blocked]"), "must mark repl unavailable: {s}");
+}
+
+/// Unimplemented commands fail non-zero and point at the intended next step — never silent success.
+#[test]
+fn igniter_placeholders_fail_closed() {
+    for args in [
+        &["toolchain", "install"][..],
+        &["package", "lock"][..],
+        &["app", "bundle"][..],
+    ] {
+        let out = Command::new(wrapper()).args(args).output().expect("run placeholder");
+        assert!(
+            !out.status.success(),
+            "`igniter {}` must NOT pretend success",
+            args.join(" ")
+        );
+        // `--help` for these families must still exit 0 (help is allowed).
+    }
+    let help = Command::new(wrapper())
+        .args(["package", "--help"])
+        .output()
+        .expect("package --help");
+    assert!(help.status.success(), "package --help exits 0");
+}
+
+/// Top-level `igniter --help` shows the P6 command family; unknown commands fail non-zero.
+#[test]
+fn igniter_help_shows_family_and_unknown_fails() {
+    let help = Command::new(wrapper()).arg("--help").output().expect("igniter --help");
+    assert!(help.status.success());
+    let s = String::from_utf8_lossy(&help.stdout);
+    for verb in ["serve", "check", "doctor", "toolchain", "package", "app"] {
+        assert!(s.contains(verb), "family help must name `{verb}`:\n{s}");
+    }
+    let unknown = Command::new(wrapper()).arg("frobnicate").output().expect("unknown");
+    assert!(!unknown.status.success(), "unknown command must fail non-zero");
+}
+
+/// P8 staged-prefix contract: a `bin/igniter` co-located with `igweb-serve` (as `igniter-install` stages it)
+/// resolves the sibling binary — no env override, no repo target, no rebuild. Proven without nested cargo by
+/// copying the wrapper + `CARGO_BIN_EXE_igweb-serve` into a temp prefix bin dir.
+#[test]
+fn igniter_resolves_co_located_igweb_serve_in_staged_prefix() {
+    let tmp = std::env::temp_dir().join(format!("igniter_staged_{}", std::process::id()));
+    let bindir = tmp.join("bin");
+    std::fs::create_dir_all(&bindir).unwrap();
+    std::fs::copy(wrapper(), bindir.join("igniter")).unwrap();
+    std::fs::copy(igweb_serve_bin(), bindir.join("igweb-serve")).unwrap();
+    // make the staged wrapper executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let p = bindir.join("igniter");
+        let mut perm = std::fs::metadata(&p).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&p, perm).unwrap();
+    }
+    // No IGNITER_IGWEB_SERVE_BIN, cwd elsewhere: the only way `check` can work is the co-located sibling.
+    let out = Command::new(bindir.join("igniter"))
+        .args(["check", &app_dir()])
+        .env_remove("IGNITER_IGWEB_SERVE_BIN")
+        .current_dir(&tmp)
+        .output()
+        .expect("run staged igniter check");
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert!(out.status.success(), "staged igniter check must succeed via co-located igweb-serve: {out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("(no socket opened)"), "co-located check, no socket: {stdout}");
 }

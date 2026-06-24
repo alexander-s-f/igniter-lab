@@ -13,7 +13,7 @@ front door. It is the smallest "install + run boring" step that needs **no new p
 workspace, no cross-compile, no live DB**, and reuses the P2 wrapper. The **native release tarball** is the
 immediate next rung for repo-less tool install; the **release bundle + systemd** (Model E) stays the proven
 first shape for *app deployment*. `.deb`/Docker/Homebrew/registry/signing are deferred.
-Implementation card: **`LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6`**.
+Implementation card: **`LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8`**.
 
 ## Verify-first basis (this session, against live source)
 
@@ -80,7 +80,7 @@ ships nothing that defaults to `0.0.0.0`. Secrets are **never baked**: host.toml
 env-var-placeholder **templates**; `igweb-serve` rejects inline secrets at parse; DSNs are env-only
 (`IGNITER_*_DSN`). DB drivers (`postgres`) are opt-in and need a live DSN — excluded from the boring path.
 
-**6. Card to implement v0.** **`LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6`** — the bootstrap script (build 5
+**6. Card to implement v0.** **`LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8`** — the bootstrap script (build 5
 binaries → stage to prefix → `igniter`/`igc` on PATH → verify `igniter-lang` sibling → loopback smoke). Fold
 in the **`igc` vs `igniter_compiler` name alignment** (P1/P3 flagged) — install as `igc` (or add `[[bin]]
 name = "igc"`). A separate `LAB-…-REPL-ASYNC-RESUME-FIX` unblocks `igniter-repl` later (not a v0 dependency).
@@ -115,7 +115,7 @@ the **managed-host tool** rung (later). v0 needs neither; both have real home-la
 ## Acceptance — mapping
 
 - [x] ≥5 distribution channels compared (8 in the table).
-- [x] One v0 channel recommended + concrete implementation-card name (**bootstrap script → `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6`**).
+- [x] One v0 channel recommended + concrete implementation-card name (**bootstrap script → `LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8`**).
 - [x] Runtime asset/config requirements listed (binaries self-contained; config templates + demo app + build-time `igniter-lang` sibling).
 - [x] Public bind, secrets, DB drivers, optional FFI handled explicitly (§5 + §4).
 - [x] Release-bundle + systemd compared **separately** from `.deb` (dedicated table).
@@ -133,4 +133,4 @@ binaries (igc/igniter-vm/igweb-serve/igniter-mcp/tbackend; `igniter-repl` exclud
 behind `bin/igniter`, no root workspace, no new infra. Binaries are self-contained (stdlib/prelude embedded);
 build needs the `igniter-lang` sibling. Pure-default install; machine/postgres/tls/ffi/repl are opt-in
 variants. Public-bind refused, secrets env-only. Promote tarball first for tools, release-bundle+systemd first
-for apps; `.deb`/Docker/Homebrew deferred. Impl → LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P6.*
+for apps; `.deb`/Docker/Homebrew deferred. Impl → LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8.*
