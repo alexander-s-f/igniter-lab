@@ -10,6 +10,10 @@ def fold(coll: Collection[T], initial: U, accumulator: (U, T) -> U) -> U
 def first(coll: Collection[T]) -> Option[T]
 def last(coll: Collection[T]) -> Option[T]
 def sum(coll: Collection[T], field: Symbol) -> Decimal[S]
+-- zip: positional pairing into Pair{first, second}. UNEQUAL LENGTHS TRUNCATE to the shorter
+-- (deterministic, total — never errors on mismatch). Pair[A,B] field access is typed (.first->A,
+-- .second->B). A paired statistic that must not silently drop observations should guard equal length
+-- itself (count(a)==count(b)) before zipping. Proven: LAB-STDLIB-COLLECTION-ZIP-PROOF-P2.
 def zip(a: Collection[A], b: Collection[B]) -> Collection[Pair[A, B]]
 def count(coll: Collection[T]) -> Integer
 def avg(coll: Collection[T], field: Symbol) -> Option[T]

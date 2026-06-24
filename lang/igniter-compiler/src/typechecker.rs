@@ -3975,6 +3975,23 @@ impl TypeChecker {
                     };
                 }
 
+                // LAB-STDLIB-COLLECTION-ZIP-PROOF-P2: `Pair[A, B]` is the synthetic element type produced
+                // by `zip` (it has no `type_shapes` entry — it is only ever built as a return type). Resolve
+                // its two structural accessors from the type params so paired iteration typechecks:
+                // `.first` → param 0 (A), `.second` → param 1 (B). Mirrors the Collection.tail/rest whitelist
+                // above; an Unknown param resolves to Unknown (acceptable, never a false OOF-P1).
+                if obj_type == "Pair" && (field == "first" || field == "second") {
+                    let idx = if field == "first" { 0 } else { 1 };
+                    let elem = self.get_param(&obj_typed.resolved_type, idx).unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    });
+                    return TypedExpression {
+                        resolved_type: elem,
+                        deps: obj_typed.deps,
+                        annotated_expr: None,
+                    };
+                }
+
                 // PROP-042 T3: suppress OOF-P1 for ALL field accesses on the T3-measured input.
                 // T3 allows any T2-registered accessor; OOF-R11 is the authoritative diagnostic
                 // for structural coverage failures. Without this suppression, user-declared
