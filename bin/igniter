@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# igniter — thin Rails-`s`-style DX dispatcher over the package-local Igniter binaries.
+#
+# LAB-DISTRIBUTION-RAILS-SERVE-DX-P2 (shape decided by P1 §5, wrapper "C"): v0 implements ONE verb,
+# `serve`, forwarding to `igweb-serve` (server/igniter-web). This wrapper adds NO authority of its own —
+# loopback-only bind, the public-bind refusal, and the request bound all live in `igweb-serve`. All it
+# hides is the binary name, the per-crate build path, and target-dir plumbing (exactly what P1 asked for).
+#
+# No root workspace, no systemd/Docker/Homebrew, no daemon, no public listener — see the card's closed
+# surfaces. Point IGNITER_IGWEB_SERVE_BIN at a prebuilt binary (e.g. a release-bundle path) to skip building.
+set -euo pipefail
+
+PROG="igniter"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WEB_CRATE="$REPO_ROOT/server/igniter-web"
+
+usage() {
+  cat <<'EOF'
+usage: igniter serve <app_dir> [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH]
+       igniter serve --check <app_dir>
+       igniter serve --help
+
+Start a local IgWeb app, Rails-`s` style. Thin wrapper over `igweb-serve` (server/igniter-web).
+
+  serve <app_dir>      build the app and serve it on loopback (default 127.0.0.1:0 — an OS-chosen port)
+  --check <app_dir>    dry build/verify the app and exit; opens NO socket
+  --addr HOST:PORT     loopback-only bind address (igweb-serve REFUSES a non-loopback address)
+  --max-requests N     bound the run to N requests (the runner is intentionally bounded, not a daemon)
+  --host-config PATH   host.toml for machine-mode (needs igweb-serve built with --features machine)
+
+Safety (enforced by igweb-serve, not this wrapper): loopback-only, request-bounded, no public bind,
+no implicit DB/DSN, no inline secrets, no daemon. Host authority stays explicit via --host-config.
+
+Env: IGNITER_IGWEB_SERVE_BIN=/path/to/igweb-serve  # use a prebuilt binary instead of building.
+EOF
+}
+
+# Resolve the igweb-serve binary: explicit override → existing release/debug build → build it (release).
+resolve_igweb_serve() {
+  if [[ -n "${IGNITER_IGWEB_SERVE_BIN:-}" ]]; then
+    printf '%s' "$IGNITER_IGWEB_SERVE_BIN"; return 0
+  fi
+  local cand
+  for cand in "$WEB_CRATE/target/release/igweb-serve" "$WEB_CRATE/target/debug/igweb-serve"; do
+    if [[ -x "$cand" ]]; then printf '%s' "$cand"; return 0; fi
+  done
+  echo "$PROG: building igweb-serve (first run; this is hidden plumbing)…" >&2
+  ( cd "$WEB_CRATE" && cargo build --release --bin igweb-serve ) >&2
+  printf '%s' "$WEB_CRATE/target/release/igweb-serve"
+}
+
+cmd_serve() {
+  # `serve --help` shows wrapper usage without requiring an app dir.
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
+  local bin; bin="$(resolve_igweb_serve)"
+  if [[ ! -x "$bin" ]]; then
+    echo "$PROG: igweb-serve not found or not executable at: $bin" >&2
+    exit 1
+  fi
+  # `serve --check <app_dir>` → `igweb-serve check <app_dir>` (dry build, no socket). Otherwise pass
+  # arguments straight through; igweb-serve owns parsing, defaults, and the loopback/bounded semantics.
+  if [[ "${1:-}" == "--check" ]]; then
+    shift
+    exec "$bin" check "$@"
+  fi
+  exec "$bin" "$@"
+}
+
+main() {
+  local sub="${1:-}"
+  case "$sub" in
+    ""|-h|--help|help) usage; exit 0 ;;
+    serve) shift; cmd_serve "$@" ;;
+    *)
+      echo "$PROG: unknown command '$sub' (v0 supports only: serve)" >&2
+      echo >&2
+      usage >&2
+      exit 2 ;;
+  esac
+}
+
+main "$@"
