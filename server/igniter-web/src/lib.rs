@@ -369,6 +369,16 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
                 fields.get("view").cloned().unwrap_or(Value::Null),
             ),
         },
+        // LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43: app-authored typed error. The `error` field is a plain
+        // `ApiError` record (no `__arm`/`__variant` discriminants), so the VM serialized it to a clean
+        // `{"code","message"}` object; wrap it as `{"error": …}` — the app-side error envelope. Host-owned
+        // error shapes (ingress/read/effect) are produced elsewhere and are unchanged.
+        "RespondError" => ServerDecision::Respond {
+            response: ServerResponse::json(
+                get_i("status") as u16,
+                json!({ "error": fields.get("error").cloned().unwrap_or(Value::Null) }),
+            ),
+        },
         // LAB-IGNITER-WEB-STRUCTURED-EFFECT-INPUT-P7: `input` is a typed `.ig` record (prelude field
         // `input : Unknown`, the open structured-payload position). The VM serialized it to a clean JSON
         // object; pass it through verbatim as `serde_json::Value` — no string wrap, no double-parse — the

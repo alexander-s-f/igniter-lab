@@ -66,10 +66,21 @@ type ViewArtifact {
   body     : Collection[HtmlNode]
 }
 
+-- LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43: a tiny, domain-free typed error body for APP-authored
+-- errors. `RespondError` serializes to `{\"error\": {\"code\", \"message\"}}` so a client can machine-read
+-- the error class. `code` values are owned by the app (the prelude owns only the shape, not the codes);
+-- host-owned error shapes (ingress/read `{\"error\":…}`, write-outcome `{\"status\",\"detail\"}`) are
+-- unchanged. App-scoped only (P39): NOT a global protocol envelope.
+type ApiError {
+  code    : String
+  message : String
+}
+
 variant Decision {
   Respond      { status : Integer, body : String }
   InvokeEffect { target : String, input : Unknown, idempotency_key : String }
   RespondView  { status : Integer, view : View }
+  RespondError { status : Integer, error : ApiError }
   Render       { status : Integer, artifact_json : String }
   RenderView   { status : Integer, view : ViewArtifact }
   ReadThen     { plan : Unknown, then : String, carry : String }

@@ -55,7 +55,7 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Legacy string create body | Implemented but **deprecated** (`P40`) | The old JSON-**string** body still works during a compatibility window; object body is the sole canonical shape. Removal deferred to a follow-up card. |
 | Todo resource id | Implemented (`P36`) | Host mints `surrogate_id = todo_<blake3(method␟path␟idempotency_key)>[..32]` (`src/lib.rs::surrogate_id`); `.ig` prefixes `todo_` and uses it as the business key. The **id is decoupled from the idempotency key** (receipts/dedup still key on the idempotency key). Deterministic across replay; leaks no body/secret. `surrogate_id_tests`. |
 | Account-existence read semantics | Implemented (`P38`) | Two-stage read `FindAccount` → `CheckAccountThenList`: existing+rows → **200**; existing+empty → **200 `[]`**; missing account → app-owned **404**; denied source/field → host **403** (adapter not reached); adapter failure → host **503**. `local_account_existence_missing_404_and_existing_empty_200`. |
-| Error envelope (`RespondError` prelude) | `designed` / deferred (`P39`) | Readiness only — recommended a typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` for app-authored errors. **Not yet in `map_decision`.** Today app errors are plain `Respond` bodies; host infra errors keep their current shape. |
+| Error envelope (`RespondError`) | Implemented (`P43`) | Typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` + a `map_decision` arm → `{"error":{"code","message"}}`. App-authored errors (invalid body, account/todo not-found) carry it; framework-app errors (route-miss/405/keyless from the lowering) and host infra error shapes are unchanged. |
 
 ## Not implemented / intentionally closed
 
@@ -66,7 +66,7 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Pool / backpressure | Closed | One connection at a time, bounded by `--max-requests`. |
 | Schema migration runner | Closed | DDL is operator-owned; the runner never creates/migrates tables. |
 | Typed row destructuring | Not implemented | `ReadThen` continuation receives `rows_json` as a `String`; no typed columns yet. |
-| Typed `RespondError` decision arm | Not implemented (`designed`, `P39`) | Error envelope is designed but not lowered; app errors are plain `Respond` today. |
+| Global protocol error envelope | Not implemented (deferred) | App-authored errors use the typed `RespondError` envelope (`P43`); a cross-crate envelope unifying host shapes too stays deferred. |
 | Multi-DSN reads / cross-DB joins | Not implemented | Multi-**table** allowlist exists (`extra_sources`), but a single read DSN and no join planner. |
 | Production deployment story | Closed | No daemon, no hosting, no SparkCRM/production DB interaction. |
 

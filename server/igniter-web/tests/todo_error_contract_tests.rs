@@ -2,9 +2,13 @@
 //!
 //! Pins the v0 product error contract for the example Todo API — the APP-OWNED errors that are
 //! observable on the SYNC path (no machine, no DB): route miss → 404, method mismatch → 405, missing
-//! idempotency key → 400, invalid create body → 400. Each asserts the status, the stable body SHAPE
-//! (`{"body": "<message>"}` — app `Respond` decisions carry the message under `body`), and that no
-//! error body leaks a DSN, bearer token, raw SQL, or a host-config path.
+//! idempotency key → 400, invalid create body → 400. Each asserts the status and that no error body
+//! leaks a DSN, bearer token, raw SQL, or a host-config path.
+//!
+//! Body SHAPE has two app families: framework-generated errors from the `.igweb` lowering (route miss,
+//! method mismatch, keyless guard) keep the v0 `{"body": "<message>"}` shape; APP-AUTHORED errors in
+//! `todo_handlers.ig` (invalid create body, account/todo not-found) now carry the typed envelope
+//! `{"error": {"code", "message"}}` (LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43).
 //!
 //! Host-owned errors (read-denied 403, conflict 409, unauthorized 401, not-found via ReadThen 404) are
 //! pinned on the machine path in `todo_postgres_async_runner_smoke_tests.rs`. The full contract table
@@ -101,11 +105,17 @@ fn invalid_create_body_is_400() {
     ] {
         let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, raw);
         assert_eq!(s, 400, "{label} body → 400; body={b}");
-        assert_app_error(&b, label);
+        assert_no_leak(&b);
+        // P43: this is an APP-AUTHORED error → typed envelope {"error":{"code","message"}}.
+        assert_eq!(
+            b["error"]["code"],
+            Value::from("invalid_body"),
+            "{label}: 400 carries the app error code; got {b}"
+        );
         // The product 400 names the contract (a non-empty title), never the offending shape's contents.
         assert!(
-            b["body"].as_str().unwrap_or("").contains("title"),
-            "{label}: 400 body should explain the contract; got {b}"
+            b["error"]["message"].as_str().unwrap_or("").contains("title"),
+            "{label}: 400 message should explain the contract; got {b}"
         );
     }
 }

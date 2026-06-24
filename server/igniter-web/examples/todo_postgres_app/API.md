@@ -66,17 +66,18 @@ across a retry sends the same `x-correlation-id` — the host then returns the p
 
 ## Error contract (v0)
 
-The status code carries the error class. Bodies have **two stable shapes by owner** (v0 does not yet
-unify them into a single `{"error": {"code", "message"}}` envelope — that would be a cross-crate change
-to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred to a separate card).
+The status code carries the error class. Error bodies have **three stable shapes by owner**:
 
-> **Envelope decision (P39):** the readiness packet
-> `lab-docs/lang/lab-todoapp-api-error-envelope-readiness-p39-v0.md` recommends a small, **app-scoped**
-> typed `RespondError { error: {code, message} }` for app-authored errors (host shapes unchanged; no global
-> protocol change). Until that slice lands, the two owner-shaped families below are the contract.
+> **Envelope (P39 design → P43 impl):** app-authored errors carry a small, **app-scoped** typed envelope
+> `RespondError { status, error: { code, message } }` → `{"error": {"code", "message"}}` (design:
+> `lab-docs/lang/lab-todoapp-api-error-envelope-readiness-p39-v0.md`; implemented in
+> `LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43`). The global cross-crate protocol envelope (unifying host
+> shapes too) stays deferred.
 
-- **App-owned** (`.ig` `Respond` decisions): `{"body": "<message>"}` — the same shape as a success body,
-  with the status carrying the error class.
+- **App-authored** (`.ig` `RespondError` decisions — invalid create body, account/todo not-found):
+  `{"error": {"code": "<token>", "message": "<message>"}}`. The `code` is app-owned and stable.
+- **Framework-app** (errors from the `.igweb` lowering — route miss 404, method mismatch 405, keyless
+  guard 400): `{"body": "<message>"}` (the v0 shape; unchanged).
 - **Host-owned** (machine ingress / staged-read / effect host): `{"error": "<message>"}`, or for write
   outcomes `{"status": "<word>", "detail": "<message>"}`.
 
@@ -85,9 +86,9 @@ to `igniter-server` + `igniter-machine` + the `.ig` `Respond` decision, deferred
 | route miss (unknown path) | app | **404** | `{"body":"…"}` | none |
 | wrong method on a known pattern | app | **405** | `{"body":"…"}` | none |
 | missing idempotency key | app | **400** | `{"body":"…"}` | none |
-| invalid create body (P35) | app | **400** | `{"body":"create body must provide a non-empty title"}` | none |
-| account not found | app | **404** | `{"body":"account not found"}` | none |
-| todo not found (show) | app | **404** | `{"body":"todo not found"}` | none |
+| invalid create body (P35) | app | **400** | `{"error":{"code":"invalid_body","message":"create body must provide a non-empty title"}}` (P43) | none |
+| account not found | app | **404** | `{"error":{"code":"account_not_found","message":"account not found"}}` (P43) | none |
+| todo not found (show) | app | **404** | `{"error":{"code":"todo_not_found","message":"todo not found"}}` (P43) | none |
 | list empty (no todos) | app | **200** | `{"body":"[]"}` (P24: an empty list is a valid 200, not a not-found) | none |
 | read denied by host policy | host | **403** | `{"error":"…"}` (names the requested source/field/op) | no DSN/SQL |
 | read host unavailable | host | **503** | `{"error":"…"}` | no DSN |

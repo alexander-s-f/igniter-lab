@@ -70,6 +70,16 @@ pure contract MakeWriteValues {
   output v : WriteValues
 }
 
+-- App error factory (LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43). Builds the typed `ApiError` carried by a
+-- `RespondError` decision. `code` is an app-owned stable token (the prelude owns only the shape); the
+-- message is the same human text the v0 `Respond` body used. App-authored errors only.
+pure contract MakeApiError {
+  input code    : String
+  input message : String
+  compute e = { code: code, message: message }
+  output e : ApiError
+}
+
 -- ── Read intent contracts — structured QueryPlan; SHAPED, not executed (no effect-host seam yet) ─
 -- Account-existence read (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38): a single-row lookup of the `accounts`
 -- table by id. Empty rows ⇒ the account does not exist (→ 404); a row ⇒ it exists (→ list its todos). The
@@ -132,8 +142,9 @@ pure contract AccountTodoIndexFromRows {
 pure contract AccountTodoShowFromRows {
   input req       : Request
   input rows_json : String
+  compute not_found = call_contract("MakeApiError", "todo_not_found", "todo not found")
   compute d : Decision = if rows_json == "[]" {
-    Respond { status: 404, body: "todo not found" }
+    RespondError { status: 404, error: not_found }
   } else {
     Respond { status: 200, body: rows_json }
   }
@@ -240,10 +251,11 @@ pure contract LoadAccountTodos {
   input account_id : Option[String]
   compute account_ok : Bool = call_contract("AccountExists", req, account_id)
   compute ctx : TodoListCtx = { account_id: account_id }
+  compute no_account = call_contract("MakeApiError", "account_not_found", "account not found")
   compute r : Result[TodoListCtx, Decision] = if account_ok {
     ok(ctx)
   } else {
-    err(Respond { status: 404, body: "account not found" })
+    err(RespondError { status: 404, error: no_account })
   }
   output r : Result[TodoListCtx, Decision]
 }
@@ -256,14 +268,16 @@ pure contract LoadTodoContext {
   compute account_ok : Bool = call_contract("AccountExists", req, account_id)
   compute todo_ok    : Bool = call_contract("TodoExists", req, account_id, todo_id)
   compute ctx : TodoCtx = { account_id: account_id, todo_id: todo_id }
+  compute no_account = call_contract("MakeApiError", "account_not_found", "account not found")
+  compute no_todo    = call_contract("MakeApiError", "todo_not_found", "todo not found")
   compute r : Result[TodoCtx, Decision] = if account_ok {
     if todo_ok {
       ok(ctx)
     } else {
-      err(Respond { status: 404, body: "todo not found" })
+      err(RespondError { status: 404, error: no_todo })
     }
   } else {
-    err(Respond { status: 404, body: "account not found" })
+    err(RespondError { status: 404, error: no_account })
   }
   output r : Result[TodoCtx, Decision]
 }
@@ -291,8 +305,9 @@ pure contract CheckAccountThenList {
   input rows_json : String
   input carry     : String
   compute plan = call_contract("ListTodosByAccount", carry)
+  compute no_account = call_contract("MakeApiError", "account_not_found", "account not found")
   compute d : Decision = if rows_json == "[]" {
-    Respond { status: 404, body: "account not found" }
+    RespondError { status: 404, error: no_account }
   } else {
     ReadThen { plan: plan, then: "AccountTodoIndexFromRows", carry: "" }
   }
@@ -330,8 +345,9 @@ pure contract AccountTodoCreate {
   compute title : String = call_contract("ResolveCreateTitle", req)
   compute intent : WriteIntent =
     call_contract("BuildCreateTodoIntent", or_else(ctx.account_id, "none"), req.surrogate_id, title)
+  compute bad_body = call_contract("MakeApiError", "invalid_body", "create body must provide a non-empty title")
   compute d : Decision = if trim(title) == "" {
-    Respond { status: 400, body: "create body must provide a non-empty title" }
+    RespondError { status: 400, error: bad_body }
   } else {
     InvokeEffect { target: "todo-create", input: intent, idempotency_key: req.idempotency_key }
   }

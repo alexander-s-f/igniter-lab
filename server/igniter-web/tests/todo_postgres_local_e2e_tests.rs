@@ -773,8 +773,14 @@ fn local_account_existence_missing_404_and_existing_empty_200() {
         // Missing account → 404 (stage-1 existence read empty → app-owned 404; list never issued).
         let (s_missing, b_missing) = parts(app.dispatch_with_read(list(missing), &read_host).await);
         assert_eq!(s_missing, 404, "missing account → 404; body={b_missing}");
+        // P43: app-authored errors carry the typed envelope {"error":{"code","message"}}.
         assert_eq!(
-            b_missing["body"],
+            b_missing["error"]["code"],
+            json!("account_not_found"),
+            "app-owned account-existence 404 code"
+        );
+        assert_eq!(
+            b_missing["error"]["message"],
             json!("account not found"),
             "app-owned account-existence 404 message"
         );
