@@ -68,6 +68,13 @@ pub struct KuramotoConfig {
     // node_tick bundles byte-identical.
     #[serde(default)]
     pub emit_spatial_profiles: bool,
+    // EMERGENCE-STAGE2-ABLATION-MAP-P16: deterministic knockout intervention. When Some(k), oscillator k is
+    // removed from the dynamics (every other node's neighbour list drops edges to k → k exerts no coupling)
+    // AND excluded from the global order-parameter measurement. Everything else is byte-identical, so the
+    // macro delta vs the baseline is the EXACT causal contribution of element k, with zero confound. node_tick
+    // only. Default None keeps prior bundles byte-identical.
+    #[serde(default)]
+    pub ablate_node: Option<usize>,
 }
 
 impl Default for KuramotoConfig {
@@ -94,6 +101,7 @@ impl Default for KuramotoConfig {
             coupling_radius: None,
             incoherent_fraction: None,
             emit_spatial_profiles: false,
+            ablate_node: None,
         }
     }
 }
@@ -739,7 +747,18 @@ async fn simulate_node_tick(
 
     for &n in &config.n_values {
         let omegas = omega_vector_for_config(n, config);
-        let topologies = build_topologies_for_config(n, config)?;
+        let mut topologies = build_topologies_for_config(n, config)?;
+        // EMERGENCE-STAGE2-ABLATION-MAP-P16: knockout — drop every edge that targets the ablated node, so it
+        // exerts no coupling on the surviving dynamics (it is also excluded from the order parameter below).
+        if let Some(ablate) = config.ablate_node {
+            if ablate < n {
+                for topology in &mut topologies {
+                    for nbrs in &mut topology.neighbors {
+                        nbrs.retain(|edge| edge.target != ablate);
+                    }
+                }
+            }
+        }
         topologies_out.extend(topologies.iter().cloned());
 
         for topology in &topologies {
@@ -784,7 +803,20 @@ async fn simulate_node_tick(
                     tick_ms.push(tick_start.elapsed().as_secs_f64() * 1000.0);
 
                     let local_profile = local_order_profile(&thetas, topology);
-                    let global_r = order_parameter(&thetas);
+                    // P16: the ablated node is excluded from the macro order parameter (it has been removed
+                    // from the system), so the global r is measured over the surviving oscillators only.
+                    let global_r = match config.ablate_node {
+                        Some(a) if a < n => {
+                            let survivors: Vec<f64> = thetas
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| *i != a)
+                                .map(|(_, &t)| t)
+                                .collect();
+                            order_parameter(&survivors)
+                        }
+                        _ => order_parameter(&thetas),
+                    };
                     let local_stats = stats_from_profile(&local_profile);
                     global_r_series.push(global_r);
                     local_r_series.push(local_stats.mean);
@@ -1159,6 +1191,7 @@ fn write_bundle(
         "phase_lag_alpha": config.phase_lag_alpha,
         "coupling_radius": config.coupling_radius,
         "incoherent_fraction": config.incoherent_fraction,
+        "ablate_node": config.ablate_node,
         "coupling_form": if config.phase_lag_alpha.is_some() {
             "sakaguchi: sin(theta_j - theta_i - alpha)"
         } else {
