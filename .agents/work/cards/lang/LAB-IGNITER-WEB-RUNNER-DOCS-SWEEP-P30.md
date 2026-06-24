@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-RUNNER-DOCS-SWEEP-P30 - eliminate stale runner claims
 
-Status: ✅ CLOSED — 2026-06-22
+Status: CLOSED — 2026-06-22
 Lane: IgWeb / documentation hygiene / implemented-surface
 Type: documentation sweep
 Delegation code: OPUS-WEB-RUNNER-DOCS-SWEEP-P30

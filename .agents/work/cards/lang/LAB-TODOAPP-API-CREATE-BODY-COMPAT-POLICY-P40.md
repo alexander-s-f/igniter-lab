@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-CREATE-BODY-COMPAT-POLICY-P40 - decide legacy string body window
 
-Status: DONE (2026-06-23) — readiness + small doc hardening, NO behavior change. Policy: KEEP legacy
+Status: CLOSED (2026-06-23) — readiness + small doc hardening, NO behavior change. Policy: KEEP legacy
 string body for the compatibility window but mark it DEPRECATED (object body is the sole canonical shape).
 Removal deferred (broad: ~10 test files + the smoke still use string bodies) → named follow-up
 LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL. Hardened: API.md + RUNBOOK relabel legacy "deprecated", object

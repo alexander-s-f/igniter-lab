@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-ERROR-ENVELOPE-READINESS-P39 - decide product error envelope
 
-Status: DONE (2026-06-23) — readiness packet, NO production code (only the proof doc + an optional
+Status: CLOSED (2026-06-23) — readiness packet, NO production code (only the proof doc + an optional
 one-line API.md pointer). Recommendation: PROCEED with the smallest app-scoped slice — a typed IgWeb
 prelude `RespondError { status, error: ApiError{code,message} }` (mirrors the proven RespondView typed-body
 pattern) for app-AUTHORED errors only; host read/write shapes stay as-is (write outcomes carry

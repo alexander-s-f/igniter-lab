@@ -1,6 +1,6 @@
 # LAB-IGNITER-WORKSPACE-DRIFT-FORENSICS-P1 - live-truth sweep for weak spots and false blockers
 
-Status: ✅ CLOSED — 2026-06-22
+Status: CLOSED — 2026-06-22
 Lane: workspace hygiene / agent forensics / live truth
 Type: readiness + forensic report
 Delegation code: GEMINI-IGNITER-WORKSPACE-DRIFT-FORENSICS-P1

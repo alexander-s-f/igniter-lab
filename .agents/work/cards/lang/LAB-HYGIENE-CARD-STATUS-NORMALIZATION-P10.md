@@ -1,6 +1,6 @@
 # LAB-HYGIENE-CARD-STATUS-NORMALIZATION-P10 - normalize recent card status vocabulary
 
-Status: DRAFT
+Status: CLOSED
 Lane: lab hygiene / card index / agent clarity
 Type: documentation hygiene
 Date: 2026-06-24
@@ -53,11 +53,11 @@ rg -n "Closing report|Closing Report|Acceptance|DONE|CLOSED" .agents/work/cards/
 
 ## Acceptance
 
-- [ ] Inventory lists recent closed / open / ambiguous cards.
-- [ ] Any status header changed has clear in-card evidence.
-- [ ] Ambiguous cards are explicitly listed, not silently modified.
-- [ ] No source/test changes.
-- [ ] `git diff --check` clean.
+- [x] Inventory lists recent closed / open / ambiguous cards.
+- [x] Any status header changed has clear in-card evidence.
+- [x] Ambiguous cards are explicitly listed, not silently modified.
+- [x] No source/test changes.
+- [x] `git diff --check` clean.
 
 ## Output Shape
 
@@ -67,3 +67,20 @@ Close with:
 - number of ambiguous cards left untouched;
 - exact paths changed;
 - recommended follow-up if a real open-card drift exists.
+
+## Closing Report
+
+Date: 2026-06-24
+
+Normalized 11 unambiguous recent closed-card headers to start with `Status: CLOSED`, preserving trailing
+dates/summaries. Wrote the inventory proof doc:
+
+```text
+lab-docs/lang/lab-hygiene-card-status-normalization-p10-v0.md
+```
+
+Ambiguous/open cards were left untouched and listed in the proof doc. During curation,
+`LAB-TODOAPP-API-SMOKE-P35-P36-REALIGN-P42` was closed separately, so its earlier "needs owner close"
+inventory note is historical to this pass rather than an active blocker.
+
+No source/test behavior changes were made by this status-normalization card. `git diff --check` clean.

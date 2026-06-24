@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-SMOKE-P35-P36-REALIGN-P42 - realign operator smoke with object body and surrogate id
 
-Status: DRAFT
+Status: CLOSED
 Lane: TodoApp API / product smoke / hygiene
 Type: tooling fix + proof
 Date: 2026-06-24
@@ -126,14 +126,14 @@ cargo test --features postgres --test todo_postgres_local_e2e_tests -- --test-th
 
 ## Acceptance
 
-- [ ] Smoke create request uses canonical object body.
-- [ ] Smoke no longer assumes row id equals idempotency key.
-- [ ] Show/done/DB checks use the actual created Todo id.
-- [ ] Replay checks still prove idempotency/no second mutation.
-- [ ] Preflight refusal tests remain green and secret-safe.
-- [ ] Docs/front-door no longer overstate the stale full smoke path.
-- [ ] No API behavior changes.
-- [ ] `git diff --check` clean.
+- [x] Smoke create request uses canonical object body.
+- [x] Smoke no longer assumes row id equals idempotency key.
+- [x] Show/done/DB checks use the actual created Todo id.
+- [x] Replay checks still prove idempotency/no second mutation.
+- [x] Preflight refusal tests remain green and secret-safe.
+- [x] Docs/front-door no longer overstate the stale full smoke path.
+- [x] No API behavior changes.
+- [x] `git diff --check` clean.
 
 ## Closing Report Template
 
@@ -143,3 +143,28 @@ Close with:
 - whether full DB smoke was run or only DB-free proof was possible;
 - exact commands and results;
 - any remaining follow-up (`CREATE-BODY-LEGACY-REMOVAL`, error-envelope, CI smoke).
+
+## Closing Report
+
+Date: 2026-06-24
+
+Updated `server/igniter-web/scripts/todo_postgres_smoke.sh` so the full operator smoke matches the current
+Todo product surface:
+
+- create now sends the canonical object body (`{"title":"..."}`), not the deprecated JSON-string body;
+- `CREATE_KEY` is treated only as the create idempotency key;
+- the script discovers the real `todo_<32-hex>` surrogate id from the product list response and uses that id
+  for `show`, `done`, DB truth, and receipt checks;
+- cleanup now removes receipts by idempotency-key prefix instead of assuming `business_key == CREATE_KEY`;
+- `server/igniter-web/IMPLEMENTED_SURFACE.md` now describes the full smoke as realigned instead of stale.
+
+Verification:
+
+- `cargo test --test todo_postgres_smoke_guard_tests` passed (6/6).
+- `cargo test --test implemented_surface_guard_tests` passed (2/2).
+- `git diff --check` clean.
+- The local curation shell did not have `IGNITER_TODO_PG_DSN` / `IGNITER_TODO_EFFECT_TOKEN`, so the full DB
+  smoke was not re-run during this curation pass. The script keeps the documented full-run command and
+  remains gated on explicit local DB env.
+
+No API behavior, route, handler, schema, or legacy-string compatibility removal was made.

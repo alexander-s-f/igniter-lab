@@ -142,14 +142,20 @@ IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test" \
   cargo test --features postgres --test todo_postgres_local_e2e_tests -- --test-threads=1
 ```
 
-**Operator smoke (`scripts/todo_postgres_smoke.sh`) — DB-free preflight only, full run is stale.**
-The DB-free preflight **refusal** (no DSN → exit 2 `REFUSED`) is current and is asserted by
-`check_todo_product_surface.sh` step 6 and `tests/todo_postgres_smoke_guard_tests.rs`. The **full
-local-Postgres run is currently stale** against the surrogate-id surface: the script still assumes the
-row id equals the create idempotency key (pre-`P36`) and sends a legacy string body (deprecated by
-`P40`), so its `show`/`persisted`/`done` checks will not match `todo_<blake3>` ids. Treat the
-in-harness `subprocess_product_command_read_write_replay_e2e` above as the authoritative product
-proof until the smoke script is updated (flagged by `P40`; fix is a separate follow-up).
+**Operator smoke (`scripts/todo_postgres_smoke.sh`).** One-command real-Postgres proof of the product
+path (health, list empty/found, show, create, done, replay-no-second-mutation). Its DB-free preflight
+**refusals** (no DSN → exit 2 `REFUSED`, non-local/unsafe DSN, secret-safe) are current and asserted by
+`tests/todo_postgres_smoke_guard_tests.rs` and `check_todo_product_surface.sh` step 6. The full DB run
+is **realigned to the current surface (`P42`)**: it sends the canonical object create body (`P35`) and
+**discovers the real `todo_<…>` surrogate id from the product list response** (`P36`) for its
+`show`/`done`/DB-truth checks, rather than assuming the row id equals the idempotency key. It needs a
+dedicated local test DB:
+
+```bash
+export IGNITER_TODO_PG_DSN="host=localhost user=alex dbname=igniter_todo_test"
+export IGNITER_TODO_EFFECT_TOKEN="local-smoke-token"
+scripts/todo_postgres_smoke.sh
+```
 
 ## Historical docs rule
 

@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38 - implement missing-account vs empty-list semantics
 
-Status: DONE (2026-06-23) — verify-first: nested ReadThen was NOT implemented but is a small generic
+Status: CLOSED (2026-06-23) — verify-first: nested ReadThen was NOT implemented but is a small generic
 loop (not a broad rewrite) → implemented the slice, no readiness delta. Generic bounded sequential
 ReadThen loop + opaque `carry` on the ReadThen variant (host runner); `.ig` two-stage FindAccount →
 CheckAccountThenList (empty→404 account not found, else→ListTodos→200/200[]); multi-source

@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-RUNNER-STATUS-HYGIENE-P27 - sync runner truth after P23-P26
 
-Status: ✅ CLOSED — 2026-06-22
+Status: CLOSED — 2026-06-22
 Lane: IgWeb / docs hygiene / implemented surface
 Type: hygiene / documentation
 Delegation code: GEMINI-WEB-RUNNER-STATUS-HYGIENE-P27

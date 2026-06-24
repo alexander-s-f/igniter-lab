@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-PRODUCT-SURFACE-P41 - refresh implemented API surface and smoke contract
 
-Status: DONE (2026-06-23) — drift-prevention, NO behavior change. Verify-first: API.md/RUNBOOK/host.example.toml
+Status: CLOSED (2026-06-23) — drift-prevention, NO behavior change. Verify-first: API.md/RUNBOOK/host.example.toml
 already current for P35/P36/P38/P40; host_policy.md was stale and fixed (write cap IO.PostgresWrite→IO.TodoWrite,
 op update→upsert, env IGNITER_PG_DSN→IGNITER_TODO_PG_DSN, done boolean→text, + surrogate/two-stage notes). Hardened
 scripts/check_todo_product_surface.sh with a DB-free doc-marker step (asserts current body/id/account/error markers

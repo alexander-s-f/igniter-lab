@@ -68,16 +68,20 @@ ACCT="acct-smoke"
 # rather than replay an earlier empty result. Using a separate empty account just keeps the receipt
 # obviously empty for the 404 check.
 ACCT_EMPTY="acct-smoke-empty"
-CREATE_KEY="smoke-create-1"   # create idempotency key == created row id (create v0 keys by idem key)
-DONE_KEY="smoke-done-1"        # done idempotency key (business key = the todo id, P15)
-# v0 create body contract (P16): the request body is a JSON string literal carrying the todo title.
+CREATE_KEY="smoke-create-1"   # create idempotency key — the receipt/replay identity ONLY. As of P36 the
+                              # created row id is the host-minted surrogate `todo_<blake3(...)>`, NOT this
+                              # key; the smoke discovers the real id from the list response below.
+DONE_KEY="smoke-done-1"        # done idempotency key (write business key = the todo id, P15)
+# Canonical create body contract (P35): a JSON OBJECT carrying the todo title. The legacy string body is
+# deprecated (P40); the smoke exercises the canonical shape so it proves the current product surface.
 WRITE_TITLE="Buy milk via smoke"
 
 psql_dsn() { psql "$IGNITER_TODO_PG_DSN" -v ON_ERROR_STOP=1 "$@"; }
 
 cleanup_rows() {
   # FK-safe order. Test-owned ids only; never a blanket wipe.
-  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE business_key IN ('$CREATE_KEY','$DONE_KEY');" >/dev/null 2>&1 || true
+  # Receipts key by idempotency key (P36: business_key is now the surrogate todo id, not these keys).
+  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE idempotency_key LIKE '${CREATE_KEY}%' OR idempotency_key LIKE '${DONE_KEY}%';" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM todos WHERE account_id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM accounts WHERE id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
 }
@@ -128,31 +132,38 @@ echo "todo_postgres_smoke: serving on $BASE (bounded to $REQS loopback requests)
 
 # ── Drive exactly $REQS requests, in order ────────────────────────────────────────────────────────
 get_code()  { curl -s -o "${2:-/dev/null}" -w '%{http_code}' "$BASE$1" || echo ERR; }
-post_code() { # path  -> POST with bearer + idempotency-key; body is the create title (JSON string)
+# POST with bearer + idempotency-key. $1=path, $2=request body, $3=idempotency key. The create body is
+# the CANONICAL object form (P35), not the deprecated string body.
+post_code() {
   curl -s -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $3" \
-    --data "\"$WRITE_TITLE\"" -X POST "$BASE$1" || echo ERR
+    --data "$2" -X POST "$BASE$1" || echo ERR
 }
+
+CREATE_BODY="{\"title\":\"$WRITE_TITLE\"}"   # canonical object create body (P35)
 
 c_health="$(get_code  "/health")"
 c_empty="$(get_code   "/accounts/$ACCT_EMPTY/todos")"
-c_create="$(post_code "/accounts/$ACCT/todos" "" "$CREATE_KEY")"
-c_creplay="$(post_code "/accounts/$ACCT/todos" "" "$CREATE_KEY")"
+c_create="$(post_code "/accounts/$ACCT/todos" "$CREATE_BODY" "$CREATE_KEY")"
+c_creplay="$(post_code "/accounts/$ACCT/todos" "$CREATE_BODY" "$CREATE_KEY")"
 c_found="$(get_code   "/accounts/$ACCT/todos" "$FOUND_BODY")"
-c_show="$(get_code    "/accounts/$ACCT/todos/$CREATE_KEY" "$SHOW_BODY")"
-c_done="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
-            -H "idempotency-key: $DONE_KEY" --data "\"$WRITE_TITLE\"" -X POST \
-            "$BASE/accounts/$ACCT/todos/$CREATE_KEY/done" || echo ERR)"
-c_dreplay="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
-            -H "idempotency-key: $DONE_KEY" --data "\"$WRITE_TITLE\"" -X POST \
-            "$BASE/accounts/$ACCT/todos/$CREATE_KEY/done" || echo ERR)"
+
+# Discover the ACTUAL created Todo id from the product read response (P36: the id is the host surrogate
+# `todo_<32-hex>`, decoupled from the idempotency key). This reads the id from the product path's own
+# answer — no jq dependency, and no duplication of the host's blake3 recipe in bash.
+TODO_ID="$(grep -oE 'todo_[0-9a-f]{32}' "$FOUND_BODY" | head -1)"
+[[ -n "$TODO_ID" ]] || TODO_ID="__not_discovered__"
+
+c_show="$(get_code    "/accounts/$ACCT/todos/$TODO_ID" "$SHOW_BODY")"
+c_done="$(post_code   "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
+c_dreplay="$(post_code "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
 
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""
 
-# ── DB truth (done persisted; replays performed no second mutation) ────────────────────────────────
-db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$CREATE_KEY';" | tr -d '[:space:]')"
-n_create_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$CREATE_KEY' AND target='todos' AND idempotency_key LIKE '$CREATE_KEY%';" | tr -d '[:space:]')"
+# ── DB truth (done persisted; replays performed no second mutation) — keyed by the ACTUAL todo id ───
+db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$TODO_ID';" | tr -d '[:space:]')"
+n_create_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$TODO_ID' AND target='todos' AND idempotency_key LIKE '$CREATE_KEY%';" | tr -d '[:space:]')"
 n_done_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE idempotency_key LIKE '$DONE_KEY%';" | tr -d '[:space:]')"
 show_has_title=no; grep -qF "$WRITE_TITLE" "$SHOW_BODY" 2>/dev/null && show_has_title=yes
 found_has_title=no; grep -qF "$WRITE_TITLE" "$FOUND_BODY" 2>/dev/null && found_has_title=yes
@@ -170,6 +181,7 @@ chk "create -> 200"                        200 "$c_create"
 chk "create replay -> 200"                 200 "$c_creplay"
 chk "list found -> 200"                    200 "$c_found"
 chk "list found carries title"             yes "$found_has_title"
+chk "discovered surrogate todo id"         yes "$([[ "$TODO_ID" == todo_* ]] && echo yes || echo no)"
 chk "show -> 200"                          200 "$c_show"
 chk "create title persisted (read back)"   yes "$show_has_title"
 chk "done -> 200"                          200 "$c_done"

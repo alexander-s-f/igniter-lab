@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-READTHEN-EFFECTHOST-DOC-SWEEP-P32 - fix current stale claims only
 
-Status: ✅ CLOSED — 2026-06-23
+Status: CLOSED — 2026-06-23
 Lane: IgWeb / docs hygiene / stale blocker removal
 Type: documentation sweep
 Delegation code: OPUS-WEB-READTHEN-EFFECTHOST-DOC-SWEEP-P32

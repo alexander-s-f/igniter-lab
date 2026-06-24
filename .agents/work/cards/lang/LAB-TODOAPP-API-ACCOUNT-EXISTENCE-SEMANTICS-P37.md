@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-ACCOUNT-EXISTENCE-SEMANTICS-P37 - distinguish empty account from missing account
 
-Status: ✅ CLOSED — 2026-06-23
+Status: CLOSED — 2026-06-23
 Lane: TodoApp API / ReadThen semantics / readiness
 Type: readiness packet
 Delegation code: OPUS-TODOAPP-API-ACCOUNT-EXISTENCE-SEMANTICS-P37

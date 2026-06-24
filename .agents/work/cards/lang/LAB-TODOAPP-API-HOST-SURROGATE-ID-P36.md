@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-HOST-SURROGATE-ID-P36 - decouple Todo id from idempotency key
 
-Status: DONE (2026-06-23) — host mints `todo_<blake3(method␟path␟idempotency_key)[..32]>` as
+Status: CLOSED (2026-06-23) — host mints `todo_<blake3(method␟path␟idempotency_key)[..32]>` as
 `req.surrogate_id` (igniter-web), `.ig` prefixes `todo_` and uses it as the business key; effect
 idempotency key stays the request's. Proof: `lab-docs/lang/lab-todoapp-api-host-surrogate-id-p36-v0.md`.
 Evidence: machine-feature suites green; igniter-compiler green; 12/12 real-Postgres gated tests pass

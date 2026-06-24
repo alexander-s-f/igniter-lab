@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35 - accept JSON object create bodies
 
-Status: DONE (2026-06-23) — host crosses `req.body_json : Map[String, Unknown]` (object→map, else empty
+Status: CLOSED (2026-06-23) — host crosses `req.body_json : Map[String, Unknown]` (object→map, else empty
 map); `.ig` `ResolveCreateTitle` reads `title` via P34 `map_get_string` (object) / body string (legacy
 v0) / "" else; `AccountTodoCreate` rejects empty/blank title (`trim`) → 400. Legacy string body kept
 (compatibility window). No schema/id change (P36 surrogate wiring untouched). Proof:
