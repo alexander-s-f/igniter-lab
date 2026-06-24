@@ -91,6 +91,31 @@ async fn golden_vectors_exact_bits() {
         0x3fd78b56362cef38,
         "det_exp(-1.0)"
     );
+    // det_tan golden (Lorentzian ω uses tan over (−π/2, π/2)).
+    assert_eq!(
+        bits(&det1("det_tan", 0.5).await.unwrap()),
+        0x3fe17b4f5bf3474a,
+        "det_tan(0.5)"
+    );
+    assert_eq!(
+        bits(&det1("det_tan", 1.0).await.unwrap()),
+        0x3ff8eb245cbee3a6,
+        "det_tan(1.0)"
+    );
+    // tan(0) is exactly 0; tan near the Lorentzian edge stays finite.
+    assert_eq!(det1("det_tan", 0.0).await.unwrap(), Value::Float(0.0));
+    assert_eq!(
+        bits(&det1("det_tan", 1.4708).await.unwrap()),
+        0x4023ef1c536b2da2,
+        "det_tan(1.4708) ~ Lorentzian edge"
+    );
+}
+
+/// LAB-STDLIB-MATH-DET-TIER2 (det_tan): non-finite input is a deterministic error.
+#[tokio::test]
+async fn det_tan_totality() {
+    assert!(det1("det_tan", f64::INFINITY).await.is_err(), "det_tan(Inf) errors");
+    assert!(det1("det_tan", f64::NAN).await.is_err(), "det_tan(NaN) errors");
 }
 
 /// LAB-STDLIB-MATH-DET-TIER2: det_ln/det_exp are total over finite values — domain & overflow are

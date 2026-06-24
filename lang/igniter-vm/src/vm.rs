@@ -2067,6 +2067,7 @@ impl VM {
                         | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
                         | "stdlib.math.det_sqrt" | "det_sqrt"
                         | "stdlib.math.det_ln" | "det_ln" | "stdlib.math.det_exp" | "det_exp"
+                        | "stdlib.math.det_tan" | "det_tan"
                         | "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign"
                         | "stdlib.math.min" | "min" | "stdlib.math.max" | "max"
                         | "stdlib.math.clamp" | "clamp"
@@ -3656,6 +3657,20 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                     Ok(r)
                 } else {
                     Err("det_exp: overflow (result is not finite)".to_string())
+                }
+            }
+        }),
+        // det_tan completes the Tier-2 transcendentals (Lorentzian ω = γ·tan(π(u−½))). Same libm path; total:
+        // non-finite input, or a non-finite result near a pole, is a deterministic error (never NaN/Inf).
+        "stdlib.math.det_tan" | "det_tan" => unary("det_tan", args, |x| {
+            if !x.is_finite() {
+                Err("det_tan: non-finite input is not permitted".to_string())
+            } else {
+                let r = libm::tan(x);
+                if r.is_finite() {
+                    Ok(r)
+                } else {
+                    Err("det_tan: domain error (result is not finite near a pole)".to_string())
                 }
             }
         }),

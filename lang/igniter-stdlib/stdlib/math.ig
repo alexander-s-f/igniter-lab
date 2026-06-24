@@ -30,6 +30,8 @@ def det_sqrt(x: Float) -> Float
 -- runtime errors, never NaN/Inf. Governed by STDLIB_VERSION.
 def det_ln(x: Float) -> Float
 def det_exp(x: Float) -> Float
+-- det_tan completes Tier-2 (Lorentzian ω = γ·tan(π(u−½))); same libm; non-finite input/result = error.
+def det_tan(x: Float) -> Float
 
 -- LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 scalar basics. Polymorphic over {Integer, Float} (Decimal deferred),
 -- same-type-in/out, NO implicit coercion (mixed numeric types = OOF-MATH3). Deterministic by construction
