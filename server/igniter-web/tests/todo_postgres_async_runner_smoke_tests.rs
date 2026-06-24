@@ -223,7 +223,8 @@ fn build_write_effect_state() -> WriteEffectState {
     let adapter = Arc::new(FakePostgresWriteAdapter::new(FakeWriteBehavior::Commit));
     let policy = PostgresWritePolicy::new()
         .allow_target("todos")
-        .allow_ops(&["insert", "upsert"]);
+        // P44: `delete` joins the op allowlist (mirrors host.example.toml).
+        .allow_ops(&["insert", "upsert", "delete"]);
     let inner = PostgresWriteExecutor::new(WRITE_CAP, adapter.clone(), policy);
     let exec = Arc::new(IntentBridgeExecutor {
         cap: WRITE_CAP.into(),
@@ -262,6 +263,7 @@ fn build_effect_host<'a>(
     let mut eh = MachineEffectHost::new(r, h, c);
     eh.bind_target("todo-create", "/w");
     eh.bind_target("todo-done", "/w");
+    eh.bind_target("todo-delete", "/w"); // P44
     eh
 }
 
@@ -335,6 +337,26 @@ async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str)
          Content-Length: {}\r\n\r\n{}",
         body.len(),
         body
+    );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
+async fn delete_todo(
+    addr: std::net::SocketAddr,
+    account_id: &str,
+    todo_id: &str,
+    idem_key: &str,
+) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let raw = format!(
+        "DELETE /accounts/{account_id}/todos/{todo_id} HTTP/1.1\r\nHost: x\r\n\
+         Authorization: Bearer vtok\r\n\
+         idempotency-key: {idem_key}\r\n\
+         Content-Length: 0\r\n\r\n"
     );
     stream.write_all(raw.as_bytes()).await.unwrap();
     stream.flush().await.unwrap();
@@ -670,6 +692,59 @@ fn write_replay_same_key_no_second_mutation() {
             1,
             "only one business row committed"
         );
+    });
+}
+
+// ── 4b: delete — removes the created row over HTTP; replay same key → no second mutation ───────────
+//
+// LAB-TODOAPP-API-DELETE-P44. DELETE /accounts/:id/todos/:todo_id → AccountTodoDelete → InvokeEffect
+// { target: "todo-delete" } → MachineEffectHost → the write fake's DELETE branch. Create then delete
+// the SAME surrogate id: the business row is gone (count 0) and replaying the delete key does not
+// mutate again. A committed delete returns HTTP 200 (the chosen status, same as create/done).
+
+#[test]
+fn write_delete_via_runner_200_removes_row_and_replay() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+    let read_host = make_read_host(Arc::new(FakePostgresAdapter::new()));
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let acct = "acct-p44-del";
+        let create_key = "evt-p44-create";
+        let del_key = "evt-p44-delete";
+        // The created row lands under the host-minted surrogate id; the delete route targets that id.
+        let id = format!(
+            "todo_{}",
+            igniter_web::surrogate_id("POST", &format!("/accounts/{acct}/todos"), create_key)
+        );
+
+        // Bounded loop serves three requests: create, delete, delete-replay.
+        let policy = ServingPolicy::new(3).loopback_only();
+        let client = tokio::spawn(async move {
+            let r_create = post_todo(addr, acct, create_key).await;
+            let r_del = delete_todo(addr, acct, &id, del_key).await;
+            let r_rep = delete_todo(addr, acct, &id, del_key).await;
+            (r_create, r_del, r_rep)
+        });
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+
+        let (r_create, r_del, r_rep) = client.await.unwrap();
+        assert_eq!(http_status(&r_create), 200, "create → 200; raw={r_create}");
+        assert_eq!(http_status(&r_del), 200, "delete committed → 200; raw={r_del}");
+        assert_eq!(http_status(&r_rep), 200, "delete replay → still 200; raw={r_rep}");
+        // create (1) + delete (1); the replay deduped at the machine receipt → no third attempt.
+        assert_eq!(st.adapter.attempts(), 2, "create + delete; replay deduped");
+        // the created row was removed by the delete (the DELETE branch of the fake adapter).
+        assert_eq!(st.adapter.business_row_count(), 0, "row removed by delete");
     });
 }
 

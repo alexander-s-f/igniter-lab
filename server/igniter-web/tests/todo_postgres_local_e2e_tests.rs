@@ -102,7 +102,7 @@ fn read_policy() -> PostgresReadPolicy {
 fn write_policy() -> PostgresWritePolicy {
     PostgresWritePolicy::new()
         .allow_target("todos")
-        .allow_ops(&["insert", "upsert"])
+        .allow_ops(&["insert", "upsert", "delete"])
 }
 
 fn app_dir() -> PathBuf {
@@ -624,6 +624,125 @@ fn local_done_marks_existing_row_done() {
             .unwrap()
             .get(0);
         assert_eq!(n, 1, "exactly one PG effect_receipts row for the done");
+    });
+}
+
+// ── 4d: delete → removes an EXISTING row by business key (todo_id); idempotent; conflict refused ──
+//
+// LAB-TODOAPP-API-DELETE-P44. The app's BuildDeleteTodoIntent keys the write by the route `todo_id`,
+// operation "delete" (the real adapter's DELETE branch under the same effect-receipt gate as upsert).
+// Delete is idempotent: the row is gone after commit, a replay of the same key performs no second
+// mutation, and the same key reused with a DIFFERENT payload is refused before the adapter (the 409).
+
+#[test]
+fn local_delete_removes_existing_row_idempotently() {
+    rt().block_on(async {
+        let key = "evt-local-delete-1";
+        let todo_id = "todo-p44-del";
+        let Some((client, dsn)) = prepare("acct-p44", &[todo_id, "todo-p44-other"], &[key]).await
+        else {
+            return;
+        };
+        client
+            .execute(
+                "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                &[&todo_id, &"acct-p44", &"To be deleted"],
+            )
+            .await
+            .unwrap();
+
+        let m = load_app_contracts();
+        let intent = m
+            .dispatch(
+                "BuildDeleteTodoIntent",
+                json!({"account_id": "acct-p44", "todo_id": todo_id, "idempotency_key": key}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(intent["operation"], json!("delete"));
+        assert_eq!(intent["key"], json!(todo_id), "business key = route todo_id");
+
+        let adapter = Arc::new(
+            TokioPostgresWriteAdapter::connect(&dsn, "todos", "id", &["account_id", "title", "done"])
+                .await
+                .expect("write adapter connect"),
+        );
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(Arc::new(PostgresWriteExecutor::new(
+            WRITE_CAP,
+            adapter.clone(),
+            write_policy(),
+        )));
+        let store = receipts();
+        let req = WriteRequest {
+            capability_id: WRITE_CAP.into(),
+            operation: "delete".into(),
+            idempotency_key: key.into(),
+            payload: intent.clone(),
+        };
+        let out =
+            run_write_effect(&reg, &store, &clock(), &write_passport(), "write", &req, RunMode::Live)
+                .await
+                .unwrap();
+        assert_eq!(out.state, WriteState::Committed);
+
+        // the row is gone (delete actually removed it).
+        assert_eq!(
+            adapter.read_business_text(todo_id, "id").await,
+            None,
+            "row removed by delete"
+        );
+
+        // replay same idempotency key → no second mutation (machine receipt short-circuits).
+        let again =
+            run_write_effect(&reg, &store, &clock(), &write_passport(), "write", &req, RunMode::Live)
+                .await
+                .unwrap();
+        assert_eq!(again.state, WriteState::Committed, "replay still committed");
+        assert_eq!(adapter.attempts(), 1, "same delete key → exactly one real mutation");
+
+        // same idempotency key + DIFFERENT payload (different business key) → refused before the adapter.
+        let other_intent = m
+            .dispatch(
+                "BuildDeleteTodoIntent",
+                json!({"account_id": "acct-p44", "todo_id": "todo-p44-other", "idempotency_key": key}),
+            )
+            .await
+            .unwrap();
+        let conflict_req = WriteRequest {
+            capability_id: WRITE_CAP.into(),
+            operation: "delete".into(),
+            idempotency_key: key.into(),
+            payload: other_intent,
+        };
+        let conflict = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &write_passport(),
+            "write",
+            &conflict_req,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            conflict.state,
+            WriteState::Denied,
+            "same key + different payload → refused (the 409)"
+        );
+        assert_eq!(adapter.attempts(), 1, "conflict refused before the adapter — no new mutation");
+
+        // PG-side effect_receipts keyed by THIS delete idempotency key (business_key = todo_id).
+        let n: i64 = client
+            .query_one(
+                "SELECT count(*) FROM effect_receipts WHERE business_key = $1",
+                &[&todo_id],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n, 1, "exactly one PG effect_receipts row for the delete");
     });
 }
 

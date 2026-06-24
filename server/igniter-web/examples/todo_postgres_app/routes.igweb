@@ -14,6 +14,7 @@ app TodoPgWeb entry Serve {
       show   GET    "/:todo_id"       via LoadTodoContext(account_id, todo_id) as ctx -> AccountTodoShow
       create POST                    via LoadAccountTodos(account_id) as ctx         -> AccountTodoCreate requires idempotency
       member POST   "/:todo_id/done"  via LoadTodoContext(account_id, todo_id) as ctx -> AccountTodoDone requires idempotency
+      member DELETE "/:todo_id"        via LoadTodoContext(account_id, todo_id) as ctx -> AccountTodoDelete requires idempotency
     }
   }
 }

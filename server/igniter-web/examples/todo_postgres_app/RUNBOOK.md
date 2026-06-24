@@ -21,8 +21,9 @@ Zero authored Rust — the whole product is `.igweb` routes + `.ig` handlers, bu
   continuation with the rows. A continuation may emit another `ReadThen` (bounded sequential staged
   reads, P38). List uses a **two-stage** read: existing account + no todos → `200 []`; **missing account
   → 404 `account not found`** (P38); show of a missing row → app-owned 404.
-- **`InvokeEffect` writes** — a handler emits a logical `target` (`todo-create` / `todo-done`) + a typed
-  `WriteIntent`; the host binds the target to a Postgres write capability and executes it.
+- **`InvokeEffect` writes** — a handler emits a logical `target` (`todo-create` / `todo-done` /
+  `todo-delete`) + a typed `WriteIntent`; the host binds the target to a Postgres write capability and
+  executes it (`insert` / `upsert` / `delete` ops; delete is idempotent — P44).
 - **Host-owned Postgres authority** — DSN, capability id, source/field/target allowlists, bearer token,
   receipts all live in `host.toml` / the host, never in `.ig`.
 - **Idempotency receipts** — replay of the same key performs no second mutation; same key + a different

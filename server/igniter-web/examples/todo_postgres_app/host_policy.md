@@ -36,8 +36,9 @@ SELECT-only (mutating ops refused before the adapter). `eq`-only filters (v0).
 |---|---|---|
 | `todo-create` | `IO.TodoWrite` | insert |
 | `todo-done` | `IO.TodoWrite` | upsert |
+| `todo-delete` | `IO.TodoWrite` | delete |
 
-The app's `InvokeEffect { target: "todo-create" | "todo-done" }` carries the logical target only; the capability id / operation binding lives here, host-side. `done` is an `upsert` (the adapter is a single-statement `INSERT … ON CONFLICT DO UPDATE`; `insert`/`upsert` are the allowlisted ops).
+The app's `InvokeEffect { target: "todo-create" | "todo-done" | "todo-delete" }` carries the logical target only; the capability id / operation binding lives here, host-side. `done` is an `upsert` (the adapter is a single-statement `INSERT … ON CONFLICT DO UPDATE`); `delete` runs a `DELETE` under the same effect-receipt idempotency gate (LAB-TODOAPP-API-DELETE-P44). `insert`/`upsert`/`delete` are the allowlisted ops.
 
 ## Environment / connection
 

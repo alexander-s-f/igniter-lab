@@ -88,11 +88,13 @@ doc_absent() { # <label> <superseded string that must NOT be present>
     echo "todo-product: no stale [$1] ok"
   fi
 }
-# body contract (P35 object body), id (P36 surrogate), account-existence (P38), error contract (P20).
+# body contract (P35 object body), id (P36 surrogate), account-existence (P38), error contract (P20),
+# delete route (P44).
 doc_has    "body: object via body_json"  'req.body_json'
 doc_has    "id: host surrogate"          'surrogate id'
 doc_has    "account-existence 404"       'account not found'
 doc_has    "error contract table"        'Error contract'
+doc_has    "delete route"                'DELETE /accounts'
 # superseded claims that must never creep back in.
 doc_absent "stale P18 string-only body"  'must be a non-empty JSON string title'
 doc_absent "stale idem-key-as-id"        'create key = idempotency'

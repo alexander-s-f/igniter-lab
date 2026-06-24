@@ -72,6 +72,7 @@ CREATE_KEY="smoke-create-1"   # create idempotency key — the receipt/replay id
                               # created row id is the host-minted surrogate `todo_<blake3(...)>`, NOT this
                               # key; the smoke discovers the real id from the list response below.
 DONE_KEY="smoke-done-1"        # done idempotency key (write business key = the todo id, P15)
+DELETE_KEY="smoke-delete-1"    # delete idempotency key (P44; write business key = the todo id)
 # Canonical create body contract (P35): a JSON OBJECT carrying the todo title. The legacy string body is
 # deprecated (P40); the smoke exercises the canonical shape so it proves the current product surface.
 WRITE_TITLE="Buy milk via smoke"
@@ -81,7 +82,7 @@ psql_dsn() { psql "$IGNITER_TODO_PG_DSN" -v ON_ERROR_STOP=1 "$@"; }
 cleanup_rows() {
   # FK-safe order. Test-owned ids only; never a blanket wipe.
   # Receipts key by idempotency key (P36: business_key is now the surrogate todo id, not these keys).
-  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE idempotency_key LIKE '${CREATE_KEY}%' OR idempotency_key LIKE '${DONE_KEY}%';" >/dev/null 2>&1 || true
+  psql_dsn -qtAc "DELETE FROM effect_receipts WHERE idempotency_key LIKE '${CREATE_KEY}%' OR idempotency_key LIKE '${DONE_KEY}%' OR idempotency_key LIKE '${DELETE_KEY}%';" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM todos WHERE account_id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
   psql_dsn -qtAc "DELETE FROM accounts WHERE id IN ('$ACCT','$ACCT_EMPTY');" >/dev/null 2>&1 || true
 }
@@ -116,7 +117,7 @@ if ! ( cd "$CRATE_DIR" && cargo build --quiet --features postgres --bin igweb-se
 fi
 BIN="$CRATE_DIR/target/debug/igweb-serve"
 
-REQS=8
+REQS=11
 "$BIN" --host-config "$HOST_CFG" --addr 127.0.0.1:0 --max-requests "$REQS" "$APP_DIR" >"$LOG" 2>&1 &
 SERVER_PID=$!
 PORT=""
@@ -139,6 +140,12 @@ post_code() {
     -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $3" \
     --data "$2" -X POST "$BASE$1" || echo ERR
 }
+# DELETE with bearer + idempotency-key (P44). $1=path, $2=body, $3=idempotency key.
+del_code() {
+  curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" -H "idempotency-key: $3" \
+    --data "$2" -X DELETE "$BASE$1" || echo ERR
+}
 
 CREATE_BODY="{\"title\":\"$WRITE_TITLE\"}"   # canonical object create body (P35)
 
@@ -158,13 +165,24 @@ c_show="$(get_code    "/accounts/$ACCT/todos/$TODO_ID" "$SHOW_BODY")"
 c_done="$(post_code   "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
 c_dreplay="$(post_code "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
 
+# Capture the done-persisted truth NOW, BEFORE delete removes the row. The bounded server is still
+# alive (delete requests remain); psql is an independent PG connection, so this mid-stream read is safe.
+db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$TODO_ID';" | tr -d '[:space:]')"
+
+# Delete (LAB-TODOAPP-API-DELETE-P44): remove the todo through the real binary, replay (idempotent),
+# then show → 404 (the real read no longer finds the row).
+c_delete="$(del_code    "/accounts/$ACCT/todos/$TODO_ID" "{}" "$DELETE_KEY")"
+c_delreplay="$(del_code "/accounts/$ACCT/todos/$TODO_ID" "{}" "$DELETE_KEY")"
+c_show_gone="$(get_code "/accounts/$ACCT/todos/$TODO_ID")"
+
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""
 
-# ── DB truth (done persisted; replays performed no second mutation) — keyed by the ACTUAL todo id ───
-db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$TODO_ID';" | tr -d '[:space:]')"
+# ── DB truth — keyed by the ACTUAL todo id. The row is now DELETED (count 0). ────────────────────────
+n_rows_after="$(psql_dsn -qtAc "SELECT count(*) FROM todos WHERE id='$TODO_ID';" | tr -d '[:space:]')"
 n_create_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE business_key='$TODO_ID' AND target='todos' AND idempotency_key LIKE '$CREATE_KEY%';" | tr -d '[:space:]')"
 n_done_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE idempotency_key LIKE '$DONE_KEY%';" | tr -d '[:space:]')"
+n_delete_rcpt="$(psql_dsn -qtAc "SELECT count(*) FROM effect_receipts WHERE idempotency_key LIKE '$DELETE_KEY%';" | tr -d '[:space:]')"
 show_has_title=no; grep -qF "$WRITE_TITLE" "$SHOW_BODY" 2>/dev/null && show_has_title=yes
 found_has_title=no; grep -qF "$WRITE_TITLE" "$FOUND_BODY" 2>/dev/null && found_has_title=yes
 
@@ -187,8 +205,13 @@ chk "create title persisted (read back)"   yes "$show_has_title"
 chk "done -> 200"                          200 "$c_done"
 chk "done replay -> 200"                    200 "$c_dreplay"
 chk "done persisted (db done=true)"        true "$db_done"
+chk "delete -> 200"                        200  "$c_delete"
+chk "delete replay -> 200"                 200  "$c_delreplay"
+chk "show after delete -> 404"             404  "$c_show_gone"
+chk "row removed (db count=0)"             0    "$n_rows_after"
 chk "create replay: one receipt"           1    "$n_create_rcpt"
 chk "done replay: one receipt"             1    "$n_done_rcpt"
+chk "delete replay: one receipt"           1    "$n_delete_rcpt"
 
 if [[ "$pass" == 1 ]]; then
   echo "todo_postgres_smoke: PASS"

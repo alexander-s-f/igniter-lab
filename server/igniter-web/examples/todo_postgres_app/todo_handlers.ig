@@ -213,6 +213,22 @@ pure contract BuildMarkTodoDoneIntent {
   output intent : WriteIntent
 }
 
+-- Delete removes the todo identified by the route `todo_id` (LAB-TODOAPP-API-DELETE-P44). `operation` is
+-- "delete" — it gates the host op allowlist AND selects the write adapter's DELETE branch (the adapter
+-- ignores `values`, so they are empty). The business `key` is the route `todo_id`. The effect idempotency
+-- key stays the request's, so replay/receipts key on it exactly like create/done. No SQL, no DSN here.
+pure contract BuildDeleteTodoIntent {
+  input account_id      : String
+  input todo_id         : String
+  input idempotency_key : String
+  compute values = call_contract("MakeWriteValues", account_id, "", "")
+  compute intent : WriteIntent = {
+    operation: "delete", target: "todos",
+    key: todo_id, values: values, correlation_id: idempotency_key
+  }
+  output intent : WriteIntent
+}
+
 -- ── Routing: contexts carried guard → handler ───────────────────────────────────────────────────
 type TodoListCtx {
   account_id : Option[String]
@@ -360,5 +376,18 @@ pure contract AccountTodoDone {
   compute intent : WriteIntent =
     call_contract("BuildMarkTodoDoneIntent", or_else(ctx.account_id, "none"), or_else(ctx.todo_id, "none"), req.idempotency_key)
   compute d : Decision = InvokeEffect { target: "todo-done", input: intent, idempotency_key: req.idempotency_key }
+  output d : Decision
+}
+
+-- Delete mutating handler (LAB-TODOAPP-API-DELETE-P44): same shape as Done, with a delete intent. The
+-- route's `LoadTodoContext` guard owns the empty-capture 404 (RespondError); a well-formed-but-absent
+-- todo deletes idempotently (0 rows) and still returns committed. After a delete, the real `show`/`list`
+-- reads no longer find the row.
+pure contract AccountTodoDelete {
+  input req : Request
+  input ctx : TodoCtx
+  compute intent : WriteIntent =
+    call_contract("BuildDeleteTodoIntent", or_else(ctx.account_id, "none"), or_else(ctx.todo_id, "none"), req.idempotency_key)
+  compute d : Decision = InvokeEffect { target: "todo-delete", input: intent, idempotency_key: req.idempotency_key }
   output d : Decision
 }

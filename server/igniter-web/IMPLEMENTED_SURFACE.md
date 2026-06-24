@@ -8,7 +8,7 @@ file and an old proof doc disagree, **this file + live source wins** (see
 [Historical docs rule](#historical-docs-rule)).
 
 Last verified against source: 2026-06-24 (after read/write binding `P25`/`P26`, hygiene `P29`-`P33`,
-and Todo API product cards `P35`-`P41`).
+Todo API product cards `P35`-`P41`, error envelope `P43`, and delete `P44`).
 
 ## ReadThen status vocabulary
 
@@ -41,10 +41,10 @@ and Todo API product cards `P35`-`P41`).
 | `host.toml` read/write/effects | Implemented | `src/host_config.rs` (`parse_host_config`/`load_host_config`/`resolve_host_config`) | Keys: `[host] mode` (`"loopback"` only); `[effects.<t>]` `route`(req)+`passport_env`(opt); `[postgres.read]` `dsn_env`(req)+`source`+`fields`+`row_limit`(def 100)+`capability`; `[postgres.read.<name>]` extra allowlisted `(source, fields)` (`P38`); `[postgres.write]` `dsn_env`(req)+`targets`+`ops`+`capability`+`key_column`(def `id`)+`columns`. Fail-closed on unknown section/key, inline secrets (`dsn`/`password`/`secret`/`token`/`passport`/`api_key`), template `*_env`, route w/o `/`, missing `route`/`dsn_env`, bad `mode`. `resolve_host_config` resolves every `*_env` **before** any socket bind. |
 | Multi-table read allowlist | Implemented (`P38`) | `src/host_config.rs::PostgresReadConfig.extra_sources` | A primary `[postgres.read]` source **plus** one or more `[postgres.read.<name>]` sources (e.g. prove `accounts` exists, then list `todos`). Still a **single** read DSN; the adapter is source-generic, the policy gates each table. |
 | Real Postgres read/write | Implemented under `postgres` | `src/host_binding.rs::{build_staged_read_host_from_resolved, build_write_host_from_resolved}` over `igniter_machine::postgres_real::{TokioPostgresReadAdapter, TokioPostgresWriteAdapter}` | Wired **only** under `--features postgres` **and** `--host-config` with matching sections. Without the feature the DSN still resolves but no executor is built (reads denied / `InvokeEffect` unbound). Write path also needs `[effects.*]` + a `passport_env` bearer token. |
-| `host.example.toml` | Implemented (`P28`, refreshed `P38`/`P41`) | `examples/todo_postgres_app/host.example.toml` | Committed, commit-safe (env-var names only). Now wires `[postgres.read.accounts]`, `targets = todos`, `ops = insert,upsert`, `capability = IO.TodoWrite`. Guarded by unit test `committed_host_example_toml_parses`. |
+| `host.example.toml` | Implemented (`P28`, refreshed `P38`/`P41`) | `examples/todo_postgres_app/host.example.toml` | Committed, commit-safe (env-var names only). Now wires `[postgres.read.accounts]`, `targets = todos`, `ops = insert,upsert,delete`, `capability = IO.TodoWrite`, and `[effects.todo-delete]` (`P44`). Guarded by unit test `committed_host_example_toml_parses`. |
 | Runner diagnostics | Implemented (`P29`/`P30`) | `src/runner_diag.rs`, used by `src/bin/igweb-serve.rs` | See [Failure taxonomy](#failure-taxonomy) below. |
 
-### Todo API product path (`examples/todo_postgres_app`, cards `P35`-`P41`)
+### Todo API product path (`examples/todo_postgres_app`, cards `P35`-`P44`)
 
 The generic surfaces above carry **one** product app end-to-end. App docs live in
 `examples/todo_postgres_app/{API.md,RUNBOOK.md,host_policy.md}`; this is the status summary only.
@@ -56,6 +56,7 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Todo resource id | Implemented (`P36`) | Host mints `surrogate_id = todo_<blake3(method␟path␟idempotency_key)>[..32]` (`src/lib.rs::surrogate_id`); `.ig` prefixes `todo_` and uses it as the business key. The **id is decoupled from the idempotency key** (receipts/dedup still key on the idempotency key). Deterministic across replay; leaks no body/secret. `surrogate_id_tests`. |
 | Account-existence read semantics | Implemented (`P38`) | Two-stage read `FindAccount` → `CheckAccountThenList`: existing+rows → **200**; existing+empty → **200 `[]`**; missing account → app-owned **404**; denied source/field → host **403** (adapter not reached); adapter failure → host **503**. `local_account_existence_missing_404_and_existing_empty_200`. |
 | Error envelope (`RespondError`) | Implemented (`P43`) | Typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` + a `map_decision` arm → `{"error":{"code","message"}}`. App-authored errors (invalid body, account/todo not-found) carry it; framework-app errors (route-miss/405/keyless from the lowering) and host infra error shapes are unchanged. |
+| Delete (`DELETE …/todos/:todo_id`) | Implemented (`P44`) | `AccountTodoDelete` → `BuildDeleteTodoIntent` (`operation: "delete"`, key = route `todo_id`) → `InvokeEffect{todo-delete}`. The write substrate's `delete` op was already seam-open (real adapter DELETE CTE + fake `remove`), gated by the host `ops` allowlist (`insert,upsert,delete`). Idempotent (absent row still commits; replay → no 2nd mutation); same key + different payload → **409**. Committed → **200**; row gone from later `show`/`list`. Proof: `write_delete_via_runner_200_removes_row_and_replay` (async HTTP through `MachineEffectHost`, DB-free), `local_delete_removes_existing_row_idempotently` (real adapter + DB), `delete_op_removes_business_row_idempotently` (fake substrate), and `scripts/todo_postgres_smoke.sh` (DELETE through the real binary → row removed, show → 404). |
 
 ## Not implemented / intentionally closed
 

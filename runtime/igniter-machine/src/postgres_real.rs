@@ -400,52 +400,67 @@ impl PostgresWriteAdapter for TokioPostgresWriteAdapter {
     ) -> PostgresWriteResult {
         self.attempts.fetch_add(1, Ordering::SeqCst);
 
-        // Build the business insert column/placeholder/conflict clauses from the HOST-configured
-        // columns (never the intent's keys). Params: $1..$4 = effect-receipt row, $5 = business key,
-        // $6.. = the configured column values (NULL when the intent omits them).
-        let biz_cols: Vec<String> = std::iter::once(quote_ident(&self.key_column))
-            .chain(self.columns.iter().map(|c| quote_ident(c)))
-            .collect();
-        let biz_placeholders: Vec<String> =
-            (0..biz_cols.len()).map(|i| format!("${}", 5 + i)).collect();
-        let on_conflict = if self.columns.is_empty() {
-            "DO NOTHING".to_string()
+        // The effect-receipt gate (`ins`) is identical for every operation — that is what gives delete
+        // the SAME two-layer idempotency as insert/upsert: a duplicate idempotency key makes `ins` empty,
+        // so the business CTE's `WHERE EXISTS (SELECT 1 FROM ins)` (or, for DELETE, the same guard) does
+        // nothing and the call resolves to `DuplicateKey`. Only the business CTE + its params differ.
+        // Params always start: $1..$4 = effect-receipt row, $5 = business key.
+        let mut params: Vec<Option<String>> = vec![
+            Some(idempotency_key.to_string()),
+            intent.correlation_id.clone(),
+            Some(intent.target.clone()),
+            Some(intent.key.clone()),
+            Some(intent.key.clone()), // $5 = business key value
+        ];
+
+        let biz_cte = if intent.operation == "delete" {
+            // DELETE the business row by key, gated on a fresh effect-receipt. Deleting an absent row is
+            // a no-op DELETE (0 rows) but still a fresh receipt → `Committed` (idempotent delete). No
+            // value columns are read; $5 is the only business param.
+            format!(
+                "biz AS (DELETE FROM {target} WHERE {key} = $5 AND EXISTS (SELECT 1 FROM ins) RETURNING 1)",
+                target = quote_ident(&self.target),
+                key = quote_ident(&self.key_column),
+            )
         } else {
-            let sets: Vec<String> = self
-                .columns
-                .iter()
-                .map(|c| format!("{0}=EXCLUDED.{0}", quote_ident(c)))
+            // INSERT … ON CONFLICT (insert/upsert). Columns come from the HOST-configured `columns`
+            // (never the intent's keys); $6.. = those column values (NULL when the intent omits them).
+            let biz_cols: Vec<String> = std::iter::once(quote_ident(&self.key_column))
+                .chain(self.columns.iter().map(|c| quote_ident(c)))
                 .collect();
-            format!("DO UPDATE SET {}", sets.join(", "))
+            let biz_placeholders: Vec<String> =
+                (0..biz_cols.len()).map(|i| format!("${}", 5 + i)).collect();
+            let on_conflict = if self.columns.is_empty() {
+                "DO NOTHING".to_string()
+            } else {
+                let sets: Vec<String> = self
+                    .columns
+                    .iter()
+                    .map(|c| format!("{0}=EXCLUDED.{0}", quote_ident(c)))
+                    .collect();
+                format!("DO UPDATE SET {}", sets.join(", "))
+            };
+            for c in &self.columns {
+                params.push(json_to_opt_text(intent.values.get(c)));
+            }
+            format!(
+                "biz AS (INSERT INTO {target} ({cols}) SELECT {ph} WHERE EXISTS (SELECT 1 FROM ins) \
+                 ON CONFLICT ({key}) {on_conflict} RETURNING 1)",
+                target = quote_ident(&self.target),
+                cols = biz_cols.join(", "),
+                ph = biz_placeholders.join(", "),
+                key = quote_ident(&self.key_column),
+                on_conflict = on_conflict,
+            )
         };
 
         let sql = format!(
             "WITH ins AS (\
                INSERT INTO effect_receipts (idempotency_key, correlation_id, target, business_key) \
                VALUES ($1, $2, $3, $4) ON CONFLICT (idempotency_key) DO NOTHING RETURNING 1\
-             ), biz AS (\
-               INSERT INTO {target} ({cols}) \
-               SELECT {ph} WHERE EXISTS (SELECT 1 FROM ins) \
-               ON CONFLICT ({key}) {on_conflict} RETURNING 1\
-             ) SELECT count(*)::int AS fresh FROM ins",
-            target = quote_ident(&self.target),
-            cols = biz_cols.join(", "),
-            ph = biz_placeholders.join(", "),
-            key = quote_ident(&self.key_column),
-            on_conflict = on_conflict,
+             ), {biz_cte} SELECT count(*)::int AS fresh FROM ins",
         );
 
-        // Params (all Option<String> so NULLs bind uniformly).
-        let mut params: Vec<Option<String>> = vec![
-            Some(idempotency_key.to_string()),
-            intent.correlation_id.clone(),
-            Some(intent.target.clone()),
-            Some(intent.key.clone()),
-            Some(intent.key.clone()), // $5 = business key column value
-        ];
-        for c in &self.columns {
-            params.push(json_to_opt_text(intent.values.get(c)));
-        }
         let param_refs: Vec<&(dyn ToSql + Sync)> =
             params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
 

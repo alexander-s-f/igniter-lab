@@ -33,6 +33,7 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
+| `DELETE /accounts/:account_id/todos/:todo_id` | `AccountTodoDelete` → `InvokeEffect{todo-delete}` | **required** | 200 committed — the row is removed; **idempotent** (replay → 200 dedup; a later `show` → 404, `list` no longer shows it) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed (P44) |
 
 Unmatched path → **404**; wrong method on a known pattern → **405**.
 

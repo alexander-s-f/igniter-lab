@@ -1065,12 +1065,12 @@ fields = "id,name"
         let wc = cfg.postgres_write.expect("[postgres.write] present");
         assert_eq!(wc.dsn_env, "IGNITER_TODO_PG_DSN");
         assert_eq!(wc.targets, vec!["todos"]);
-        assert_eq!(wc.ops, vec!["insert", "upsert"]);
+        assert_eq!(wc.ops, vec!["insert", "upsert", "delete"]);
         assert_eq!(wc.capability_id.as_deref(), Some("IO.TodoWrite"));
         assert_eq!(wc.key_column.as_deref(), Some("id"));
         assert_eq!(wc.columns, vec!["account_id", "title", "done"]);
 
-        for target in ["todo-create", "todo-done"] {
+        for target in ["todo-create", "todo-done", "todo-delete"] {
             let ec = cfg.effects.get(target).expect("effect target present");
             assert_eq!(ec.route, "/w");
             assert_eq!(

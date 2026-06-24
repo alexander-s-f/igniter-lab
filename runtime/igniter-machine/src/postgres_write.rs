@@ -326,12 +326,18 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
                 {
                     return PostgresWriteResult::DuplicateKey;
                 }
-                // ONE transaction: business mutation + effect-receipt upsert, both or neither.
+                // ONE transaction: business mutation + effect-receipt upsert, both or neither. A
+                // `delete` op REMOVES the business row (idempotent: removing an absent row is fine);
+                // every other op writes/overwrites it.
                 let row_key = format!("{}/{}", intent.target, intent.key);
-                self.business_rows
-                    .lock()
-                    .unwrap()
-                    .insert(row_key, intent.values.clone());
+                if intent.operation == "delete" {
+                    self.business_rows.lock().unwrap().remove(&row_key);
+                } else {
+                    self.business_rows
+                        .lock()
+                        .unwrap()
+                        .insert(row_key, intent.values.clone());
+                }
                 self.effect_receipts.lock().unwrap().insert(
                     idempotency_key.to_string(),
                     json!({

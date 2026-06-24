@@ -42,19 +42,23 @@ fields = "id,name"
 [postgres.write]
 dsn_env = "IGNITER_TODO_PG_DSN"
 targets = "todos"
-ops = "insert,upsert"
+ops = "insert,upsert,delete"
 capability = "IO.TodoWrite"
 key_column = "id"
 columns = "account_id,title,done"
 
-# Logical effect targets the app emits via `InvokeEffect { target: "todo-create" | "todo-done" }`.
-# The host binds each to a machine ingress `route`; `passport_env` names the env var holding the
-# bearer token the client must present (`Authorization: Bearer <value>`). The app never names the
-# route, capability, DSN, or token.
+# Logical effect targets the app emits via `InvokeEffect { target: "todo-create" | "todo-done" |
+# "todo-delete" }`. The host binds each to a machine ingress `route`; `passport_env` names the env var
+# holding the bearer token the client must present (`Authorization: Bearer <value>`). The app never names
+# the route, capability, DSN, or token.
 [effects.todo-create]
 route = "/w"
 passport_env = "IGNITER_TODO_EFFECT_TOKEN"
 
 [effects.todo-done]
+route = "/w"
+passport_env = "IGNITER_TODO_EFFECT_TOKEN"
+
+[effects.todo-delete]
 route = "/w"
 passport_env = "IGNITER_TODO_EFFECT_TOKEN"

@@ -150,6 +150,55 @@ fn commit_lifecycle_business_row_and_pg_receipt() {
     });
 }
 
+// ── delete op removes the business row; idempotent replay (LAB-TODOAPP-API-DELETE-P44) ────────
+
+#[test]
+fn delete_op_removes_business_row_idempotently() {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresWriteAdapter::new(FakeWriteBehavior::Commit));
+        // a policy that ALSO allows `delete` (the default helper allows only insert/upsert).
+        let pol = PostgresWritePolicy::new()
+            .allow_target("leads")
+            .allow_ops(&["insert", "upsert", "delete"]);
+        let mut reg = CapabilityExecutorRegistry::new();
+        reg.register(Arc::new(PostgresWriteExecutor::new(CAP, adapter.clone(), pol)));
+        let store = receipts();
+
+        // insert a row, then delete it by the same business key under a different idempotency key.
+        run_write_effect(
+            &reg, &store, &clock(), &passport(), "write",
+            &write_req("k-ins", intent("c1")), RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(adapter.business_row_count(), 1, "row inserted");
+
+        let del_payload = json!({
+            "operation": "delete", "target": "leads", "key": "lead-1",
+            "values": {}, "correlation_id": "c2",
+        });
+        let mut del_req = write_req("k-del", del_payload);
+        del_req.operation = "delete".to_string();
+        let out = run_write_effect(
+            &reg, &store, &clock(), &passport(), "write", &del_req, RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.state, WriteState::Committed);
+        assert_eq!(adapter.business_row_count(), 0, "delete removed the business row");
+        assert!(adapter.has_effect_receipt("k-del"), "delete recorded its PG effect receipt");
+
+        // replay the same delete key → no second mutation (machine receipt short-circuits).
+        let again = run_write_effect(
+            &reg, &store, &clock(), &passport(), "write", &del_req, RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(again.state, WriteState::Committed, "replay still committed");
+        assert_eq!(adapter.attempts(), 2, "one insert + one delete; the replay did not reach the adapter");
+    });
+}
+
 // ── #4: raw SQL payload refused structurally before the adapter ───────────────
 
 #[test]
