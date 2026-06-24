@@ -257,8 +257,8 @@ fn app_dir() -> PathBuf {
 
 async fn post_todo(addr: std::net::SocketAddr, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
-    let body = "\"Buy milk\"";
+    // P45: the object create body is the ONLY accepted shape (legacy string body removed).
+    let body = "{\"title\":\"Buy milk\"}";
     let raw = format!(
         "POST /accounts/acct-1/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\n\

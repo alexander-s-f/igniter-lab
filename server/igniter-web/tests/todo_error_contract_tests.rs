@@ -85,8 +85,8 @@ fn wrong_method_on_known_pattern_is_405() {
 #[test]
 fn keyless_create_is_400() {
     let app = app();
-    // Valid string body so the 400 is unambiguously the missing-key guard, not the body contract.
-    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", &[], "\"Buy milk\"");
+    // Valid object body so the 400 is unambiguously the missing-key guard, not the body contract.
+    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", &[], "{\"title\":\"Buy milk\"}");
     assert_eq!(s, 400, "keyless create → 400; body={b}");
     assert_app_error(&b, "keyless");
 }
@@ -126,7 +126,7 @@ fn invalid_create_body_is_400() {
 fn valid_create_is_not_an_error_shape() {
     let app = app();
     let key = &[("idempotency-key", "evt-ok")][..];
-    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, "\"Buy milk\"");
+    let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, "{\"title\":\"Buy milk\"}");
     assert_eq!(s, 202, "valid create → 202 observed; body={b}");
     assert_eq!(b["target"], serde_json::json!("todo-create"));
     assert!(b.get("error").is_none(), "success carries no error field");

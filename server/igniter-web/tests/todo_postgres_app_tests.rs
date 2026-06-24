@@ -38,16 +38,16 @@ fn app_files_exist_and_check_succeeds() {
     assert_eq!(report.source_count, 2);
 }
 
-// ── P35: create body contract — v1 OBJECT body `{ "title": … }` + legacy v0 string body ───────────
+// ── P35/P45: create body contract — OBJECT body `{ "title": … }` ONLY ──────────────────────────────
 //
-// `POST /accounts/:id/todos` accepts the preferred v1 object body `{ "title": "Buy milk" }` OR the legacy
-// v0 bare JSON string title (compatibility window). The host parses an object into the generic
-// `req.body_json` map; the app reads `title` via `map_get_string` (fail-closed). A blank/missing/non-string
-// title, or any non-object/non-string shape (array/number/bool/null/empty/malformed), fails closed to a
-// product-owned 400 with NO InvokeEffect (sync mode: a valid create is observed as 202).
+// `POST /accounts/:id/todos` accepts ONLY the object body `{ "title": "Buy milk" }`. The legacy bare JSON
+// string body was REMOVED in LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL-P45. The host parses an object
+// into the generic `req.body_json` map; the app reads `title` via `map_get_string` (fail-closed). A
+// blank/missing/non-string title, or any non-object shape (bare string/array/number/bool/null/empty/
+// malformed), fails closed to a product-owned 400 with NO InvokeEffect (sync mode: a valid create → 202).
 
 #[test]
-fn create_body_contract_object_and_legacy_string() {
+fn create_body_contract_object_only() {
     let app = build();
     let key = &[("idempotency-key", "evt-body")][..];
 
@@ -55,7 +55,6 @@ fn create_body_contract_object_and_legacy_string() {
     for (label, body) in [
         ("v1-object", "{\"title\":\"Buy milk\"}"),
         ("v1-object-extra-fields", "{\"title\":\"Buy milk\",\"done\":true,\"n\":1}"),
-        ("legacy-string", "\"Buy milk\""),
     ] {
         let (s, b) = roundtrip(&*app, "POST", "/accounts/7/todos", key, body);
         assert_eq!(s, 202, "{label} body → observed create; got {s} body={b}");
@@ -64,6 +63,7 @@ fn create_body_contract_object_and_legacy_string() {
 
     // Rejected shapes — each returns a product-owned 400, never an InvokeEffect.
     for (label, body) in [
+        ("legacy-string-removed", "\"Buy milk\""),
         ("object-missing-title", "{}"),
         ("object-other-field", "{\"note\":\"x\"}"),
         ("object-title-nonstring", "{\"title\":5}"),
@@ -121,20 +121,20 @@ fn loopback_behaviors() {
         "show emits ReadThen → sync path returns 500 (machine mode only)"
     );
 
-    // create without idempotency-key → keyless 400 (guard outermost, before the via match). Body is a
-    // valid JSON string title (P18), so 400 is unambiguously the keyless guard, not the body contract.
+    // create without idempotency-key → keyless 400 (guard outermost, before the via match). A valid
+    // object body keeps the 400 unambiguously the keyless guard, not the body contract.
     assert_eq!(
-        roundtrip(&*app, "POST", "/accounts/7/todos", &[], "\"Buy milk\"").0,
+        roundtrip(&*app, "POST", "/accounts/7/todos", &[], "{\"title\":\"Buy milk\"}").0,
         400
     );
 
-    // create with key + JSON-string body → 202 observed InvokeEffect target `todo-create`.
+    // create with key + object body → 202 observed InvokeEffect target `todo-create`.
     let (s, b) = roundtrip(
         &*app,
         "POST",
         "/accounts/7/todos",
         &[("idempotency-key", "evt-1")],
-        "\"Buy milk\"",
+        "{\"title\":\"Buy milk\"}",
     );
     assert_eq!(s, 202);
     assert_eq!(b["target"], json!("todo-create"));

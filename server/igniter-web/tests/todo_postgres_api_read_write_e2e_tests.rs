@@ -281,8 +281,8 @@ fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
         .0
 }
 fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
-    // P35: legacy JSON-string title remains accepted during the object-body compatibility window; done ignores the body.
-    let mut req = ServerRequest::new(method, path, json!("Buy milk"));
+    // P45: create uses the object body (legacy string removed); done/GET ignore the body.
+    let mut req = ServerRequest::new(method, path, json!({"title": "Buy milk"}));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = idem_key.map(|k| k.to_string());

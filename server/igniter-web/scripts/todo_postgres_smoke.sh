@@ -73,8 +73,8 @@ CREATE_KEY="smoke-create-1"   # create idempotency key — the receipt/replay id
                               # key; the smoke discovers the real id from the list response below.
 DONE_KEY="smoke-done-1"        # done idempotency key (write business key = the todo id, P15)
 DELETE_KEY="smoke-delete-1"    # delete idempotency key (P44; write business key = the todo id)
-# Canonical create body contract (P35): a JSON OBJECT carrying the todo title. The legacy string body is
-# deprecated (P40); the smoke exercises the canonical shape so it proves the current product surface.
+# Create body contract (P35; legacy string body REMOVED in P45): a JSON OBJECT carrying the todo title is
+# the ONLY accepted shape. The smoke exercises it to prove the current product surface.
 WRITE_TITLE="Buy milk via smoke"
 
 psql_dsn() { psql "$IGNITER_TODO_PG_DSN" -v ON_ERROR_STOP=1 "$@"; }

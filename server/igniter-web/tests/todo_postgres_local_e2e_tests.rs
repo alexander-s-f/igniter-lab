@@ -1122,8 +1122,8 @@ fn binary_path_write_from_config_committed() {
 
         let build_post = |key: &str| {
             let tok = tok_val;
-            // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
-            let body = "\"Buy milk\"";
+            // P45: the object create body is the ONLY accepted shape (legacy string body removed).
+            let body = "{\"title\":\"Buy milk\"}";
             format!(
                 "POST /accounts/acct-p26-cfg/todos HTTP/1.1\r\nHost: x\r\n\
                  Authorization: Bearer {tok}\r\n\

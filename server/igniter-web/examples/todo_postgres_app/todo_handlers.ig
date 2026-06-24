@@ -174,23 +174,19 @@ pure contract BuildCreateTodoIntent {
   output intent : WriteIntent
 }
 
--- Resolve the create title from the request (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35). The v1 (preferred)
--- body is a JSON OBJECT `{ "title": "Buy milk" }`: the host crosses it as the generic transport map
--- `req.body_json`, and THIS app owns the field meaning — it reads `title` via `map_get_string` (fail-closed
--- Option[String]: missing/non-string/null → none → ""). The legacy v0 body is a bare JSON string literal
--- whose whole value is the title (kept working during the compatibility window). Any other shape resolves
--- to "" so the handler fails closed to a 400. `.ig` parses no transport JSON — it only reads typed fields.
+-- Resolve the create title from the request. The create body is a JSON OBJECT `{ "title": "Buy milk" }`
+-- ONLY (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35; legacy bare-string body REMOVED in
+-- LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL-P45). The host crosses the object as the generic transport
+-- map `req.body_json`, and THIS app owns the field meaning — it reads `title` via `map_get_string`
+-- (fail-closed Option[String]: missing/non-string/null → none → ""). ANY non-object shape — a bare JSON
+-- string (the removed legacy form), array/number/bool/null/empty/malformed — resolves to "" so the handler
+-- fails closed to a 400. `.ig` parses no transport JSON — it only reads typed fields.
 pure contract ResolveCreateTitle {
   input req : Request
-  compute obj_title : String = or_else(map_get_string(req.body_json, "title"), "")
   compute t : String = if req.body_kind == "object" {
-    obj_title
+    or_else(map_get_string(req.body_json, "title"), "")
   } else {
-    if req.body_kind == "string" {
-      req.body
-    } else {
-      ""
-    }
+    ""
   }
   output t : String
 }
@@ -350,11 +346,11 @@ pure contract AccountTodoShow {
 -- `req.idempotency_key` (replay/correlation identity), now DISTINCT from the Todo business `intent.key`
 -- (a host-minted surrogate, P36). `target` stays the logical route-level effect name (host binds it to a
 -- machine route); the app names NO capability id, scope, DSN, or SQL.
--- Create enforces the body contract (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35, hardening P18). The title
--- comes from `ResolveCreateTitle`: the v1 OBJECT body `{ "title": "…" }` (preferred) or the legacy v0 JSON
--- string body (compatibility window). A blank/missing/non-string title, or any non-object/non-string shape
--- (array/number/bool/null/empty/malformed), resolves to "" and fails closed to a product-owned 400 BEFORE
--- any InvokeEffect — no DB mutation. `trim` rejects whitespace-only titles. `.ig` parses no transport JSON.
+-- Create enforces the body contract (LAB-TODOAPP-API-CREATE-OBJECT-BODY-P35; legacy string body removed in
+-- LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL-P45). The title comes from `ResolveCreateTitle`: the OBJECT
+-- body `{ "title": "…" }` is the ONLY accepted shape. A blank/missing/non-string title, or any non-object
+-- shape (bare string/array/number/bool/null/empty/malformed), resolves to "" and fails closed to a
+-- product-owned 400 BEFORE any InvokeEffect — no DB mutation. `trim` rejects whitespace-only titles.
 pure contract AccountTodoCreate {
   input req : Request
   input ctx : TodoListCtx

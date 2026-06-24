@@ -4,7 +4,7 @@ This is the host-owned configuration reference for mapping this app's read/write
 
 > **Runnable, commit-safe config:** see [`host.example.toml`](host.example.toml) in this directory — it is the exact, parseable config (env-var names only) the runner accepts, plus the run command. The crate README's "Postgres Host Config (Operator)" section walks through it. The tables below are the conceptual policy this config expresses.
 >
-> **Product API contract:** see [`API.md`](API.md) for the route table, run modes (sync observed vs async machine), status semantics, idempotency, the object request-body contract (object `{ "title": … }` is canonical; the legacy string body is deprecated, P35/P40), and the host-minted surrogate id (P36).
+> **Product API contract:** see [`API.md`](API.md) for the route table, run modes (sync observed vs async machine), status semantics, idempotency, the object request-body contract (object `{ "title": … }` is the only accepted shape; the legacy string body was removed in P45), and the host-minted surrogate id (P36).
 
 The app names only logical effect targets and structured intents; everything below is the **host's** concern. Schema/migrations are operator-owned and are managed at the database layer (not by the application compiler).
 

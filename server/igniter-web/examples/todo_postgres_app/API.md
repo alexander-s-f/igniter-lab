@@ -163,19 +163,17 @@ The host parses the transport object into the generic `req.body_json : Map[Strin
 the `title` field via `map_get_string` (a fail-closed `Option[String]`). The host owns transport parsing;
 the **app owns the field meaning** — extra object fields are ignored.
 
-**Legacy v0 (DEPRECATED — compatibility window):** a bare **non-empty JSON string literal** whose whole
-value is the title (e.g. `"Buy milk"`, with quotes) is still accepted, but it is **deprecated**: the object
-body above is the only canonical shape and the one new clients should use. Legacy support is retained only
-while existing tests/agents converge and will be removed in a named follow-up card
-(LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL) once no caller depends on it. Policy decided in the readiness
-packet `lab-docs/lang/lab-todoapp-api-create-body-compat-policy-p40-v0.md` (P40).
+**Legacy v0 (REMOVED):** the bare JSON string title (e.g. `"Buy milk"`, with quotes) was accepted during a
+deprecation window (P35 introduced, P40 deprecated) and is now **removed**
+(LAB-TODOAPP-API-CREATE-BODY-LEGACY-REMOVAL-P45): a bare string body is treated like any other non-object
+shape and **fails closed to a 400**. The object body `{ "title": … }` is the **only** accepted create shape.
 
 Every other shape **fails closed to a product-owned 400, before any effect / DB mutation**:
 
 | Body | Result |
 | --- | --- |
 | `{ "title": "Buy milk" }` (object, non-empty string title) | accepted → title `Buy milk` |
-| `"Buy milk"` (legacy non-empty JSON string) | accepted → title `Buy milk` |
+| `"Buy milk"` (bare JSON string — the removed legacy form) | **400** (P45: a non-object body is rejected) |
 | object missing `title` · `title` non-string · `title` empty/blank | **400** `create body must provide a non-empty title` |
 | `[...]` array · `5` number · `true` bool | **400** |
 | `null` · empty body · `""` (empty string) | **400** (no title) |
@@ -184,21 +182,19 @@ Every other shape **fails closed to a product-owned 400, before any effect / DB 
 Enforcement seam: the runner classifies the body's JSON shape into a host-computed `req.body_kind`
 ("object" for an object; "string" for a non-empty string; "empty" for empty/absent/malformed; otherwise the
 shape name) and parses an object into `req.body_json`. `ResolveCreateTitle` reads the title from
-`body_json.title` (object) or the body string (legacy) and resolves anything else to `""`; the handler
-rejects an empty/blank title (via `trim`) with a 400. `.ig` parses no transport JSON — it reads typed
+`body_json.title` for an **object body only** (P45) and resolves any other shape — including a bare string —
+to `""`; the handler rejects an empty/blank title (via `trim`) with a 400. `.ig` parses no transport JSON — it reads typed
 fields only. The runner cannot distinguish a malformed body from an absent one (the HTTP parse collapses
 malformed JSON to an empty body); both are rejected. `done` ignores the body. (Reads carry no body.)
 
 ```bash
-# v1 (preferred): title is a field of the JSON object body
+# the object body is the only accepted create shape: title is a field of the JSON object
 curl -X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
      -H 'idempotency-key: k1' --data '{"title":"Buy milk"}' \
      http://127.0.0.1:PORT/accounts/acct-1/todos
 
-# legacy (compatibility window): a bare JSON string title
-curl -X POST -H "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN" \
-     -H 'idempotency-key: k2' --data '"Buy milk"' \
-     http://127.0.0.1:PORT/accounts/acct-1/todos
+# a bare JSON string body (the removed legacy form) now fails closed → 400
+#   --data '"Buy milk"'   # rejected (P45)
 ```
 
 `done` is a **full-row upsert** keyed by `todo_id` (the host adapter is `INSERT … ON CONFLICT DO

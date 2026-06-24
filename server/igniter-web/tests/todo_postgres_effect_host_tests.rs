@@ -218,8 +218,8 @@ fn build_app() -> Arc<dyn ServerApp + Send + Sync> {
 /// machine ingress passport `Authorization: Bearer vtok` rides in the headers — the app never sets/reads
 /// it).
 fn app_request(method: &str, path: &str, idem_key: Option<&str>) -> ServerRequest {
-    // P35: legacy JSON-string title remains accepted during the object-body compatibility window; done ignores the body.
-    let mut req = ServerRequest::new(method, path, json!("Buy milk"));
+    // P45: create uses the object body (legacy string removed); done/GET ignore the body.
+    let mut req = ServerRequest::new(method, path, json!({"title": "Buy milk"}));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = idem_key.map(|k| k.to_string());
@@ -292,13 +292,13 @@ fn keyed_create_executes_via_machine_host() {
     });
 }
 
-// ── 1b: create carries the request body as the todo title (legacy string path) ───────────────────
+// ── 1b: create carries the object-body title into the structured intent ───────────────────────────
 
 #[test]
-fn create_carries_request_body_as_title() {
+fn create_carries_object_body_title() {
     let app = build_app();
-    // P35 legacy compatibility: a JSON string body still resolves to the title.
-    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!("Buy milk"));
+    // P45: the object body `{ "title": … }` is the only accepted create shape; its title flows to the intent.
+    let mut req = ServerRequest::new("POST", "/accounts/7/todos", json!({"title": "Buy milk"}));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = Some("evt-body".to_string());
@@ -438,12 +438,12 @@ fn app_decision_carries_no_capability_identity() {
 // The Todo duplicate policy is `dedup_strict` + `variant_payload: false`. A client bug that reuses one
 // idempotency key with a different create body is caught at the ingress dedup gate (payload-digest
 // mismatch → `DuplicateDecision::Conflict`) and returns **409** BEFORE any replica is activated — never
-// a silent success, never a second mutation. The create body (a JSON string literal) is the todo title,
-// so two different titles produce two different body digests. This helper intentionally exercises the
-// legacy string path; object-body coverage lives in the P35 tests below.
+// a silent success, never a second mutation. The create body is the canonical object `{ "title": … }`
+// (P45: the legacy string body was removed), so two different titles produce two different body digests.
 
 fn titled_create(account: &str, idem_key: &str, title: &str) -> ServerRequest {
-    let mut req = ServerRequest::new("POST", &format!("/accounts/{account}/todos"), json!(title));
+    let mut req =
+        ServerRequest::new("POST", &format!("/accounts/{account}/todos"), json!({ "title": title }));
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = Some(idem_key.to_string());

@@ -89,15 +89,17 @@ doc_absent() { # <label> <superseded string that must NOT be present>
   fi
 }
 # body contract (P35 object body), id (P36 surrogate), account-existence (P38), error contract (P20),
-# delete route (P44).
+# delete route (P44), legacy create body removed (P45).
 doc_has    "body: object via body_json"  'req.body_json'
 doc_has    "id: host surrogate"          'surrogate id'
 doc_has    "account-existence 404"       'account not found'
 doc_has    "error contract table"        'Error contract'
 doc_has    "delete route"                'DELETE /accounts'
+doc_has    "legacy create body removed"  'Legacy v0 (REMOVED)'
 # superseded claims that must never creep back in.
 doc_absent "stale P18 string-only body"  'must be a non-empty JSON string title'
 doc_absent "stale idem-key-as-id"        'create key = idempotency'
+doc_absent "stale legacy body accepted"  'legacy non-empty JSON string) | accepted'
 
 echo "----"
 if [[ "$pass" -eq 1 ]]; then

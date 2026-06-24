@@ -338,8 +338,8 @@ async fn get_todos(addr: std::net::SocketAddr, account_id: &str) -> String {
 
 async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
-    let body = "\"Buy milk\"";
+    // P45: the object create body is the ONLY accepted shape (legacy string body removed).
+    let body = "{\"title\":\"Buy milk\"}";
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\n\

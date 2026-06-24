@@ -328,8 +328,8 @@ async fn get_todo_show(addr: std::net::SocketAddr, account_id: &str, todo_id: &s
 
 async fn post_todo(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    // P35: legacy JSON-string title remains accepted during the object-body compatibility window.
-    let body = "\"Buy milk\"";
+    // P45: the object create body is the ONLY accepted shape (legacy string body removed).
+    let body = "{\"title\":\"Buy milk\"}";
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\n\
@@ -846,7 +846,8 @@ async fn post_todo_titled(
     title: &str,
 ) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let body = format!("\"{title}\"");
+    // P45: object create body is the only accepted shape; distinct titles → distinct payload digests.
+    let body = format!("{{\"title\":\"{title}\"}}");
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          Authorization: Bearer vtok\r\nidempotency-key: {idem_key}\r\n\
@@ -863,7 +864,7 @@ async fn post_todo_titled(
 
 async fn post_todo_noauth(addr: std::net::SocketAddr, account_id: &str, idem_key: &str) -> String {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-    let body = "\"Buy milk\"";
+    let body = "{\"title\":\"Buy milk\"}";
     let raw = format!(
         "POST /accounts/{account_id}/todos HTTP/1.1\r\nHost: x\r\n\
          idempotency-key: {idem_key}\r\nContent-Length: {}\r\n\r\n{}",
