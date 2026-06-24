@@ -1,6 +1,6 @@
 # LAB-TODOAPP-API-NEXT-PRODUCT-SLICE-READINESS-P42 - choose the next TodoApp API product slice
 
-Status: DRAFT
+Status: CLOSED — readiness packet written; recommends error-envelope implementation next
 Lane: TodoApp API / product planning
 Type: readiness packet
 Date: 2026-06-24
@@ -66,12 +66,12 @@ Write a readiness packet under `lab-docs/lang/` with:
 
 ## Acceptance
 
-- [ ] Packet is grounded in live routes/tests/docs, not stale cards alone.
-- [ ] At least 5 candidates compared.
-- [ ] One recommended next slice named with a concrete card ID.
-- [ ] Any required substrate/language work is explicitly called out or avoided.
-- [ ] No production code changes.
-- [ ] `git diff --check` clean.
+- [x] Packet is grounded in live routes/tests/docs, not stale cards alone.
+- [x] At least 5 candidates compared.
+- [x] One recommended next slice named with a concrete card ID.
+- [x] Any required substrate/language work is explicitly called out or avoided.
+- [x] No production code changes.
+- [x] `git diff --check` clean.
 
 ## Closed Surfaces
 
@@ -79,3 +79,20 @@ Write a readiness packet under `lab-docs/lang/` with:
 - No DB migrations.
 - No new runner code.
 - No canon claim.
+
+## Closing Report (2026-06-24)
+
+Produced [`lab-docs/lang/lab-todoapp-api-next-product-slice-readiness-p42-v0.md`](../../../../lab-docs/lang/lab-todoapp-api-next-product-slice-readiness-p42-v0.md).
+
+Verify-first read the live TodoApp API surface (`routes.igweb`, `todo_handlers.ig`, `API.md`,
+`host.example.toml`, `IMPLEMENTED_SURFACE.md`, `map_decision`/`surrogate_id`, and live tests) rather than
+routing from stale cards. The packet confirms the current usable surface: health, account-scoped list/show,
+create with object body + host surrogate id, and done via full-row upsert over the ReadThen/EffectHost runner
+path.
+
+Seven candidates were compared. The recommended next slice is
+`LAB-TODOAPP-API-ERROR-ENVELOPE-IMPL-P43`: implement the P39-designed app error envelope (`RespondError` +
+`ApiError`) because it adds zero DB/runtime substrate while improving every endpoint's client contract.
+Delete/update/pagination/auth were parked because each forces new machine/read/write/identity substrate.
+
+No production code changed in this card.
