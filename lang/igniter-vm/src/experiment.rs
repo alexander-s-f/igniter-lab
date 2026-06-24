@@ -18,6 +18,9 @@ const MODE_ALL_TO_ALL_TICK: &str = "all_to_all_tick";
 const MODE_NODE_TICK: &str = "node_tick";
 const INIT_UNIFORM_SPREAD: &str = "uniform_spread";
 const INIT_SHUFFLED_UNIFORM_SPREAD: &str = "shuffled_uniform_spread";
+const INIT_LOCALIZED_CHIMERA_SEED: &str = "localized_chimera_seed";
+const TOPO_NONLOCAL_RING: &str = "nonlocal_ring";
+const GOLDEN_RATIO_FRAC: f64 = 0.6180339887498949;
 const OMEGA_LORENTZIAN_QUANTILE_GRID: &str = "lorentzian_quantile_grid";
 const OMEGA_SHUFFLED_LORENTZIAN_QUANTILE_GRID: &str = "shuffled_lorentzian_quantile_grid";
 const WEIGHT_POLICY_TOPOLOGY_DEFAULT: &str = "topology_default";
@@ -50,6 +53,21 @@ pub struct KuramotoConfig {
     pub topology_relabel_seed: Option<u64>,
     #[serde(default = "default_weight_policy")]
     pub weight_policy: String,
+    // Kuramoto-Sakaguchi phase lag (chimera). When Some, the per-node kernel receives an `alpha`
+    // input and coupling is sin(theta_j - theta_i - alpha). None = legacy plain node_tick (no alpha).
+    #[serde(default)]
+    pub phase_lag_alpha: Option<f64>,
+    // Nonlocal-ring coupling radius R (each node couples to its R nearest neighbours on each side,
+    // weight 1/(2R)). Required when a topology is "nonlocal_ring".
+    #[serde(default)]
+    pub coupling_radius: Option<usize>,
+    // Localized chimera seed: fraction of the ring (centred) initialised incoherent; rest coherent.
+    #[serde(default)]
+    pub incoherent_fraction: Option<f64>,
+    // Emit per-node spatial_profile.csv (Z_i) + omega_profile.csv (Omega_i). Default off keeps prior
+    // node_tick bundles byte-identical.
+    #[serde(default)]
+    pub emit_spatial_profiles: bool,
 }
 
 impl Default for KuramotoConfig {
@@ -72,6 +90,10 @@ impl Default for KuramotoConfig {
             omega_assignment: OMEGA_LORENTZIAN_QUANTILE_GRID.to_string(),
             topology_relabel_seed: None,
             weight_policy: WEIGHT_POLICY_TOPOLOGY_DEFAULT.to_string(),
+            phase_lag_alpha: None,
+            coupling_radius: None,
+            incoherent_fraction: None,
+            emit_spatial_profiles: false,
         }
     }
 }
@@ -166,6 +188,15 @@ struct Topology {
 }
 
 #[derive(Debug)]
+struct ProfileRow {
+    topology: String,
+    n: usize,
+    k: f64,
+    node: usize,
+    value: f64,
+}
+
+#[derive(Debug)]
 struct SimulationResult {
     rows: Vec<SummaryRow>,
     series_rows: Vec<SeriesRow>,
@@ -173,6 +204,11 @@ struct SimulationResult {
     topologies: Vec<Topology>,
     dispatch_us: Vec<u128>,
     tick_ms: Vec<f64>,
+    // Per-node plateau-averaged spatial profiles (chimera measures): Z_i local order + Omega_i mean
+    // phase velocity, plus the final per-node phase snapshot theta_i. Empty unless emit_spatial_profiles.
+    spatial_profile_rows: Vec<ProfileRow>,
+    omega_profile_rows: Vec<ProfileRow>,
+    phase_snapshot_rows: Vec<ProfileRow>,
 }
 
 struct LoadedKernel {
@@ -394,12 +430,24 @@ fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
         return Err("config.dt must be > 0".to_string());
     }
     match config.init_phase_mode.as_str() {
-        INIT_UNIFORM_SPREAD | INIT_SHUFFLED_UNIFORM_SPREAD => {}
+        INIT_UNIFORM_SPREAD | INIT_SHUFFLED_UNIFORM_SPREAD | INIT_LOCALIZED_CHIMERA_SEED => {}
         other => {
             return Err(format!(
-                "config.init_phase_mode must be '{}' or '{}', got '{}'",
-                INIT_UNIFORM_SPREAD, INIT_SHUFFLED_UNIFORM_SPREAD, other
+                "config.init_phase_mode must be '{}', '{}', or '{}', got '{}'",
+                INIT_UNIFORM_SPREAD,
+                INIT_SHUFFLED_UNIFORM_SPREAD,
+                INIT_LOCALIZED_CHIMERA_SEED,
+                other
             ));
+        }
+    }
+    if config.init_phase_mode == INIT_LOCALIZED_CHIMERA_SEED {
+        let f = config.incoherent_fraction.unwrap_or(0.5);
+        if !(f > 0.0 && f < 1.0) {
+            return Err(
+                "config.incoherent_fraction must be in (0,1) for localized_chimera_seed"
+                    .to_string(),
+            );
         }
     }
     match config.omega_assignment.as_str() {
@@ -432,9 +480,20 @@ fn validate_config(config: &KuramotoConfig) -> Result<(), String> {
         for topology in &config.topologies {
             match topology.as_str() {
                 "all_to_all" | "ring" | "grid" | "shuffled_ring" => {}
+                TOPO_NONLOCAL_RING => {
+                    let r = config.coupling_radius.unwrap_or(0);
+                    for &n in &config.n_values {
+                        if r < 1 || 2 * r >= n {
+                            return Err(format!(
+                                "nonlocal_ring requires config.coupling_radius in 1..N/2 (got R={}, N={})",
+                                r, n
+                            ));
+                        }
+                    }
+                }
                 other => {
                     return Err(format!(
-                    "unsupported topology '{}'; expected all_to_all, ring, grid, or shuffled_ring",
+                    "unsupported topology '{}'; expected all_to_all, ring, grid, shuffled_ring, or nonlocal_ring",
                     other
                 ))
                 }
@@ -610,7 +669,7 @@ async fn simulate_all_to_all_tick(
     let mut tick_ms = Vec::new();
 
     for &n in &config.n_values {
-        topologies.push(build_topology("all_to_all", n, config.seed)?);
+        topologies.push(build_topology("all_to_all", n, config.seed, None)?);
         let omegas = omega_vector_for_config(n, config);
         for &k in &config.k_values {
             let mut thetas = init_phases_for_config(n, config);
@@ -657,6 +716,9 @@ async fn simulate_all_to_all_tick(
         topologies,
         dispatch_us,
         tick_ms,
+        spatial_profile_rows: Vec::new(),
+        omega_profile_rows: Vec::new(),
+        phase_snapshot_rows: Vec::new(),
     })
 }
 
@@ -670,6 +732,10 @@ async fn simulate_node_tick(
     let mut topologies_out = Vec::new();
     let mut dispatch_us = Vec::new();
     let mut tick_ms = Vec::new();
+    let mut spatial_profile_rows = Vec::new();
+    let mut omega_profile_rows = Vec::new();
+    let mut phase_snapshot_rows = Vec::new();
+    let plateau_start = config.ticks - config.plateau_window;
 
     for &n in &config.n_values {
         let omegas = omega_vector_for_config(n, config);
@@ -681,6 +747,9 @@ async fn simulate_node_tick(
                 let mut thetas = init_phases_for_config(n, config);
                 let mut global_r_series = Vec::new();
                 let mut local_r_series = Vec::new();
+                // Per-node plateau accumulators for the chimera spatial measures.
+                let mut z_accum = vec![0.0_f64; n];
+                let mut omega_accum = vec![0.0_f64; n];
 
                 for tick in 0..config.ticks {
                     let tick_start = Instant::now();
@@ -689,20 +758,42 @@ async fn simulate_node_tick(
 
                     for node_idx in 0..n {
                         let (next_theta, elapsed_us) = execute_node_tick(
-                            loaded, &snapshot, &omegas, topology, node_idx, k, config.dt,
+                            loaded,
+                            &snapshot,
+                            &omegas,
+                            topology,
+                            node_idx,
+                            k,
+                            config.dt,
+                            config.phase_lag_alpha,
                         )
                         .await?;
                         next_thetas.push(next_theta);
                         dispatch_us.push(elapsed_us);
                     }
 
-                    thetas = next_thetas.into_iter().map(wrap_phase).collect();
+                    // Mean phase velocity Omega_i: accumulate the RAW per-tick increment (pre-wrap,
+                    // a single small Euler step so no 2pi ambiguity) over the plateau window.
+                    if config.emit_spatial_profiles && tick >= plateau_start {
+                        for i in 0..n {
+                            omega_accum[i] += next_thetas[i] - snapshot[i];
+                        }
+                    }
+
+                    thetas = next_thetas.iter().map(|&t| wrap_phase(t)).collect();
                     tick_ms.push(tick_start.elapsed().as_secs_f64() * 1000.0);
 
+                    let local_profile = local_order_profile(&thetas, topology);
                     let global_r = order_parameter(&thetas);
-                    let local_stats = local_order_stats(&thetas, topology);
+                    let local_stats = stats_from_profile(&local_profile);
                     global_r_series.push(global_r);
                     local_r_series.push(local_stats.mean);
+                    // Local order profile Z_i: accumulate over the plateau window.
+                    if config.emit_spatial_profiles && tick >= plateau_start {
+                        for i in 0..n {
+                            z_accum[i] += local_profile[i];
+                        }
+                    }
 
                     if config.series_sample_stride == 0 || tick % config.series_sample_stride == 0 {
                         series_rows.push(SeriesRow {
@@ -743,6 +834,33 @@ async fn simulate_node_tick(
                     expected_r: expected,
                     residual_vs_mean_field: expected.map(|target| plateau - target),
                 });
+
+                if config.emit_spatial_profiles {
+                    let w = config.plateau_window as f64;
+                    for i in 0..n {
+                        spatial_profile_rows.push(ProfileRow {
+                            topology: topology.name.clone(),
+                            n,
+                            k,
+                            node: i,
+                            value: z_accum[i] / w,
+                        });
+                        omega_profile_rows.push(ProfileRow {
+                            topology: topology.name.clone(),
+                            n,
+                            k,
+                            node: i,
+                            value: omega_accum[i] / (w * config.dt),
+                        });
+                        phase_snapshot_rows.push(ProfileRow {
+                            topology: topology.name.clone(),
+                            n,
+                            k,
+                            node: i,
+                            value: thetas[i],
+                        });
+                    }
+                }
             }
         }
     }
@@ -754,6 +872,9 @@ async fn simulate_node_tick(
         topologies: topologies_out,
         dispatch_us,
         tick_ms,
+        spatial_profile_rows,
+        omega_profile_rows,
+        phase_snapshot_rows,
     })
 }
 
@@ -797,17 +918,29 @@ async fn execute_node_tick(
     node_idx: usize,
     k_value: f64,
     dt: f64,
+    alpha: Option<f64>,
 ) -> Result<(f64, u128), String> {
     let neighbors: Vec<JsonValue> = topology.neighbors[node_idx]
         .iter()
         .map(|edge| json!({"theta": snapshot_thetas[edge.target], "weight": edge.weight}))
         .collect();
-    let inputs_json = json!({
-        "self": {"theta": snapshot_thetas[node_idx], "omega": omegas[node_idx]},
-        "neighbors": neighbors,
-        "k": k_value,
-        "dt": dt
-    });
+    // `alpha` is added only for the Kuramoto-Sakaguchi kernel; legacy node_tick kernels (no alpha
+    // input) are driven with the original input set so their bundles stay byte-identical.
+    let inputs_json = match alpha {
+        Some(a) => json!({
+            "self": {"theta": snapshot_thetas[node_idx], "omega": omegas[node_idx]},
+            "neighbors": neighbors,
+            "k": k_value,
+            "alpha": a,
+            "dt": dt
+        }),
+        None => json!({
+            "self": {"theta": snapshot_thetas[node_idx], "omega": omegas[node_idx]},
+            "neighbors": neighbors,
+            "k": k_value,
+            "dt": dt
+        }),
+    };
     let mut inputs = HashMap::new();
     if let Some(obj) = inputs_json.as_object() {
         for (k, v) in obj {
@@ -1012,10 +1145,24 @@ fn write_bundle(
         "omega_method": "lorentzian_quantile_grid: omega_i = gamma*tan(pi*((i+0.5)/N - 0.5)), clipped",
         "omega_assignment": &config.omega_assignment,
         "init_phase_mode": &config.init_phase_mode,
-        "init_phases": if config.init_phase_mode == INIT_SHUFFLED_UNIFORM_SPREAD {
-            "shuffled_uniform_spread: deterministic seed shuffle of theta_i = 2*pi*i/N"
+        "init_phases": match config.init_phase_mode.as_str() {
+            INIT_SHUFFLED_UNIFORM_SPREAD => {
+                "shuffled_uniform_spread: deterministic seed shuffle of theta_i = 2*pi*i/N".to_string()
+            }
+            INIT_LOCALIZED_CHIMERA_SEED => format!(
+                "localized_chimera_seed: central band |i/N-0.5|<{}/2 gets theta_i=2*pi*frac((i+1)*{:.16}); rest theta_i=0",
+                config.incoherent_fraction.unwrap_or(0.5),
+                GOLDEN_RATIO_FRAC
+            ),
+            _ => "uniform_spread: theta_i = 2*pi*i/N".to_string(),
+        },
+        "phase_lag_alpha": config.phase_lag_alpha,
+        "coupling_radius": config.coupling_radius,
+        "incoherent_fraction": config.incoherent_fraction,
+        "coupling_form": if config.phase_lag_alpha.is_some() {
+            "sakaguchi: sin(theta_j - theta_i - alpha)"
         } else {
-            "uniform_spread: theta_i = 2*pi*i/N"
+            "plain: sin(theta_j - theta_i)"
         },
         "topology_relabel_seed": config.topology_relabel_seed,
         "weight_policy": &config.weight_policy,
@@ -1065,6 +1212,38 @@ fn write_bundle(
     fs::write(args.out_dir.join("local_order.csv"), local_order)
         .map_err(|e| format!("failed to write local_order.csv: {}", e))?;
 
+    if config.emit_spatial_profiles {
+        let mut spatial = String::from("topology,N,K,node,plateau_local_r\n");
+        for row in &simulation.spatial_profile_rows {
+            spatial.push_str(&format!(
+                "{},{},{},{},{}\n",
+                row.topology, row.n, row.k, row.node, row.value
+            ));
+        }
+        fs::write(args.out_dir.join("spatial_profile.csv"), spatial)
+            .map_err(|e| format!("failed to write spatial_profile.csv: {}", e))?;
+
+        let mut omega = String::from("topology,N,K,node,mean_phase_velocity\n");
+        for row in &simulation.omega_profile_rows {
+            omega.push_str(&format!(
+                "{},{},{},{},{}\n",
+                row.topology, row.n, row.k, row.node, row.value
+            ));
+        }
+        fs::write(args.out_dir.join("omega_profile.csv"), omega)
+            .map_err(|e| format!("failed to write omega_profile.csv: {}", e))?;
+
+        let mut snap = String::from("topology,N,K,node,theta\n");
+        for row in &simulation.phase_snapshot_rows {
+            snap.push_str(&format!(
+                "{},{},{},{},{}\n",
+                row.topology, row.n, row.k, row.node, row.value
+            ));
+        }
+        fs::write(args.out_dir.join("phase_snapshot.csv"), snap)
+            .map_err(|e| format!("failed to write phase_snapshot.csv: {}", e))?;
+    }
+
     let transition_observed = simulation.rows.iter().any(|r| {
         r.topology == "all_to_all" && r.k >= config.kc_expected * 1.5 && r.plateau_r > 0.4
     });
@@ -1072,6 +1251,7 @@ fn write_bundle(
         "status": "ok",
         "run_started_utc": meta.run_started.to_rfc3339(),
         "kernel_mode": config.kernel_mode,
+        "measurement_math": "deterministic_libm",
         "rows": simulation.rows,
         "transition_observed": transition_observed,
         "inprocess_dispatches": simulation.dispatch_us.len(),
@@ -1263,18 +1443,43 @@ fn init_phases(n: usize) -> Vec<f64> {
 }
 
 fn init_phases_for_config(n: usize, config: &KuramotoConfig) -> Vec<f64> {
-    let values = init_phases(n);
-    if config.init_phase_mode == INIT_SHUFFLED_UNIFORM_SPREAD {
-        permute_values(&values, config.seed ^ 0xA11c_Ec0d_E001_D15c)
-    } else {
-        values
+    match config.init_phase_mode.as_str() {
+        INIT_SHUFFLED_UNIFORM_SPREAD => {
+            permute_values(&init_phases(n), config.seed ^ 0xA11c_Ec0d_E001_D15c)
+        }
+        INIT_LOCALIZED_CHIMERA_SEED => {
+            localized_chimera_phases(n, config.incoherent_fraction.unwrap_or(0.5))
+        }
+        _ => init_phases(n),
     }
 }
 
+// Deterministic localized chimera seed: a contiguous incoherent band of width `fraction`, centred on
+// the ring, gets a golden-ratio low-discrepancy phase scramble in [0,2pi); the rest is a coherent
+// sea at phase 0. Pure function of (i, n, fraction) — no PRNG state — so replay is exact. This breaks
+// the ring symmetry locally, the standard basin for a coexisting coherent/incoherent (chimera) state.
+fn localized_chimera_phases(n: usize, fraction: f64) -> Vec<f64> {
+    let half = fraction / 2.0;
+    (0..n)
+        .map(|i| {
+            let x = i as f64 / n as f64;
+            if (x - 0.5).abs() < half {
+                TWO_PI * ((i as f64 + 1.0) * GOLDEN_RATIO_FRAC).fract()
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
 fn order_parameter(thetas: &[f64]) -> f64 {
+    // EMERGENCE-DETERMINISTIC-MEASUREMENT-P13: deterministic-by-construction readout. Use the same vendored
+    // `libm` the det_* surface uses (NOT platform std cos/sin), so global/local r (and the chimera Z_i that
+    // routes through here) are bit-identical across architectures by construction, not merely by observation.
+    // `sqrt` is IEEE-754 correctly-rounded → already portable, left as-is.
     let n = thetas.len() as f64;
-    let c = thetas.iter().map(|t| t.cos()).sum::<f64>() / n;
-    let s = thetas.iter().map(|t| t.sin()).sum::<f64>() / n;
+    let c = thetas.iter().map(|t| libm::cos(*t)).sum::<f64>() / n;
+    let s = thetas.iter().map(|t| libm::sin(*t)).sum::<f64>() / n;
     (c * c + s * s).sqrt()
 }
 
@@ -1293,7 +1498,9 @@ struct LocalOrderStats {
     max: f64,
 }
 
-fn local_order_stats(thetas: &[f64], topology: &Topology) -> LocalOrderStats {
+// Per-node local order Z_i = |mean e^{i theta}| over node i and its coupling neighbourhood. The full
+// vector IS the chimera spatial signature (a contiguous high-Z arc + a low-Z arc); reducers below.
+fn local_order_profile(thetas: &[f64], topology: &Topology) -> Vec<f64> {
     let mut local = Vec::with_capacity(thetas.len());
     for (idx, theta) in thetas.iter().enumerate() {
         let mut phases = Vec::with_capacity(topology.neighbors[idx].len() + 1);
@@ -1303,22 +1510,31 @@ fn local_order_stats(thetas: &[f64], topology: &Topology) -> LocalOrderStats {
         }
         local.push(order_parameter(&phases));
     }
+    local
+}
+
+fn stats_from_profile(local: &[f64]) -> LocalOrderStats {
     LocalOrderStats {
-        mean: mean(&local),
+        mean: mean(local),
         min: local.iter().cloned().reduce(f64::min).unwrap_or(0.0),
         max: local.iter().cloned().reduce(f64::max).unwrap_or(0.0),
     }
 }
 
-fn build_topologies(n: usize, names: &[String], seed: u64) -> Result<Vec<Topology>, String> {
+fn build_topologies(
+    n: usize,
+    names: &[String],
+    seed: u64,
+    radius: Option<usize>,
+) -> Result<Vec<Topology>, String> {
     names
         .iter()
-        .map(|name| build_topology(name, n, seed))
+        .map(|name| build_topology(name, n, seed, radius))
         .collect()
 }
 
 fn build_topologies_for_config(n: usize, config: &KuramotoConfig) -> Result<Vec<Topology>, String> {
-    build_topologies(n, &config.topologies, config.seed)?
+    build_topologies(n, &config.topologies, config.seed, config.coupling_radius)?
         .into_iter()
         .map(|topology| {
             let topology = if let Some(seed) = config.topology_relabel_seed {
@@ -1334,13 +1550,45 @@ fn build_topologies_for_config(n: usize, config: &KuramotoConfig) -> Result<Vec<
         .collect()
 }
 
-fn build_topology(name: &str, n: usize, seed: u64) -> Result<Topology, String> {
+fn build_topology(
+    name: &str,
+    n: usize,
+    seed: u64,
+    radius: Option<usize>,
+) -> Result<Topology, String> {
     match name {
         "all_to_all" => Ok(all_to_all_topology(n)),
         "ring" => Ok(ring_topology(n, "ring")),
         "grid" => grid_topology(n),
         "shuffled_ring" => Ok(shuffled_ring_topology(n, seed)),
+        TOPO_NONLOCAL_RING => {
+            let r = radius.ok_or_else(|| {
+                "nonlocal_ring topology requires config.coupling_radius".to_string()
+            })?;
+            Ok(nonlocal_ring_topology(n, r))
+        }
         other => Err(format!("unsupported topology '{}'", other)),
+    }
+}
+
+// Nonlocal ring (Kuramoto-Sakaguchi chimera substrate): each node couples to its R nearest
+// neighbours on EACH side around the ring, uniform weight 1/(2R). Topology is pure data; the same
+// kernel runs it. A shuffled variant of this (locality destroyed) is the chimera locality null.
+fn nonlocal_ring_topology(n: usize, r: usize) -> Topology {
+    let weight = 1.0 / (2 * r) as f64;
+    let neighbors = (0..n)
+        .map(|i| {
+            (1..=r)
+                .flat_map(|d| [(i + n - d) % n, (i + d) % n])
+                .map(|target| NeighborEdge { target, weight })
+                .collect()
+        })
+        .collect();
+    Topology {
+        name: TOPO_NONLOCAL_RING.to_string(),
+        n,
+        weight_policy: format!("nonlocal ring radius R={}, weight=1/(2R)", r),
+        neighbors,
     }
 }
 
@@ -1607,6 +1855,21 @@ mod tests {
         assert!((order_parameter(&[0.0, 0.0, 0.0]) - 1.0).abs() < 1e-12);
         let balanced = order_parameter(&[0.0, TWO_PI / 3.0, 2.0 * TWO_PI / 3.0]);
         assert!(balanced < 1e-12);
+    }
+
+    // EMERGENCE-DETERMINISTIC-MEASUREMENT-P13: golden-bit lock proving the measurement readout is
+    // deterministic BY CONSTRUCTION (it routes through vendored `libm`, already proven cross-arch
+    // bit-identical in the determinism wave). Same fixed input ⇒ these exact f64 bits on every target;
+    // a `libm`/algorithm change flips the bits → forces a governed review. Mirrors the det_* golden lock.
+    #[test]
+    fn order_parameter_golden_bits_by_construction() {
+        let thetas = [0.1f64, 0.7, 1.3, 2.5, 3.9, 5.1];
+        let r = order_parameter(&thetas);
+        assert_eq!(
+            r.to_bits(),
+            0x3fc7dc17ba26b58d,
+            "order_parameter golden bits changed (libm surface moved?)"
+        );
     }
 
     #[test]
