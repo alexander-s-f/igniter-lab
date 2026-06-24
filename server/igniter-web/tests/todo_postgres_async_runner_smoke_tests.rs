@@ -372,6 +372,74 @@ fn http_status(raw: &str) -> u16 {
         .unwrap_or(0)
 }
 
+/// GET the list with a keyset `?after=` cursor (P47). Proves the query string survives transport
+/// (route matching on the query-free path) and reaches the app as `req.query`.
+async fn get_todos_after(addr: std::net::SocketAddr, account_id: &str, after: &str) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let raw = format!(
+        "GET /accounts/{account_id}/todos?after={after} HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n"
+    );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
+// ── 1a: keyset — `?after=` cursor flows transport → req.query → app plan `id > after` → HTTP 200 ──
+//
+// LAB-TODOAPP-API-PAGINATION-KEYSET-P47. A query string used to break route matching; this proves it now
+// route-matches (path is query-free), the cursor reaches the app via `req.query`, and the keyset filter
+// returns only rows after the cursor — DB-free (fake adapter).
+#[test]
+fn keyset_after_cursor_via_runner_filters_rows() {
+    let (app, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+    let account_id = "acct-ks-http";
+    let adapter = Arc::new(
+        FakePostgresAdapter::new()
+            .with_table("accounts", sample_account(account_id))
+            .with_table(
+                "todos",
+                vec![
+                    json!({"id":"todo-a","account_id":account_id,"title":"a","done":"false"}),
+                    json!({"id":"todo-b","account_id":account_id,"title":"b","done":"false"}),
+                    json!({"id":"todo-c","account_id":account_id,"title":"c","done":"false"}),
+                ],
+            ),
+    );
+    let read_host = make_read_host(adapter.clone());
+
+    rt().block_on(async {
+        let (h, r) = build_write_prod().await;
+        let st = build_write_effect_state();
+        let c = write_bridge_cfg(&st);
+        let eh = build_effect_host(&r, &h, &c);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let acct = account_id.to_string();
+        // keyset after "todo-a" → expect only todo-b, todo-c (id > "todo-a").
+        let client = tokio::spawn(async move { get_todos_after(addr, &acct, "todo-a").await });
+
+        let policy = ServingPolicy::new(1).loopback_only();
+        machine_runner::serve_loop_loaded_with_read(&listener, &app, &eh, &read_host, &policy)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+
+        assert_eq!(http_status(&raw), 200, "keyset page → 200; raw={raw}");
+        assert!(
+            !raw.contains("todo-a"),
+            "the row at/-before the cursor is excluded (proves `?after` reached the plan); raw={raw}"
+        );
+        assert!(
+            raw.contains("todo-b") && raw.contains("todo-c"),
+            "rows after the cursor are returned; raw={raw}"
+        );
+    });
+}
+
 // ── 1: read — found rows → AccountTodoIndexFromRows → HTTP 200 ───────────────────────────────────
 
 #[test]

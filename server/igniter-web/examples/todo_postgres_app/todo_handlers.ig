@@ -27,8 +27,13 @@ type Todo {
 -- ── Relational intent mirrors (mirror the machine boundary; structured, never SQL) ──────────────
 type QueryFilter {
   field : String
-  op    : String   -- v0: "eq" only
+  op    : String   -- "eq" | "gt" (P47 keyset cursor); the host validates op vs field kind
   value : String
+}
+
+type QueryOrder {
+  field : String
+  dir   : String   -- "asc" | "desc"
 }
 
 type QueryPlan {
@@ -36,6 +41,7 @@ type QueryPlan {
   op         : String
   projection : Collection[String]
   filters    : Collection[QueryFilter]
+  order_by   : Collection[QueryOrder]
   limit      : Integer
 }
 
@@ -60,6 +66,13 @@ pure contract MakeFilter {
   input value : String
   compute f = { field: field, op: op, value: value }
   output f : QueryFilter
+}
+
+pure contract MakeOrder {
+  input field : String
+  input dir   : String
+  compute o = { field: field, dir: dir }
+  output o : QueryOrder
 }
 
 pure contract MakeWriteValues {
@@ -89,21 +102,36 @@ pure contract FindAccount {
   compute projection : Collection[String] = ["id", "name"]
   compute f_id = call_contract("MakeFilter", "id", "eq", account_id)
   compute filters : Collection[QueryFilter] = [f_id]
+  compute order_by : Collection[QueryOrder] = []
   compute plan : QueryPlan = {
     source: "accounts", op: "select",
-    projection: projection, filters: filters, limit: 1
+    projection: projection, filters: filters, order_by: order_by, limit: 1
   }
   output plan : QueryPlan
 }
 
+-- Account-scoped list with KEYSET pagination (LAB-TODOAPP-API-PAGINATION-KEYSET-P47). Ordered by the
+-- surrogate `id` ASC (a stable total order; before P47 the list was unordered). When `after` is non-empty
+-- it adds a keyset cursor `id > after` (Text range — enabled in P47), so paging returns each row exactly
+-- once with no duplicate/missing across boundaries. Page size = the host read cap. The response is the
+-- ordered rows array: a client takes the last item's `id` as the next `after` (a server-built
+-- `{ items, next }` envelope is deferred — it needs typed row destructuring of `rows_json`).
 pure contract ListTodosByAccount {
   input account_id : String
+  input after      : String
   compute projection : Collection[String] = ["id", "account_id", "title", "done"]
-  compute f_acct = call_contract("MakeFilter", "account_id", "eq", account_id)
-  compute filters : Collection[QueryFilter] = [f_acct]
+  compute f_acct  = call_contract("MakeFilter", "account_id", "eq", account_id)
+  compute f_after = call_contract("MakeFilter", "id", "gt", after)
+  compute filters : Collection[QueryFilter] = if after == "" {
+    [f_acct]
+  } else {
+    [f_acct, f_after]
+  }
+  compute ord_id = call_contract("MakeOrder", "id", "asc")
+  compute order_by : Collection[QueryOrder] = [ord_id]
   compute plan : QueryPlan = {
     source: "todos", op: "select",
-    projection: projection, filters: filters, limit: 50
+    projection: projection, filters: filters, order_by: order_by, limit: 50
   }
   output plan : QueryPlan
 }
@@ -115,9 +143,10 @@ pure contract FindTodo {
   compute f_acct = call_contract("MakeFilter", "account_id", "eq", account_id)
   compute f_id   = call_contract("MakeFilter", "id", "eq", todo_id)
   compute filters : Collection[QueryFilter] = [f_acct, f_id]
+  compute order_by : Collection[QueryOrder] = []
   compute plan : QueryPlan = {
     source: "todos", op: "select",
-    projection: projection, filters: filters, limit: 1
+    projection: projection, filters: filters, order_by: order_by, limit: 1
   }
   output plan : QueryPlan
 }
@@ -316,7 +345,8 @@ pure contract CheckAccountThenList {
   input req       : Request
   input rows_json : String
   input carry     : String
-  compute plan = call_contract("ListTodosByAccount", carry)
+  compute after = or_else(map_get_string(req.query, "after"), "")
+  compute plan = call_contract("ListTodosByAccount", carry, after)
   compute no_account = call_contract("MakeApiError", "account_not_found", "account not found")
   compute d : Decision = if rows_json == "[]" {
     RespondError { status: 404, error: no_account }

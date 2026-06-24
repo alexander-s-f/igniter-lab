@@ -517,6 +517,36 @@ fn order_by_non_allowlisted_field_denied() {
     assert_eq!(out.kind, OutcomeKind::Denied); // field allowlist gate
 }
 
+/// Test 5b (P47) — Text range (`gt`) + `order_by` enables keyset pagination on a Text key. Before P47,
+/// a `gt` on a Text field was refused (`kind_allows_op`); now it powers `WHERE key > cursor ORDER BY key`.
+#[test]
+fn text_keyset_range_and_order() {
+    // page 1: order title asc, take 2 → alpha, bravo.
+    let p1 = run_typed(
+        json!({"source":"todos","projection":["title"],"order_by":[{"field":"title","dir":"asc"}],"limit":2}),
+        "ks1",
+    );
+    assert_eq!(p1.result["rows"][0]["title"], json!("alpha"));
+    assert_eq!(p1.result["rows"][1]["title"], json!("bravo"));
+
+    // page 2: keyset after "bravo" → title > "bravo", asc, take 2 → charlie, delta.
+    let p2 = run_typed(
+        json!({"source":"todos","projection":["title"],"filters":[{"field":"title","op":"gt","value":"bravo"}],"order_by":[{"field":"title","dir":"asc"}],"limit":2}),
+        "ks2",
+    );
+    assert_eq!(p2.kind, OutcomeKind::Succeeded, "Text gt is allowed (P47)");
+    assert_eq!(p2.result["count"], json!(2));
+    assert_eq!(p2.result["rows"][0]["title"], json!("charlie"));
+    assert_eq!(p2.result["rows"][1]["title"], json!("delta"));
+
+    // page 3: after "delta" → exhausted, empty page (no duplicate/missing across the boundary).
+    let p3 = run_typed(
+        json!({"source":"todos","projection":["title"],"filters":[{"field":"title","op":"gt","value":"delta"}],"order_by":[{"field":"title","dir":"asc"}],"limit":2}),
+        "ks3",
+    );
+    assert_eq!(p3.result["count"], json!(0), "exhausted → empty page");
+}
+
 /// Test 6 — invalid `in` (empty / too long) is a permanent failure before the adapter.
 #[test]
 fn invalid_in_is_permanent() {

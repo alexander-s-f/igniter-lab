@@ -334,7 +334,7 @@ fn product_read_then_write_e2e() {
         // ── READ: found path → app-owned 200 carrying the rows ──
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         assert_eq!(
@@ -369,7 +369,7 @@ fn product_read_then_write_e2e() {
 
         // ── READ: empty path → 200 [] (a list, not a not-found) — P24 ──
         let empty_plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none", "after": ""}))
             .await
             .unwrap();
         let empty_adapter = Arc::new(FakePostgresAdapter::new()); // allowlisted source, no rows.

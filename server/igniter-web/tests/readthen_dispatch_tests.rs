@@ -111,6 +111,7 @@ fn get_req(path: &str) -> ServerRequest {
         correlation_id: Some(format!("test-{path}")),
         idempotency_key: None,
         headers: Default::default(),
+        query: Default::default(),
     }
 }
 
@@ -324,6 +325,7 @@ fn freshness_req(account: &str, correlation: Option<&str>) -> ServerRequest {
         correlation_id: correlation.map(|c| c.to_string()),
         idempotency_key: None,
         headers: Default::default(),
+        query: Default::default(),
     }
 }
 

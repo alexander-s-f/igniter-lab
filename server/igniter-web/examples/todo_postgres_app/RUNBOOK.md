@@ -20,7 +20,8 @@ Zero authored Rust — the whole product is `.igweb` routes + `.ig` handlers, bu
 - **`ReadThen` reads** — a handler emits a typed `QueryPlan`; the host runs it and re-enters the
   continuation with the rows. A continuation may emit another `ReadThen` (bounded sequential staged
   reads, P38). List uses a **two-stage** read: existing account + no todos → `200 []`; **missing account
-  → 404 `account not found`** (P38); show of a missing row → app-owned 404.
+  → 404 `account not found`** (P38); show of a missing row → app-owned 404. The list is **ordered `id
+  asc`** and **keyset-paginated** via `?after=<id>` (`id > after`; page size = host cap, P47).
 - **`InvokeEffect` writes** — a handler emits a logical `target` (`todo-create` / `todo-done` /
   `todo-delete`) + a typed `WriteIntent`; the host binds the target to a Postgres write capability and
   executes it (`insert` / `upsert` / `delete` ops; delete is idempotent — P44).

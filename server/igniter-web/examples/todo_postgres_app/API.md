@@ -29,7 +29,7 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | Method & path | Handler | Idempotency | Success | Not-found / denied |
 | --- | --- | --- | --- | --- |
 | `GET /health` | `Health` | — | 200 `ok` | — |
-| `GET /accounts/:account_id/todos` | `AccountTodoIndex` → two-stage `ReadThen` | — | 200 (rows JSON; existing account + **empty list → `200 []`**, P24) | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
+| `GET /accounts/:account_id/todos?after=<id>` | `AccountTodoIndex` → two-stage `ReadThen` | — | 200 (rows JSON, **ordered by `id` asc**; existing account + **empty list → `200 []`**, P24). Keyset paginated: optional `?after=<id>` returns rows with `id > after`; page size = host cap (P47). | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
@@ -53,6 +53,25 @@ the generic runner threads the route-captured `account_id` from stage 1 to stage
 on `ReadThen` and bounds the staged-read chain (no infinite continuation loop). `show`
 (`GET …/todos/:todo_id`) addresses a **single resource** and returns **404 `todo not found`** when the row
 is absent.
+
+### Keyset pagination (P47)
+
+The list is **ordered by the surrogate `id` ascending** (a stable total order; the id is hash-arbitrary,
+not chronological). Pass `?after=<id>` to get the next page — rows with `id > after`:
+
+```bash
+curl 'http://127.0.0.1:PORT/accounts/acct-1/todos'                  # first page
+curl 'http://127.0.0.1:PORT/accounts/acct-1/todos?after=todo_<lastid>'  # next page
+```
+
+Page size is **server-fixed** at the host read cap. The cursor is the **`id` of the last item** you
+received — keyset, so paging never duplicates or skips rows (even under concurrent insert). An empty /
+exhausted page is `200 []`; a missing account is still `404`.
+
+**Deferred (no dead-end):** a typed `{ "items": […], "next": <cursor> }` envelope and a client-tunable
+`?limit=` are not yet exposed — both need typed row destructuring of the `rows_json` continuation (and a
+`.ig` numeric parse). Today the client derives the next cursor from the last item's `id`. A bare
+non-`id`-monotone chronological order would need a composite `(inserted_at, id)` cursor (more substrate).
 
 ### Reads & freshness (`x-correlation-id`)
 

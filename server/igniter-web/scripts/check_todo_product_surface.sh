@@ -96,6 +96,7 @@ doc_has    "account-existence 404"       'account not found'
 doc_has    "error contract table"        'Error contract'
 doc_has    "delete route"                'DELETE /accounts'
 doc_has    "legacy create body removed"  'Legacy v0 (REMOVED)'
+doc_has    "keyset pagination"           'Keyset pagination'
 # superseded claims that must never creep back in.
 doc_absent "stale P18 string-only body"  'must be a non-empty JSON string title'
 doc_absent "stale idem-key-as-id"        'create key = idempotency'

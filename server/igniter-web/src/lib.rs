@@ -305,6 +305,14 @@ fn build_request_input(req: &ServerRequest) -> Value {
         Value::Object(_) => req.body.clone(),
         _ => json!({}),
     };
+    // `query` (LAB-TODOAPP-API-PAGINATION-KEYSET-P47): parsed `?k=v` params crossed as a generic
+    // `Map[String, Unknown]` (string values), exactly like `body_json`. The app reads typed keys via
+    // `map_get_string` (e.g. the keyset `after` cursor); the host parses transport only, no product meaning.
+    let query: serde_json::Map<String, Value> = req
+        .query
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+        .collect();
     json!({ "req": {
         "method": req.method,
         "path": req.path,
@@ -314,6 +322,7 @@ fn build_request_input(req: &ServerRequest) -> Value {
         "idempotency_key": idem,
         "surrogate_id": surrogate,
         "body_json": body_json,
+        "query": Value::Object(query),
     }})
 }
 

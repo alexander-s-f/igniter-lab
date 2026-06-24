@@ -158,6 +158,24 @@ pub(crate) fn content_length(head: &[u8]) -> usize {
 /// Parse a raw HTTP/1.1 request buffer into a durable `ServerRequest`. Header names are lower-cased
 /// and stored in a `BTreeMap` (deterministic). `correlation_id` / `idempotency_key` are promoted
 /// from their headers to typed fields (P1 Q1) while remaining present in `headers`.
+/// Split a raw request target into (path, query map). `/a/b?k=v&x=y` → (`/a/b`, {k:v, x:y}). No
+/// percent-decoding in v0 (the keyset cursor is `[0-9a-f_]` and limits are digits); a bare `k` (no `=`)
+/// maps to an empty value. Keeps `path` query-free so the route regexes still anchor (P47).
+fn split_query(target: &str) -> (String, std::collections::BTreeMap<String, String>) {
+    let mut query = std::collections::BTreeMap::new();
+    let (path, qs) = match target.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (target, ""),
+    };
+    for pair in qs.split('&').filter(|s| !s.is_empty()) {
+        match pair.split_once('=') {
+            Some((k, v)) => query.insert(k.to_string(), v.to_string()),
+            None => query.insert(pair.to_string(), String::new()),
+        };
+    }
+    (path.to_string(), query)
+}
+
 pub(crate) fn parse_request(buf: &[u8]) -> ServerRequest {
     let header_end = find_subslice(buf, b"\r\n\r\n").unwrap_or(buf.len());
     let head = String::from_utf8_lossy(&buf[..header_end]);
@@ -165,7 +183,7 @@ pub(crate) fn parse_request(buf: &[u8]) -> ServerRequest {
     let request_line = lines.next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET").to_string();
-    let path = parts.next().unwrap_or("/").to_string();
+    let (path, query) = split_query(parts.next().unwrap_or("/"));
     let mut headers = BTreeMap::new();
     for line in lines {
         if let Some((k, v)) = line.split_once(": ") {
@@ -188,6 +206,7 @@ pub(crate) fn parse_request(buf: &[u8]) -> ServerRequest {
         body,
         correlation_id,
         idempotency_key,
+        query,
     }
 }
 
@@ -284,6 +303,20 @@ mod tests {
             "JSON body, not double-wrapped"
         );
         assert!(head.contains(&format!("Content-Length: {}", body.len())));
+    }
+
+    #[test]
+    fn parse_request_splits_query_from_path() {
+        // P47: the host strips `?query` off the path (so route regexes still anchor `…/todos$`) and
+        // parses it into `query`. Before this, the query rode in `path` and broke route matching.
+        let req = parse_request(b"GET /accounts/7/todos?after=todo_abc&limit=2 HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert_eq!(req.path, "/accounts/7/todos", "path is query-free for route matching");
+        assert_eq!(req.query.get("after").map(String::as_str), Some("todo_abc"));
+        assert_eq!(req.query.get("limit").map(String::as_str), Some("2"));
+        // a query-free request still parses, with an empty query map.
+        let plain = parse_request(b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert_eq!(plain.path, "/health");
+        assert!(plain.query.is_empty());
     }
 
     #[test]

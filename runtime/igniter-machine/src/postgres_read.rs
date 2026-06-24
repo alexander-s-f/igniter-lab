@@ -191,7 +191,10 @@ fn kind_allows_op(kind: PostgresReadValueKind, op: &str) -> bool {
         (Json, _) | (Array, _) => false,
         (_, "eq") => true, // every scalar kind supports equality
         (Text, "in") | (Integer, "in") | (Boolean, "in") => true,
-        (Integer, o) | (Timestamp, o) if is_range_op(o) => true, // range: integer + timestamp
+        // Range ops (gt/gte/lt/lte): integer + timestamp, and Text (lexicographic) for keyset
+        // pagination on a Text key (LAB-TODOAPP-API-PAGINATION-KEYSET-P47). The real adapter pins
+        // `COLLATE "C"` so Text ordering is byte-stable and matches the fake's `String::cmp`.
+        (Integer, o) | (Timestamp, o) | (Text, o) if is_range_op(o) => true,
         _ => false,
     }
 }

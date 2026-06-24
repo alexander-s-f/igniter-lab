@@ -13,6 +13,10 @@ pub struct ServerRequest {
     pub body: Value,
     pub correlation_id: Option<String>,
     pub idempotency_key: Option<String>,
+    /// Parsed query-string params (`?k=v&…`); empty when absent. The host parses these OFF the path
+    /// (LAB-TODOAPP-API-PAGINATION-KEYSET-P47) so `path` stays query-free for route matching.
+    #[serde(default)]
+    pub query: BTreeMap<String, String>,
 }
 
 impl ServerRequest {
@@ -25,6 +29,7 @@ impl ServerRequest {
             body,
             correlation_id: None,
             idempotency_key: None,
+            query: BTreeMap::new(),
         }
     }
 }

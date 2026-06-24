@@ -102,7 +102,7 @@ fn found_rows_flow_query_to_continuation_200() {
 
         // (1) the authored query contract produces a structural QueryPlan.
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         assert_eq!(plan["source"], json!("todos"));
@@ -141,7 +141,7 @@ fn empty_rows_are_app_not_found_404() {
     rt().block_on(async {
         let m = load_machine();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none", "after": ""}))
             .await
             .unwrap();
 
@@ -210,7 +210,7 @@ fn host_gates_before_adapter_and_clamp() {
         // row-limit clamp: the contract's limit:50 clamped to a policy cap of 1.
         let m = load_machine();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         let a4 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));

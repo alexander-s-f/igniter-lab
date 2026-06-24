@@ -8,7 +8,7 @@ file and an old proof doc disagree, **this file + live source wins** (see
 [Historical docs rule](#historical-docs-rule)).
 
 Last verified against source: 2026-06-24 (after read/write binding `P25`/`P26`, hygiene `P29`-`P33`,
-Todo API product cards `P35`-`P41`, error envelope `P43`, and delete `P44`).
+Todo API product cards `P35`-`P41`, error envelope `P43`, delete `P44`, and keyset pagination `P47`).
 
 ## ReadThen status vocabulary
 
@@ -57,6 +57,7 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Account-existence read semantics | Implemented (`P38`) | Two-stage read `FindAccount` → `CheckAccountThenList`: existing+rows → **200**; existing+empty → **200 `[]`**; missing account → app-owned **404**; denied source/field → host **403** (adapter not reached); adapter failure → host **503**. `local_account_existence_missing_404_and_existing_empty_200`. |
 | Error envelope (`RespondError`) | Implemented (`P43`) | Typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` + a `map_decision` arm → `{"error":{"code","message"}}`. App-authored errors (invalid body, account/todo not-found) carry it; framework-app errors (route-miss/405/keyless from the lowering) and host infra error shapes are unchanged. |
 | Delete (`DELETE …/todos/:todo_id`) | Implemented (`P44`) | `AccountTodoDelete` → `BuildDeleteTodoIntent` (`operation: "delete"`, key = route `todo_id`) → `InvokeEffect{todo-delete}`. The write substrate's `delete` op was already seam-open (real adapter DELETE CTE + fake `remove`), gated by the host `ops` allowlist (`insert,upsert,delete`). Idempotent (absent row still commits; replay → no 2nd mutation); same key + different payload → **409**. Committed → **200**; row gone from later `show`/`list`. Proof: `write_delete_via_runner_200_removes_row_and_replay` (async HTTP through `MachineEffectHost`, DB-free), `local_delete_removes_existing_row_idempotently` (real adapter + DB), `delete_op_removes_business_row_idempotently` (fake substrate), and `scripts/todo_postgres_smoke.sh` (DELETE through the real binary → row removed, show → 404). |
+| List keyset pagination (`?after=`) | Implemented (`P47`) | List is ordered `id ASC`; `?after=<id>` adds a keyset filter `id > after` (Text range — enabled in `kind_allows_op`, real adapter pins `COLLATE "C"`). Page size = host read cap; client derives the next cursor from the last item's `id`. Query string parsed by the host (`parse_request` splits `?query` → `Request.query`; a query string used to break route matching). Proof: `local_keyset_pagination_pages_all_rows_once` (real DB, all rows once/ordered), `keyset_after_cursor_via_runner_filters_rows` (HTTP, DB-free), `text_keyset_range_and_order` (substrate), `parse_request_splits_query_from_path` (transport). **Deferred:** `{items,next}` envelope + client `limit` (need typed row destructuring). |
 
 ## Not implemented / intentionally closed
 

@@ -22,7 +22,7 @@ The app names only logical effect targets and structured intents; everything bel
 Read capability id: `IO.PostgresRead`. The allowlisted read projection is `id,account_id,title,done` (per
 `[postgres.read]` in `host.example.toml`); the `accounts` source (`id,name`) is allowlisted via
 `[postgres.read.accounts]` for the two-stage account-existence read (P38). Row limit cap: e.g. `100`.
-SELECT-only (mutating ops refused before the adapter). `eq`-only filters (v0).
+SELECT-only (mutating ops refused before the adapter). Filters: `eq`/`in`/range (`gt`/`gte`/`lt`/`lte`); `order_by` on Text/Integer/Timestamp. The list orders `id asc` and keyset-paginates via `id > after` — a Text range op, enabled in P47 (the real adapter pins `COLLATE "C"` for byte-stable text order).
 
 ## Write policy (host-declared; mirrors `PostgresWritePolicy`)
 

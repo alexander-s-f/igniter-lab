@@ -124,7 +124,9 @@ fn compare_cast(field: &str, kind: PostgresReadValueKind) -> String {
         PostgresReadValueKind::Integer => format!("{q}::bigint"),
         PostgresReadValueKind::Boolean => format!("{q}::bool"),
         PostgresReadValueKind::Timestamp => format!("{q}::timestamptz"),
-        _ => format!("{q}::text"),
+        // Text compare/order pins `COLLATE "C"` (byte order) so range ops + ORDER BY are deterministic
+        // across DB locales and match the fake adapter's byte-wise `String::cmp` (P47 keyset pagination).
+        _ => format!("{q}::text COLLATE \"C\""),
     }
 }
 

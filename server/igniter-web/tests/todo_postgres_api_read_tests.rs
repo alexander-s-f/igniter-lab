@@ -115,7 +115,7 @@ fn product_todos_index_found_returns_200() {
 
         // the PRODUCT query contract produces a structural QueryPlan.
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         assert_eq!(plan["source"], json!("todos"));
@@ -156,7 +156,7 @@ fn product_todos_index_empty_returns_200_empty_list() {
     rt().block_on(async {
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none", "after": ""}))
             .await
             .unwrap();
 
@@ -230,7 +230,7 @@ fn host_gates_before_adapter_and_clamp() {
         // clamp: the product contract's limit:50 clamped to a policy cap of 1.
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         let a4 = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));

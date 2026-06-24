@@ -230,6 +230,33 @@ async fn host_read(dsn: &str, plan: &Value) -> igniter_machine::capability::Effe
     run_effect(&reg, &store, &req, RunMode::Live).await.unwrap()
 }
 
+/// Like `host_read` but with a caller-chosen row cap, so a small page size forces multi-page keyset
+/// traversal (LAB-TODOAPP-API-PAGINATION-KEYSET-P47).
+async fn host_read_capped(
+    dsn: &str,
+    plan: &Value,
+    cap: i64,
+) -> igniter_machine::capability::EffectOutcome {
+    let adapter = Arc::new(
+        TokioPostgresReadAdapter::connect(dsn)
+            .await
+            .expect("read adapter connect"),
+    );
+    let pol = PostgresReadPolicy::new(cap)
+        .allow_ops(&["select"])
+        .allow_source("todos", &["id", "account_id", "title", "done"]);
+    let mut reg = CapabilityExecutorRegistry::new();
+    reg.register(Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, pol)));
+    let store: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
+    let req = EffectRequest {
+        capability_id: READ_CAP.to_string(),
+        idempotency_key: "rq".to_string(),
+        authority_ref: Some("passport:test".to_string()),
+        args: plan.clone(),
+    };
+    run_effect(&reg, &store, &req, RunMode::Live).await.unwrap()
+}
+
 fn min_req(account: &str) -> Value {
     json!({"method": "GET", "path": format!("/accounts/{account}/todos"), "body": "",
            "correlation_id": "", "idempotency_key": ""})
@@ -255,7 +282,7 @@ fn local_read_found_returns_app_200() {
         }
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
             .await
             .unwrap();
         assert_eq!(
@@ -296,7 +323,7 @@ fn local_read_empty_returns_200_empty_list() {
         };
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-empty"}))
+            .dispatch("ListTodosByAccount", json!({"account_id": "acct-empty", "after": ""}))
             .await
             .unwrap();
         let out = host_read(&dsn, &plan).await;
@@ -315,6 +342,61 @@ fn local_read_empty_returns_200_empty_list() {
             "empty list → 200 [], not a not-found"
         );
         assert_eq!(empty_list["body"], json!("[]"), "body carries the empty array");
+    });
+}
+
+// ── 2b: keyset pagination pages every row exactly once, ordered, no dup/miss (P47) ────────────────
+//
+// Seeds 5 todos, pages with a server cap of 2 (pages of 2,2,1 then empty), threading the last `id` of
+// each page as the next `?after=` cursor. Proves the real adapter's Text `id > $cursor` + `ORDER BY id
+// COLLATE "C"` give a stable, gap-free, duplicate-free traversal.
+
+#[test]
+fn local_keyset_pagination_pages_all_rows_once() {
+    rt().block_on(async {
+        let ids = ["todo-ka", "todo-kb", "todo-kc", "todo-kd", "todo-ke"];
+        let Some((client, dsn)) = prepare("acct-ks", &ids, &[]).await else {
+            return;
+        };
+        for id in ids {
+            client
+                .execute(
+                    "INSERT INTO todos (id, account_id, title, done) VALUES ($1,$2,$3,'false')",
+                    &[&id, &"acct-ks", &"t"],
+                )
+                .await
+                .unwrap();
+        }
+        let m = load_app_contracts();
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut after = String::new();
+        for _hop in 0..10 {
+            let plan = m
+                .dispatch(
+                    "ListTodosByAccount",
+                    json!({"account_id": "acct-ks", "after": after}),
+                )
+                .await
+                .unwrap();
+            let out = host_read_capped(&dsn, &plan, 2).await;
+            assert_eq!(out.kind, OutcomeKind::Succeeded);
+            let rows = out.result["rows"].as_array().unwrap();
+            if rows.is_empty() {
+                break;
+            }
+            assert!(rows.len() <= 2, "page bounded by the cap");
+            for r in rows {
+                seen.push(r["id"].as_str().unwrap().to_string());
+            }
+            after = rows.last().unwrap()["id"].as_str().unwrap().to_string();
+        }
+
+        assert_eq!(
+            seen,
+            vec!["todo-ka", "todo-kb", "todo-kc", "todo-kd", "todo-ke"],
+            "keyset paged every row exactly once, ascending id, no duplicate/missing across boundaries"
+        );
     });
 }
 

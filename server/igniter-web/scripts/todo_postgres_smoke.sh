@@ -88,11 +88,11 @@ cleanup_rows() {
 }
 
 SERVER_PID=""
-LOG="$(mktemp)"; FOUND_BODY="$(mktemp)"; SHOW_BODY="$(mktemp)"
+LOG="$(mktemp)"; FOUND_BODY="$(mktemp)"; SHOW_BODY="$(mktemp)"; AFTER_BODY="$(mktemp)"
 teardown() {
   [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true
   cleanup_rows
-  rm -f "$LOG" "$FOUND_BODY" "$SHOW_BODY" >/dev/null 2>&1 || true
+  rm -f "$LOG" "$FOUND_BODY" "$SHOW_BODY" "$AFTER_BODY" >/dev/null 2>&1 || true
 }
 trap teardown EXIT
 
@@ -117,7 +117,7 @@ if ! ( cd "$CRATE_DIR" && cargo build --quiet --features postgres --bin igweb-se
 fi
 BIN="$CRATE_DIR/target/debug/igweb-serve"
 
-REQS=11
+REQS=12
 "$BIN" --host-config "$HOST_CFG" --addr 127.0.0.1:0 --max-requests "$REQS" "$APP_DIR" >"$LOG" 2>&1 &
 SERVER_PID=$!
 PORT=""
@@ -161,6 +161,11 @@ c_found="$(get_code   "/accounts/$ACCT/todos" "$FOUND_BODY")"
 TODO_ID="$(grep -oE 'todo_[0-9a-f]{32}' "$FOUND_BODY" | head -1)"
 [[ -n "$TODO_ID" ]] || TODO_ID="__not_discovered__"
 
+# Keyset pagination (P47): a page AFTER the only todo's id excludes it (`id > itself` is false) → empty
+# list. Exercises the real binary's query-string transport (`?after=`) + the real Postgres keyset read.
+c_after="$(get_code "/accounts/$ACCT/todos?after=$TODO_ID" "$AFTER_BODY")"
+after_excludes=no; grep -qF "$WRITE_TITLE" "$AFTER_BODY" 2>/dev/null || after_excludes=yes
+
 c_show="$(get_code    "/accounts/$ACCT/todos/$TODO_ID" "$SHOW_BODY")"
 c_done="$(post_code   "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
 c_dreplay="$(post_code "/accounts/$ACCT/todos/$TODO_ID/done" "{}" "$DONE_KEY")"
@@ -200,6 +205,8 @@ chk "create replay -> 200"                 200 "$c_creplay"
 chk "list found -> 200"                    200 "$c_found"
 chk "list found carries title"             yes "$found_has_title"
 chk "discovered surrogate todo id"         yes "$([[ "$TODO_ID" == todo_* ]] && echo yes || echo no)"
+chk "keyset after -> 200"                  200  "$c_after"
+chk "keyset after excludes the only row"   yes  "$after_excludes"
 chk "show -> 200"                          200 "$c_show"
 chk "create title persisted (read back)"   yes "$show_has_title"
 chk "done -> 200"                          200 "$c_done"
