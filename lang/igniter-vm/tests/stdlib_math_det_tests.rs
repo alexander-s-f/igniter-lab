@@ -71,6 +71,45 @@ async fn golden_vectors_exact_bits() {
     );
     // det_sqrt of a perfect square is exact.
     assert_eq!(det1("det_sqrt", 4.0).await.unwrap(), Value::Float(2.0));
+    // LAB-STDLIB-MATH-DET-TIER2: ln/exp golden vectors (vendored libm; the cross-arch reference).
+    assert_eq!(
+        bits(&det1("det_ln", 2.0).await.unwrap()),
+        0x3fe62e42fefa39ef,
+        "det_ln(2.0)"
+    );
+    // ln(1) is exactly 0.
+    assert_eq!(det1("det_ln", 1.0).await.unwrap(), Value::Float(0.0));
+    assert_eq!(
+        bits(&det1("det_exp", 1.0).await.unwrap()),
+        0x4005bf0a8b14576a,
+        "det_exp(1.0)"
+    );
+    // exp(0) is exactly 1.
+    assert_eq!(det1("det_exp", 0.0).await.unwrap(), Value::Float(1.0));
+    assert_eq!(
+        bits(&det1("det_exp", -1.0).await.unwrap()),
+        0x3fd78b56362cef38,
+        "det_exp(-1.0)"
+    );
+}
+
+/// LAB-STDLIB-MATH-DET-TIER2: det_ln/det_exp are total over finite values — domain & overflow are
+/// deterministic ERRORS, never NaN/Inf.
+#[tokio::test]
+async fn det_ln_exp_totality() {
+    // ln domain: x must be > 0.
+    let z = det1("det_ln", 0.0).await;
+    assert!(z.is_err() && z.unwrap_err().contains("domain"), "det_ln(0) domain error");
+    let n = det1("det_ln", -1.0).await;
+    assert!(n.is_err() && n.unwrap_err().contains("domain"), "det_ln(-1) domain error");
+    // exp overflow: exp(710) is +Inf in f64 → must error, not emit Inf.
+    let o = det1("det_exp", 710.0).await;
+    assert!(o.is_err() && o.unwrap_err().contains("overflow"), "det_exp(710) overflow error");
+    // non-finite inputs refused.
+    assert!(det1("det_ln", f64::INFINITY).await.is_err(), "det_ln(Inf) errors");
+    assert!(det1("det_exp", f64::NAN).await.is_err(), "det_exp(NaN) errors");
+    // exp of large-negative underflows to exactly 0.0 (finite) — allowed.
+    assert_eq!(det1("det_exp", -1000.0).await.unwrap(), Value::Float(0.0));
 }
 
 /// Determinism: the same input yields byte-identical bits across repeated runs.

@@ -25,6 +25,12 @@ def det_sin(x: Float) -> Float
 def det_cos(x: Float) -> Float
 def det_sqrt(x: Float) -> Float
 
+-- LAB-STDLIB-MATH-DET-TIER2: deterministic ln/exp via the same vendored libm (one fixed algorithm on every
+-- target). Total over finite values: non-finite input, det_ln(x<=0), and det_exp overflow are deterministic
+-- runtime errors, never NaN/Inf. Governed by STDLIB_VERSION.
+def det_ln(x: Float) -> Float
+def det_exp(x: Float) -> Float
+
 -- LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 scalar basics. Polymorphic over {Integer, Float} (Decimal deferred),
 -- same-type-in/out, NO implicit coercion (mixed numeric types = OOF-MATH3). Deterministic by construction
 -- (comparisons / sign flips are bit-identical across targets). Total over finite values: a non-finite Float

@@ -279,7 +279,11 @@ impl TypeChecker {
             | "stdlib.math.det_cos"
             | "det_cos"
             | "stdlib.math.det_sqrt"
-            | "det_sqrt" => {
+            | "det_sqrt"
+            | "stdlib.math.det_ln"
+            | "det_ln"
+            | "stdlib.math.det_exp"
+            | "det_exp" => {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("Float".to_string()));
                 if args.len() != 1 {

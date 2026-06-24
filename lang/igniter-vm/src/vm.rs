@@ -2066,6 +2066,7 @@ impl VM {
                         | "stdlib.math.sqrt" | "sqrt" | "stdlib.math.pi" | "pi"
                         | "stdlib.math.det_sin" | "det_sin" | "stdlib.math.det_cos" | "det_cos"
                         | "stdlib.math.det_sqrt" | "det_sqrt"
+                        | "stdlib.math.det_ln" | "det_ln" | "stdlib.math.det_exp" | "det_exp"
                         | "stdlib.math.abs" | "abs" | "stdlib.math.sign" | "sign"
                         | "stdlib.math.min" | "min" | "stdlib.math.max" | "max"
                         | "stdlib.math.clamp" | "clamp"
@@ -3632,6 +3633,30 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                 Err("det_sqrt: domain error (negative input)".to_string())
             } else {
                 Ok(x.sqrt())
+            }
+        }),
+        // LAB-STDLIB-MATH-DET-TIER2: deterministic ln/exp via the same vendored libm (one fixed algorithm on
+        // every target). Total over finite values: non-finite input, det_ln(x<=0), and det_exp overflow are
+        // deterministic ERRORS, never NaN/Inf (preserving the non-finite→null lineage invariant).
+        "stdlib.math.det_ln" | "det_ln" => unary("det_ln", args, |x| {
+            if !x.is_finite() {
+                Err("det_ln: non-finite input is not permitted".to_string())
+            } else if x <= 0.0 {
+                Err("det_ln: domain error (input must be > 0)".to_string())
+            } else {
+                Ok(libm::log(x))
+            }
+        }),
+        "stdlib.math.det_exp" | "det_exp" => unary("det_exp", args, |x| {
+            if !x.is_finite() {
+                Err("det_exp: non-finite input is not permitted".to_string())
+            } else {
+                let r = libm::exp(x);
+                if r.is_finite() {
+                    Ok(r)
+                } else {
+                    Err("det_exp: overflow (result is not finite)".to_string())
+                }
             }
         }),
         // LAB-STDLIB-MATH-NUMERIC-BASICS-P7: N0 basics (Integer/Float, same-type, total).
