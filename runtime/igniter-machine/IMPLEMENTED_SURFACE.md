@@ -3,7 +3,14 @@
 **Status:** live implementation index for the fused machine (compiler + VM + tbackend
 in one process). **Verify-first:** any doc claiming this is "only a PROP-042 sketch"
 or "not implemented" is **stale** — this file + `cargo test` are ground truth.
-Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`).
+Last full-green baseline: **2026-06-15** (70 tests pass, `cargo test --no-default-features`).
+Surface refresh: **2026-06-24** doc/source grep for Postgres read/write status, Text range/order,
+fake-vs-real adapters, idempotency, DSN safety, and host policy.
+Fleet recheck: **2026-06-24 HOLD** — `cargo test --test machine_tests test_machine_fleet_sweep`
+is **11/13**, not whole-fleet green. Current blockers are `batch_importer`
+(`VMExecutionError("Unsupported AST kind in VM evaluator: variant_construct")`) and `web_router`
+(match-arm record literal parse ambiguity: record bodies starting with `{` are parsed as blocks).
+Do not cite the 2026-06-15 full-suite count as current fleet status until those two follow-ups close.
 
 > Reality check: the old `igniter-delta-1.md` claim that igniter-machine "contains
 > only PROP-042.md" is FALSE. It is a working, tested fused kernel.
@@ -43,6 +50,19 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 > P1→P8 complete (fake P1–P4, gate P5, real read P6, wire-atomic P7, real write P8). Remaining named
 > follow-ons: connection pool, `postgres-tls`, rich type mapping, fuller filter predicates. The
 > operator-console and webhook-auction designs above remain design/readiness only — no code yet.
+
+## Quick Status Map
+
+| Surface | Status | Source / proof |
+|---|---|---|
+| Typed Postgres reads | Implemented (fake adapter + opt-in real adapter) | `src/postgres_read.rs::{QueryPlan, PostgresReadPolicy, PostgresReadExecutor}`; `src/postgres_real.rs::TokioPostgresReadAdapter`; `tests/postgres_read_tests.rs`, `tests/postgres_real_read_tests.rs`. |
+| Text range/order for keyset pagination | Implemented | `kind_allows_op(Text, gt/gte/lt/lte)` and `kind_allows_order(Text)` in `src/postgres_read.rs`; real SQL casts Text comparisons/order to `::text COLLATE "C"` in `src/postgres_real.rs`; `text_keyset_range_and_order`. |
+| Fake vs real adapter boundary | Implemented and explicit | Fake adapters live in `postgres_read.rs` / `postgres_write.rs`; real adapters are `#[cfg(feature = "postgres")]` in `postgres_real.rs`. Default build stays fake/no-driver. |
+| Receipt-gated writes | Implemented | `src/postgres_write.rs::PostgresWriteExecutor` uses existing `write::run_write_effect`; fake adapter models PG-side `effect_receipts`; `tests/postgres_write_tests.rs`. |
+| Real local Postgres write | Implemented, opt-in + DSN-gated | `src/postgres_real.rs::TokioPostgresWriteAdapter`; tests use separate `IGNITER_PG_WRITE_DSN` and dedicated `igniter_pg_test`, never SparkCRM. |
+| Delete op | Implemented | Real write adapter switches the business CTE to `DELETE ... WHERE ... AND EXISTS (SELECT 1 FROM ins)` under the same receipt gate; exercised by Todo API P44 from `igniter-web`. |
+| Idempotency / reconcile | Implemented | Machine receipt plus PG-side `effect_receipts(idempotency_key)`; `reconcile_postgres_unknown_write` reads back the PG-side receipt, never re-runs the write. |
+| Host policy / DSN safety | Implemented at this layer as policy boundaries | Contract input names logical source/target only. Host allowlists source/fields/ops; DSNs are runtime/env secrets and must not enter receipts. |
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
 
@@ -120,13 +140,16 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   closure capturing an enclosing compute) → 3.
 - `test_machine_cross_contract_dispatch` — **orchestrator → `call_contract("Helper")`**
   resolves and runs → 10.
-- `test_machine_loads_multifile_app` — **real fleet app `web_router` (3 files,
-  modules+imports)** via `load_program` → dispatch `RunArticle` → `{body, status:200}`
-  (identical to the CLI).
+- `test_machine_loads_multifile_app` — **currently HOLD for `web_router`** after
+  `LAB-LANG-MATCH-ARM-BINDINGS-P2`: match-arm bodies that are record literals beginning with `{`
+  parse as blocks and fail on `:` tokens. Workaround/proof route: parenthesized record literals
+  or parser disambiguation.
 - `test_machine_fleet_sweep` — **13 fleet apps** (advanced_logistics, air_combat,
   audit_ledger, batch_importer, call_router, erp_logistics, igniter_parser, job_runner,
-  lead_router, query_engine, reconciler, vector_editor, web_router) loaded + dispatched
-  through the machine → **13/13 ok = full machine↔CLI parity**, no divergence.
+  lead_router, query_engine, reconciler, vector_editor, web_router). Current live recheck
+  2026-06-24 is **11/13**, with two blockers: `batch_importer` needs `variant_construct` support
+  in `eval_ast`; `web_router` needs match-arm record-literal/block disambiguation. Do not claim
+  full machine↔CLI parity until both close and the sweep is rerun.
 - `tests/capability_io_tests.rs` (13) — **production capability IO boundary**: receipt-as-fact,
   idempotency prevents the 2nd executor call, replay bypasses the executor, `unknown_external_state`
   stays epistemic (distinct from `permanent_failure`), preflight refusal vs executor denial-as-data,
@@ -321,7 +344,7 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
   for max transaction_time ≤ as_of instead of `partition_point` on a not-necessarily-
   sorted timeline — backfills/corrections no longer break as-of.)**
 
-## Known gaps (pressure frontier)
+## Do Not Infer / Still Not Implemented
 
 - REPL `igniter-repl` not yet exercised live (MCP is — see Surfaces; both bitemporal axes
   via `igniter_time_travel`).
@@ -329,6 +352,11 @@ Last verified: **2026-06-15** (70 tests pass, `cargo test --no-default-features`
 - MCP `igniter_load_contract` uses single-source `load_contract_source`, not `load_program`
   (multifile) — multifile apps not yet loadable via MCP.
 - Interval valid_time (v0 = point); `valid_policy` fallback.
+- Connection pool, `postgres-tls`, rich type mapping, fuller predicates, Postgres-as-`TBackend`, and
+  in-VM ORM are not implemented by the Postgres read/write rows.
+- Operator console and SparkCRM webhook-auction policy are readiness/design docs only, not live code.
+- Compile/default-build status and live-DB status are separate: default tests can prove fake/no-driver
+  paths; real Postgres tests are feature-gated and skip without the relevant DSN.
 
 (`machine_tests.rs` 12 + `capability_io_tests.rs` 13 + `capability_io_host_tests.rs` 9 +
 `capability_io_real_tests.rs` 5 + `capability_io_clock_tests.rs` 5 + `capability_io_authority_tests.rs` 9

@@ -4,6 +4,10 @@
 **Status:** CHECKPOINT / NAVIGATION (not new authority) — one compact, source-backed front door for the
 `igniter-server` wave so future agents don't re-open settled questions. **No code, no new behavior, no
 live/deploy, no canon claim.**
+**Superseded status note (2026-06-24):** this checkpoint is historical for the P1-P14 server wave. Its
+JSON-only/raw-response gap language is no longer current: `server/igniter-server/src/protocol.rs` now has
+`ResponseBody::Raw`, and `host.rs` writes raw bytes verbatim with their content type. Use current source
+and package-local implemented surfaces before planning raw-response work.
 **Authority:** Lab-only navigation artifact. Verified against live source + fresh command output
 2026-06-18.
 
@@ -104,8 +108,10 @@ force-insert (SHADOW-P2), inert for P3/P4/P5.
 - **No live SparkCRM / vendor API** — the SparkCRM app is an offline test fixture over a fake executor.
 - **No DB / credentials / TLS** — machine tests use in-memory backend + fake executor only.
 - **No dynamic plugin system** — extension = static Rust apps compiled in (P7 deferred dynamic loading).
-- **No raw HTML/SVG/binary response protocol** — `ServerResponse.body` is JSON; the wire body is always
-  `serde_json::to_vec(body)` (P11). Verbatim non-JSON bytes are deferred.
+- **No app/export-specific file delivery system** — the old P14 JSON-only statement is superseded:
+  `ServerResponse.body` can now be `ResponseBody::Raw`, and raw bytes are written verbatim. Still not
+  proven here: app-facing download descriptors, content-disposition policy, storage handoff, streaming,
+  or format-specific exporters.
 - **No route-config framework / route table in core** — routing is a `match` inside `ServerApp::call`.
 - **No release / canon claim** — lab evidence only.
 
@@ -155,9 +161,10 @@ force-insert (SHADOW-P2), inert for P3/P4/P5.
 - **Trust order:** live code + tests > these docs > card lore. If a doc disagrees with code, the code
   wins (verify-first).
 - **Stale-claim guards:** anything implying a public listener, live SparkCRM/DB, a route-config
-  framework, or raw-byte responses is NOT implemented — treat as not-proven until a card + code say
-  otherwise. The README "Current contents" line ("exports the protocol module") is outdated shorthand;
-  the real module map is `src/lib.rs` (§3).
+  framework, or app/export-specific file delivery is NOT implemented — treat as not-proven until a card +
+  code say otherwise. Raw-byte response support itself must be checked against current source, because it
+  landed after this checkpoint. The README "Current contents" line ("exports the protocol module") is
+  outdated shorthand; the real module map is `src/lib.rs` (§3).
 
 ---
 
@@ -166,7 +173,7 @@ force-insert (SHADOW-P2), inert for P3/P4/P5.
 ```text
 igniter-server in-lab wave: CLOSED ENOUGH as substrate + DX proof (P1–P13 all CLOSED; 49/62 tests green)
   -> next PRODUCT work  = SparkCRM shadow report (offline) / app-specific gates
-  -> next SUBSTRATE work = trigger-only: raw response, separate app crate, live gate (human)
+  -> next SUBSTRATE work = trigger-only: app/export file delivery, separate app crate, live gate (human)
 ```
 
 *Checkpoint/navigation only. Compiled 2026-06-18 against live source + fresh `cargo` runs.*

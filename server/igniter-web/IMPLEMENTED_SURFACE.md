@@ -1,4 +1,4 @@
-# igniter-web — Implemented Surface (ReadThen · EffectHost · host.toml · igweb-serve · Todo API)
+# igniter-web — Implemented Surface (Routing · ViewArtifact · ReadThen · EffectHost · Todo API)
 
 **Status: lab / prototype. Not canon, not a public stability promise, not a production or hosting
 surface. Loopback-only.** This is the code-anchored answer to "what does `igniter-web` actually
@@ -7,8 +7,10 @@ implemented", "observed only", "single-table read only", or "no live effect exec
 file and an old proof doc disagree, **this file + live source wins** (see
 [Historical docs rule](#historical-docs-rule)).
 
-Last verified against source: 2026-06-24 (after read/write binding `P25`/`P26`, hygiene `P29`-`P33`,
-Todo API product cards `P35`-`P41`, error envelope `P43`, delete `P44`, and keyset pagination `P47`).
+Last refreshed against source: 2026-06-24 (route sugar `P16`-`P20`/`P22`/`P26`/`P27`,
+ViewArtifact authoring `P16`/`P19`, read/write binding `P25`/`P26`, hygiene `P29`-`P33`,
+Todo API product cards `P35`-`P41`, error envelope `P43`, delete `P44`, keyset pagination `P47`,
+and compiler package/admission pointers).
 
 ## ReadThen status vocabulary
 
@@ -44,6 +46,22 @@ Todo API product cards `P35`-`P41`, error envelope `P43`, delete `P44`, and keys
 | `host.example.toml` | Implemented (`P28`, refreshed `P38`/`P41`) | `examples/todo_postgres_app/host.example.toml` | Committed, commit-safe (env-var names only). Now wires `[postgres.read.accounts]`, `targets = todos`, `ops = insert,upsert,delete`, `capability = IO.TodoWrite`, and `[effects.todo-delete]` (`P44`). Guarded by unit test `committed_host_example_toml_parses`. |
 | Runner diagnostics | Implemented (`P29`/`P30`) | `src/runner_diag.rs`, used by `src/bin/igweb-serve.rs` | See [Failure taxonomy](#failure-taxonomy) below. |
 
+### Routing and ViewArtifact authoring
+
+These are product-integrated IgWeb surfaces, not only design notes. The `.igweb` lowering lives in
+`igniter-compiler::igweb::lower_igweb`; `server/igniter-web/src/lib.rs` calls it from the app builder,
+then maps handler `Decision` variants to the server response path.
+
+| Surface | Status | Where / proof |
+| --- | --- | --- |
+| `scope` + `resource` route sugar | Implemented | `lang/igniter-compiler/src/igweb.rs` composes prefixes/resources; `lang/igniter-compiler/tests/igweb_lowering_tests.rs::nested_resource_is_byte_identical_to_flat_and_compiles`; examples `todo_v2_app` and `todo_postgres_app`. |
+| Nested composition + captures | Implemented | Same lowering path; tests assert nested account/todo captures and byte-identical flat output. |
+| Route-level `via` | Implemented | `igweb.rs::Via` + lowering to static guard matches; `via_project_compiles_clean` and composite-guard tests. |
+| Context `let` + single/same-name `guard` | Implemented | `igweb.rs::Binding`/`apply_bindings`; `ctx_let_guard_project_compiles_clean` and `ctx_accumulation_project_compiles_clean`. Distinct active guard names remain refused. |
+| `Render` / raw HTML response | Implemented | `src/lib.rs::map_decision` `Render` arm -> `render_to_decision`; `render_html_app` / view tests cover content-type and body bytes. |
+| `RenderView` / typed `ViewArtifact` records | Implemented | `src/lib.rs::map_decision` `RenderView` arm serializes the typed record and reuses the same renderer; `examples/todo_view_app` exercises typed authoring. |
+| Raw response / response envelope | Implemented | `map_decision` arms for `Respond`, `RespondError`, `Render`, and `RenderView`. App-authored `RespondError` is typed; host/framework errors keep their v0 shapes. |
+
 ### Todo API product path (`examples/todo_postgres_app`, cards `P35`-`P44`)
 
 The generic surfaces above carry **one** product app end-to-end. App docs live in
@@ -58,6 +76,21 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Error envelope (`RespondError`) | Implemented (`P43`) | Typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` + a `map_decision` arm → `{"error":{"code","message"}}`. App-authored errors (invalid body, account/todo not-found) carry it; framework-app errors (route-miss/405/keyless from the lowering) and host infra error shapes are unchanged. |
 | Delete (`DELETE …/todos/:todo_id`) | Implemented (`P44`) | `AccountTodoDelete` → `BuildDeleteTodoIntent` (`operation: "delete"`, key = route `todo_id`) → `InvokeEffect{todo-delete}`. The write substrate's `delete` op was already seam-open (real adapter DELETE CTE + fake `remove`), gated by the host `ops` allowlist (`insert,upsert,delete`). Idempotent (absent row still commits; replay → no 2nd mutation); same key + different payload → **409**. Committed → **200**; row gone from later `show`/`list`. Proof: `write_delete_via_runner_200_removes_row_and_replay` (async HTTP through `MachineEffectHost`, DB-free), `local_delete_removes_existing_row_idempotently` (real adapter + DB), `delete_op_removes_business_row_idempotently` (fake substrate), and `scripts/todo_postgres_smoke.sh` (DELETE through the real binary → row removed, show → 404). |
 | List keyset pagination (`?after=`) | Implemented (`P47`) | List is ordered `id ASC`; `?after=<id>` adds a keyset filter `id > after` (Text range — enabled in `kind_allows_op`, real adapter pins `COLLATE "C"`). Page size = host read cap; client derives the next cursor from the last item's `id`. Query string parsed by the host (`parse_request` splits `?query` → `Request.query`; a query string used to break route matching). Proof: `local_keyset_pagination_pages_all_rows_once` (real DB, all rows once/ordered), `keyset_after_cursor_via_runner_filters_rows` (HTTP, DB-free), `text_keyset_range_and_order` (substrate), `parse_request_splits_query_from_path` (transport). **Deferred:** `{items,next}` envelope + client `limit` (need typed row destructuring). |
+
+### Package / admission front door
+
+There is no package-local `IMPLEMENTED_SURFACE.md` for `igniter-compiler` yet. For current package truth,
+start at:
+
+- `lang/igniter-compiler/src/main.rs` for `igc package graph`, `pack`, `verify`, and `admit`.
+- `lang/igniter-compiler/src/project.rs` for `admit_archive`, archive verification, and local graph logic.
+- `lang/igniter-compiler/tests/package_lockfile_cli_tests.rs` and `package_workspace_tests.rs`.
+- `lab-docs/lang/lab-igniter-package-graph-cli-p18-v0.md`,
+  `lab-docs/lang/lab-igniter-package-archive-pack-verify-p22-v0.md`, and
+  `lab-docs/lang/lab-igniter-package-remote-trust-p23-v0.md`.
+
+Do not infer a registry, semver solver, signing layer, deployment permission, or package execution from
+`package admit`; it is a deterministic local node-admission proof over a source `.igpkg`.
 
 ## Not implemented / intentionally closed
 

@@ -4,6 +4,15 @@
 **Verify-first rule:** any doc claim that one of these is "not implemented",
 "deferred", or "blocked" is **stale** — this file + a source grep are ground truth.
 Last verified against source: **2026-06-15**.
+Surface refresh: **2026-06-24** doc/source grep for stdlib collection `zip`, HOF math parity,
+deterministic math evidence tiers, Vec3/Mat3 package proofs, and package/admission pointers. This
+refresh did not rerun the full VM fleet.
+
+Machine fleet note: a 2026-06-24 `runtime/igniter-machine` fleet recheck is **HOLD 11/13**.
+The VM-side blocker is `batch_importer`: `eval_ast` does not yet evaluate `variant_construct`
+inside HOF/lambda bodies. The other blocker (`web_router`) is parser-side match-arm
+record-literal/block ambiguity in `igniter-compiler`. Do not infer whole-fleet green from the
+historical RUN-OK section below.
 
 > Scope: this crate owns bytecode lowering (`src/compiler.rs`) and the opcode set
 > (`src/instructions.rs`). Front-end surfaces (parse / classify / typecheck) live in
@@ -50,6 +59,32 @@ SemanticIR `.igapp`; `igniter-vm` runs it. Proof: `Add(a=2,b=3)` →
 | compiled example apps | ✅ | `igniter-compiler/out/*.igapp` (add, decimal_contract, availability_projection, tenant_availability_projection, vendor_lead_pipeline, …) |
 | recursive self-call / TCO | ⛔ v0 hold | `call_contract` dispatches with depth-guard; self-recursion/cycles closed in v0 (ledger D-007) |
 | single `source → run` command / REPL | ❌ missing | two-step (compile then run); the main DX gap for "live" |
+
+## Stdlib / Package Proofs
+
+These rows are live lab evidence, not canon language authority. They cross `igniter-compiler`,
+`igniter-vm`, and `igniter-stdlib` because the VM proof for a stdlib feature often depends on the
+compiler emitting the right SIR and the VM evaluating the HOF/eval_ast path correctly.
+
+| Surface | Status | Where / proof |
+|---|---|---|
+| Collection `zip` signature | Implemented in stdlib declarations | `lang/igniter-stdlib/stdlib/collections.ig` declares `zip(a,b) -> Collection[Pair[A,B]]` with shorter-length truncation semantics; proof marker `LAB-STDLIB-COLLECTION-ZIP-PROOF-P2`. |
+| HOF runtime parity for math calls | Implemented for covered shapes | `lang/igniter-vm/tests/stdlib_math_hof_tests.rs` covers `sin`, `cos`, `sqrt`, `pi`, `det_sin`, `det_sqrt` inside `fold`/`map` lambda bodies through `eval_ast`, not only bytecode `OP_CALL`. |
+| Deterministic math evidence tiers | Implemented for current Tier-1/Tier-2 proofs | Deterministic functions are tested by golden bits / error behavior in VM tests; fast math exists as separate convenience evidence, not replay-safe equivalence. |
+| Float `Vec3` local package | Implemented as package proof | `lang/igniter-compiler/tests/fixtures/project_mode/linalg_vec3` plus `lang/igniter-vm/tests/linalg_vec3_tests.rs`; pure `.ig`, package resolver path, no VM builtins. |
+| Float `Mat3` local package | Implemented as package proof | `lang/igniter-compiler/tests/fixtures/project_mode/linalg_mat3` plus `lang/igniter-vm/tests/linalg_mat3_tests.rs`; imports Vec3 and Mat3 through project mode and runs exact VM value checks. |
+| Nested HOF coverage | Partly implemented / coverage-bounded | Covered HOF+math lambda paths run; do not generalize to every nested HOF, `filter_map`, `reduce`, recursion, or dynamic dispatch without a specific test. |
+
+## Package / Admission Pointer
+
+Package graph/archive/admission is owned by `igniter-compiler`, not `igniter-vm`. For current package
+surface truth, start with `lang/igniter-compiler/src/main.rs` (`igc package graph|pack|verify|admit`),
+`lang/igniter-compiler/src/project.rs` (`admit_archive`, archive verification, local package graph),
+`lang/igniter-compiler/tests/package_lockfile_cli_tests.rs`, and
+`lang/igniter-compiler/tests/package_workspace_tests.rs`.
+
+`igc package admit` is a local deterministic admission proof over a source `.igpkg`; do not infer
+registry publication, signing, semver solving, deployment permission, or package execution.
 
 ## Runtime wave — CLOSED 2026-06-15 (RUN-OK 1 → 18)
 
@@ -101,6 +136,19 @@ function SIR materialization plus VM static app-local function runtime.
 
 `LAB-FUNCTION-SIR-RUNTIME-P1` closed that route for Rust+VM: the `.igapp` now carries
 `functions`, and P3 live runtime evidence shows `spreadsheet` RUN-OK.
+
+## Do Not Infer / Still Not Implemented
+
+- `rule_engine` remains intentionally fail-closed behind dynamic-dispatch governance; RUN-OK 24/25 is
+  not whole-fleet green.
+- `batch_importer` is currently red in the 2026-06-24 machine fleet sweep because `eval_ast` lacks
+  `variant_construct`; this is a live blocker, not a stale historical note.
+- Recursive self-call / TCO stays on v0 hold; `call_contract` is depth-guarded and self-recursion/cycles
+  are closed.
+- Single `source -> run` / REPL remains missing; current live path is compile to `.igapp`, then VM run.
+- Generic matrix libraries, arbitrary nested HOF coverage, `filter_map`/`reduce` eval_ast parity, and
+  package execution/admission are not proven by the Vec3/Mat3 or stdlib math rows.
+- Package/admission evidence in this file is a pointer to compiler-owned surfaces, not VM authority.
 
 ## Provenance
 

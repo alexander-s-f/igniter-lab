@@ -5,12 +5,17 @@
 the read through a host (not a test hand-orchestration), preserving the app/host authority split. **No
 implementation, no new `.igweb` syntax, no live Postgres, no effect-write change, no server-core domain,
 no canon claim.**
+**Superseded status note (2026-06-24):** this remains the historical P10 readiness/design packet, but its
+"not implemented / harness only / runner deferred" findings are no longer current. For current behavior,
+start with `server/igniter-web/IMPLEMENTED_SURFACE.md`: `ReadThen { plan, then, carry }` is implemented,
+bounded by `MAX_READ_HOPS`, and async machine mode can route final `InvokeEffect` through
+`MachineEffectHost` when a write host is configured. Use this document only for design history.
 **Authority:** Lab. App owns product meaning + the logical `QueryPlan` value + the not-found `Decision`;
 host owns source/field policy, clamp, adapter, DSN, and infra failures; server owns transport; machine
 owns the read executor + receipts. Builds on the read-guard-host readiness
 (`lab-igniter-web-read-guard-host-readiness-p5-v0.md`) and the P6 direct-dispatch harness.
 
-**Status as of 2026-06-22:** `ReadThen` is `designed` and `harness-proven`, but not `implemented` and not
+**Historical status as of 2026-06-22:** `ReadThen` was `designed` and `harness-proven`, but not `implemented` and not
 `runner-integrated`. Live source has no `ReadThen` arm in `lang/igniter-compiler/src/igweb.rs`,
 `server/igniter-web/src/lib.rs`, `server/igniter-server/src/protocol.rs`, or `lang/igniter-vm/src`. Current
 final decisions are `Respond`, `InvokeEffect`, `RespondView`, `Render`, and `RenderView` in the IgWeb prelude,
@@ -51,7 +56,7 @@ Recommended next implementation card: **`LAB-IGNITER-WEB-READTHEN-DISPATCH-P11`*
 - **Sync `call` + internal `block_on`** (`lib.rs`): `IgWebServerApp` stores a per-instance
   `tokio::runtime` (current-thread, `:106`) and every request does `self.rt.block_on(self.machine.dispatch(
   &self.entry, input))` (`:119`). `machine.dispatch` is **async**. This is the only app-layer `block_on`.
-- **Staged read TODAY = harness only.** `todo_postgres_read_host_tests.rs` (`#[cfg(feature="machine")]`):
+- **Historical P10 staged-read state = harness only.** `todo_postgres_read_host_tests.rs` (`#[cfg(feature="machine")]`):
   one outer `rt().block_on(async { … })` does `dispatch("ListTodosByAccount").await` → `host_read(plan,
   policy, fake_adapter).await` → `rows_json = to_string(result["rows"])` → `dispatch("TodoIndexFromRows",
   {req, rows_json}).await`. **No nested `block_on`** because one runtime owns the whole chain, and the app's

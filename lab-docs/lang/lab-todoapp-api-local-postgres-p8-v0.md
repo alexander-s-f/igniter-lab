@@ -9,6 +9,12 @@ gate asserts, no regressions, default build stays Postgres-free. **Operator-gate
 Postgres):** the real read/write/receipt/replay assertions, which fire when `IGNITER_TODO_PG_DSN` is set.
 No live DSN/DDL in the repo, no canon claim.
 
+**Superseded status note (2026-06-24):** this remains the historical P8 local-Postgres proof. Its
+"runner-harness-only / deferred to P9" wording is no longer current planning guidance: the later web surface
+has async machine-mode ReadThen integration and final `InvokeEffect` routing through `MachineEffectHost`.
+Start with `server/igniter-web/IMPLEMENTED_SURFACE.md` and
+`server/igniter-web/examples/todo_postgres_app/API.md` for current Todo API behavior.
+
 ## Exact authored app files used (unchanged)
 
 `server/igniter-web/examples/todo_postgres_app/` — **no edits** (the P7 structured-input change already
@@ -93,7 +99,7 @@ files contain no DSN/secret/passport. Missing env → every DB test prints `SKIP
 - **Fake-free (real adapters):** the READ path (`TokioPostgresReadAdapter`) and the WRITE path
   (`TokioPostgresWriteAdapter` via `run_write_effect`) — the same proven mechanisms as
   `postgres_real_{read,write}_tests`, now driven by the **app-authored** QueryPlan / WriteIntent.
-- **Runner-harness-only (deferred to P9):** the WRITE here uses the **direct** `run_write_effect` path with
+- **Historical P8 runner scope (superseded by later web runner work):** the WRITE here uses the **direct** `run_write_effect` path with
   the app's structured intent as payload — it does **not** route through the full `MachineEffectHost` capsule
   contour. Reason (live finding, `ingress.rs:82-83` + `:576-604`): in that contour the **capsule's output**
   becomes the effect payload, and the generic placeholder capsule (`WriteRecord → {code}`) masks the typed
@@ -149,5 +155,6 @@ with a local Postgres + a dedicated `igniter_todo_test` DB; the 4 DB tests then 
 *Lab implementation-proof, operator-gated (2026-06-21). Real local-Postgres Todo read+write authored by
 composing the two proven real-adapter harnesses + the P5 app contour; app-authored QueryPlan/WriteIntent,
 host-owned DSN/schema/policy/receipts. Verified here: compile + clean skip + pure gate + no regressions +
-default Postgres-free. Operator runs the real path with `IGNITER_TODO_PG_DSN`. MachineEffectHost typed-write
-contour deferred to P9.*
+default Postgres-free. Operator runs the real path with `IGNITER_TODO_PG_DSN`. The MachineEffectHost
+typed-write contour note above is historical P8 scope; consult the current implemented surface before
+planning runner work.*

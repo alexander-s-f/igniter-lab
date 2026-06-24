@@ -4,6 +4,12 @@ Date: 2026-06-20
 Status: thread note / deferred wave seed
 Authority: lab evidence only
 
+Superseded status note (2026-06-24): the generic export/download wave remains deferred, but the blanket
+"no raw response implementation" wording below is no longer current. `igniter-server` now has
+`ResponseBody::Raw`, and `igniter-web` uses `Render` / `RenderView` to return verbatim `text/html` bytes.
+What remains unimplemented is the app-facing generic file/download response shape with headers,
+disposition, byte limits, storage handoff, and exporter projectors.
+
 ## Why This Exists
 
 While shaping `LAB-IGNITER-RENDER-HTML-P3`, we hit the adjacent product case:
@@ -151,7 +157,8 @@ Then open the export wave:
 
 - No `.ig.html`.
 - No Excel implementation.
-- No raw response implementation.
+- No generic file/download response implementation (the later raw-byte/HTML response seam exists; this
+  thread still does not implement headers/disposition/storage/export projectors).
 - No streaming.
 - No file storage implementation.
 - No server-core domain knowledge.
