@@ -10,7 +10,7 @@
 //! - Capsule pool / recipe / `CoordinationHub` are provisioned by the runner, not from config.
 //!
 //! v0 constraints:
-//! - One source per `[postgres.read]` section (multi-source deferred).
+//! - One read DSN; one primary `[postgres.read]` plus optional `[postgres.read.<name>]` extra sources.
 //! - `capability_id` defaults if not set in config.
 //! - `MachineEffectHost` target→route bindings derived from `[effects.<target>].route`.
 

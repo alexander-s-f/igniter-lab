@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-IMPLEMENTED-SURFACE-REFRESH-P42 - refresh IgWeb implemented surface after product hardening
 
-Status: DRAFT
+Status: CLOSED
 Lane: IgWeb / implemented surface / actualization
 Type: documentation + evidence index
 Date: 2026-06-24
@@ -80,13 +80,13 @@ Keep the front door compact:
 
 ## Acceptance
 
-- [ ] `IMPLEMENTED_SURFACE.md` matches live source after P25/P26/P35-P41.
-- [ ] `ReadThen` status uses the exact categories and does not overclaim layers.
-- [ ] Read/write binding status is source-backed and feature-gated accurately.
-- [ ] Todo API product path status is summarized without copying app docs wholesale.
-- [ ] Evidence commands are current and runnable or explicitly marked gated/skipped.
-- [ ] No behavior changes.
-- [ ] `git diff --check` clean.
+- [x] `IMPLEMENTED_SURFACE.md` matches live source after P25/P26/P35-P41.
+- [x] `ReadThen` status uses the exact categories and does not overclaim layers.
+- [x] Read/write binding status is source-backed and feature-gated accurately.
+- [x] Todo API product path status is summarized without copying app docs wholesale.
+- [x] Evidence commands are current and runnable or explicitly marked gated/skipped.
+- [x] No behavior changes.
+- [x] `git diff --check` clean.
 
 ## Closed Surfaces
 
@@ -97,3 +97,34 @@ Keep the front door compact:
 ## Suggested Next
 
 If stale claims are found in multiple docs, open a follow-up hygiene card. Do not fix the whole doc tree here.
+
+## Closing Report
+
+Date: 2026-06-24
+
+Refreshed `server/igniter-web/IMPLEMENTED_SURFACE.md` against live source after P25/P26/P35-P41.
+
+Key corrections:
+
+- Added the four exact `ReadThen` categories (`designed`, `harness-proven`, `implemented`,
+  `runner-integrated`) and classified single staged reads, sequential/nested reads with `carry`,
+  freshness/replay, and typed row destructuring.
+- Added the Todo API product-path summary: canonical object create body via `req.body_json`,
+  deprecated legacy string body, host-minted surrogate id, account-existence semantics, and
+  deferred `RespondError`.
+- Corrected the stale multi-source read claim: `[postgres.read.<name>]` extra sources are implemented
+  for a single read DSN. Also updated the stale `host_binding.rs` source comment.
+- Expanded failure taxonomy and evidence commands with current test names.
+- Marked `scripts/todo_postgres_smoke.sh` as current only for DB-free preflight refusal; its full DB
+  run remains stale against P35/P36 and needs a follow-up fix.
+
+Verification:
+
+- `cargo test --test implemented_surface_guard_tests` passed (2/2).
+- `git diff --check` clean.
+
+Follow-up recommended:
+
+- `LAB-TODOAPP-API-SMOKE-P35-P36-REALIGN-P42` — repair the operator smoke to use canonical object
+  body plus surrogate-id flow, or explicitly retire its full DB path in favor of the in-harness
+  subprocess product proof.
