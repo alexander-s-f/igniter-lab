@@ -2,8 +2,8 @@
 # igniter — the Igniter control-center front door (thin dispatcher over the package-local binaries).
 #
 # Taxonomy decided by LAB-DISTRIBUTION-CONTROL-CENTER-READINESS-P6; this v0 SKELETON
-# (LAB-DISTRIBUTION-CONTROL-CENTER-CLI-SKELETON-P7) wires the verbs with HONEST delegation and fail-closed
-# placeholders. It adds NO authority of its own: loopback-only bind, the public-bind refusal, the request
+# (LAB-DISTRIBUTION-CONTROL-CENTER-CLI-SKELETON-P7) wires the verbs with HONEST delegation and narrow
+# assembly commands. It adds NO authority of its own: loopback-only bind, the public-bind refusal, the request
 # bound, package trust and host-config all stay in the owners (igweb-serve / igc / igniter-machine). The
 # dispatcher only routes and hides the binary name / build path / target-dir plumbing.
 #
@@ -13,7 +13,7 @@
 #   igniter toolchain list        → report the v0 tool fleet present in the repo (live)
 #   igniter toolchain install|update → bin/igniter-install  (live; local-source build+stage only — P11)
 #   igniter package <lock|verify|verify-archive|graph|pack|admit>  → igc  (live; argv routing only — P12)
-#   igniter app ...               → fail-closed placeholder
+#   igniter app bundle ...        → assemble a host-run app bundle (live; assembly only — P14)
 #
 # No root workspace, no installer, no registry/download, no systemd/Docker/Homebrew. Point
 # IGNITER_IGWEB_SERVE_BIN at a prebuilt igweb-serve (e.g. a release-bundle path) to skip building.
@@ -55,7 +55,9 @@ Diagnostics & toolchain:
 Packaging & deployment:
   package <sub> [args]  delegate to `igc`, the package authority (argv routing only — NOT a second
                         resolver): lock | verify | verify-archive | graph | pack | admit
-  app ...               app deployment is the release-bundle + systemd scripts (home-lab Model E)
+  app bundle <app_dir> --out <dir> --version <stamp>
+                        assemble a versioned, runnable app bundle (assembly only — host owns systemd/bind/
+                        TLS/DB/secrets); see 'igniter app --help'
 
   -h | --help           this help
 
@@ -129,6 +131,33 @@ probe_built() {
     if [[ -x "$p" ]]; then printf '%s' "$p"; return 0; fi
   done
   return 1
+}
+
+# ── small provenance helpers (used by `app bundle`) ──────────────────────────────────────────────────
+
+# sha256 hex of a file (macOS `shasum` or GNU `sha256sum`); prints "unavailable" if neither exists.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else printf 'unavailable'; fi
+}
+
+# Host target triple via rustc, or "unknown".
+host_triple() {
+  local t; t="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' | head -1)"
+  printf '%s' "${t:-unknown}"
+}
+
+# Read a quoted TOML string value: toml_str FILE SECTION KEY (no nesting; good enough for igweb.toml).
+toml_str() {
+  awk -v sec="$2" -v key="$3" '
+    /^[[:space:]]*\[/ { cur=$0; gsub(/[][[:space:]]/,"",cur); next }
+    {
+      line=$0
+      if (line ~ ("^[[:space:]]*" key "[[:space:]]*=") && cur==sec) {
+        sub(/^[^=]*=[[:space:]]*/,"",line); gsub(/^"|"[[:space:]]*$/,"",line); print line; exit
+      }
+    }' "$1"
 }
 
 # ── verbs: live ─────────────────────────────────────────────────────────────────────────────────────
@@ -244,7 +273,7 @@ igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-ser
 igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
 tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend
 EOF
-  doc_emit toolchain igniter-repl info "excluded in v0 (build-broken: async checkpoint/resume — P3)" ""
+  doc_emit toolchain igniter-repl info "excluded from v0 fleet (release build recovered; inclusion pending)" ""
 
   # ── app-shape checks (only when <app_dir> is given) ──
   if [[ -n "$app_dir" ]]; then
@@ -325,8 +354,8 @@ tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend"
   done <<EOF
 $rows
 EOF
-  # igniter-repl is a known v0 NON-member: its build is broken (P3, async checkpoint/resume not awaited).
-  echo "${indent}[blocked] igniter-repl — unavailable in v0 (build fails: async resume; see P3 / repl-fix card)"
+  # igniter-repl is a known v0 NON-member: release build is recovered, fleet inclusion is still a separate decision.
+  echo "${indent}[blocked] igniter-repl — excluded from v0 fleet (release build recovered; inclusion pending)"
 }
 
 toolchain_usage() {
@@ -339,7 +368,8 @@ usage: igniter toolchain <list | install | update> [--prefix PATH]
 
 install/update delegate to the repo-local bootstrap installer (bin/igniter-install). LOCAL SOURCE ONLY:
 no remote download, no registry, no version solver, no signed artifacts, no Homebrew/Docker/tarball.
-Default prefix is $DEFAULT_PREFIX (the installer's default). igniter-repl is excluded (build-broken, P3).
+Default prefix is $DEFAULT_PREFIX (the installer's default). igniter-repl is excluded from the v0 fleet
+(release build recovered; inclusion pending).
 EOF
 }
 
@@ -359,7 +389,8 @@ Delegates to the repo-local bootstrap installer: $INSTALLER
 
 LOCAL SOURCE ONLY — this compiles the 5 green binaries from the current igniter-lab checkout and copies
 them into <PATH>/bin. There is NO remote download, NO registry, NO version solver, NO signed artifacts,
-and NO Homebrew/Docker/tarball channel. igniter-repl is excluded (build-broken, P3).
+and NO Homebrew/Docker/tarball channel. igniter-repl is excluded from the v0 fleet (release build
+recovered; inclusion pending).
 
   --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $DEFAULT_PREFIX]
   -h | --help     this help
@@ -433,7 +464,7 @@ cmd_toolchain_iu() {
   fi
 }
 
-# ── verbs: fail-closed placeholders (named owner, never silent success) ───────────────────────────────
+# ── verbs: delegated packaging / app assembly (named owner, never silent success) ────────────────────
 
 package_usage() {
   cat <<'EOF'
@@ -486,20 +517,219 @@ cmd_package() {
   exec "$bin" "${igc_args[@]}" "$@"
 }
 
-cmd_app() {
-  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
-    cat <<'EOF'
-igniter app — app deployment (bundle/install) is NOT owned here in v0.
-The proven shape is the home-lab release bundle + systemd (Model E):
-  deploy/igniter-stack-deployment-models.md  and  deploy/pi5-lab/*  (runner + app dir + checks + unit).
-A first-class `igniter app bundle` is deferred (it would assemble {runner + app + checks + manifest} only;
-systemd/exposure/secrets stay host-owned).
+app_usage() {
+  cat <<'EOF'
+usage: igniter app bundle <app_dir> --out <dir> --version <stamp>
+
+Assemble a versioned, self-contained IgWeb app bundle that a host/deploy layer can run (the home-lab
+Model E shape). ASSEMBLY ONLY — this command never installs systemd, exposes a public listener, manages
+TLS, creates a database, ships secrets, or mutates the host.
+
+  <app_dir>         the IgWeb app directory (must contain igweb.toml; verified by `igweb-serve check`)
+  --out <dir>       parent directory to write <appname>-<version>/ into
+  --version <stamp> caller-supplied provenance stamp (there is NO clock in this tool — determinism/replay)
+
+Emits  <out>/<appname>-<version>/:
+  bin/igweb-serve                    copied runner, sha256-pinned in manifest.json
+  app/<appname>/...                  author files (igweb.toml + routes.igweb + *.ig), copied verbatim + hashed
+  run/run-<appname>.sh               loopback runner: igweb-serve --addr 127.0.0.1:$PORT --max-requests $N
+  checks/check.sh                    re-runnable pre-start gate (runner -x, igweb.toml, `igweb-serve check`)
+  systemd/<appname>.service.example  unit TEMPLATE — NEVER installed by Igniter (host owns enablement)
+  host.toml.example                  only if the source app ships host.example.toml (env-NAMES only)
+  manifest.json                      provenance (runner+source hashes, bind_policy, requires_machine)
+
+Host-owned (OUTSIDE the bundle): systemd install/enable, the `current` symlink swap, public bind / reverse
+proxy, TLS, DB creation/migration, secrets / DSNs / tokens / a real host.toml, and Docker. The bundle bakes
+no bind authority — loopback refusal stays single-sourced in igweb-serve.
 EOF
-    [[ $# -eq 0 ]] && exit 2 || exit 0
+}
+
+# `igniter app bundle <app_dir> --out <dir> --version <stamp>` — assemble a bundle per P13. Fail-closed:
+# every validation runs BEFORE the destination is created (or in a temp stage that is moved atomically), so
+# a refused bundle never leaves a partial directory behind.
+app_bundle() {
+  local app_dir="" out="" version=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --out)     out="${2:-}"; shift 2 ;;
+      --version) version="${2:-}"; shift 2 ;;
+      -h|--help) app_usage; exit 0 ;;
+      -*) echo "$PROG: app bundle: unknown option '$1'" >&2; exit 2 ;;
+      *)  app_dir="$1"; shift ;;
+    esac
+  done
+  # required-arg gates (fail closed; no clock → --version is mandatory)
+  [[ -n "$app_dir" ]] || { echo "$PROG: app bundle: missing <app_dir>" >&2; app_usage >&2; exit 2; }
+  [[ -d "$app_dir" ]] || { echo "$PROG: app bundle: no such app dir: $app_dir" >&2; exit 2; }
+  [[ -n "$out" ]]     || { echo "$PROG: app bundle: --out <dir> is required" >&2; exit 2; }
+  [[ -n "$version" ]] || { echo "$PROG: app bundle: --version <stamp> is required (no clock in this tool)" >&2; exit 2; }
+
+  local manifest_toml="$app_dir/igweb.toml"
+  [[ -f "$manifest_toml" ]] || { echo "$PROG: app bundle: $app_dir has no igweb.toml" >&2; exit 2; }
+
+  # secret boundary: a real host.toml must never enter a bundle.
+  if [[ -f "$app_dir/host.toml" ]]; then
+    echo "$PROG: app bundle: refusing — $app_dir contains a real 'host.toml' (host-owned, may hold secrets)." >&2
+    echo "  → keep only 'host.example.toml' (env-NAMES only) in the app dir; the real host.toml lives on the host." >&2
+    exit 2
   fi
-  echo "$PROG: 'app $*' is not implemented in v0 (release-bundle/systemd scripts own deployment)." >&2
-  echo "  → see deploy/igniter-stack-deployment-models.md; first-class 'igniter app bundle' is deferred." >&2
-  exit 3
+
+  local appname; appname="$(basename "$app_dir")"
+  local app_env; app_env="$(printf '%s' "$appname" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
+
+  # author-owned manifest fields + loopback gate
+  local entry mode
+  entry="$(toml_str "$manifest_toml" app entry)"
+  [[ -n "$entry" ]] || { echo "$PROG: app bundle: igweb.toml [app] has no 'entry'" >&2; exit 2; }
+  mode="$(toml_str "$manifest_toml" server mode)"
+  if [[ -n "$mode" && "$mode" != "loopback" ]]; then
+    echo "$PROG: app bundle: refusing — igweb.toml [server] mode='$mode' is not 'loopback' (public bind is host-owned)." >&2
+    exit 2
+  fi
+
+  # optional operator example (env-NAMES only); refuse if it carries inline secret keys.
+  local host_example=""
+  if [[ -f "$app_dir/host.example.toml" ]]; then host_example="$app_dir/host.example.toml"
+  elif [[ -f "$app_dir/host.toml.example" ]]; then host_example="$app_dir/host.toml.example"; fi
+  if [[ -n "$host_example" ]]; then
+    if grep -qiE '^[[:space:]]*(dsn|password|secret|token|passport|api_key)[[:space:]]*=' "$host_example"; then
+      echo "$PROG: app bundle: refusing — '$host_example' has inline secret key(s) (env-NAMES only allowed):" >&2
+      # report key + line, NEVER the value (sed strips everything after '=')
+      grep -niE '^[[:space:]]*(dsn|password|secret|token|passport|api_key)[[:space:]]*=' "$host_example" \
+        | sed -E 's/[[:space:]]*=.*/ =…(redacted)/' >&2
+      exit 2
+    fi
+    local hmode; hmode="$(toml_str "$host_example" host mode)"
+    if [[ -n "$hmode" && "$hmode" != "loopback" ]]; then
+      echo "$PROG: app bundle: refusing — host example [host] mode='$hmode' is not 'loopback'." >&2
+      exit 2
+    fi
+  fi
+  local requires_machine="false"; [[ -n "$host_example" ]] && requires_machine="true"
+
+  # the app must build/validate (no socket) BEFORE we assemble anything.
+  local runner; runner="$(resolve_igweb_serve)"
+  [[ -x "$runner" ]] || { echo "$PROG: app bundle: igweb-serve unavailable at: $runner" >&2; exit 1; }
+  if ! "$runner" check "$app_dir" >/dev/null 2>&1; then
+    echo "$PROG: app bundle: refusing — 'igweb-serve check $app_dir' failed (run 'igniter check $app_dir' to see why)." >&2
+    exit 2
+  fi
+
+  local dest="$out/$appname-$version"
+  [[ -e "$dest" ]] && { echo "$PROG: app bundle: destination already exists: $dest" >&2; exit 2; }
+
+  # assemble in a temp stage; only an all-green stage is moved into place (no partial bundle on failure).
+  local stage; stage="$(mktemp -d)"
+  trap 'rm -rf "$stage"' EXIT
+  mkdir -p "$stage/bin" "$stage/app/$appname" "$stage/run" "$stage/checks" "$stage/systemd"
+
+  cp "$runner" "$stage/bin/igweb-serve"; chmod +x "$stage/bin/igweb-serve"
+
+  # copy author files verbatim (igweb.toml + routes.igweb + *.ig + *.igweb); skip host configs (handled below)
+  local f sources_json="" sep=""
+  for f in "$app_dir"/igweb.toml "$app_dir"/*.igweb "$app_dir"/*.ig; do
+    [[ -f "$f" ]] || continue
+    cp "$f" "$stage/app/$appname/"
+    local base; base="$(basename "$f")"
+    sources_json="$sources_json$sep{\"path\":\"app/$appname/$base\",\"sha256\":\"$(sha256_of "$f")\"}"
+    sep=","
+  done
+  [[ -n "$host_example" ]] && cp "$host_example" "$stage/host.toml.example"
+
+  # emitted loopback runner script
+  cat > "$stage/run/run-$appname.sh" <<RUNEOF
+#!/usr/bin/env bash
+# loopback runner for '$appname' (emitted by 'igniter app bundle'). Public-bind refusal lives in igweb-serve.
+set -euo pipefail
+here="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="\${IGNITER_${app_env}_PORT:-18080}"
+MAX="\${IGNITER_${app_env}_MAX_REQUESTS:-1024}"
+exec "\$here/bin/igweb-serve" --addr "127.0.0.1:\${PORT}" --max-requests "\$MAX" "\$here/app/$appname"
+RUNEOF
+  chmod +x "$stage/run/run-$appname.sh"
+
+  # emitted pre-start check (re-runs the bundle-time gate on the host)
+  cat > "$stage/checks/check.sh" <<CHKEOF
+#!/usr/bin/env bash
+set -euo pipefail
+here="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+runner="\$here/bin/igweb-serve"; app="\$here/app/$appname"
+[[ -x "\$runner" ]] || { echo "check: runner missing or not executable"; exit 1; }
+[[ -f "\$app/igweb.toml" ]] || { echo "check: igweb.toml missing"; exit 1; }
+"\$runner" check "\$app" >/dev/null
+echo "check: ok ($appname)"
+CHKEOF
+  chmod +x "$stage/checks/check.sh"
+
+  # emitted systemd unit TEMPLATE (never installed; operator edits ExecStart path + enables it)
+  cat > "$stage/systemd/$appname.service.example" <<UNITEOF
+# TEMPLATE — not installed by Igniter. Copy to the host, set ExecStart to the deployed run script path,
+# then 'systemctl --user enable --now'. Bind/exposure/TLS/secrets are host-owned.
+[Unit]
+Description=Igniter IgWeb app $appname (loopback)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=IGNITER_${app_env}_PORT=18080
+Environment=IGNITER_${app_env}_MAX_REQUESTS=1024
+ExecStart=%h/igniter-apps/$appname-$version/run/run-$appname.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+UNITEOF
+
+  # manifest.json (provenance; all non-secret). created_utc mirrors the caller stamp — no clock here.
+  local runner_sha; runner_sha="$(sha256_of "$stage/bin/igweb-serve")"
+  local triple; triple="$(host_triple)"
+  local commit; commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+  cat > "$stage/manifest.json" <<MANEOF
+{
+  "bundle_format_version": "1",
+  "tool": "igniter app bundle",
+  "app": "$appname",
+  "entry": "$entry",
+  "version": "$version",
+  "created_utc": "$version",
+  "runner": {
+    "path": "bin/igweb-serve",
+    "sha256": "$runner_sha",
+    "target_triple": "$triple",
+    "source_git_commit": "$commit"
+  },
+  "app_sources": [$sources_json],
+  "bind_policy": "loopback",
+  "requires_machine": $requires_machine,
+  "public_release": false
+}
+MANEOF
+
+  # the emitted bundle must validate itself before we publish it.
+  if ! bash "$stage/checks/check.sh" >/dev/null 2>&1; then
+    echo "$PROG: app bundle: refusing — emitted checks/check.sh failed on the staged bundle." >&2
+    exit 1
+  fi
+
+  mkdir -p "$out"
+  mv "$stage" "$dest"
+  trap - EXIT
+  echo "$PROG: app bundle ok → $dest"
+  echo "  runner sha256: $runner_sha   requires_machine: $requires_machine"
+  echo "  next (host-owned): edit systemd/$appname.service.example ExecStart, then enable it; bind/TLS/secrets stay host-owned."
+}
+
+cmd_app() {
+  local sub="${1:-}"
+  case "$sub" in
+    ""|-h|--help) app_usage; [[ "$sub" == "" ]] && exit 2 || exit 0 ;;
+    bundle) shift; app_bundle "$@" ;;
+    *)
+      echo "$PROG: unknown 'app' subcommand '$sub' (try: bundle)" >&2
+      echo "  see 'igniter app --help'" >&2
+      exit 2 ;;
+  esac
 }
 
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────────────

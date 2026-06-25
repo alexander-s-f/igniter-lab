@@ -555,7 +555,9 @@ impl App {
     }
 
     fn cmd_checkpoint(&mut self, path: &str) {
-        match self.machine.checkpoint(Path::new(path)) {
+        // checkpoint/resume are async on IgniterMachine; drive them with the same synchronous executor the
+        // REPL already uses for dispatch/all_facts/write_fact (no Tokio in this TUI binary).
+        match futures::executor::block_on(self.machine.checkpoint(Path::new(path))) {
             Ok(_) => {
                 self.push_output(OutputLine::Success(format!(
                     "Checkpoint saved to '{}'",
@@ -573,7 +575,7 @@ impl App {
             self.push_output(OutputLine::Error("Usage: resume <path.igm>".into()));
             return;
         }
-        match IgniterMachine::resume(Path::new(path), None, "in_memory") {
+        match futures::executor::block_on(IgniterMachine::resume(Path::new(path), None, "in_memory")) {
             Ok(new_machine) => {
                 self.machine = new_machine;
                 self.backend_label = "in_memory".to_string();
@@ -891,7 +893,7 @@ fn main() {
 
     // Build or resume machine
     let machine = if let Some(ref rpath) = resume_path {
-        match IgniterMachine::resume(rpath, data_dir, &backend_type) {
+        match futures::executor::block_on(IgniterMachine::resume(rpath, data_dir, &backend_type)) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Failed to resume machine: {}", e);
