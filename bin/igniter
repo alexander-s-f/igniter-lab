@@ -14,6 +14,7 @@
 #   igniter toolchain install|update → bin/igniter-install  (live; local-source build+stage only — P11)
 #   igniter package <lock|verify|verify-archive|graph|pack|admit>  → igc  (live; argv routing only — P12)
 #   igniter app bundle ...        → assemble a host-run app bundle (live; assembly only — P14)
+#   igniter agent                 → local stdio MCP surface for agents (live; tools shell-delegate here — P24)
 #
 # No root workspace, no installer, no registry/download, no systemd/Docker/Homebrew. Point
 # IGNITER_IGWEB_SERVE_BIN at a prebuilt igweb-serve (e.g. a release-bundle path) to skip building.
@@ -58,6 +59,10 @@ Packaging & deployment:
   app bundle <app_dir> --out <dir> --version <stamp>
                         assemble a versioned, runnable app bundle (assembly only — host owns systemd/bind/
                         TLS/DB/secrets); see 'igniter app --help'
+
+Agent control plane:
+  agent                 start the local stdio MCP surface for agents (Codex/Claude/IDE) — SAFE, non-mutating
+                        tools that delegate to this front door (doctor/toolchain_list/check_app/package_verify)
 
   -h | --help           this help
 
@@ -107,6 +112,19 @@ resolve_igweb_serve() {
   echo "$PROG: building igweb-serve (first run; this is hidden plumbing)…" >&2
   ( cd "$WEB_CRATE" && cargo build --release --bin igweb-serve ) >&2
   printf '%s' "$WEB_CRATE/target/release/igweb-serve"
+}
+
+# Resolve the igniter-agent MCP binary (P24): override → co-located staged → repo target → build.
+resolve_agent() {
+  if [[ -n "${IGNITER_AGENT_BIN:-}" ]]; then printf '%s' "$IGNITER_AGENT_BIN"; return 0; fi
+  if [[ -x "$SCRIPT_DIR/igniter-agent" ]]; then printf '%s' "$SCRIPT_DIR/igniter-agent"; return 0; fi
+  local cand
+  for cand in "$WEB_CRATE/target/release/igniter-agent" "$WEB_CRATE/target/debug/igniter-agent"; do
+    if [[ -x "$cand" ]]; then printf '%s' "$cand"; return 0; fi
+  done
+  echo "$PROG: building igniter-agent (first run; this is hidden plumbing)…" >&2
+  ( cd "$WEB_CRATE" && cargo build --release --bin igniter-agent ) >&2
+  printf '%s' "$WEB_CRATE/target/release/igniter-agent"
 }
 
 # Resolve the igc (package authority) binary, mirroring resolve_igweb_serve's order MINUS the auto-build:
@@ -754,6 +772,42 @@ cmd_app() {
   esac
 }
 
+agent_usage() {
+  cat <<'EOF'
+usage: igniter agent
+
+Start the command-center MCP surface: a LOCAL stdio JSON-RPC server (MCP: initialize / tools/list /
+tools/call) for agents (Codex/Claude/IDE). Its tools are SAFE and non-mutating — each delegates to this
+same `igniter` front door, so it grants NOTHING beyond the verbs a human already runs.
+
+v0 tools:
+  doctor          → igniter doctor [app_dir] [--json]   (local report; no build, no socket)
+  toolchain_list  → igniter toolchain list
+  check_app       → igniter check <app_dir>             (dry build/verify; opens NO socket)
+  package_verify  → igniter package verify              (→ igc verify; argv routing only)
+  serve_app_bounded → igniter serve --addr 127.0.0.1:0 --max-requests N  (loopback + bounded ≤5; one GET;
+                    waits for clean exit — NOT a daemon: no public bind, no background handle, no restart)
+
+No network listener, no public bind, no deploy, no systemd, no secrets, no process supervisor. Speaks over
+stdin/stdout — wire it into your agent's MCP server config. Env: IGNITER_AGENT_BIN=/path/to/igniter-agent.
+EOF
+}
+
+# `igniter agent` — launch the command-center MCP server (P24). It shells back to THIS front door, so we pass
+# our own absolute path as IGNITER_BIN; the agent grants no authority beyond these verbs.
+cmd_agent() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then agent_usage; exit 0; fi
+  if [[ $# -gt 0 ]]; then
+    echo "$PROG: 'agent' takes no arguments (it speaks MCP over stdio). See 'igniter agent --help'." >&2
+    exit 2
+  fi
+  local bin; bin="$(resolve_agent)"
+  if [[ ! -x "$bin" ]]; then
+    echo "$PROG: igniter-agent not found or not executable at: $bin" >&2; exit 1
+  fi
+  exec env IGNITER_BIN="$SCRIPT_DIR/igniter" "$bin"
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────────────
 
 main() {
@@ -766,6 +820,7 @@ main() {
     toolchain) shift; cmd_toolchain "$@" ;;
     package)   shift; cmd_package "$@" ;;
     app)       shift; cmd_app "$@" ;;
+    agent)     shift; cmd_agent "$@" ;;
     *)
       echo "$PROG: unknown command '$sub'" >&2
       echo >&2
