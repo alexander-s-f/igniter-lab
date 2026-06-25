@@ -134,6 +134,19 @@ impl IgniterMachine {
             )));
         }
 
+        // Persist the user-defined type shapes the typechecker computed (LAB-IGNITER-DATA-PROJECTION-
+        // BOOT-RECONCILIATION-P7). `type_env` maps a type name → `{ field: type_ir }`; the assembler does
+        // not carry it into the registered contract JSON, so host code that needs to reconcile a
+        // continuation's `Collection[<AppRow>]` row type against a read policy could not otherwise recover
+        // the row's field types without re-parsing `.ig`. Purely additive metadata — no compile semantics.
+        {
+            let mut reg = self.registry.write();
+            for (type_name, fields) in &typed.type_env {
+                let fields_json = serde_json::to_value(fields).unwrap_or(serde_json::Value::Null);
+                reg.register_type_def(type_name.clone(), fields_json);
+            }
+        }
+
         let emitter = Emitter::new();
         let emit_res = emitter.emit_typed(&typed);
 

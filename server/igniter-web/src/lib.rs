@@ -26,6 +26,8 @@ pub mod host_config;
 #[cfg(feature = "machine")]
 pub mod machine_runner;
 #[cfg(feature = "machine")]
+pub mod read_continuation;
+#[cfg(feature = "machine")]
 pub mod read_dispatch;
 #[cfg(feature = "machine")]
 pub mod read_materialize;
@@ -115,27 +117,98 @@ impl IgWebLoadedApp {
                 _ => return map_decision(&raw, req.correlation_id),
             };
 
-            // Execute this staged read through the host.
-            match read_host.execute(&plan, &req).await {
-                read_dispatch::StagedReadResult::Rows(rows_json) => {
-                    // Re-dispatch the continuation: original req + this read's rows + the carried value.
-                    input = json!({
-                        "req": build_request_input(&req)["req"],
-                        "rows_json": rows_json,
-                        "carry": carry,
-                    });
-                    entry = then;
-                    // loop: the continuation may emit another ReadThen (sequential staged reads).
-                }
-                read_dispatch::StagedReadResult::Denied(reason) => {
-                    return ServerDecision::Respond {
-                        response: ServerResponse::json(403, json!({ "error": reason })),
+            // Choose the row crossing from the continuation's COMPILED inputs (P7): the legacy stringly
+            // `rows_json : String`, or the typed `rows : Collection[<AppRow>]` (+ `meta : DatasetMeta`).
+            // Metadata read only — never a parse of authored `.ig` source.
+            match read_continuation::classify_continuation(&self.machine, &then) {
+                read_continuation::ReadContinuationShape::LegacyRowsJson => {
+                    match read_host.execute(&plan, &req).await {
+                        read_dispatch::StagedReadResult::Rows(rows_json) => {
+                            // Re-dispatch: original req + this read's rows (as a string) + the carried value.
+                            input = json!({
+                                "req": build_request_input(&req)["req"],
+                                "rows_json": rows_json,
+                                "carry": carry,
+                            });
+                            entry = then;
+                            // loop: the continuation may emit another ReadThen (sequential staged reads).
+                        }
+                        read_dispatch::StagedReadResult::Denied(reason) => {
+                            return respond_json(403, json!({ "error": reason }))
+                        }
+                        read_dispatch::StagedReadResult::HostError(msg) => {
+                            return respond_json(503, json!({ "error": msg }))
+                        }
                     }
                 }
-                read_dispatch::StagedReadResult::HostError(msg) => {
-                    return ServerDecision::Respond {
-                        response: ServerResponse::json(503, json!({ "error": msg })),
+                read_continuation::ReadContinuationShape::TypedRows { row_type, .. } => {
+                    // Derive the projection spec from the host read policy + this plan (schema authority).
+                    let spec = match read_host.projection_spec_for(&plan) {
+                        Some(s) => s,
+                        None => {
+                            return respond_json(
+                                500,
+                                json!({ "error": { "code": "typed_read_unconfigured",
+                                    "message": "typed continuation requires a host read policy (none attached)" }}),
+                            )
+                        }
+                    };
+                    // RECONCILE structural drift before the read — but ONLY for a source the host actually
+                    // types. An unknown/denied source is the executor's 403 to make (in `execute_typed`),
+                    // not a drift false-positive from default-`Text` kinds.
+                    if read_host.source_allowlisted(&plan) {
+                        let approw = match read_continuation::app_row_shape(
+                            &self.machine,
+                            &row_type,
+                        ) {
+                            Ok(a) => a,
+                            Err(e) => {
+                                return respond_json(
+                                    500,
+                                    json!({ "error": { "code": "projection_schema_unrecoverable", "message": e }}),
+                                )
+                            }
+                        };
+                        if let Err(drift) = read_materialize::reconcile_projection(&spec, &approw) {
+                            // Host-schema ⇎ app-row-type drift — a deploy fault discovered at first dispatch
+                            // (NOT boot: ReadThen plans are built dynamically, P3 §3). Fail closed, no dispatch.
+                            return respond_json(
+                                500,
+                                json!({ "error": { "code": "projection_schema_drift", "message": drift }}),
+                            );
+                        }
                     }
+                    match read_host.execute_typed(&plan, &req, &spec).await {
+                        read_dispatch::TypedReadResult::Rows { rows, meta } => {
+                            // Re-dispatch: original req + typed rows (records) + DatasetMeta + carry.
+                            input = json!({
+                                "req": build_request_input(&req)["req"],
+                                "rows": rows,
+                                "meta": meta,
+                                "carry": carry,
+                            });
+                            entry = then;
+                        }
+                        read_dispatch::TypedReadResult::SchemaMismatch(msg) => {
+                            // Host fetched rows it could not honor as the typed projection → gateway fault.
+                            return respond_json(
+                                502,
+                                json!({ "error": { "code": "projection_row_mismatch", "message": msg }}),
+                            );
+                        }
+                        read_dispatch::TypedReadResult::Denied(reason) => {
+                            return respond_json(403, json!({ "error": reason }))
+                        }
+                        read_dispatch::TypedReadResult::HostError(msg) => {
+                            return respond_json(503, json!({ "error": msg }))
+                        }
+                    }
+                }
+                read_continuation::ReadContinuationShape::Invalid(reason) => {
+                    return respond_json(
+                        500,
+                        json!({ "error": { "code": "invalid_read_continuation", "message": reason }}),
+                    );
                 }
             }
         }
@@ -326,6 +399,15 @@ fn build_request_input(req: &ServerRequest) -> Value {
         "body_json": body_json,
         "query": Value::Object(query),
     }})
+}
+
+/// A terminal JSON `Respond` decision at `status` — the host-owned read/error envelope used by the staged
+/// read contour (P7). Keeps the `dispatch_with_read` branches terse and uniform.
+#[cfg(feature = "machine")]
+fn respond_json(status: u16, body: Value) -> ServerDecision {
+    ServerDecision::Respond {
+        response: ServerResponse::json(status, body),
+    }
 }
 
 /// The VM encodes a variant value as an internally-tagged object:
@@ -1047,7 +1129,10 @@ mod surrogate_id_tests {
         let b = surrogate_id("POST", "/accounts/7/todos", "evt-1");
         assert_eq!(a, b);
         assert_eq!(a.len(), 32, "128-bit hex digest");
-        assert!(a.chars().all(|c| c.is_ascii_hexdigit()), "opaque hex, leaks nothing: {a}");
+        assert!(
+            a.chars().all(|c| c.is_ascii_hexdigit()),
+            "opaque hex, leaks nothing: {a}"
+        );
     }
 
     #[test]

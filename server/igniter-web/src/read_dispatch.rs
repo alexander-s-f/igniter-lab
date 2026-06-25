@@ -14,6 +14,7 @@ use igniter_machine::backend::TBackend;
 use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectRequest, OutcomeKind, RunMode,
 };
+use igniter_machine::postgres_read::PostgresReadPolicy;
 use igniter_server::protocol::ServerRequest;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,6 +77,11 @@ pub struct StagedReadHost {
     /// Monotonic per-host counter that makes an uncorrelated read's receipt key unique per execution,
     /// so reads without an explicit client correlation never replay across HTTP requests (freshness).
     read_seq: AtomicU64,
+    /// The host read policy (schema authority) for the registered `PostgresReadExecutor`, when known
+    /// (LAB-IGNITER-DATA-PROJECTION-BOOT-RECONCILIATION-P7). Needed to derive a `ProjectionSpec` for a typed
+    /// continuation directly from a `ReadThen` plan in the runner contour. `None` keeps the pre-P7 surface —
+    /// the typed routing then fails closed rather than guessing a schema.
+    read_policy: Option<PostgresReadPolicy>,
 }
 
 impl StagedReadHost {
@@ -90,6 +96,7 @@ impl StagedReadHost {
             capability_id: capability_id.into(),
             authority_ref: "host:read".to_string(),
             read_seq: AtomicU64::new(0),
+            read_policy: None,
         }
     }
 
@@ -97,6 +104,45 @@ impl StagedReadHost {
     pub fn with_authority(mut self, authority_ref: impl Into<String>) -> Self {
         self.authority_ref = authority_ref.into();
         self
+    }
+
+    /// Attach the host read policy (the schema authority) so the typed `ReadThen` routing can build a
+    /// `ProjectionSpec` for a continuation directly from its plan (P7). The policy is host-owned config,
+    /// never contract input — the same authority the registered `PostgresReadExecutor` already enforces.
+    pub fn with_read_policy(mut self, policy: PostgresReadPolicy) -> Self {
+        self.read_policy = Some(policy);
+        self
+    }
+
+    /// Build the `ProjectionSpec` for a `ReadThen` plan from the stored read policy: the plan's `source`
+    /// + `projection` resolved against the host field-kinds. `None` if no policy is attached or the plan
+    /// names no `source` — the caller fails the typed crossing closed rather than projecting blind.
+    pub fn projection_spec_for(&self, plan: &Value) -> Option<ProjectionSpec> {
+        let policy = self.read_policy.as_ref()?;
+        let source = plan.get("source").and_then(|v| v.as_str())?;
+        let projection: Vec<String> = plan
+            .get("projection")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(ProjectionSpec::from_policy(policy, source, &projection))
+    }
+
+    /// Is the plan's `source` allowlisted by the attached read policy? The typed routing reconciles schema
+    /// drift only for a source the host actually types — an unknown/denied source is the executor's 403 to
+    /// make (in `execute_typed`), not a drift false-positive from the default-`Text` field kinds.
+    pub fn source_allowlisted(&self, plan: &Value) -> bool {
+        match (
+            self.read_policy.as_ref(),
+            plan.get("source").and_then(|v| v.as_str()),
+        ) {
+            (Some(policy), Some(source)) => policy.allowed_sources.iter().any(|s| s == source),
+            _ => false,
+        }
     }
 
     /// Execute the staged read for `plan`. Read replay is **opt-in via an explicit client
