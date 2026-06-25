@@ -8,7 +8,8 @@
 # NOT a second package manager.
 #
 # Never installs: secrets, host-config with inline secrets, DB DSNs, systemd units, Docker files, public
-# listeners. No network/registry/upload/signing. `igniter-repl` is excluded (build-broken — P3).
+# listeners. No network/registry/upload/signing. `igniter-repl` is optional (release build recovered;
+# not in the default v0 fleet pending headless smoke — P17), so it is not built/staged here.
 set -euo pipefail
 
 PROG="igniter-install"
@@ -29,8 +30,8 @@ writes <prefix>/igniter-manifest.json, and runs a local smoke.
   --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $PREFIX]
   -h | --help     this help
 
-Bootstrap-only: afterwards use \`igniter …\`. Excludes igniter-repl (build-broken, P3). No secrets, no
-systemd/Docker, no network/registry.
+Bootstrap-only: afterwards use \`igniter …\`. igniter-repl is optional (not in the default v0 fleet;
+release build recovered — P17). No secrets, no systemd/Docker, no network/registry.
 EOF
 }
 
@@ -105,7 +106,8 @@ igniter_sum="$(sha256 "$BIN_DIR/igniter")"
   echo "  \"dirty\": $dirty,"
   echo "  \"target_triple\": \"$triple\","
   echo "  \"public_release\": false,"
-  echo "  \"excluded\": [{\"name\": \"igniter-repl\", \"reason\": \"build-broken: async checkpoint/resume not awaited (P3)\"}],"
+  echo "  \"fleet_count\": 5,"
+  echo "  \"excluded\": [{\"name\": \"igniter-repl\", \"reason\": \"optional; release build recovered (P1); not in default v0 fleet pending headless smoke (P17)\"}],"
   echo "  \"front_door\": {\"name\": \"igniter\", \"path\": \"$BIN_DIR/igniter\", \"sha256\": \"$igniter_sum\"},"
   echo "  \"binaries\": ["
   # join manifest bin lines with commas
@@ -129,7 +131,7 @@ echo "$PROG: smoke — igniter check (no socket)"
 
 cat <<EOF
 
-$PROG: done. Installed the control center + 5 binaries into $BIN_DIR (igniter-repl excluded: build-broken).
+$PROG: done. Installed the control center + 5 binaries into $BIN_DIR (igniter-repl optional: not in default fleet).
   Add to PATH:   export PATH="$BIN_DIR:\$PATH"
   Then try:      igniter doctor   |   igniter serve $TODO_APP
 Re-run igniter-install any time to rebuild + restage (idempotent overwrite).

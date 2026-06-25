@@ -273,7 +273,7 @@ igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-ser
 igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
 tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend
 EOF
-  doc_emit toolchain igniter-repl info "excluded from v0 fleet (release build recovered; inclusion pending)" ""
+  doc_emit toolchain igniter-repl info "optional — release build recovered; opt-in via --features repl; not in the default v0 fleet (P17)" ""
 
   # ── app-shape checks (only when <app_dir> is given) ──
   if [[ -n "$app_dir" ]]; then
@@ -354,8 +354,8 @@ tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend"
   done <<EOF
 $rows
 EOF
-  # igniter-repl is a known v0 NON-member: release build is recovered, fleet inclusion is still a separate decision.
-  echo "${indent}[blocked] igniter-repl — excluded from v0 fleet (release build recovered; inclusion pending)"
+  # igniter-repl is a known v0 NON-member: release build is recovered; fleet inclusion is a separate decision (P17).
+  echo "${indent}[optional] igniter-repl — release build recovered; opt-in via --features repl; not in the default v0 fleet (P17)"
 }
 
 toolchain_usage() {
@@ -368,8 +368,8 @@ usage: igniter toolchain <list | install | update> [--prefix PATH]
 
 install/update delegate to the repo-local bootstrap installer (bin/igniter-install). LOCAL SOURCE ONLY:
 no remote download, no registry, no version solver, no signed artifacts, no Homebrew/Docker/tarball.
-Default prefix is $DEFAULT_PREFIX (the installer's default). igniter-repl is excluded from the v0 fleet
-(release build recovered; inclusion pending).
+Default prefix is $DEFAULT_PREFIX (the installer's default). igniter-repl is optional (opt-in via
+--features repl; not in the default v0 fleet; release build recovered — P17).
 EOF
 }
 
@@ -389,8 +389,8 @@ Delegates to the repo-local bootstrap installer: $INSTALLER
 
 LOCAL SOURCE ONLY — this compiles the 5 green binaries from the current igniter-lab checkout and copies
 them into <PATH>/bin. There is NO remote download, NO registry, NO version solver, NO signed artifacts,
-and NO Homebrew/Docker/tarball channel. igniter-repl is excluded from the v0 fleet (release build
-recovered; inclusion pending).
+and NO Homebrew/Docker/tarball channel. igniter-repl is optional (opt-in via --features repl; not in the
+default v0 fleet; release build recovered — P17).
 
   --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $DEFAULT_PREFIX]
   -h | --help     this help
@@ -409,7 +409,7 @@ cmd_toolchain() {
   local sub="${1:-}"
   case "$sub" in
     list)
-      echo "igniter toolchain — v0 fleet (5 supported binaries; igniter-repl excluded):"
+      echo "igniter toolchain — v0 fleet (5 default binaries; igniter-repl optional, opt-in):"
       toolchain_report "  "
       exit 0 ;;
     install|update)

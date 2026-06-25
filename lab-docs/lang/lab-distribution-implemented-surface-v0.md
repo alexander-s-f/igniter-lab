@@ -17,7 +17,7 @@ routes to a named owner that enforces the real policy.
 | `igniter serve <app_dir> [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH]` | live | `igweb-serve` (server/igniter-web) | loopback-only, request-bounded; public bind REFUSED by igweb-serve (P2) |
 | `igniter check <app_dir>` / `serve --check` | live | `igweb-serve check` | dry build/verify; opens NO socket |
 | `igniter doctor` | live | local, non-mutating | env + fleet report (severities ok/warn/fail/info); P9/P10 |
-| `igniter toolchain list` | live | local | reports the 5-binary v0 fleet; marks repl excluded |
+| `igniter toolchain list` | live | local | reports the 5-binary default v0 fleet; marks repl `[optional]` |
 | `igniter toolchain install\|update [--prefix PATH]` | live | `bin/igniter-install` | **local-source build+stage only** — NO remote/registry/solver/signing; `update` needs a prior `igniter-manifest.json`; staged-prefix is source-required (P11) |
 | `igniter package lock\|verify\|verify-archive\|graph\|pack\|admit` | live | `igc` (igniter-compiler) | **argv routing only**, not a second resolver; `verify`=workspace, `verify-archive`=`.igpkg` archive (P12) |
 | `igniter app bundle <app_dir> --out <dir> --version <stamp>` | live | local orchestration | **assembly only** (P14); see below |
@@ -67,10 +67,10 @@ supersession note at its top pointing here:
 | `…control-center-cli-skeleton-p7-v0` | `package`/`app`/`toolchain install` are "fail-closed placeholders" | all **live** now (P11 toolchain, P12 package, P14 app bundle) |
 | `…app-bundle-readiness-p13-v0` | "design only — NO implementation" | the design it specifies is now **implemented (P14)** + run-proven (P16) |
 
-Also note: `bin/igniter-install` text and one `bin/igniter` `[blocked]` label still say repl is
-"build-broken (P3)". That wording is **stale** (build recovered) and is routed to a docs-hygiene relabel
-(`LAB-DISTRIBUTION-REPL-LABEL-HYGIENE-P*` per P17) — the *policy* (repl excluded from the default fleet) is
-unchanged and correct.
+Repl labels were relabeled by **P19** (`LAB-DISTRIBUTION-REPL-LABEL-HYGIENE`): `bin/igniter` `toolchain
+list` now shows `[optional] igniter-repl`, `doctor` reports it as `info`/optional, and `bin/igniter-install`
+no longer carries a failure label for it. The *policy* (repl is opt-in, not in the default 5-binary fleet)
+is unchanged and correct.
 
 ## Authority boundary
 

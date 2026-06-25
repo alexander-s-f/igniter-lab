@@ -159,7 +159,8 @@ fn igniter_doctor_reports_local_status() {
     assert!(s.contains("igweb-serve"), "lists the fleet: {s}");
 }
 
-/// `igniter toolchain list` names the 5 green binaries and marks igniter-repl as unavailable.
+/// `igniter toolchain list` names the 5 default-fleet binaries and marks igniter-repl as optional (P19:
+/// release build recovered, so it now reads as optional/opt-in rather than a failure — not in the fleet).
 #[test]
 fn igniter_toolchain_list_names_fleet_and_marks_repl() {
     let out = Command::new(wrapper())
@@ -172,7 +173,8 @@ fn igniter_toolchain_list_names_fleet_and_marks_repl() {
         assert!(s.contains(bin), "fleet must name `{bin}`:\n{s}");
     }
     assert!(s.contains("igniter-repl"), "must mention repl: {s}");
-    assert!(s.contains("[blocked]"), "must mark repl unavailable: {s}");
+    assert!(s.contains("[optional]"), "must mark repl optional (not [blocked]): {s}");
+    assert!(!s.contains("[blocked]"), "repl must no longer read as broken: {s}");
 }
 
 /// Unimplemented commands fail non-zero and point at the intended next step — never silent success.
