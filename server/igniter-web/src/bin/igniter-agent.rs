@@ -134,19 +134,45 @@ fn http_get_status(addr: &str, path: &str) -> String {
     }
 }
 
+/// Structured outcome of a bounded serve, used to build both the human text and the JSON envelope (P28).
+struct ServeOut {
+    human: String,
+    is_error: bool,
+    exit_code: i64,
+    stdout: String,
+    stderr: String,
+    parsed: Value,
+}
+
 /// Run `igniter serve <app> --addr 127.0.0.1:0 --max-requests <max>` as a CHILD, parse the listening line,
 /// issue ONE GET <path>, then wait for the bounded child to exit. Loopback is forced (no addr/public param);
 /// `max` is already clamped to [1,5]. Never daemonizes; no background handle is retained.
-fn serve_app_bounded(app_dir: &str, max: i64, requested: i64, path: &str) -> (String, bool) {
+fn serve_app_bounded(app_dir: &str, max: i64, requested: i64, path: &str) -> ServeOut {
     let max_s = max.to_string();
     let mut child = match Command::new(igniter_bin())
-        .args(["serve", app_dir, "--addr", "127.0.0.1:0", "--max-requests", &max_s])
+        .args([
+            "serve",
+            app_dir,
+            "--addr",
+            "127.0.0.1:0",
+            "--max-requests",
+            &max_s,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return (format!("failed to launch igniter serve: {e}"), true),
+        Err(e) => {
+            return ServeOut {
+                human: format!("failed to launch igniter serve: {e}"),
+                is_error: true,
+                exit_code: -1,
+                stdout: String::new(),
+                stderr: e.to_string(),
+                parsed: Value::Null,
+            }
+        }
     };
 
     let mut reader = BufReader::new(child.stdout.take().unwrap());
@@ -178,14 +204,18 @@ fn serve_app_bounded(app_dir: &str, max: i64, requested: i64, path: &str) -> (St
             let _ = e.read_to_string(&mut stderr_buf);
         }
         let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
-        return (
-            format!(
+        return ServeOut {
+            human: format!(
                 "exit_code: {code}\nlisten: (never bound)\npath: {path}\nhttp_status: (not attempted)\nstdout:\n{}\nstderr:\n{}",
                 snippet(&captured),
                 snippet(&stderr_buf)
             ),
-            true,
-        );
+            is_error: true,
+            exit_code: code as i64,
+            stdout: captured,
+            stderr: stderr_buf,
+            parsed: Value::Null,
+        };
     }
 
     // Issue EXACTLY `max` GETs so a server bounded to `max` requests serves them all and exits cleanly. We
@@ -219,14 +249,26 @@ fn serve_app_bounded(app_dir: &str, max: i64, requested: i64, path: &str) -> (St
         String::new()
     };
     let is_error = code != 0 || !all_200;
-    (
-        format!(
+    let parsed = json!({
+        "listen": addr,
+        "path": path,
+        "requests_issued": max,
+        "http_status": first_status,
+        "all_200": all_200,
+        "exit_code": code,
+    });
+    ServeOut {
+        human: format!(
             "exit_code: {code}\nlisten: {addr}{clamp_note}\npath: {path}\nrequests_issued: {max}\nhttp_status: {first_status}\nall_200: {all_200}\nstdout:\n{}\nstderr:\n{}",
             snippet(&captured),
             snippet(&stderr_buf)
         ),
         is_error,
-    )
+        exit_code: code as i64,
+        stdout: captured,
+        stderr: stderr_buf,
+        parsed,
+    }
 }
 
 fn respond(out: &mut impl Write, id: Value, result: Value) {
@@ -241,58 +283,210 @@ fn respond_error(out: &mut impl Write, id: Value, code: i64, message: &str) {
     let _ = out.flush();
 }
 
-/// MCP tool result: text content + isError flag (a tool failing is NOT a protocol error).
-fn tool_result(out: &mut impl Write, id: Value, text: String, is_error: bool) {
+/// P28: a tool result with an ADDITIVE JSON envelope. `content[0]` is the existing human text (kept
+/// byte-compatible for older assertions); `content[1]` is a bounded JSON envelope. `exit_code` is `None`
+/// only for argument-validation errors that never launched a command. `parsed` is tool-specific (or null).
+#[allow(clippy::too_many_arguments)]
+fn tool_enveloped(
+    out: &mut impl Write,
+    id: Value,
+    tool: &str,
+    human_text: String,
+    is_error: bool,
+    exit_code: Option<i64>,
+    stdout: &str,
+    stderr: &str,
+    parsed: Value,
+) {
+    let envelope = json!({
+        "tool": tool,
+        "ok": !is_error,
+        "exit_code": exit_code,
+        "stdout": snippet(stdout),
+        "stderr": snippet(stderr),
+        "parsed": parsed,
+    });
+    let envelope_text = serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string());
     respond(
         out,
         id,
-        json!({ "content": [{ "type": "text", "text": text }], "isError": is_error }),
+        json!({
+            "content": [
+                { "type": "text", "text": human_text },
+                { "type": "text", "text": envelope_text }
+            ],
+            "isError": is_error
+        }),
     );
+}
+
+/// Convenience for a command-backed tool: builds the human `tool_body` and the envelope from one (code, out,
+/// err) result. `is_error` is explicit (some tools fail on more than a non-zero code, e.g. serve on !all_200).
+fn tool_command_result(
+    out: &mut impl Write,
+    id: Value,
+    tool: &str,
+    code: i32,
+    stdout: &str,
+    stderr: &str,
+    is_error: bool,
+    parsed: Value,
+) {
+    tool_enveloped(
+        out,
+        id,
+        tool,
+        tool_body(code, stdout, stderr),
+        is_error,
+        Some(code as i64),
+        stdout,
+        stderr,
+        parsed,
+    );
+}
+
+/// Argument-validation error: no command launched → `exit_code:null`, `parsed:null`, `isError:true`.
+fn tool_arg_error(out: &mut impl Write, id: Value, tool: &str, message: &str) {
+    tool_enveloped(
+        out,
+        id,
+        tool,
+        message.to_string(),
+        true,
+        None,
+        "",
+        "",
+        Value::Null,
+    );
+}
+
+/// Extract the whitespace-delimited token following `key` in a line (e.g. `entry=Serve` → `Serve`).
+fn field_after(line: &str, key: &str) -> Option<String> {
+    line.split(key)
+        .nth(1)
+        .and_then(|r| r.split_whitespace().next())
+        .map(|s| s.to_string())
+}
+
+/// Parse the `igweb-serve: check ok app_dir=… entry=Serve sources=N (no socket opened)` line. Null if absent.
+fn parse_check_ok(stdout: &str) -> Value {
+    for line in stdout.lines() {
+        if line.contains("check ok") {
+            let entry = field_after(line, "entry=");
+            let sources = field_after(line, "sources=").and_then(|s| s.parse::<i64>().ok());
+            return json!({
+                "ok": true,
+                "entry": entry,
+                "sources": sources,
+                "no_socket_opened": line.contains("no socket opened"),
+            });
+        }
+    }
+    Value::Null
+}
+
+/// Parse the `…: app bundle ok → <dest>` line, then read+parse `<dest>/manifest.json`. Null if absent.
+fn parse_bundle(stdout: &str) -> Value {
+    for line in stdout.lines() {
+        if let Some(rest) = line.split("app bundle ok → ").nth(1) {
+            let dest = rest.trim().to_string();
+            let manifest = std::fs::read_to_string(format!("{dest}/manifest.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .unwrap_or(Value::Null);
+            return json!({ "bundle_path": dest, "manifest": manifest });
+        }
+    }
+    Value::Null
 }
 
 fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
     let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     match name {
         "doctor" => {
-            // `igniter doctor [app_dir] [--json]` — non-mutating local report.
-            let mut argv: Vec<String> = vec!["doctor".to_string()];
-            if let Some(app) = args.get("app_dir").and_then(|v| v.as_str()) {
-                argv.push(app.to_string());
+            // content[0] keeps the caller-requested shape (`json:true` still returns doctor --json as before);
+            // envelope `parsed` is always filled from `igniter doctor [app_dir] --json` (P28). Doctor redaction
+            // is inherited — no secret/env values are printed.
+            let app = args.get("app_dir").and_then(|v| v.as_str());
+            let wants_json = args.get("json").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut human_argv = vec!["doctor"];
+            if let Some(a) = app {
+                human_argv.push(a);
             }
-            if args.get("json").and_then(|v| v.as_bool()).unwrap_or(false) {
-                argv.push("--json".to_string());
+            if wants_json {
+                human_argv.push("--json");
             }
-            let refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
-            let (code, so, se) = run_igniter(&refs);
-            tool_result(out, id, tool_body(code, &so, &se), code != 0);
+            let (code, so, se) = run_igniter(&human_argv);
+
+            let mut json_argv = vec!["doctor"];
+            if let Some(a) = app {
+                json_argv.push(a);
+            }
+            json_argv.push("--json");
+            let parsed = if wants_json {
+                serde_json::from_str::<Value>(&so).unwrap_or(Value::Null)
+            } else {
+                let (_jc, jso, _jse) = run_igniter(&json_argv);
+                serde_json::from_str::<Value>(&jso).unwrap_or(Value::Null)
+            };
+
+            tool_command_result(out, id, "doctor", code, &so, &se, code != 0, parsed);
         }
         "toolchain_list" => {
             let (code, so, se) = run_igniter(&["toolchain", "list"]);
-            tool_result(out, id, tool_body(code, &so, &se), code != 0);
+            tool_command_result(
+                out,
+                id,
+                "toolchain_list",
+                code,
+                &so,
+                &se,
+                code != 0,
+                Value::Null,
+            );
         }
-        "check_app" => {
-            match args.get("app_dir").and_then(|v| v.as_str()) {
-                Some(app) => {
-                    let (code, so, se) = run_igniter(&["check", app]);
-                    tool_result(out, id, tool_body(code, &so, &se), code != 0);
-                }
-                None => tool_result(out, id, "missing required argument: app_dir".to_string(), true),
+        "check_app" => match args.get("app_dir").and_then(|v| v.as_str()) {
+            Some(app) => {
+                let (code, so, se) = run_igniter(&["check", app]);
+                let parsed = if code == 0 {
+                    parse_check_ok(&so)
+                } else {
+                    Value::Null
+                };
+                tool_command_result(out, id, "check_app", code, &so, &se, code != 0, parsed);
             }
-        }
+            None => tool_arg_error(out, id, "check_app", "missing required argument: app_dir"),
+        },
         "package_verify" => {
             let mut argv: Vec<String> = vec!["package".to_string(), "verify".to_string()];
             if let Some(ws) = args.get("workspace").and_then(|v| v.as_str()) {
                 argv.push("--project-root".to_string());
                 argv.push(ws.to_string());
             }
-            if args.get("strict").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if args
+                .get("strict")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 argv.push("--strict".to_string());
             }
             let refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
             let (code, so, se) = run_igniter(&refs);
-            tool_result(out, id, tool_body(code, &so, &se), code != 0);
+            tool_command_result(
+                out,
+                id,
+                "package_verify",
+                code,
+                &so,
+                &se,
+                code != 0,
+                Value::Null,
+            );
         }
         "app_bundle" => {
             // shell-delegate to `igniter app bundle` — the bundler owns ALL safety (host.toml/secret refusal,
@@ -302,29 +496,66 @@ fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
             let version = args.get("version").and_then(|v| v.as_str());
             match (app_dir, out_dir, version) {
                 (Some(a), Some(o), Some(v)) => {
-                    let (code, so, se) = run_igniter(&["app", "bundle", a, "--out", o, "--version", v]);
-                    tool_result(out, id, tool_body(code, &so, &se), code != 0);
+                    let (code, so, se) =
+                        run_igniter(&["app", "bundle", a, "--out", o, "--version", v]);
+                    let parsed = if code == 0 {
+                        parse_bundle(&so)
+                    } else {
+                        Value::Null
+                    };
+                    tool_command_result(out, id, "app_bundle", code, &so, &se, code != 0, parsed);
                 }
-                _ => tool_result(
+                _ => tool_arg_error(
                     out,
                     id,
-                    "missing required argument(s): app_dir, out_dir, version".to_string(),
-                    true,
+                    "app_bundle",
+                    "missing required argument(s): app_dir, out_dir, version",
                 ),
             }
         }
         "serve_app_bounded" => match args.get("app_dir").and_then(|v| v.as_str()) {
             Some(app) => {
                 // bounded run: loopback forced (no addr/public param exists); clamp max_requests to [1,5].
-                let requested = args.get("max_requests").and_then(|v| v.as_i64()).unwrap_or(1);
+                let requested = args
+                    .get("max_requests")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1);
                 let max = requested.clamp(1, 5);
-                let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("/health");
-                let (text, is_err) = serve_app_bounded(app, max, requested, path);
-                tool_result(out, id, text, is_err);
+                let path = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("/health");
+                let s = serve_app_bounded(app, max, requested, path);
+                tool_enveloped(
+                    out,
+                    id,
+                    "serve_app_bounded",
+                    s.human,
+                    s.is_error,
+                    Some(s.exit_code),
+                    &s.stdout,
+                    &s.stderr,
+                    s.parsed,
+                );
             }
-            None => tool_result(out, id, "missing required argument: app_dir".to_string(), true),
+            None => tool_arg_error(
+                out,
+                id,
+                "serve_app_bounded",
+                "missing required argument: app_dir",
+            ),
         },
-        other => tool_result(out, id, format!("unknown tool: {other}"), true),
+        other => tool_enveloped(
+            out,
+            id,
+            "unknown",
+            format!("unknown tool: {other}"),
+            true,
+            None,
+            "",
+            "",
+            Value::Null,
+        ),
     }
 }
 
@@ -366,7 +597,12 @@ fn main() {
                 handle_tool_call(&mut stdout, id, &params);
             }
             "" => { /* malformed: ignore */ }
-            other => respond_error(&mut stdout, id, -32601, &format!("method not found: {other}")),
+            other => respond_error(
+                &mut stdout,
+                id,
+                -32601,
+                &format!("method not found: {other}"),
+            ),
         }
     }
 }
