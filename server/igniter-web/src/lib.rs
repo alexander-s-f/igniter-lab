@@ -27,6 +27,8 @@ pub mod host_config;
 pub mod machine_runner;
 #[cfg(feature = "machine")]
 pub mod read_dispatch;
+#[cfg(feature = "machine")]
+pub mod read_materialize;
 pub mod runner_diag;
 
 static NEXT_BUILD_ID: AtomicUsize = AtomicUsize::new(0);

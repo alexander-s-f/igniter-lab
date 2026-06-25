@@ -9,6 +9,7 @@
 //! - App owns: logical query (QueryPlan value), continuation name, not-found Decision
 //! - No app surface: capability id, scope, DSN, raw SQL, pool
 
+use crate::read_materialize::{build_dataset_meta, materialize_rows, ProjectionSpec};
 use igniter_machine::backend::TBackend;
 use igniter_machine::capability::{
     run_effect, CapabilityExecutorRegistry, EffectRequest, OutcomeKind, RunMode,
@@ -35,6 +36,31 @@ pub enum StagedReadResult {
     Denied(String),
     /// Transient or unknown host error — caller should return 503.
     HostError(String),
+}
+
+/// Result of executing a **typed** staged read (LAB-IGNITER-DATA-PROJECTION-TYPED-ROW-CROSSING-P6), before
+/// the continuation is dispatched. The typed crossing is a strict superset of `StagedReadResult`: it carries
+/// the rows as a structured `serde_json` array (records, not a `rows_json : String`) plus the `DatasetMeta`
+/// sidecar, and adds one outcome the stringly path cannot have — `SchemaMismatch`, the host's own promise
+/// violation when its rows fail to materialize as the declared `Collection[<AppRow>]`.
+///
+/// Kept a SEPARATE enum from `StagedReadResult` on purpose: the existing `rows_json` loop
+/// (`dispatch_with_read`) is untouched, so every pre-P6 continuation that takes `input rows_json : String`
+/// stays green. Selecting this path per-continuation (from the compiled IR) is the named P7 follow-on.
+pub enum TypedReadResult {
+    /// Materialized, total + typed rows (`Value::Array` of records) + the `DatasetMeta` provenance sidecar.
+    /// Cross `rows` and `meta` as sibling continuation inputs; the VM's `from_json` materializes
+    /// `Collection[<AppRow>]` + `DatasetMeta`.
+    Rows { rows: Value, meta: Value },
+    /// Host denied the read before the adapter (allowlist / field / raw-SQL refusal) → 403.
+    Denied(String),
+    /// Transient or unknown host error → 503.
+    HostError(String),
+    /// The host fetched rows but could NOT honor them as the declared `Collection[<AppRow>]` (a row was
+    /// missing a projected field or carried the wrong scalar kind). The host broke its own promise — a
+    /// gateway-level fault (P3 §5 maps it to 502), surfaced BEFORE continuation dispatch so no partial app
+    /// response is ever produced.
+    SchemaMismatch(String),
 }
 
 /// Operator-owned read host: holds the capability executor registry + receipts backend.
@@ -82,9 +108,13 @@ impl StagedReadHost {
     /// - **Without** a correlation id: each execution gets a unique key (`"auto-{n}:{plan_digest}"` via
     ///   a monotonic per-host counter), so the read always runs fresh and never replays a stale result
     ///   across HTTP requests — e.g. `list → [] ; create ; list` returns the new row, not a replayed `[]`.
-    pub async fn execute(&self, plan: &Value, req: &ServerRequest) -> StagedReadResult {
+    /// The read idempotency key for `plan` under `req` — the freshness/replay policy shared by the stringly
+    /// and typed read paths (extracted so both stay byte-identical). With an explicit client correlation id
+    /// the key is `"{corr}:{plan_digest}"` (a genuine retry replays the snapshot); without one each call gets
+    /// a unique `"auto-{n}:{plan_digest}"` so reads always run fresh.
+    fn idem_key_for(&self, plan: &Value, req: &ServerRequest) -> String {
         let digest = plan_digest(plan);
-        let idem_key = match req
+        match req
             .correlation_id
             .as_deref()
             .map(str::trim)
@@ -95,7 +125,11 @@ impl StagedReadHost {
                 let n = self.read_seq.fetch_add(1, Ordering::Relaxed);
                 format!("auto-{n}:{digest:016x}")
             }
-        };
+        }
+    }
+
+    pub async fn execute(&self, plan: &Value, req: &ServerRequest) -> StagedReadResult {
+        let idem_key = self.idem_key_for(plan, req);
 
         let effect_req = EffectRequest {
             capability_id: self.capability_id.clone(),
@@ -128,6 +162,70 @@ impl StagedReadHost {
                 _ => {
                     StagedReadResult::HostError(format!("staged read returned {:?}", outcome.kind))
                 }
+            },
+        }
+    }
+
+    /// Execute the staged read, then **materialize the rows to the typed projection** instead of stringifying
+    /// them (LAB-IGNITER-DATA-PROJECTION-TYPED-ROW-CROSSING-P6). The host reshapes the already-typed executor
+    /// rows against `spec` (the host schema authority's field-kinds for the projected columns) so that what
+    /// crosses to the continuation is a total + typed `Collection[<AppRow>]` (`from_json` materializes it) plus
+    /// a `DatasetMeta` sidecar. The materialization gate runs BEFORE any continuation dispatch:
+    ///
+    /// - `Succeeded` + rows align to `spec` → `Rows { rows, meta }`;
+    /// - `Succeeded` but a row is missing a field / has the wrong scalar kind → `SchemaMismatch` (the host
+    ///   broke its own promise — never a partial `.ig` response);
+    /// - `Denied` / transient stay exactly as the stringly path (403 / 503).
+    ///
+    /// The replay/freshness key is identical to [`Self::execute`]. The existing `rows_json` path is untouched.
+    pub async fn execute_typed(
+        &self,
+        plan: &Value,
+        req: &ServerRequest,
+        spec: &ProjectionSpec,
+    ) -> TypedReadResult {
+        let effect_req = EffectRequest {
+            capability_id: self.capability_id.clone(),
+            idempotency_key: self.idem_key_for(plan, req),
+            authority_ref: Some(self.authority_ref.clone()),
+            args: plan.clone(),
+        };
+
+        match run_effect(&self.registry, &self.receipts, &effect_req, RunMode::Live).await {
+            Err(e) => TypedReadResult::HostError(format!("{e:?}")),
+            Ok(outcome) => match outcome.kind {
+                OutcomeKind::Succeeded => {
+                    // The executor hands typed serde rows under `rows`, with `count`/`row_limit_clamped`/`source`
+                    // provenance (postgres_read.rs `succeeded` json). Reshape them to the typed projection.
+                    let rows = outcome.result["rows"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let count = outcome.result["count"]
+                        .as_i64()
+                        .unwrap_or(rows.len() as i64);
+                    let truncated = outcome.result["row_limit_clamped"]
+                        .as_bool()
+                        .unwrap_or(false);
+                    let source = outcome.result["source"].as_str().unwrap_or("").to_string();
+                    match materialize_rows(&rows, spec) {
+                        Ok(rows) => TypedReadResult::Rows {
+                            rows,
+                            meta: build_dataset_meta(&source, count, truncated),
+                        },
+                        Err(e) => TypedReadResult::SchemaMismatch(e),
+                    }
+                }
+                OutcomeKind::Denied => {
+                    let reason = outcome
+                        .result
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("read denied by host policy")
+                        .to_string();
+                    TypedReadResult::Denied(reason)
+                }
+                _ => TypedReadResult::HostError(format!("staged read returned {:?}", outcome.kind)),
             },
         }
     }
