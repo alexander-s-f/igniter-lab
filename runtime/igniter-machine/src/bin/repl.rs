@@ -575,7 +575,11 @@ impl App {
             self.push_output(OutputLine::Error("Usage: resume <path.igm>".into()));
             return;
         }
-        match futures::executor::block_on(IgniterMachine::resume(Path::new(path), None, "in_memory")) {
+        match futures::executor::block_on(IgniterMachine::resume(
+            Path::new(path),
+            None,
+            "in_memory",
+        )) {
             Ok(new_machine) => {
                 self.machine = new_machine;
                 self.backend_label = "in_memory".to_string();
@@ -845,6 +849,56 @@ fn render_input_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(para, area);
 }
 
+// ─── Headless script runner (P20) ─────────────────────────────────────────────
+
+/// Run a file of REPL commands through the same dispatch path the TUI uses.
+fn run_script(mut app: App, script_path: &Path) -> i32 {
+    let content = match std::fs::read_to_string(script_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "igniter-repl --script: cannot read {}: {}",
+                script_path.display(),
+                e
+            );
+            return 1;
+        }
+    };
+
+    // Everything already in history is the welcome banner; only judge command output produced below.
+    let baseline = app.history.len();
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        app.execute_command(line.to_string());
+    }
+
+    let mut had_error = false;
+    for ol in &app.history[baseline..] {
+        match ol {
+            OutputLine::Command(s) => println!("> {}", s),
+            OutputLine::Success(s) => println!("OK {}", s),
+            OutputLine::Error(s) => {
+                had_error = true;
+                println!("ERROR {}", s);
+            }
+            OutputLine::Info(s) => println!("{}", s),
+            OutputLine::Json(s) => println!("{}", s),
+            OutputLine::Separator => {}
+        }
+    }
+
+    if had_error {
+        println!("igniter-repl: SCRIPT FAILED");
+        1
+    } else {
+        println!("igniter-repl: SCRIPT OK");
+        0
+    }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -853,10 +907,20 @@ fn main() {
     let mut backend_type = "in_memory".to_string();
     let mut data_dir: Option<PathBuf> = None;
     let mut resume_path: Option<PathBuf> = None;
+    let mut script_path: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--script" => {
+                if i + 1 < args.len() {
+                    script_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
+                } else {
+                    eprintln!("--script requires a path to a command file");
+                    std::process::exit(1);
+                }
+            }
             "--backend" => {
                 if i + 1 < args.len() {
                     backend_type = args[i + 1].clone();
@@ -915,6 +979,12 @@ fn main() {
     } else {
         backend_type.clone()
     };
+
+    // Script mode exits before terminal setup, so no raw mode or alternate screen is entered.
+    if let Some(ref spath) = script_path {
+        let app = App::new(machine, backend_label);
+        std::process::exit(run_script(app, spath));
+    }
 
     // Setup terminal panic hook for graceful restore
     let original_hook = std::panic::take_hook();
