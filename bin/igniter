@@ -11,7 +11,9 @@
 #   igniter check <app_dir>       → igweb-serve check      (live; dry build, no socket)
 #   igniter doctor                → local non-mutating environment report (live)
 #   igniter toolchain list        → report the v0 tool fleet present in the repo (live)
-#   igniter toolchain install|update , igniter package ... , igniter app ...  → fail-closed placeholders
+#   igniter toolchain install|update → bin/igniter-install  (live; local-source build+stage only — P11)
+#   igniter package <lock|verify|verify-archive|graph|pack|admit>  → igc  (live; argv routing only — P12)
+#   igniter app ...               → fail-closed placeholder
 #
 # No root workspace, no installer, no registry/download, no systemd/Docker/Homebrew. Point
 # IGNITER_IGWEB_SERVE_BIN at a prebuilt igweb-serve (e.g. a release-bundle path) to skip building.
@@ -24,6 +26,13 @@ WEB_CRATE="$REPO_ROOT/server/igniter-web"
 # Build-time prerequisite: the compiler `include_str!`s this from the canon sibling repo (verified by doctor).
 LANG_SIBLING="$REPO_ROOT/../igniter-lang"
 LANG_INVENTORY="$LANG_SIBLING/docs/spec/stdlib-inventory.json"
+# P11: `toolchain install|update` delegate to the co-located bootstrap installer (a sibling of this script
+# in a SOURCE checkout's bin/). A STAGED prefix has only the front door, so $INSTALLER is absent there.
+INSTALLER="$SCRIPT_DIR/igniter-install"
+# Mirrors bin/igniter-install's default prefix. The REAL default stays single-sourced in the installer
+# (we invoke it WITHOUT --prefix when the user gives none); this copy is used only for the `update`
+# precondition check below.
+DEFAULT_PREFIX="${HOME}/.igniter"
 
 usage() {
   cat <<'EOF'
@@ -40,10 +49,12 @@ App lifecycle:
 Diagnostics & toolchain:
   doctor                local, non-mutating environment report (binaries, repo, igniter-lang sibling, rustc)
   toolchain list        show the v0 tool fleet and whether each binary is built in the repo
-  toolchain install|update   (not implemented in v0 — see LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8)
+  toolchain install [--prefix PATH]   build+stage the fleet from THIS checkout (→ bin/igniter-install)
+  toolchain update  [--prefix PATH]   rebuild+restage an already-installed prefix (local-source only)
 
-Packaging & deployment (delegation owners; not yet first-class here):
-  package ...           package trust is owned by `igc` (lock/verify/package graph|pack|verify|admit)
+Packaging & deployment:
+  package <sub> [args]  delegate to `igc`, the package authority (argv routing only — NOT a second
+                        resolver): lock | verify | verify-archive | graph | pack | admit
   app ...               app deployment is the release-bundle + systemd scripts (home-lab Model E)
 
   -h | --help           this help
@@ -96,6 +107,19 @@ resolve_igweb_serve() {
   printf '%s' "$WEB_CRATE/target/release/igweb-serve"
 }
 
+# Resolve the igc (package authority) binary, mirroring resolve_igweb_serve's order MINUS the auto-build:
+#   explicit override → co-located staged (P8: <prefix>/bin/igc) → repo target (igniter_compiler) → fail.
+# We do NOT auto-build igc here: a `package` verb must never silently kick off a compiler build (which also
+# needs the igniter-lang sibling). Missing igc fails closed with a build/install suggestion (see cmd_package).
+# NOTE: the staged name is `igc` but the cargo artifact is `igniter_compiler` (the P1/P3 name caveat).
+resolve_igc() {
+  if [[ -n "${IGNITER_IGC_BIN:-}" ]]; then printf '%s' "$IGNITER_IGC_BIN"; return 0; fi
+  if [[ -x "$SCRIPT_DIR/igc" ]]; then printf '%s' "$SCRIPT_DIR/igc"; return 0; fi
+  local p
+  if p="$(probe_built lang/igniter-compiler igniter_compiler)"; then printf '%s' "$p"; return 0; fi
+  return 1
+}
+
 # Echo the path to an already-built binary (release preferred, then debug); return 1 if not present.
 #   $1 = crate dir relative to REPO_ROOT   $2 = built artifact filename
 probe_built() {
@@ -133,28 +157,147 @@ cmd_check() {
   exec "$bin" check "$@"
 }
 
+# ── doctor (LAB-DISTRIBUTION-DOCTOR-IMPL-P10): local, non-mutating; text + --json; toolchain + app modes ──
+
+DOC_RECORDS=()   # each: scope<TAB>check<TAB>severity<TAB>detail<TAB>suggest
+doc_emit() { DOC_RECORDS+=("$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"$'\t'"$5"); }
+json_escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
+doc_render_text() {
+  local last_scope="" r scope check sev detail suggest
+  for r in "${DOC_RECORDS[@]}"; do
+    IFS=$'\t' read -r scope check sev detail suggest <<<"$r"
+    if [[ "$scope" != "$last_scope" ]]; then echo "  [$scope]"; last_scope="$scope"; fi
+    printf "    [%-4s] %-22s %s\n" "$sev" "$check" "$detail"
+    if [[ -n "$suggest" ]]; then printf "           → %s\n" "$suggest"; fi
+  done
+  return 0   # never let a falsy `[[ ]]` be the function's exit status (set -e would abort the caller)
+}
+doc_render_json() {
+  local n=${#DOC_RECORDS[@]} i=0 r scope check sev detail suggest sfx sj
+  echo "["
+  for r in "${DOC_RECORDS[@]}"; do
+    i=$((i+1)); sfx=","; [[ $i -eq $n ]] && sfx=""
+    IFS=$'\t' read -r scope check sev detail suggest <<<"$r"
+    if [[ -z "$suggest" ]]; then sj="null"; else sj="\"$(json_escape "$suggest")\""; fi
+    printf '  {"scope": "%s", "check": "%s", "severity": "%s", "detail": "%s", "suggest": %s}%s\n' \
+      "$scope" "$check" "$sev" "$(json_escape "$detail")" "$sj" "$sfx"
+  done
+  echo "]"
+}
+
 cmd_doctor() {
-  # Local, non-mutating: no network, no DB, no build. Inspect, report, suggest. Always exits 0 (a report).
-  echo "igniter doctor — local environment (non-mutating)"
-  echo "  repo_root: $REPO_ROOT"
+  # Local, non-mutating: no network, no DB, no build, no mutation, no secret values. v0 exits 0 (a report).
+  local json=0 app_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) json=1; shift ;;
+      -h|--help) echo "usage: igniter doctor [<app_dir>] [--json]   # local, non-mutating; exits 0"; exit 0 ;;
+      -*) echo "$PROG: doctor: unknown option '$1'" >&2; exit 2 ;;
+      *) app_dir="$1"; shift ;;
+    esac
+  done
+  DOC_RECORDS=()
 
-  local ok="ok    " miss="MISSING"
-  # rustc / cargo (cheap version probe)
-  if command -v rustc >/dev/null 2>&1; then echo "  [$ok] rustc: $(rustc --version 2>/dev/null)"
-  else echo "  [$miss] rustc — install Rust (https://rustup.rs) to build the tools"; fi
-  if command -v cargo >/dev/null 2>&1; then echo "  [$ok] cargo: $(cargo --version 2>/dev/null)"
-  else echo "  [$miss] cargo — install Rust toolchain"; fi
+  # mode: source-checkout (crate dirs present) vs installed-prefix (staged binaries, no crate tree)
+  local mode
+  if [[ -f "$REPO_ROOT/server/igniter-web/Cargo.toml" ]]; then mode="source-checkout"; else mode="installed-prefix"; fi
+  doc_emit env mode info "$mode (root: $REPO_ROOT)" ""
 
-  # canon sibling (build prerequisite: compiler include_str!s the stdlib inventory from it)
-  if [[ -f "$LANG_INVENTORY" ]]; then echo "  [$ok] igniter-lang sibling: $LANG_SIBLING (stdlib-inventory.json present)"
-  else echo "  [$miss] igniter-lang sibling at $LANG_SIBLING — required to BUILD igc (stdlib-inventory.json)"; fi
+  if command -v rustc >/dev/null 2>&1; then doc_emit env rustc ok "$(rustc --version 2>/dev/null)" ""
+  else doc_emit env rustc fail "not found" "install Rust via https://rustup.rs (needed to build the tools)"; fi
+  if command -v cargo >/dev/null 2>&1; then doc_emit env cargo ok "$(cargo --version 2>/dev/null)" ""
+  else doc_emit env cargo fail "not found" "install the Rust toolchain"; fi
 
-  # the v0 tool fleet
-  echo "  tools:"
-  toolchain_report "    "
+  # igniter-lang sibling — a BUILD prerequisite; only a failure when we are in a source checkout.
+  if [[ "$mode" == "source-checkout" ]]; then
+    if [[ -f "$LANG_INVENTORY" ]]; then doc_emit env "igniter-lang sibling" ok "$LANG_SIBLING (stdlib-inventory.json present)" ""
+    else doc_emit env "igniter-lang sibling" fail "absent at $LANG_SIBLING" "check out igniter-lang beside igniter-lab to BUILD igc"; fi
+  else
+    doc_emit env "igniter-lang sibling" info "not required in installed-prefix mode (build-time only)" ""
+  fi
 
-  echo "  next: 'igniter toolchain list' for build commands; 'igniter serve <app_dir>' to run an app."
-  exit 0
+  case ":$PATH:" in
+    *":$SCRIPT_DIR:"*) doc_emit env PATH ok "$SCRIPT_DIR is on PATH" "" ;;
+    *) doc_emit env PATH warn "$SCRIPT_DIR not on PATH" "export PATH=\"$SCRIPT_DIR:\$PATH\"" ;;
+  esac
+
+  if [[ -f "$REPO_ROOT/igniter-manifest.json" ]]; then
+    doc_emit env manifest info "$REPO_ROOT/igniter-manifest.json present" ""
+  elif [[ "$mode" == "installed-prefix" ]]; then
+    doc_emit env manifest warn "no igniter-manifest.json in prefix" "re-run igniter-install to record provenance"
+  fi
+
+  # fleet: co-located staged ($SCRIPT_DIR/<name>) → IGNITER_IGWEB_SERVE_BIN (igweb-serve) → repo target
+  local label crate artifact build path
+  while IFS='|' read -r label crate artifact build; do
+    [[ -z "$label" ]] && continue
+    if [[ -x "$SCRIPT_DIR/$label" ]]; then doc_emit toolchain "$label" ok "$SCRIPT_DIR/$label (staged)" ""
+    elif [[ "$label" == "igweb-serve" && -n "${IGNITER_IGWEB_SERVE_BIN:-}" && -x "${IGNITER_IGWEB_SERVE_BIN}" ]]; then
+      doc_emit toolchain "$label" ok "$IGNITER_IGWEB_SERVE_BIN (env)" ""
+    elif path="$(probe_built "$crate" "$artifact")"; then doc_emit toolchain "$label" ok "$path (repo build)" ""
+    else doc_emit toolchain "$label" warn "not built" "igniter-install  (or: cd $crate && $build)"; fi
+  done <<EOF
+igc|lang/igniter-compiler|igniter_compiler|cargo build --release
+igniter-vm|lang/igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
+igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-serve
+igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
+tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend
+EOF
+  doc_emit toolchain igniter-repl info "excluded in v0 (build-broken: async checkpoint/resume — P3)" ""
+
+  # ── app-shape checks (only when <app_dir> is given) ──
+  if [[ -n "$app_dir" ]]; then
+    if [[ -d "$app_dir" ]]; then
+      doc_emit app app-dir ok "$app_dir" ""
+      if [[ -f "$app_dir/igweb.toml" ]]; then
+        if grep -qE '^[[:space:]]*\[app\]' "$app_dir/igweb.toml" 2>/dev/null; then
+          doc_emit app igweb.toml ok "present with [app]" "igniter check $app_dir  (verify it builds)"
+        else
+          doc_emit app igweb.toml warn "present but no [app] section" "add [app] entry = \"…\""
+        fi
+      else
+        doc_emit app igweb.toml warn "no igweb.toml" "add an igweb.toml manifest ([app] entry=…)"
+      fi
+      if [[ -f "$app_dir/host.toml" ]]; then
+        local bad="" k
+        for k in dsn password secret token passport api_key; do
+          if grep -qE "^[[:space:]]*$k[[:space:]]*=" "$app_dir/host.toml" 2>/dev/null \
+             && ! grep -qE "^[[:space:]]*${k}_env[[:space:]]*=" "$app_dir/host.toml" 2>/dev/null; then
+            bad="$bad $k"
+          fi
+        done
+        if [[ -n "$bad" ]]; then
+          doc_emit app host.toml fail "inline secret key(s):$bad" "use <key>_env = \"VAR_NAME\" (never inline values)"
+        else
+          doc_emit app host.toml ok "env-var references only (no inline secrets)" ""
+        fi
+        local name
+        while IFS= read -r name; do
+          [[ -z "$name" ]] && continue
+          if [[ -n "${!name:-}" ]]; then doc_emit app "env:$name" ok "set" ""
+          else doc_emit app "env:$name" warn "unset" "export $name=… before serving (value never read by doctor)"; fi
+        done < <(grep -oE '[A-Za-z_][A-Za-z0-9_]*_env[[:space:]]*=[[:space:]]*"[^"]+"' "$app_dir/host.toml" 2>/dev/null \
+                  | sed -E 's/.*"([^"]+)"/\1/')
+      else
+        doc_emit app host.toml info "no host.toml (observed/loopback default; machine-mode not configured)" ""
+      fi
+      doc_emit app build info "doctor does not compile" "run 'igniter check $app_dir' to build/verify the entry"
+    else
+      doc_emit app app-dir fail "not a directory: $app_dir" "check the path"
+    fi
+  fi
+
+  # ── render ──
+  if [[ "$json" -eq 1 ]]; then
+    doc_render_json
+  else
+    echo "igniter doctor — local, non-mutating (v0 exits 0; severities: ok/warn/fail/info)"
+    echo "  repo_root: $REPO_ROOT"
+    doc_render_text
+    echo "  next: 'igniter serve <app_dir>' to run; 'igniter check <app_dir>' to dry-build."
+  fi
+  exit 0   # v0: always a report (--strict deferred)
 }
 
 # Shared fleet report used by `doctor` and `toolchain list`. $1 = indent.
@@ -186,6 +329,51 @@ EOF
   echo "${indent}[blocked] igniter-repl — unavailable in v0 (build fails: async resume; see P3 / repl-fix card)"
 }
 
+toolchain_usage() {
+  cat <<EOF
+usage: igniter toolchain <list | install | update> [--prefix PATH]
+
+  list                       show the v0 tool fleet and whether each binary is built (live, non-mutating)
+  install [--prefix PATH]    build the v0 fleet from THIS source checkout and stage it into PATH
+  update  [--prefix PATH]    rebuild + restage into an already-installed PATH (requires a prior install)
+
+install/update delegate to the repo-local bootstrap installer (bin/igniter-install). LOCAL SOURCE ONLY:
+no remote download, no registry, no version solver, no signed artifacts, no Homebrew/Docker/tarball.
+Default prefix is $DEFAULT_PREFIX (the installer's default). igniter-repl is excluded (build-broken, P3).
+EOF
+}
+
+# Per-verb help for install/update (must state local-source-only and the no-remote/no-registry boundary).
+toolchain_iu_usage() {
+  local verb="$1" what
+  if [[ "$verb" == install ]]; then
+    what="Build the v0 binary fleet from THIS source checkout and stage it + the igniter front door into <PATH>/bin."
+  else
+    what="Rebuild + restage the v0 binary fleet into an ALREADY-INSTALLED <PATH> (requires a prior install)."
+  fi
+  cat <<EOF
+usage: igniter toolchain $verb [--prefix PATH]
+
+$what
+Delegates to the repo-local bootstrap installer: $INSTALLER
+
+LOCAL SOURCE ONLY — this compiles the 5 green binaries from the current igniter-lab checkout and copies
+them into <PATH>/bin. There is NO remote download, NO registry, NO version solver, NO signed artifacts,
+and NO Homebrew/Docker/tarball channel. igniter-repl is excluded (build-broken, P3).
+
+  --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $DEFAULT_PREFIX]
+  -h | --help     this help
+EOF
+  if [[ "$verb" == update ]]; then
+    cat <<EOF
+
+update requires an existing <PATH>/igniter-manifest.json (proof of a prior install); without it, update
+fails and asks you to run 'igniter toolchain install' first. install and update otherwise perform the
+same idempotent rebuild-and-restage.
+EOF
+  fi
+}
+
 cmd_toolchain() {
   local sub="${1:-}"
   case "$sub" in
@@ -194,39 +382,108 @@ cmd_toolchain() {
       toolchain_report "  "
       exit 0 ;;
     install|update)
-      echo "$PROG: 'toolchain $sub' is not implemented in v0." >&2
-      echo "  → bootstrap install/update is LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8 (build+stage the fleet)." >&2
-      echo "  → for now build per-crate, e.g.: (cd server/igniter-web && cargo build --release --bin igweb-serve)" >&2
-      exit 3 ;;
+      shift
+      cmd_toolchain_iu "$sub" "$@" ;;
     ""|-h|--help)
-      echo "usage: igniter toolchain list | install | update"
-      echo "  list             show the v0 tool fleet and whether each binary is built (live)"
-      echo "  install|update   not implemented in v0 (→ LAB-DISTRIBUTION-BOOTSTRAP-INSTALL-P8)"
+      toolchain_usage
       [[ "$sub" == "" ]] && exit 2 || exit 0 ;;
     *)
       echo "$PROG: unknown 'toolchain' subcommand '$sub' (try: list)" >&2; exit 2 ;;
   esac
 }
 
+# install/update delegate to the bootstrap installer. Both are the SAME local-source rebuild+restage;
+# `update` only adds a precondition (an existing manifest at the target prefix). Delegation requires the
+# installer co-located with this script — true in a SOURCE checkout (bin/igniter + bin/igniter-install),
+# false in a STAGED prefix (which stages only the front door) → then fail clearly, source-required.
+cmd_toolchain_iu() {
+  local verb="$1"; shift
+  local prefix=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help) toolchain_iu_usage "$verb"; exit 0 ;;
+      --prefix) prefix="${2:?--prefix requires a PATH}"; shift 2 ;;
+      --prefix=*) prefix="${1#--prefix=}"; shift ;;
+      *) echo "$PROG: toolchain $verb: unknown argument '$1'" >&2; toolchain_iu_usage "$verb" >&2; exit 2 ;;
+    esac
+  done
+
+  if [[ ! -x "$INSTALLER" ]]; then
+    echo "$PROG: 'toolchain $verb' rebuilds from source, but the bootstrap installer is not co-located:" >&2
+    echo "       not found at $INSTALLER" >&2
+    echo "  → you appear to be running a STAGED igniter (only the front door is staged, not igniter-install)." >&2
+    echo "    Re-run from an igniter-lab source checkout: (cd <checkout> && bin/igniter toolchain $verb${prefix:+ --prefix $prefix})" >&2
+    exit 3
+  fi
+
+  if [[ "$verb" == "update" ]]; then
+    local target="${prefix:-$DEFAULT_PREFIX}"
+    if [[ ! -f "$target/igniter-manifest.json" ]]; then
+      echo "$PROG: 'toolchain update' found no prior install at $target (missing igniter-manifest.json)." >&2
+      echo "  → run 'igniter toolchain install${prefix:+ --prefix $prefix}' first; update only restages an existing prefix." >&2
+      exit 3
+    fi
+  fi
+
+  # No --prefix → let the installer apply its own default (single source of truth for the real default).
+  if [[ -n "$prefix" ]]; then
+    exec "$INSTALLER" --prefix "$prefix"
+  else
+    exec "$INSTALLER"
+  fi
+}
+
 # ── verbs: fail-closed placeholders (named owner, never silent success) ───────────────────────────────
+
+package_usage() {
+  cat <<'EOF'
+igniter package — a 1:1 argv alias to `igc`, the package authority. This is ROUTING ONLY: it invents NO
+second resolver, lockfile format, package graph, registry, or trust model. All of that lives in `igc`.
+
+  igniter package lock           [args]  → igc lock            (compute/refresh the workspace lock)
+  igniter package verify         [args]  → igc verify          (WORKSPACE drift + assembly integrity)
+  igniter package verify-archive [args]  → igc package verify  (a built .igpkg ARCHIVE)
+  igniter package graph          [args]  → igc package graph
+  igniter package pack           [args]  → igc package pack
+  igniter package admit          [args]  → igc package admit
+
+`verify` vs `verify-archive` is the one explicit disambiguation: bare `verify` is the workspace check
+(`igc verify`); `.igpkg` archive verification is `verify-archive` (`igc package verify <file.igpkg>`).
+All args after the subcommand and the exit code pass through unchanged. Env: IGNITER_IGC_BIN=/path/to/igc.
+EOF
+}
 
 cmd_package() {
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
-    cat <<'EOF'
-igniter package — package trust is owned by `igc` (no second resolver). Planned delegation (P6):
-  igniter package lock                → igc lock
-  igniter package verify              → igc verify        (workspace drift + assembly integrity)
-  igniter package graph|pack|admit    → igc package graph|pack|admit
-  igniter package verify <file.igpkg> → igc package verify
-
-First-class `igniter package` delegation is not wired in this v0 skeleton. For now run `igc` directly
-(e.g. `igc lock`, `igc verify --strict`, `igc package graph --project-root .`).
-EOF
+    package_usage
     [[ $# -eq 0 ]] && exit 2 || exit 0
   fi
-  echo "$PROG: 'package $*' is not wired in v0 — package trust is owned by 'igc'." >&2
-  echo "  → run 'igc' directly for now (see 'igniter package --help'); first-class delegation is a follow-on." >&2
-  exit 3
+  local sub="$1"; shift
+  # Map `igniter package <sub>` → the igc argv prefix. Routing only — no flag parsing/reinterpretation.
+  local -a igc_args
+  case "$sub" in
+    lock)           igc_args=(lock) ;;
+    verify)         igc_args=(verify) ;;
+    verify-archive) igc_args=(package verify) ;;
+    graph)          igc_args=(package graph) ;;
+    pack)           igc_args=(package pack) ;;
+    admit)          igc_args=(package admit) ;;
+    *)
+      echo "$PROG: unknown 'package' subcommand '$sub'" >&2
+      echo "  supported (all → igc): lock | verify | verify-archive | graph | pack | admit" >&2
+      echo "  see 'igniter package --help'" >&2
+      exit 2 ;;
+  esac
+  local bin
+  if ! bin="$(resolve_igc)" || [[ ! -x "$bin" ]]; then
+    echo "$PROG: igc (the package authority) is not built/staged${bin:+ at: $bin}." >&2
+    echo "  → build it:   (cd lang/igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
+    echo "  → or install: bin/igniter-install                                    # stages a co-located 'igc'" >&2
+    echo "  → or point:   IGNITER_IGC_BIN=/path/to/igc" >&2
+    exit 1
+  fi
+  # exec preserves argv and the igc exit code verbatim.
+  exec "$bin" "${igc_args[@]}" "$@"
 }
 
 cmd_app() {

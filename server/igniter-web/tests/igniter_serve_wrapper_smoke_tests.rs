@@ -176,13 +176,11 @@ fn igniter_toolchain_list_names_fleet_and_marks_repl() {
 }
 
 /// Unimplemented commands fail non-zero and point at the intended next step — never silent success.
+/// NOTE (P11): `toolchain install` is no longer a placeholder — it now delegates to bin/igniter-install,
+/// so it is exercised by the dedicated toolchain tests below, not here. `app bundle` stays fail-closed.
 #[test]
 fn igniter_placeholders_fail_closed() {
-    for args in [
-        &["toolchain", "install"][..],
-        &["package", "lock"][..],
-        &["app", "bundle"][..],
-    ] {
+    for args in [&["app", "bundle"][..]] {
         let out = Command::new(wrapper()).args(args).output().expect("run placeholder");
         assert!(
             !out.status.success(),
@@ -192,10 +190,10 @@ fn igniter_placeholders_fail_closed() {
         // `--help` for these families must still exit 0 (help is allowed).
     }
     let help = Command::new(wrapper())
-        .args(["package", "--help"])
+        .args(["app", "--help"])
         .output()
-        .expect("package --help");
-    assert!(help.status.success(), "package --help exits 0");
+        .expect("app --help");
+    assert!(help.status.success(), "app --help exits 0");
 }
 
 /// Top-level `igniter --help` shows the P6 command family; unknown commands fail non-zero.
@@ -241,4 +239,158 @@ fn igniter_resolves_co_located_igweb_serve_in_staged_prefix() {
     assert!(out.status.success(), "staged igniter check must succeed via co-located igweb-serve: {out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("(no socket opened)"), "co-located check, no socket: {stdout}");
+}
+
+// ── P11: `igniter toolchain install|update` delegate to bin/igniter-install ──────────────────────────
+//
+// These are HERMETIC: they copy the real `bin/igniter` into a temp `bin/` next to a FAKE `igniter-install`
+// that only records its argv. This proves the delegation contract + the source-required / manifest guards
+// WITHOUT a nested cargo build (the full real build path is proven by the card's manual e2e: a
+// `toolchain install --prefix <tmp>` stages byte-identically to `bin/igniter-install --prefix <tmp>`).
+
+#[cfg(unix)]
+fn make_executable(p: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perm = std::fs::metadata(p).unwrap().permissions();
+    perm.set_mode(0o755);
+    std::fs::set_permissions(p, perm).unwrap();
+}
+
+/// Stage `<tmp>/bin/igniter` (the real front door) + a fake `igniter-install` that writes its argv to
+/// `<tmp>/install-argv.txt` and exits 0. Returns (tmp_root, staged_igniter_path, argv_capture_path).
+fn stage_with_fake_installer(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let tmp = std::env::temp_dir().join(format!("igtc_{}_{}", tag, std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let bindir = tmp.join("bin");
+    std::fs::create_dir_all(&bindir).unwrap();
+    let igniter = bindir.join("igniter");
+    std::fs::copy(wrapper(), &igniter).unwrap();
+    let capture = tmp.join("install-argv.txt");
+    let fake = format!("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > {:?}\nexit 0\n", capture);
+    let fake_path = bindir.join("igniter-install");
+    std::fs::write(&fake_path, fake).unwrap();
+    make_executable(&igniter);
+    make_executable(&fake_path);
+    (tmp, igniter, capture)
+}
+
+/// `toolchain install --prefix P` delegates to the co-located installer, forwarding `--prefix P`.
+#[test]
+fn igniter_toolchain_install_delegates_prefix_to_installer() {
+    let (tmp, igniter, capture) = stage_with_fake_installer("install_prefix");
+    let target = tmp.join("dest");
+    let out = Command::new(&igniter)
+        .args(["toolchain", "install", "--prefix"])
+        .arg(&target)
+        .output()
+        .expect("run toolchain install");
+    assert!(out.status.success(), "install must delegate+succeed: {out:?}");
+    let argv = std::fs::read_to_string(&capture).expect("installer must have been called");
+    assert!(argv.contains("--prefix"), "installer got --prefix: {argv:?}");
+    assert!(argv.contains(target.to_str().unwrap()), "installer got the prefix path: {argv:?}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `toolchain install` with no `--prefix` delegates with NO args (the installer owns the default prefix).
+#[test]
+fn igniter_toolchain_install_no_prefix_passes_no_args() {
+    let (tmp, igniter, capture) = stage_with_fake_installer("install_noprefix");
+    let out = Command::new(&igniter)
+        .args(["toolchain", "install"])
+        .output()
+        .expect("run toolchain install");
+    assert!(out.status.success(), "install must delegate+succeed: {out:?}");
+    let argv = std::fs::read_to_string(&capture).expect("installer must have been called");
+    assert!(
+        !argv.contains("--prefix"),
+        "no --prefix must be forwarded (installer owns the default): {argv:?}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `toolchain update --prefix P` fails closed when P has no prior install (no manifest), and does NOT
+/// invoke the installer.
+#[test]
+fn igniter_toolchain_update_requires_prior_manifest() {
+    let (tmp, igniter, capture) = stage_with_fake_installer("update_nomanifest");
+    let target = tmp.join("dest"); // fresh — no igniter-manifest.json
+    let out = Command::new(&igniter)
+        .args(["toolchain", "update", "--prefix"])
+        .arg(&target)
+        .output()
+        .expect("run toolchain update");
+    assert!(!out.status.success(), "update without a prior install must fail closed");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("no prior install") || stderr.contains("igniter-manifest.json"),
+        "must explain the missing manifest: {stderr}"
+    );
+    assert!(!capture.exists(), "installer must NOT be invoked on a failed precondition");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `toolchain update --prefix P` delegates when P already carries an install manifest.
+#[test]
+fn igniter_toolchain_update_delegates_when_manifest_present() {
+    let (tmp, igniter, capture) = stage_with_fake_installer("update_manifest");
+    let target = tmp.join("dest");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("igniter-manifest.json"), "{}").unwrap();
+    let out = Command::new(&igniter)
+        .args(["toolchain", "update", "--prefix"])
+        .arg(&target)
+        .output()
+        .expect("run toolchain update");
+    assert!(out.status.success(), "update with a prior install must delegate: {out:?}");
+    let argv = std::fs::read_to_string(&capture).expect("installer must have been called");
+    assert!(argv.contains(target.to_str().unwrap()), "installer got the prefix: {argv:?}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// A STAGED igniter (front door only, no co-located installer) fails install with a clear source-required
+/// message rather than pretending success or crashing.
+#[test]
+fn igniter_toolchain_install_staged_prefix_is_source_required() {
+    let tmp = std::env::temp_dir().join(format!("igtc_staged_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let bindir = tmp.join("bin");
+    std::fs::create_dir_all(&bindir).unwrap();
+    let igniter = bindir.join("igniter");
+    std::fs::copy(wrapper(), &igniter).unwrap();
+    make_executable(&igniter);
+    // No igniter-install staged next to it — mirrors what bin/igniter-install actually stages (front door only).
+    let out = Command::new(&igniter)
+        .args(["toolchain", "install", "--prefix"])
+        .arg(tmp.join("dest"))
+        .output()
+        .expect("run staged toolchain install");
+    assert!(!out.status.success(), "staged install must fail (no source checkout)");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("STAGED") || stderr.contains("source checkout"),
+        "must say source is required: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// install/update `--help` state local-source-only and the explicit no-remote/no-registry boundary.
+#[test]
+fn igniter_toolchain_install_help_states_local_source_only() {
+    let out = Command::new(wrapper())
+        .args(["toolchain", "install", "--help"])
+        .output()
+        .expect("run toolchain install --help");
+    assert!(out.status.success(), "install --help exits 0");
+    let h = String::from_utf8_lossy(&out.stdout);
+    for needle in ["LOCAL SOURCE ONLY", "NO remote download", "NO registry", "NO signed artifacts"] {
+        assert!(h.contains(needle), "install help must state `{needle}`:\n{h}");
+    }
+    let outu = Command::new(wrapper())
+        .args(["toolchain", "update", "--help"])
+        .output()
+        .expect("run toolchain update --help");
+    assert!(outu.status.success(), "update --help exits 0");
+    let hu = String::from_utf8_lossy(&outu.stdout);
+    assert!(hu.contains("igniter-manifest.json"), "update help names the manifest precondition:\n{hu}");
+    assert!(hu.contains("LOCAL SOURCE ONLY"), "update help states local-source-only:\n{hu}");
 }
