@@ -137,6 +137,8 @@ fn agent_initialize_and_lists_only_safe_tools() {
         "package_verify",
         "serve_app_bounded",
         "app_bundle",
+        "env_doctor",
+        "env_check",
     ] {
         assert!(
             tools.contains(&want.to_string()),
@@ -614,4 +616,138 @@ fn agent_tool_errors_still_have_valid_envelopes_without_secret_leaks() {
         !env_text.contains("TOPSECRET999"),
         "secret absent from content[1] envelope: {env_text}"
     );
+}
+
+// ── env_doctor / env_check (P34): secret-safe env diagnostics over MCP ───────────────────────────────────
+
+fn todo_postgres_app() -> String {
+    format!("{}/examples/todo_postgres_app", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Drive `igniter agent` with extra environment (e.g. fake DSN/token) propagated to the delegated commands.
+fn drive_agent_env(requests: &[&str], extra: &[(&str, &str)]) -> Vec<Value> {
+    let mut cmd = Command::new(wrapper());
+    cmd.arg("agent")
+        .env("IGNITER_AGENT_BIN", env!("CARGO_BIN_EXE_igniter-agent"))
+        .env("IGNITER_IGWEB_SERVE_BIN", env!("CARGO_BIN_EXE_igweb-serve"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for (k, v) in extra {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("spawn igniter agent");
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        for r in requests {
+            writeln!(stdin, "{}", r).unwrap();
+        }
+    }
+    let mut out = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    let _ = child.wait();
+    out.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<Value>(l).expect("each response line is JSON"))
+        .collect()
+}
+
+#[test]
+fn agent_env_doctor_envelope_carries_required_env_without_leak() {
+    let pg = todo_postgres_app();
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{{"name":"env_doctor","arguments":{{"path":"{}"}}}}}}"#,
+        pg
+    );
+    // export a FAKE value: status flips to set, but the value must never appear anywhere
+    let r = drive_agent_env(&[&req], &[("IGNITER_TODO_PG_DSN", "host=LEAKZZZ")]);
+    let resp = by_id(&r, 30);
+    let (human, _is_err) = tool_text(resp);
+    let env = envelope(resp);
+    assert_eq!(env["tool"], "env_doctor");
+    let p = &env["parsed"];
+    let req_env = p["required_env"]
+        .as_array()
+        .expect("parsed.required_env array");
+    assert!(
+        req_env.iter().any(|e| e["name"] == "IGNITER_TODO_PG_DSN"),
+        "names the DSN var: {p}"
+    );
+    assert!(
+        req_env
+            .iter()
+            .any(|e| e["name"] == "IGNITER_TODO_EFFECT_TOKEN"),
+        "names the token var: {p}"
+    );
+    let env_text = serde_json::to_string(&env).unwrap();
+    assert!(
+        !human.contains("LEAKZZZ") && !env_text.contains("LEAKZZZ"),
+        "the env VALUE must never appear:\nHUMAN:{human}\nENV:{env_text}"
+    );
+}
+
+#[test]
+fn agent_env_check_mirrors_cli_gate() {
+    let pg = todo_postgres_app();
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{{"name":"env_check","arguments":{{"path":"{}"}}}}}}"#,
+        pg
+    );
+    // unset → gate fails → isError:true, ok:false
+    let r_unset = drive_agent_env(&[&req], &[]);
+    let (_h, e_unset) = tool_text(by_id(&r_unset, 31));
+    assert!(
+        e_unset,
+        "env_check with unset vars must be a tool error (isError:true)"
+    );
+    assert_eq!(
+        envelope(by_id(&r_unset, 31))["ok"],
+        false,
+        "ok:false on gate fail"
+    );
+
+    // set to fake non-empty values → gate passes → isError:false
+    let r_set = drive_agent_env(
+        &[&req],
+        &[
+            ("IGNITER_TODO_PG_DSN", "x"),
+            ("IGNITER_TODO_EFFECT_TOKEN", "y"),
+        ],
+    );
+    let (_h2, e_set) = tool_text(by_id(&r_set, 31));
+    assert!(
+        !e_set,
+        "env_check with all vars set must pass (isError:false)"
+    );
+    assert_eq!(
+        envelope(by_id(&r_set, 31))["ok"],
+        true,
+        "ok:true on gate pass"
+    );
+}
+
+#[test]
+fn agent_env_tools_missing_path_are_clean_errors() {
+    let r = drive_agent(&[
+        r#"{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"env_doctor","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"env_check","arguments":{}}}"#,
+    ]);
+    for id in [32, 33] {
+        let env = envelope(by_id(&r, id));
+        assert_eq!(env["ok"], false, "id{id} missing path → ok:false");
+        assert!(
+            env["exit_code"].is_null(),
+            "id{id} arg-error exit_code:null: {env}"
+        );
+        let (t, e) = tool_text(by_id(&r, id));
+        assert!(
+            e && t.contains("missing required argument"),
+            "id{id} clean tool error: {t}"
+        );
+    }
 }

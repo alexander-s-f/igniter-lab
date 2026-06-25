@@ -15,6 +15,7 @@
 #   igniter package <lock|verify|verify-archive|graph|pack|admit>  → igc  (live; argv routing only — P12)
 #   igniter app bundle ...        → assemble a host-run app bundle (live; assembly only — P14)
 #   igniter agent                 → local stdio MCP surface for agents (live; tools shell-delegate here — P24)
+#   igniter env <doctor|template|check> → operator env-name catalogue from host.example.toml (live; names-only — P33/P34)
 #
 # No root workspace, no installer, no registry/download, no systemd/Docker/Homebrew. Point
 # IGNITER_IGWEB_SERVE_BIN at a prebuilt igweb-serve (e.g. a release-bundle path) to skip building.
@@ -63,6 +64,11 @@ Packaging & deployment:
 Agent control plane:
   agent                 start the local stdio MCP surface for agents (Codex/Claude/IDE) — SAFE, non-mutating
                         tools that delegate to this front door (doctor/toolchain_list/check_app/package_verify)
+
+Operator environment:
+  env doctor <app|bundle>     report required machine-mode env vars + set/unset/empty (values NEVER printed)
+  env template <app|bundle>   print a blank `export NAME=` skeleton (no .env read, no injection)
+  env check <app|bundle>      GATE: exit non-zero if a required env var is unset/empty
 
   -h | --help           this help
 
@@ -176,6 +182,22 @@ toml_str() {
         sub(/^[^=]*=[[:space:]]*/,"",line); gsub(/^"|"[[:space:]]*$/,"",line); print line; exit
       }
     }' "$1"
+}
+
+# ── manifest.json readers (P35 admit) — the manifest is emitted by THIS tool with a stable shape, so a
+# narrow grep/sed parse is sufficient (and keeps `admit` free of a JSON dependency). ───────────────────
+# String value of a `"key": "value"` field. `"app"` won't match inside `"app_sources"` (closing quote).
+mjson_str() {
+  grep -oE "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$1" | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'
+}
+# Bare boolean value of a `"key": true|false` field.
+mjson_bool() {
+  grep -oE "\"$2\"[[:space:]]*:[[:space:]]*(true|false)" "$1" | head -1 | sed -E 's/.*:[[:space:]]*//'
+}
+# The runner sha256 lives on its OWN indented line (`    "sha256": "…"`); app_sources shas are inline in the
+# `"app_sources": […]` array line, so anchoring to a leading-whitespace `"sha256"` isolates the runner one.
+mjson_runner_sha() {
+  grep -E '^[[:space:]]*"sha256"[[:space:]]*:' "$1" | head -1 | sed -E 's/.*"sha256"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/'
 }
 
 # ── verbs: live ─────────────────────────────────────────────────────────────────────────────────────
@@ -581,6 +603,20 @@ Emits  <out>/<appname>-<version>/:
 Host-owned (OUTSIDE the bundle): systemd install/enable, the `current` symlink swap, public bind / reverse
 proxy, TLS, DB creation/migration, secrets / DSNs / tokens / a real host.toml, and Docker. The bundle bakes
 no bind authority — loopback refusal stays single-sourced in igweb-serve.
+
+usage: igniter app admit <bundle_dir> --release-root <dir>
+
+VALIDATE a bundle and COPY it into a release root. Admission is validate+place ONLY — it does NOT touch
+`current`, install/restart systemd, expose a listener, create a DB, or ship secrets.
+
+  <bundle_dir>        a directory produced by `igniter app bundle`
+  --release-root DIR  copies the admitted release into <DIR>/releases/<app>/<version>/
+
+Gates (all must pass; fail-closed, no partial release): manifest parses; bundle_format_version=="1";
+bind_policy=="loopback"; public_release==false; bin/igweb-serve re-hash matches manifest; every app source
+re-hash matches; checks/check.sh passes; no real host.toml; requires_machine ⇒ host.toml.example present;
+destination must not already exist (no --force in v0). Activation (`current`), restart, and exposure stay
+host-owned and are NOT performed.
 EOF
 }
 
@@ -797,13 +833,108 @@ MANEOF
   echo "  next (host-owned): edit systemd/$appname.service.example ExecStart, then enable it; bind/TLS/secrets stay host-owned."
 }
 
+# `igniter app admit <bundle_dir> --release-root <dir>` (P35) — VALIDATE a bundle then COPY it into
+# <release-root>/releases/<app>/<version>/. Admission is validate+place ONLY: it never touches `current`,
+# systemd, network, secrets, or DBs. All gates run on the SOURCE before any staging, and the copy is staged
+# within the release root and atomically renamed — a refusal leaves no partial release.
+app_admit() {
+  local bundle_dir="" release_root=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --release-root) release_root="${2:-}"; shift 2 ;;
+      -h|--help) app_usage; exit 0 ;;
+      -*) echo "$PROG: app admit: unknown option '$1'" >&2; exit 2 ;;
+      *)  bundle_dir="$1"; shift ;;
+    esac
+  done
+  [[ -n "$bundle_dir" ]] || { echo "$PROG: app admit: missing <bundle_dir>" >&2; app_usage >&2; exit 2; }
+  [[ -d "$bundle_dir" ]] || { echo "$PROG: app admit: no such bundle dir: $bundle_dir" >&2; exit 2; }
+  [[ -n "$release_root" ]] || { echo "$PROG: app admit: --release-root <dir> is required" >&2; exit 2; }
+
+  local man="$bundle_dir/manifest.json"
+  [[ -f "$man" ]] || { echo "$PROG: app admit: refusing — no manifest.json in $bundle_dir (gate 1)" >&2; exit 2; }
+
+  # gate 1: manifest fields parse
+  local app version bind_policy public_release fmt requires_machine runner_sha
+  app="$(mjson_str "$man" app)"
+  version="$(mjson_str "$man" version)"
+  bind_policy="$(mjson_str "$man" bind_policy)"
+  fmt="$(mjson_str "$man" bundle_format_version)"
+  public_release="$(mjson_bool "$man" public_release)"
+  requires_machine="$(mjson_bool "$man" requires_machine)"
+  runner_sha="$(mjson_runner_sha "$man")"
+  [[ -n "$app" && -n "$version" && -n "$runner_sha" ]] \
+    || { echo "$PROG: app admit: refusing — manifest.json missing app/version/runner.sha256 (gate 1)" >&2; exit 2; }
+
+  # gates 2-4: format + policy
+  [[ "$fmt" == "1" ]] || { echo "$PROG: app admit: refusing — bundle_format_version='$fmt' != '1' (gate 2)" >&2; exit 2; }
+  [[ "$bind_policy" == "loopback" ]] || { echo "$PROG: app admit: refusing — bind_policy='$bind_policy' != 'loopback' (gate 3)" >&2; exit 2; }
+  [[ "$public_release" == "false" ]] || { echo "$PROG: app admit: refusing — public_release='$public_release' != false (gate 4)" >&2; exit 2; }
+
+  # gate 5: re-hash the runner; must equal manifest.runner.sha256
+  [[ -f "$bundle_dir/bin/igweb-serve" ]] || { echo "$PROG: app admit: refusing — bundle has no bin/igweb-serve (gate 5)" >&2; exit 2; }
+  local actual_runner; actual_runner="$(sha256_of "$bundle_dir/bin/igweb-serve")"
+  [[ "$actual_runner" == "$runner_sha" ]] \
+    || { echo "$PROG: app admit: refusing — bin/igweb-serve sha256 mismatch (gate 5: tampered runner)" >&2; exit 2; }
+
+  # gate 6: re-hash every app source; each must exist and match
+  local pair p sha actual
+  while IFS= read -r pair; do
+    [[ -z "$pair" ]] && continue
+    p="$(printf '%s' "$pair" | sed -E 's/.*"path":"([^"]*)".*/\1/')"
+    sha="$(printf '%s' "$pair" | sed -E 's/.*"sha256":"([^"]*)".*/\1/')"
+    [[ -f "$bundle_dir/$p" ]] || { echo "$PROG: app admit: refusing — app source missing: $p (gate 6)" >&2; exit 2; }
+    actual="$(sha256_of "$bundle_dir/$p")"
+    [[ "$actual" == "$sha" ]] || { echo "$PROG: app admit: refusing — app source sha256 mismatch: $p (gate 6: tampered source)" >&2; exit 2; }
+  done < <(grep -oE '\{"path":"[^"]*","sha256":"[^"]*"\}' "$man")
+
+  # gate 7: the bundle's own check.sh must pass (opens no socket/DB)
+  [[ -f "$bundle_dir/checks/check.sh" ]] || { echo "$PROG: app admit: refusing — no checks/check.sh (gate 7)" >&2; exit 2; }
+  if ! bash "$bundle_dir/checks/check.sh" >/dev/null 2>&1; then
+    echo "$PROG: app admit: refusing — bundle checks/check.sh failed (gate 7)" >&2; exit 2
+  fi
+
+  # gate 8: a real host.toml must never be admitted
+  if [[ -f "$bundle_dir/host.toml" ]]; then
+    echo "$PROG: app admit: refusing — bundle contains a real 'host.toml' (gate 8: host-owned, may hold secrets)" >&2; exit 2
+  fi
+  # gate 9: machine-mode bundles must carry the commit-safe example
+  if [[ "$requires_machine" == "true" && ! -f "$bundle_dir/host.toml.example" ]]; then
+    echo "$PROG: app admit: refusing — requires_machine but no host.toml.example (gate 9)" >&2; exit 2
+  fi
+
+  # gate 10: never silently overwrite an admitted release (no --force in v0)
+  local dest_parent="$release_root/releases/$app"
+  local dest="$dest_parent/$version"
+  [[ -e "$dest" ]] && { echo "$PROG: app admit: refusing — release already admitted at $dest (gate 10; no --force in v0)" >&2; exit 2; }
+
+  # copy: stage WITHIN the release root (same filesystem → atomic rename); source is never moved/symlinked.
+  mkdir -p "$dest_parent"
+  local stage="$dest_parent/.admit-staging-$version-$$"
+  rm -rf "$stage"
+  trap 'rm -rf "$stage"' EXIT
+  mkdir -p "$stage"
+  cp -R "$bundle_dir"/. "$stage"/
+  mv "$stage" "$dest"
+  trap - EXIT
+
+  echo "$PROG: app admit ok"
+  echo "  app:              $app"
+  echo "  version:          $version"
+  echo "  admitted_path:    $dest"
+  echo "  runner_sha256:    $runner_sha"
+  echo "  requires_machine: $requires_machine"
+  echo "  next (host-owned): activation/current/service restart are NOT performed by admit."
+}
+
 cmd_app() {
   local sub="${1:-}"
   case "$sub" in
     ""|-h|--help) app_usage; [[ "$sub" == "" ]] && exit 2 || exit 0 ;;
     bundle) shift; app_bundle "$@" ;;
+    admit)  shift; app_admit "$@" ;;
     *)
-      echo "$PROG: unknown 'app' subcommand '$sub' (try: bundle)" >&2
+      echo "$PROG: unknown 'app' subcommand '$sub' (try: bundle | admit)" >&2
       echo "  see 'igniter app --help'" >&2
       exit 2 ;;
   esac
@@ -824,6 +955,8 @@ v0 tools:
   package_verify  → igniter package verify              (→ igc verify; argv routing only)
   app_bundle      → igniter app bundle <app> --out <dir> --version <v>   (assembly only; bundler owns all
                     safety — host.toml/secret refusal, atomic staging; no deploy/systemd/public-bind)
+  env_doctor      → igniter env doctor <path>           (required env NAMES + set/unset/empty; values never)
+  env_check       → igniter env check <path>            (GATE: isError if a required env var is unset/empty)
   serve_app_bounded → igniter serve --addr 127.0.0.1:0 --max-requests N  (loopback + bounded ≤5; one GET;
                     waits for clean exit — NOT a daemon: no public bind, no background handle, no restart)
 
@@ -848,6 +981,121 @@ cmd_agent() {
   exec env IGNITER_BIN="$SCRIPT_DIR/igniter" "$bin"
 }
 
+# ── env (operator environment catalogue — P33) ───────────────────────────────────────────────────────
+
+env_usage() {
+  cat <<'EOF'
+usage: igniter env doctor   <app_or_bundle>
+       igniter env template <app_or_bundle>
+       igniter env check    <app_or_bundle>
+
+Report the machine-mode environment a host needs, from the COMMIT-SAFE env-name catalogue:
+  app dir   → host.example.toml
+  bundle    → host.toml.example
+The real host.toml is operator-owned and is NEVER required (or read) here.
+
+  doctor    list each required env var and whether it is set/unset/empty in THIS process (values NEVER printed)
+  template  print a blank `export NAME=` skeleton for the operator to fill (current values are NOT shown)
+  check     GATE: exit non-zero if any required env var is unset/empty (or the catalogue is invalid)
+
+Secret-safe: env var NAMES only. Values are never read or printed — only set/unset/empty status.
+A `.env` file is NOT read in v0. No injection, no deploy, no real host.toml.
+EOF
+}
+
+# Emit `section|key|NAME` for every `*_env = "NAME"` in the catalogue file (stable file order).
+env_catalogue() {
+  awk '
+    /^[[:space:]]*\[/ { sec=$0; gsub(/[][[:space:]]/,"",sec); next }
+    /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*_env[[:space:]]*=/ {
+      line=$0
+      key=line; sub(/[[:space:]]*=.*/,"",key); gsub(/[[:space:]]/,"",key)
+      val=line; sub(/^[^=]*=[[:space:]]*/,"",val); gsub(/^"|"[[:space:]]*$|[[:space:]]*$/,"",val)
+      print sec "|" key "|" val
+    }
+  ' "$1"
+}
+
+cmd_env() {
+  local verb="${1:-}"; shift || true
+  case "$verb" in
+    -h|--help|"") env_usage; [[ "$verb" == "" ]] && exit 2 || exit 0 ;;
+    doctor|template|check) : ;;
+    *) echo "$PROG: unknown 'env' subcommand '$verb' (try: doctor | template | check)" >&2; exit 2 ;;
+  esac
+
+  local target="${1:-}"
+  [[ -n "$target" ]] || { echo "$PROG: env $verb: missing <app_or_bundle>" >&2; env_usage >&2; exit 2; }
+  [[ -d "$target" ]] || { echo "$PROG: env $verb: not a directory: $target" >&2; exit 2; }
+
+  # catalogue resolution: app `host.example.toml` → bundle `host.toml.example` → none
+  local cat=""
+  if [[ -f "$target/host.example.toml" ]]; then cat="$target/host.example.toml"
+  elif [[ -f "$target/host.toml.example" ]]; then cat="$target/host.toml.example"; fi
+
+  if [[ -z "$cat" ]]; then
+    echo "igniter env $verb: no machine-mode env required (no host.example.toml / host.toml.example in $target)"
+    exit 0
+  fi
+
+  # extract + validate names (reject empty + template syntax); dedup by NAME in stable order
+  local -a seen=() rows=()
+  local row sec key name
+  while IFS='|' read -r sec key name; do
+    [[ -z "$key" ]] && continue
+    if [[ -z "$name" ]]; then
+      echo "$PROG: env $verb: empty env-name for '$key' in $cat (expected $key = \"VAR_NAME\")" >&2; exit 2
+    fi
+    case "$name" in
+      *'$'*|*'{{'*|*'}}'*) echo "$PROG: env $verb: template syntax in env-name '$name' ($key) is not supported" >&2; exit 2 ;;
+    esac
+    # dedup by NAME (keep first context)
+    local dup=0 s
+    for s in ${seen[@]+"${seen[@]}"}; do [[ "$s" == "$name" ]] && { dup=1; break; }; done
+    [[ "$dup" == 1 ]] && continue
+    seen+=("$name"); rows+=("$sec|$key|$name")
+  done < <(env_catalogue "$cat")
+
+  if [[ "${#rows[@]}" -eq 0 ]]; then
+    echo "igniter env $verb: no env-name references (*_env) in $cat"
+    exit 0
+  fi
+
+  if [[ "$verb" == "template" ]]; then
+    echo "# blank export skeleton from $cat — fill values in your shell/host, never commit them"
+    for row in "${rows[@]}"; do
+      IFS='|' read -r sec key name <<<"$row"
+      echo "export $name=   # ${sec:+[$sec].}$key"
+    done
+    exit 0
+  fi
+
+  # doctor + check share the status scan: set / unset / empty, never the value. doctor is a report (exit 0);
+  # check is a GATE (exit non-zero if any required var is unset/empty).
+  local header missing=0
+  if [[ "$verb" == "check" ]]; then header="igniter env check — required machine-mode env from $cat (values never read):"
+  else header="igniter env doctor — required machine-mode env from $cat (values never read):"; fi
+  echo "$header"
+  for row in "${rows[@]}"; do
+    IFS='|' read -r sec key name <<<"$row"
+    local status
+    if [[ -z "${!name+x}" ]]; then status="unset"; missing=$((missing+1))
+    elif [[ -z "${!name}" ]]; then status="empty"; missing=$((missing+1))
+    else status="set"; fi
+    printf '  [%-5s] %s  (%s%s)\n' "$status" "$name" "${sec:+[$sec].}" "$key"
+  done
+
+  if [[ "$verb" == "check" ]]; then
+    if [[ "$missing" -gt 0 ]]; then
+      echo "igniter env check: FAIL — $missing required env var(s) unset/empty (export them, never commit values)" >&2
+      exit 1
+    fi
+    echo "igniter env check: ok — all required env vars are set"
+    exit 0
+  fi
+  exit 0   # doctor: a report, not a gate
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────────────
 
 main() {
@@ -861,6 +1109,7 @@ main() {
     package)   shift; cmd_package "$@" ;;
     app)       shift; cmd_app "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
+    env)       shift; cmd_env "$@" ;;
     *)
       echo "$PROG: unknown command '$sub'" >&2
       echo >&2

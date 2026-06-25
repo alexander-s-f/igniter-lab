@@ -103,6 +103,24 @@ fn tools_list() -> Value {
                 },
                 "required": ["app_dir"]
             }
+        },
+        {
+            "name": "env_doctor",
+            "description": "Report the machine-mode env-var NAMES an app/bundle needs + their set/unset/empty status (delegates to `igniter env doctor`). Reads the commit-safe host.example.toml / host.toml.example catalogue. Report-only. NEVER reads or prints env values.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "App dir or produced bundle dir" } },
+                "required": ["path"]
+            }
+        },
+        {
+            "name": "env_check",
+            "description": "GATE: non-zero (isError) if any required env var is unset/empty or the catalogue is invalid (delegates to `igniter env check`). NEVER reads or prints env values.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "App dir or produced bundle dir" } },
+                "required": ["path"]
+            }
         }
     ])
 }
@@ -400,6 +418,31 @@ fn parse_bundle(stdout: &str) -> Value {
     Value::Null
 }
 
+/// Parse `igniter env doctor|check` output (`  [status] NAME  (ctx)` lines) into a structured catalogue.
+/// Names + statuses only — values are never present in the CLI output, so none can leak here.
+fn parse_env_report(stdout: &str, path: &str, ok: bool) -> Value {
+    let mut required = Vec::new();
+    for line in stdout.lines() {
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix('[') {
+            if let Some(close) = rest.find(']') {
+                let status = rest[..close].trim().to_string();
+                if matches!(status.as_str(), "set" | "unset" | "empty") {
+                    let name = rest[close + 1..]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+                    if !name.is_empty() {
+                        required.push(json!({ "name": name, "status": status }));
+                    }
+                }
+            }
+        }
+    }
+    json!({ "path": path, "required_env": required, "ok": ok })
+}
+
 fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
     let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let args = params
@@ -544,6 +587,23 @@ fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
                 "serve_app_bounded",
                 "missing required argument: app_dir",
             ),
+        },
+        "env_doctor" => match args.get("path").and_then(|v| v.as_str()) {
+            Some(p) => {
+                let (code, so, se) = run_igniter(&["env", "doctor", p]);
+                let parsed = parse_env_report(&so, p, code == 0);
+                tool_command_result(out, id, "env_doctor", code, &so, &se, code != 0, parsed);
+            }
+            None => tool_arg_error(out, id, "env_doctor", "missing required argument: path"),
+        },
+        "env_check" => match args.get("path").and_then(|v| v.as_str()) {
+            Some(p) => {
+                // env check is a GATE: non-zero exit → isError:true mirrors the CLI.
+                let (code, so, se) = run_igniter(&["env", "check", p]);
+                let parsed = parse_env_report(&so, p, code == 0);
+                tool_command_result(out, id, "env_check", code, &so, &se, code != 0, parsed);
+            }
+            None => tool_arg_error(out, id, "env_check", "missing required argument: path"),
         },
         other => tool_enveloped(
             out,
