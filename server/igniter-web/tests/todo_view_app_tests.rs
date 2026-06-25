@@ -331,3 +331,26 @@ fn authored_renderview_unsupported_node_fails_closed_to_json_500() {
     assert!(body.contains("render failed"));
     assert!(body.contains("unsupported_node"), "kind surfaced: {body}");
 }
+
+// ---- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NODE: an authored `link` node, path param → safe relative href ----
+
+#[test]
+fn link_node_renders_safe_relative_href_from_path_param() {
+    // No request body — `MakeLink` + `FormView` author the artifact in `.ig` records; the route param
+    // `:todo_id` flows into BOTH the visible label and a fail-closed relative href, rendered via RenderView.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/link-html/42", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+    assert!(body.contains("<title>Navigation</title>"));
+    // the path param flowed into both the href and the label; rendered as a safe <a>.
+    assert!(
+        body.contains("<a class=\"ig-link\" href=\"/todos/42\">Todo 42</a>"),
+        "link with param in href + text: {body}"
+    );
+}

@@ -179,3 +179,30 @@ pure contract TodoHelperHtml {
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }
+
+-- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NODE: the first URL-bearing node. `MakeLink` sets the flat `HtmlNode`'s
+-- `kind: "link"` with `text` = visible label and `action` = href; the renderer routes the href through the
+-- fail-closed `safe_url` and the text through `escape`. App-local helper over the flat record — no new
+-- schema field, no nesting, no raw HTML.
+pure contract MakeLink {
+  input text : String
+  input href : String
+  compute node : HtmlNode = { kind: "link", id: "", label: "", text: text, required: false, action: href, options: [] }
+  output node : HtmlNode
+}
+
+-- A navigation/pagination route proving a path param flows into a SAFE RELATIVE href (and the label).
+-- `/todos/link-html/:todo_id` builds `<a href="/todos/<id>">Todo <id></a>` via `MakeLink` + `FormView` +
+-- `RenderView` — the index→detail / "load more" affordance, authored from typed records (no request-body JSON).
+pure contract TodoLinkHtml {
+  input req     : Request
+  input todo_id : Option[String]
+  compute id    : String = or_else(todo_id, "none")
+  compute label : String = concat("Todo ", id)
+  compute href  : String = concat("/todos/", id)
+  compute link  : HtmlNode = call_contract("MakeLink", label, href)
+  compute body  : Collection[HtmlNode] = [link]
+  compute view  : ViewArtifact = call_contract("FormView", "Navigation", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}

@@ -101,3 +101,83 @@ fn empty_form_body_is_rejected() {
         Err(RenderHtmlError::InvalidArtifact(_))
     ));
 }
+
+// ── LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NODE: the first URL-bearing node (`text` = label, `action` = href) ──
+
+#[test]
+fn link_renders_relative_and_http_s_anchors() {
+    for href in [
+        "/todos/42",
+        "/todos?after=todo_2",
+        "http://example.com/x",
+        "https://example.com/y",
+        "./detail",
+    ] {
+        let artifact = format!(
+            r#"{{ "artifact":"view", "layout":"form", "title":"Nav", "body":[ {{ "kind":"link", "text":"Next", "action":"{href}" }} ] }}"#
+        );
+        let html = render_html(&artifact).expect("link renders");
+        assert!(
+            html.contains(&format!("<a class=\"ig-link\" href=\"{href}\">Next</a>")),
+            "href {href} → {html}"
+        );
+    }
+}
+
+#[test]
+fn link_rejects_dangerous_schemes_without_emitting_anchor() {
+    for href in [
+        "javascript:alert(1)",
+        "data:text/html;base64,xxx",
+        "mailto:x@y.z",
+    ] {
+        let artifact = format!(
+            r#"{{ "artifact":"view", "layout":"form", "title":"Nav", "body":[ {{ "kind":"link", "text":"Click", "action":"{href}" }} ] }}"#
+        );
+        let r = render_html(&artifact);
+        assert!(
+            matches!(r, Err(RenderHtmlError::UnsafeUrl(_))),
+            "scheme {href} must fail closed, got {r:?}"
+        );
+        // and certainly no anchor leaks out
+        if let Ok(html) = r {
+            assert!(!html.contains("<a "), "no anchor for {href}: {html}");
+        }
+    }
+}
+
+#[test]
+fn link_text_and_href_are_escaped() {
+    // malicious label + an href carrying an HTML-significant `&` are both escaped on the way to bytes.
+    let artifact = r#"{ "artifact":"view", "layout":"form", "title":"X",
+        "body":[ { "kind":"link", "text":"<script>x</script>", "action":"/q?a=1&b=2" } ] }"#;
+    let html = render_html(artifact).unwrap();
+    assert!(
+        html.contains("&lt;script&gt;x&lt;/script&gt;"),
+        "link text escaped: {html}"
+    );
+    assert!(
+        !html.contains("<script>"),
+        "raw script must not appear: {html}"
+    );
+    assert!(
+        html.contains("href=\"/q?a=1&amp;b=2\""),
+        "href escaped: {html}"
+    );
+}
+
+#[test]
+fn link_missing_text_or_action_fails_closed() {
+    let no_action = r#"{ "artifact":"view", "layout":"form", "title":"X",
+        "body":[ { "kind":"link", "text":"Next" } ] }"#;
+    assert!(matches!(
+        render_html(no_action),
+        Err(RenderHtmlError::InvalidArtifact(_))
+    ));
+    let no_text = r#"{ "artifact":"view", "layout":"form", "title":"X",
+        "body":[ { "kind":"link", "action":"/todos" } ] }"#;
+    assert!(matches!(
+        render_html(no_text),
+        Err(RenderHtmlError::InvalidArtifact(_))
+    ));
+}

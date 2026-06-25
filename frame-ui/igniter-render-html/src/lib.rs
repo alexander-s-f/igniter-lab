@@ -248,6 +248,15 @@ fn render_component(cv: &Value) -> Result<String, RenderHtmlError> {
             escape(req(cv, "action", "button component")?),
             escape(req(cv, "label", "button component")?),
         )),
+        // LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NODE: the first URL-bearing node. Reuses the flat HtmlNode
+        // fields (`text` = visible label, `action` = href) — no new schema field, no nesting. The href
+        // routes through `safe_url` (fail-closed on non-`http(s)`/relative schemes) and the label through
+        // `escape`; a missing `text`/`action` fails closed via `req` (InvalidArtifact). No raw HTML.
+        "link" => {
+            let href = safe_url(req(cv, "action", "link component")?)?;
+            let text = escape(req(cv, "text", "link component")?);
+            Ok(format!("<a class=\"ig-link\" href=\"{href}\">{text}</a>"))
+        }
         "text" | "select" | "checkbox" => render_input(cv, kind, "component"),
         other => Err(RenderHtmlError::UnsupportedNode(format!(
             "unknown component kind '{other}'"

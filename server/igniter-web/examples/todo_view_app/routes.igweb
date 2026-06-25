@@ -28,6 +28,8 @@ app TodoViewWeb entry Serve {
   route GET "/todos/authored-html/:todo_id" -> TodoAuthoredHtml
   -- LAB-IGNITER-WEB-VIEWARTIFACT-HELPER-CONTRACTS-P20: same artifact via helper contracts.
   route GET "/todos/helper-html/:todo_id"   -> TodoHelperHtml
+  -- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NODE: a `link` node whose href carries the path param (nav/pagination).
+  route GET "/todos/link-html/:todo_id"     -> TodoLinkHtml
   route GET "/bad-node"                      -> TodoBadNode
 
   scope "/api" {
