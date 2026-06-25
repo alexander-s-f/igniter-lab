@@ -26,6 +26,10 @@ fn todo_app() -> String {
     format!("{}/examples/todo_app", env!("CARGO_MANIFEST_DIR"))
 }
 
+fn todo_postgres_app() -> String {
+    format!("{}/examples/todo_postgres_app", env!("CARGO_MANIFEST_DIR"))
+}
+
 fn igweb_serve_bin() -> &'static str {
     env!("CARGO_BIN_EXE_igweb-serve")
 }
@@ -243,4 +247,50 @@ fn emitted_run_script_serves_from_bundle_on_loopback() {
     // Bounded run must exit on its own (no daemon/orphan); clean up defensively if it lingers.
     let status = child.wait().expect("wait bundled runner");
     assert!(status.success(), "bundled runner must exit cleanly after its bounded run");
+}
+
+// ── machine-mode (P29): todo_postgres_app bundle is host-config ready, still assembly-only ──────────────
+
+/// Bundling a machine-mode app (ships `host.example.toml`) emits a host-config-aware run script + systemd
+/// example, keeps `requires_machine:true`, and stays secret-free / DB-free. Assembly only — no DB, no real
+/// host.toml, no live machine run.
+#[test]
+fn bundle_todo_postgres_app_is_machine_mode_ready() {
+    let out = tmp("pg");
+    let (stdout, stderr, code) =
+        run_bundle(&[&todo_postgres_app(), "--out", out.to_str().unwrap(), "--version", "V1"]);
+    assert_eq!(code, 0, "machine-mode bundle must succeed: {stdout}{stderr}");
+    let b = out.join("todo_postgres_app-V1");
+
+    // host.toml.example is copied; the real host.toml is NEVER bundled.
+    assert!(b.join("host.toml.example").exists(), "host.toml.example copied");
+    assert!(!b.join("host.toml").exists(), "a real host.toml must NEVER be bundled");
+
+    // manifest: requires_machine + loopback, and NO secret material.
+    let manifest = fs::read_to_string(b.join("manifest.json")).unwrap();
+    assert!(manifest.contains("\"requires_machine\": true"), "requires_machine true: {manifest}");
+    assert!(manifest.contains("\"bind_policy\": \"loopback\""), "bind_policy loopback: {manifest}");
+    for secret in ["password", "\"dsn\"", "passport", "bearer"] {
+        assert!(!manifest.to_lowercase().contains(secret), "manifest carries no secret `{secret}`: {manifest}");
+    }
+
+    // run script: host-config precedence env-override → bundle host.toml → none; never passes host.toml.example.
+    let run = fs::read_to_string(b.join("run/run-todo_postgres_app.sh")).unwrap();
+    assert!(run.contains("IGNITER_TODO_POSTGRES_APP_HOST_CONFIG"), "env override branch: {run}");
+    assert!(run.contains("-f \"$here/host.toml\""), "bundle host.toml branch: {run}");
+    assert!(run.contains("machine-mode config not active"), "no-config note branch: {run}");
+    assert!(!run.contains("--host-config \"$here/host.toml.example\""), "must NOT pass host.toml.example as config: {run}");
+
+    // systemd example names the HOST_CONFIG env var but carries no secret values.
+    let unit = fs::read_to_string(b.join("systemd/todo_postgres_app.service.example")).unwrap();
+    assert!(unit.contains("IGNITER_TODO_POSTGRES_APP_HOST_CONFIG"), "unit names HOST_CONFIG env: {unit}");
+    assert!(!unit.to_lowercase().contains("password") && !unit.contains("dsn="), "unit has no secret values: {unit}");
+
+    // checks/check.sh passes WITHOUT any DB env vars / real host.toml (opens no socket/DB).
+    let chk = std::process::Command::new("bash")
+        .arg(b.join("checks/check.sh"))
+        .env_remove("IGNITER_TODO_PG_DSN")
+        .output()
+        .expect("run check.sh");
+    assert!(chk.status.success(), "machine-mode check.sh must pass with no DB env: {chk:?}");
 }

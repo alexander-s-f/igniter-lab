@@ -676,8 +676,30 @@ app_bundle() {
   done
   [[ -n "$host_example" ]] && cp "$host_example" "$stage/host.toml.example"
 
-  # emitted loopback runner script
-  cat > "$stage/run/run-$appname.sh" <<RUNEOF
+  # emitted loopback runner script. Pure apps stay byte-compatible; machine-mode apps (host.toml.example
+  # present) gain an explicit host-config precedence: env override → bundle host.toml → none.
+  if [[ "$requires_machine" == true ]]; then
+    cat > "$stage/run/run-$appname.sh" <<RUNEOF
+#!/usr/bin/env bash
+# loopback runner for '$appname' (emitted by 'igniter app bundle'). Public-bind refusal lives in igweb-serve.
+# Machine-mode host-config precedence: IGNITER_${app_env}_HOST_CONFIG → bundle host.toml → none (template only).
+# NOTE: --host-config needs an igweb-serve built with --features machine; secrets live in env vars the
+# host.toml *references*, never in this script or the bundle.
+set -euo pipefail
+here="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="\${IGNITER_${app_env}_PORT:-18080}"
+MAX="\${IGNITER_${app_env}_MAX_REQUESTS:-1024}"
+if [[ -n "\${IGNITER_${app_env}_HOST_CONFIG:-}" ]]; then
+  exec "\$here/bin/igweb-serve" --addr "127.0.0.1:\${PORT}" --max-requests "\$MAX" --host-config "\${IGNITER_${app_env}_HOST_CONFIG}" "\$here/app/$appname"
+elif [[ -f "\$here/host.toml" ]]; then
+  exec "\$here/bin/igweb-serve" --addr "127.0.0.1:\${PORT}" --max-requests "\$MAX" --host-config "\$here/host.toml" "\$here/app/$appname"
+else
+  echo "run: machine-mode config not active (set IGNITER_${app_env}_HOST_CONFIG, or copy host.toml.example → host.toml). Serving observed/loopback only." >&2
+  exec "\$here/bin/igweb-serve" --addr "127.0.0.1:\${PORT}" --max-requests "\$MAX" "\$here/app/$appname"
+fi
+RUNEOF
+  else
+    cat > "$stage/run/run-$appname.sh" <<RUNEOF
 #!/usr/bin/env bash
 # loopback runner for '$appname' (emitted by 'igniter app bundle'). Public-bind refusal lives in igweb-serve.
 set -euo pipefail
@@ -686,9 +708,15 @@ PORT="\${IGNITER_${app_env}_PORT:-18080}"
 MAX="\${IGNITER_${app_env}_MAX_REQUESTS:-1024}"
 exec "\$here/bin/igweb-serve" --addr "127.0.0.1:\${PORT}" --max-requests "\$MAX" "\$here/app/$appname"
 RUNEOF
+  fi
   chmod +x "$stage/run/run-$appname.sh"
 
-  # emitted pre-start check (re-runs the bundle-time gate on the host)
+  # emitted pre-start check (re-runs the bundle-time gate on the host). Opens NO socket / DB. For machine-mode
+  # apps it also asserts host.toml.example is present, but never requires a real host.toml or any env vars.
+  local mc_check=""
+  if [[ "$requires_machine" == true ]]; then
+    mc_check='[[ -f "$here/host.toml.example" ]] || { echo "check: host.toml.example missing (machine-mode app)"; exit 1; }'
+  fi
   cat > "$stage/checks/check.sh" <<CHKEOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -696,12 +724,20 @@ here="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
 runner="\$here/bin/igweb-serve"; app="\$here/app/$appname"
 [[ -x "\$runner" ]] || { echo "check: runner missing or not executable"; exit 1; }
 [[ -f "\$app/igweb.toml" ]] || { echo "check: igweb.toml missing"; exit 1; }
+$mc_check
 "\$runner" check "\$app" >/dev/null
 echo "check: ok ($appname)"
 CHKEOF
   chmod +x "$stage/checks/check.sh"
 
-  # emitted systemd unit TEMPLATE (never installed; operator edits ExecStart path + enables it)
+  # emitted systemd unit TEMPLATE (never installed; operator edits ExecStart path + enables it). For
+  # machine-mode apps it also shows the host-config env var NAME (value is host-owned; no secrets in the unit).
+  local mc_unit_env=""
+  if [[ "$requires_machine" == true ]]; then
+    mc_unit_env="# Machine-mode: point HOST_CONFIG at the host-owned host.toml (copy host.toml.example → host.toml first).
+# Secrets live in the env vars that host.toml *references* (DSN/token/passport), NOT in this unit.
+Environment=IGNITER_${app_env}_HOST_CONFIG=%h/igniter-apps/$appname-$version/host.toml"
+  fi
   cat > "$stage/systemd/$appname.service.example" <<UNITEOF
 # TEMPLATE — not installed by Igniter. Copy to the host, set ExecStart to the deployed run script path,
 # then 'systemctl --user enable --now'. Bind/exposure/TLS/secrets are host-owned.
@@ -713,6 +749,7 @@ After=network-online.target
 Type=simple
 Environment=IGNITER_${app_env}_PORT=18080
 Environment=IGNITER_${app_env}_MAX_REQUESTS=1024
+$mc_unit_env
 ExecStart=%h/igniter-apps/$appname-$version/run/run-$appname.sh
 Restart=always
 RestartSec=2
