@@ -8,8 +8,8 @@
 # NOT a second package manager.
 #
 # Never installs: secrets, host-config with inline secrets, DB DSNs, systemd units, Docker files, public
-# listeners. No network/registry/upload/signing. `igniter-repl` is optional (release build recovered;
-# not in the default v0 fleet pending headless smoke — P17), so it is not built/staged here.
+# listeners. No network/registry/upload/signing. `igniter-repl` is optional (release build recovered, P1;
+# headless smoke P20) — NOT in the default fleet, but staged on demand via `--with-repl` (P21).
 set -euo pipefail
 
 PROG="igniter-install"
@@ -18,20 +18,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LANG_INVENTORY="$REPO_ROOT/../igniter-lang/docs/spec/stdlib-inventory.json"
 
 PREFIX="${HOME}/.igniter"   # default; override with --prefix
+WITH_REPL=0                 # opt-in: also stage the optional igniter-repl (NOT a default fleet member)
 
 usage() {
   cat <<EOF
-usage: igniter-install [--prefix PATH]
+usage: igniter-install [--prefix PATH] [--with-repl]
 
 Bootstrap the Igniter control center from this checkout into PATH (default: \$HOME/.igniter).
 Builds 5 release binaries package-locally (no root workspace), stages them + the \`igniter\` front door,
 writes <prefix>/igniter-manifest.json, and runs a local smoke.
 
   --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $PREFIX]
+  --with-repl     ALSO build+stage the optional \`igniter-repl\` (cargo --features repl). It is NOT a
+                  default fleet member; the default fleet stays exactly 5 binaries.
   -h | --help     this help
 
-Bootstrap-only: afterwards use \`igniter …\`. igniter-repl is optional (not in the default v0 fleet;
-release build recovered — P17). No secrets, no systemd/Docker, no network/registry.
+Bootstrap-only: afterwards use \`igniter …\`. igniter-repl is optional (opt-in via --with-repl; release
+build recovered — P17/P20). No secrets, no systemd/Docker, no network/registry.
 EOF
 }
 
@@ -40,6 +43,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --prefix) PREFIX="${2:?--prefix requires a PATH}"; shift 2 ;;
     --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
+    --with-repl) WITH_REPL=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "$PROG: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -88,6 +92,21 @@ done <<EOF
 $FLEET
 EOF
 
+# optional: igniter-repl (opt-in via --with-repl). NOT a default fleet member; the FLEET above stays 5.
+REPL_INSTALLED=false
+REPL_SHA=""
+if [[ "$WITH_REPL" == 1 ]]; then
+  echo "$PROG: building optional igniter-repl (cargo build --release --bin igniter-repl --features repl)…"
+  ( cd "$REPO_ROOT/runtime/igniter-machine" && cargo build --release --bin igniter-repl --features repl ) >&2
+  rsrc="$REPO_ROOT/runtime/igniter-machine/target/release/igniter-repl"
+  if [[ ! -x "$rsrc" ]]; then echo "$PROG: expected igniter-repl artifact missing: $rsrc" >&2; exit 1; fi
+  cp -f "$rsrc" "$BIN_DIR/igniter-repl"
+  chmod +x "$BIN_DIR/igniter-repl"
+  REPL_SHA="$(sha256 "$BIN_DIR/igniter-repl")"
+  REPL_INSTALLED=true
+  echo "$PROG: staged optional igniter-repl  ($REPL_SHA)"
+fi
+
 # stage the durable front door
 cp -f "$SCRIPT_DIR/igniter" "$BIN_DIR/igniter"
 chmod +x "$BIN_DIR/igniter"
@@ -107,7 +126,12 @@ igniter_sum="$(sha256 "$BIN_DIR/igniter")"
   echo "  \"target_triple\": \"$triple\","
   echo "  \"public_release\": false,"
   echo "  \"fleet_count\": 5,"
-  echo "  \"excluded\": [{\"name\": \"igniter-repl\", \"reason\": \"optional; release build recovered (P1); not in default v0 fleet pending headless smoke (P17)\"}],"
+  # optional REPL: explicit installed flag so the default fleet (5) stays distinguishable from the opt-in.
+  if [[ "$REPL_INSTALLED" == true ]]; then
+    echo "  \"optional\": [{\"name\": \"igniter-repl\", \"installed\": true, \"feature_set\": [\"repl\"], \"sha256\": \"$REPL_SHA\"}],"
+  else
+    echo "  \"optional\": [{\"name\": \"igniter-repl\", \"installed\": false, \"feature_set\": [\"repl\"], \"reason\": \"optional; pass --with-repl to stage it (P21)\"}],"
+  fi
   echo "  \"front_door\": {\"name\": \"igniter\", \"path\": \"$BIN_DIR/igniter\", \"sha256\": \"$igniter_sum\"},"
   echo "  \"binaries\": ["
   # join manifest bin lines with commas
@@ -129,9 +153,14 @@ TODO_APP="$REPO_ROOT/server/igniter-web/examples/todo_app"
 echo "$PROG: smoke — igniter check (no socket)"
 "$BIN_DIR/igniter" check "$TODO_APP" >/dev/null
 
+if [[ "$REPL_INSTALLED" == true ]]; then
+  REPL_NOTE=" + igniter-repl (optional, staged)"
+else
+  REPL_NOTE=" (igniter-repl optional: pass --with-repl)"
+fi
 cat <<EOF
 
-$PROG: done. Installed the control center + 5 binaries into $BIN_DIR (igniter-repl optional: not in default fleet).
+$PROG: done. Installed the control center + 5 binaries into $BIN_DIR$REPL_NOTE.
   Add to PATH:   export PATH="$BIN_DIR:\$PATH"
   Then try:      igniter doctor   |   igniter serve $TODO_APP
 Re-run igniter-install any time to rebuild + restage (idempotent overwrite).

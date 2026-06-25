@@ -17,8 +17,8 @@ routes to a named owner that enforces the real policy.
 | `igniter serve <app_dir> [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH]` | live | `igweb-serve` (server/igniter-web) | loopback-only, request-bounded; public bind REFUSED by igweb-serve (P2) |
 | `igniter check <app_dir>` / `serve --check` | live | `igweb-serve check` | dry build/verify; opens NO socket |
 | `igniter doctor` | live | local, non-mutating | env + fleet report (severities ok/warn/fail/info); P9/P10 |
-| `igniter toolchain list` | live | local | reports the 5-binary default v0 fleet; marks repl `[optional]` |
-| `igniter toolchain install\|update [--prefix PATH]` | live | `bin/igniter-install` | **local-source build+stage only** — NO remote/registry/solver/signing; `update` needs a prior `igniter-manifest.json`; staged-prefix is source-required (P11) |
+| `igniter toolchain list` | live | local | reports the 5-binary default v0 fleet; marks repl optional (`[optional]`, or `[present] (optional, …)` when staged/built) |
+| `igniter toolchain install\|update [--with-repl] [--prefix PATH]` | live | `bin/igniter-install` | **local-source build+stage only** — NO remote/registry/solver/signing; `update` needs a prior `igniter-manifest.json`; staged-prefix is source-required (P11); `--with-repl` also stages the optional `igniter-repl` (P21) |
 | `igniter package lock\|verify\|verify-archive\|graph\|pack\|admit` | live | `igc` (igniter-compiler) | **argv routing only**, not a second resolver; `verify`=workspace, `verify-archive`=`.igpkg` archive (P12) |
 | `igniter app bundle <app_dir> --out <dir> --version <stamp>` | live | local orchestration | **assembly only** (P14); see below |
 
@@ -34,12 +34,20 @@ secrets, or swap the `current` symlink — those stay host-owned.
 
 ### `igniter-repl` — precise status
 
-**Release build recovered (P1):** `cargo build --release --bin igniter-repl --features repl` succeeds.
-**NOT fleet-included** — it is an interactive TUI with no hermetic functional smoke, so P17 recommends
-keeping it **opt-in / excluded from the default v0 fleet**. `ratatui`/`crossterm` are opt-in-only
-(`required-features = ["repl"]`, `default = []`); they change no default dependency boundary. Promotion to
-the fleet is gated on a non-interactive REPL smoke + an installer opt-in (P17 follow-ups). The installer's
-default `FLEET` is correctly 5 binaries (igc, igniter-vm, igweb-serve, igniter-mcp, tbackend).
+**Release build recovered (P1)**, **headless smoke implemented (P20)**, **installer opt-in available (P21)**,
+**still NOT in the default v0 fleet**:
+- `cargo build --release --bin igniter-repl --features repl` succeeds.
+- **Headless smoke:** `igniter-repl --script <file>` runs REPL commands non-interactively (no TUI) and
+  exercises `write → checkpoint → resume → facts` (state survives the round-trip); exits `0`/`SCRIPT OK` or
+  non-zero/`SCRIPT FAILED`. Tested by `runtime/igniter-machine/tests/repl_headless_smoke_tests.rs`.
+- **Installer opt-in:** `igniter-install --with-repl` (and `igniter toolchain install|update --with-repl`)
+  builds+stages `igniter-repl` and records it in the manifest's `optional[]` (`installed:true`,
+  `feature_set:["repl"]`, `sha256`). Without the flag it is not built; the default fleet stays exactly 5.
+- **Default dependency boundary unchanged:** `ratatui`/`crossterm` are opt-in-only (`required-features =
+  ["repl"]`, `default = []`); `cargo tree --no-default-features` has neither. `toolchain list`/`doctor` show
+  `[present] igniter-repl (optional, staged/repo build)` when built, else `[optional]`.
+- The installer's default `FLEET` is 5 binaries (igc, igniter-vm, igweb-serve, igniter-mcp, tbackend);
+  fleet membership for repl is a separate, still-unmade decision.
 
 ## Closed surfaces (deliberately NOT in v0)
 
@@ -48,7 +56,8 @@ default `FLEET` is correctly 5 binaries (igc, igniter-vm, igweb-serve, igniter-m
 - **App deployment:** no systemd install/enable, no `current` symlink swap, no reverse proxy, no TLS, no DB
   creation/migration, no secrets/DSNs/real `host.toml` in a bundle, no public bind.
 - **Repo/build:** no root Cargo workspace (P5 — package-local + xtask/shell orchestration is the v0 model).
-- **REPL fleet inclusion:** excluded pending P17 follow-ups.
+- **REPL default-fleet inclusion:** still excluded (opt-in install IS implemented via `--with-repl`, P21);
+  promoting repl into the *default* fleet remains a separate, unmade decision.
 
 ## v0 install model (one-liner)
 
@@ -68,9 +77,14 @@ supersession note at its top pointing here:
 | `…app-bundle-readiness-p13-v0` | "design only — NO implementation" | the design it specifies is now **implemented (P14)** + run-proven (P16) |
 
 Repl labels were relabeled by **P19** (`LAB-DISTRIBUTION-REPL-LABEL-HYGIENE`): `bin/igniter` `toolchain
-list` now shows `[optional] igniter-repl`, `doctor` reports it as `info`/optional, and `bin/igniter-install`
-no longer carries a failure label for it. The *policy* (repl is opt-in, not in the default 5-binary fleet)
-is unchanged and correct.
+list` now shows `[optional]`/`[present] (optional)` for repl, `doctor` reports it as `info`/`ok`, and
+`bin/igniter-install` no longer carries a failure label for it. The *policy* (repl is opt-in, not in the
+default 5-binary fleet) is unchanged and correct.
+
+**Superseded by P20/P21:** earlier language framing the headless smoke and the installer opt-in as
+still-outstanding (P17 readiness, P19 hygiene) is now stale — the headless smoke landed in **P20** and the
+installer opt-in (`--with-repl`) landed in **P21**. Those closed cards stay as history; the repl status
+section above is current truth.
 
 ## Authority boundary
 

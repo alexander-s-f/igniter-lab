@@ -173,7 +173,9 @@ fn igniter_toolchain_list_names_fleet_and_marks_repl() {
         assert!(s.contains(bin), "fleet must name `{bin}`:\n{s}");
     }
     assert!(s.contains("igniter-repl"), "must mention repl: {s}");
-    assert!(s.contains("[optional]"), "must mark repl optional (not [blocked]): {s}");
+    // repl is OPTIONAL (P21): shown `[present] … (optional, …)` when built/staged, or `[optional] …`
+    // otherwise — either way it carries "optional" and must never read as "[blocked]"/broken.
+    assert!(s.contains("optional"), "repl must be marked optional: {s}");
     assert!(!s.contains("[blocked]"), "repl must no longer read as broken: {s}");
 }
 
@@ -288,6 +290,24 @@ fn igniter_toolchain_install_delegates_prefix_to_installer() {
         .expect("run toolchain install");
     assert!(out.status.success(), "install must delegate+succeed: {out:?}");
     let argv = std::fs::read_to_string(&capture).expect("installer must have been called");
+    assert!(argv.contains("--prefix"), "installer got --prefix: {argv:?}");
+    assert!(argv.contains(target.to_str().unwrap()), "installer got the prefix path: {argv:?}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `toolchain install --with-repl --prefix P` forwards both the prefix and the explicit REPL opt-in.
+#[test]
+fn igniter_toolchain_install_forwards_with_repl_to_installer() {
+    let (tmp, igniter, capture) = stage_with_fake_installer("install_with_repl");
+    let target = tmp.join("dest");
+    let out = Command::new(&igniter)
+        .args(["toolchain", "install", "--with-repl", "--prefix"])
+        .arg(&target)
+        .output()
+        .expect("run toolchain install --with-repl");
+    assert!(out.status.success(), "install --with-repl must delegate+succeed: {out:?}");
+    let argv = std::fs::read_to_string(&capture).expect("installer must have been called");
+    assert!(argv.contains("--with-repl"), "installer got --with-repl: {argv:?}");
     assert!(argv.contains("--prefix"), "installer got --prefix: {argv:?}");
     assert!(argv.contains(target.to_str().unwrap()), "installer got the prefix path: {argv:?}");
     let _ = std::fs::remove_dir_all(&tmp);

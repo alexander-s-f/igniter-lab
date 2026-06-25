@@ -273,7 +273,15 @@ igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-ser
 igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
 tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend
 EOF
-  doc_emit toolchain igniter-repl info "optional — release build recovered; opt-in via --features repl; not in the default v0 fleet (P17)" ""
+  # optional igniter-repl: ok/present when staged or built in repo target; else info/optional.
+  local repl_doc_path
+  if [[ -x "$SCRIPT_DIR/igniter-repl" ]]; then
+    doc_emit toolchain igniter-repl ok "$SCRIPT_DIR/igniter-repl (optional, staged)" ""
+  elif repl_doc_path="$(probe_built runtime/igniter-machine igniter-repl)"; then
+    doc_emit toolchain igniter-repl ok "$repl_doc_path (optional, repo build)" ""
+  else
+    doc_emit toolchain igniter-repl info "optional — opt-in via 'install --with-repl' (or --features repl); not in the default v0 fleet (P17/P21)" ""
+  fi
 
   # ── app-shape checks (only when <app_dir> is given) ──
   if [[ -n "$app_dir" ]]; then
@@ -354,8 +362,16 @@ tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend"
   done <<EOF
 $rows
 EOF
-  # igniter-repl is a known v0 NON-member: release build is recovered; fleet inclusion is a separate decision (P17).
-  echo "${indent}[optional] igniter-repl — release build recovered; opt-in via --features repl; not in the default v0 fleet (P17)"
+  # igniter-repl is OPTIONAL (not a default fleet member). Show [present] if staged co-located or already
+  # built in the repo target (e.g. after `install --with-repl` or a local --features repl build); else [optional].
+  local repl_path
+  if [[ -x "$SCRIPT_DIR/igniter-repl" ]]; then
+    echo "${indent}[present] igniter-repl → $SCRIPT_DIR/igniter-repl (optional, staged)"
+  elif repl_path="$(probe_built runtime/igniter-machine igniter-repl)"; then
+    echo "${indent}[present] igniter-repl → $repl_path (optional, repo build)"
+  else
+    echo "${indent}[optional] igniter-repl — opt-in via 'install --with-repl' (or --features repl); not in the default v0 fleet (P17/P21)"
+  fi
 }
 
 toolchain_usage() {
@@ -389,10 +405,11 @@ Delegates to the repo-local bootstrap installer: $INSTALLER
 
 LOCAL SOURCE ONLY — this compiles the 5 green binaries from the current igniter-lab checkout and copies
 them into <PATH>/bin. There is NO remote download, NO registry, NO version solver, NO signed artifacts,
-and NO Homebrew/Docker/tarball channel. igniter-repl is optional (opt-in via --features repl; not in the
-default v0 fleet; release build recovered — P17).
+and NO Homebrew/Docker/tarball channel. igniter-repl is optional (opt-in via --with-repl; not in the
+default v0 fleet; release build recovered — P17/P20).
 
   --prefix PATH   install root (binaries land in <PATH>/bin)   [default: $DEFAULT_PREFIX]
+  --with-repl     also build+stage the optional igniter-repl (--features repl); NOT a default fleet member
   -h | --help     this help
 EOF
   if [[ "$verb" == update ]]; then
@@ -429,12 +446,13 @@ cmd_toolchain() {
 # false in a STAGED prefix (which stages only the front door) → then fail clearly, source-required.
 cmd_toolchain_iu() {
   local verb="$1"; shift
-  local prefix=""
+  local prefix="" with_repl=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help) toolchain_iu_usage "$verb"; exit 0 ;;
       --prefix) prefix="${2:?--prefix requires a PATH}"; shift 2 ;;
       --prefix=*) prefix="${1#--prefix=}"; shift ;;
+      --with-repl) with_repl=1; shift ;;
       *) echo "$PROG: toolchain $verb: unknown argument '$1'" >&2; toolchain_iu_usage "$verb" >&2; exit 2 ;;
     esac
   done
@@ -456,9 +474,13 @@ cmd_toolchain_iu() {
     fi
   fi
 
-  # No --prefix → let the installer apply its own default (single source of truth for the real default).
-  if [[ -n "$prefix" ]]; then
-    exec "$INSTALLER" --prefix "$prefix"
+  # Forward only the flags the user gave. No --prefix → the installer applies its own default (single
+  # source of truth). --with-repl is passed through verbatim (opt-in; not a default fleet member).
+  local -a inst_args=()
+  [[ -n "$prefix" ]] && inst_args+=(--prefix "$prefix")
+  [[ "$with_repl" == 1 ]] && inst_args+=(--with-repl)
+  if [[ ${#inst_args[@]} -gt 0 ]]; then
+    exec "$INSTALLER" "${inst_args[@]}"
   else
     exec "$INSTALLER"
   fi
