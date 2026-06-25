@@ -7,11 +7,32 @@
 // `igniter agent` is pinned to the test-built `igniter-agent` (IGNITER_AGENT_BIN) and `check_app` is pinned to
 // the test-built `igweb-serve` (IGNITER_IGWEB_SERVE_BIN), so nothing shells out to a nested cargo build.
 
+use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
+
+/// Fresh temp dir for a test.
+fn tmp(tag: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("agentbundle_{}_{}", tag, std::process::id()));
+    fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Copy todo_app into a writable temp app dir so a test can add an offending file (host.toml / secret).
+fn writable_app_copy(tag: &str, name: &str) -> PathBuf {
+    let app = tmp(tag).join(name);
+    fs::create_dir_all(&app).unwrap();
+    for entry in fs::read_dir(todo_app()).unwrap() {
+        let p = entry.unwrap().path();
+        if p.is_file() {
+            fs::copy(&p, app.join(p.file_name().unwrap())).unwrap();
+        }
+    }
+    app
+}
 
 fn wrapper() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -87,12 +108,12 @@ fn agent_initialize_and_lists_only_safe_tools() {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_string())
         .collect();
-    for want in ["doctor", "toolchain_list", "check_app", "package_verify", "serve_app_bounded"] {
+    for want in ["doctor", "toolchain_list", "check_app", "package_verify", "serve_app_bounded", "app_bundle"] {
         assert!(tools.contains(&want.to_string()), "tools/list must include `{want}`: {tools:?}");
     }
     // `serve_app_bounded` is the ONLY serve-shaped tool and is bounded/loopback by construction; nothing
     // deploy/install/systemd/secret/daemon-like exists in v0.
-    for forbidden in ["deploy", "install", "systemd", "secret", "apply", "daemon", "restart"] {
+    for forbidden in ["deploy", "install", "systemd", "secret", "apply", "daemon", "restart", "bind", "upload"] {
         assert!(!tools.iter().any(|t| t.contains(forbidden)), "no `{forbidden}`-like tool in v0: {tools:?}");
     }
 }
@@ -192,4 +213,106 @@ fn agent_serve_app_bounded_bad_path_errors_cleanly() {
 
     let (t12, e12) = tool_text(by_id(&r, 12));
     assert!(e12 && t12.contains("missing required argument"), "missing app_dir is a clean error: {t12}");
+}
+
+// ── app_bundle (P26): shell-delegate to `igniter app bundle`; bundler owns all safety ────────────────────
+
+#[test]
+fn agent_app_bundle_builds_todo_bundle() {
+    let out = tmp("ok_out");
+    let app = todo_app();
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{{"name":"app_bundle","arguments":{{"app_dir":"{}","out_dir":"{}","version":"V1"}}}}}}"#,
+        app,
+        out.display()
+    );
+    let r = drive_agent(&[&req]);
+    let (text, is_err) = tool_text(by_id(&r, 13));
+    assert!(!is_err, "app_bundle of a real app must succeed: {text}");
+    assert!(text.contains("app bundle ok"), "result carries the destination summary: {text}");
+
+    // the produced bundle exists and has the P14 layout
+    let b = out.join("todo_app-V1");
+    for rel in [
+        "bin/igweb-serve",
+        "app/todo_app/igweb.toml",
+        "run/run-todo_app.sh",
+        "checks/check.sh",
+        "systemd/todo_app.service.example",
+        "manifest.json",
+    ] {
+        assert!(b.join(rel).exists(), "bundle missing {rel}:\n{text}");
+    }
+
+    // manifest parses + carries provenance/safety fields
+    let manifest = fs::read_to_string(b.join("manifest.json")).unwrap();
+    let mv: Value = serde_json::from_str(&manifest).expect("manifest.json is valid JSON");
+    assert_eq!(mv["bind_policy"], "loopback", "manifest bind_policy: {manifest}");
+    assert_eq!(mv["public_release"], false, "manifest public_release: {manifest}");
+    assert!(mv["runner"]["sha256"].as_str().is_some(), "runner sha present: {manifest}");
+    assert!(mv["app_sources"].as_array().map(|a| !a.is_empty()).unwrap_or(false), "app sources hashed: {manifest}");
+
+    // the emitted check.sh passes on the produced bundle
+    let chk = Command::new("bash").arg(b.join("checks/check.sh")).output().expect("run check.sh");
+    assert!(chk.status.success(), "emitted check.sh must pass: {chk:?}");
+}
+
+#[test]
+fn agent_app_bundle_missing_args_are_tool_errors() {
+    let out = tmp("missing_out");
+    let app = todo_app();
+    // missing version
+    let req_a = format!(
+        r#"{{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{{"name":"app_bundle","arguments":{{"app_dir":"{}","out_dir":"{}"}}}}}}"#,
+        app,
+        out.display()
+    );
+    // missing out_dir AND version
+    let req_b = format!(
+        r#"{{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{{"name":"app_bundle","arguments":{{"app_dir":"{}"}}}}}}"#,
+        app
+    );
+    let r = drive_agent(&[&req_a, &req_b]);
+    for id in [14, 15] {
+        let (t, e) = tool_text(by_id(&r, id));
+        assert!(e && t.contains("missing required argument"), "id{id}: missing arg → clean tool error: {t}");
+    }
+}
+
+#[test]
+fn agent_app_bundle_refuses_host_toml_and_inline_secret_without_leak() {
+    // real host.toml → refused, no partial bundle
+    let app1 = writable_app_copy("host", "hostapp");
+    fs::write(app1.join("host.toml"), "[host]\nmode=\"loopback\"\n").unwrap();
+    let out1 = tmp("host_out");
+    let req1 = format!(
+        r#"{{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{{"name":"app_bundle","arguments":{{"app_dir":"{}","out_dir":"{}","version":"V1"}}}}}}"#,
+        app1.display(),
+        out1.display()
+    );
+
+    // inline secret in host.example.toml → refused, value never leaked
+    let app2 = writable_app_copy("secret", "secapp");
+    fs::write(
+        app2.join("host.example.toml"),
+        "[host]\nmode=\"loopback\"\n[postgres.read]\ndsn = \"host=db password=SUPERSECRET123\"\n",
+    )
+    .unwrap();
+    let out2 = tmp("secret_out");
+    let req2 = format!(
+        r#"{{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{{"name":"app_bundle","arguments":{{"app_dir":"{}","out_dir":"{}","version":"V1"}}}}}}"#,
+        app2.display(),
+        out2.display()
+    );
+
+    let r = drive_agent(&[&req1, &req2]);
+
+    let (t16, e16) = tool_text(by_id(&r, 16));
+    assert!(e16, "real host.toml must be refused through MCP: {t16}");
+    assert!(!out1.join("hostapp-V1").exists(), "no partial bundle after host.toml refusal");
+
+    let (t17, e17) = tool_text(by_id(&r, 17));
+    assert!(e17, "inline secret must be refused through MCP: {t17}");
+    assert!(!t17.contains("SUPERSECRET123"), "the secret value must NEVER appear in the tool text: {t17}");
+    assert!(!out2.join("secapp-V1").exists(), "no partial bundle after secret refusal");
 }

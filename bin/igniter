@@ -785,11 +785,14 @@ v0 tools:
   toolchain_list  → igniter toolchain list
   check_app       → igniter check <app_dir>             (dry build/verify; opens NO socket)
   package_verify  → igniter package verify              (→ igc verify; argv routing only)
+  app_bundle      → igniter app bundle <app> --out <dir> --version <v>   (assembly only; bundler owns all
+                    safety — host.toml/secret refusal, atomic staging; no deploy/systemd/public-bind)
   serve_app_bounded → igniter serve --addr 127.0.0.1:0 --max-requests N  (loopback + bounded ≤5; one GET;
                     waits for clean exit — NOT a daemon: no public bind, no background handle, no restart)
 
-No network listener, no public bind, no deploy, no systemd, no secrets, no process supervisor. Speaks over
-stdin/stdout — wire it into your agent's MCP server config. Env: IGNITER_AGENT_BIN=/path/to/igniter-agent.
+The agent itself opens no listener and speaks over stdin/stdout. The bounded serve tool may launch only a
+loopback child with max requests; no public bind, deploy, systemd, secrets, or process supervisor. Wire it
+into your agent's MCP server config. Env: IGNITER_AGENT_BIN=/path/to/igniter-agent.
 EOF
 }
 

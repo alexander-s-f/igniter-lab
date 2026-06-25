@@ -79,6 +79,19 @@ fn tools_list() -> Value {
             }
         },
         {
+            "name": "app_bundle",
+            "description": "Assemble a versioned, host-runnable app bundle (delegates to `igniter app bundle <app_dir> --out <dir> --version <stamp>`). ASSEMBLY ONLY — the bundler owns all safety (refuses real host.toml / inline secrets, runs `igweb-serve check`, stages atomically, emits loopback runner + example systemd). No deploy/public-bind/systemd-install/secrets here.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "app_dir": { "type": "string", "description": "Path to the IgWeb app directory" },
+                    "out_dir": { "type": "string", "description": "Parent dir to write <app>-<version>/ into" },
+                    "version": { "type": "string", "description": "Caller-supplied provenance stamp (no clock in the tool)" }
+                },
+                "required": ["app_dir", "out_dir", "version"]
+            }
+        },
+        {
             "name": "serve_app_bounded",
             "description": "Start an IgWeb app via `igniter serve` on LOOPBACK 127.0.0.1:0, bounded to max_requests (v0 max 5), issue ONE GET, and wait for the bounded run to exit. NOT a daemon: no public bind, no background handle, no restart. Returns listen address, HTTP status, and child exit.",
             "inputSchema": {
@@ -280,6 +293,25 @@ fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
             let refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
             let (code, so, se) = run_igniter(&refs);
             tool_result(out, id, tool_body(code, &so, &se), code != 0);
+        }
+        "app_bundle" => {
+            // shell-delegate to `igniter app bundle` — the bundler owns ALL safety (host.toml/secret refusal,
+            // `igweb-serve check`, atomic staging). IGNITER_IGWEB_SERVE_BIN is inherited from our env.
+            let app_dir = args.get("app_dir").and_then(|v| v.as_str());
+            let out_dir = args.get("out_dir").and_then(|v| v.as_str());
+            let version = args.get("version").and_then(|v| v.as_str());
+            match (app_dir, out_dir, version) {
+                (Some(a), Some(o), Some(v)) => {
+                    let (code, so, se) = run_igniter(&["app", "bundle", a, "--out", o, "--version", v]);
+                    tool_result(out, id, tool_body(code, &so, &se), code != 0);
+                }
+                _ => tool_result(
+                    out,
+                    id,
+                    "missing required argument(s): app_dir, out_dir, version".to_string(),
+                    true,
+                ),
+            }
         }
         "serve_app_bounded" => match args.get("app_dir").and_then(|v| v.as_str()) {
             Some(app) => {
