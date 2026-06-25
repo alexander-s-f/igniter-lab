@@ -1,0 +1,122 @@
+-- LAB-TODOAPP-VIEW-TYPED-ROWS-HTML-P18 fixture — host DB-shaped rows → typed app rows → real text/html.
+--
+-- Joins the two proven halves: P7's typed `ReadThen` crossing (rows : Collection[TodoRow] + meta :
+-- DatasetMeta, auto-routed through `dispatch_with_read`) and the TodoView HTML helpers (MakeLabel/MakeLink/
+-- FormView + map/filter → Collection[HtmlNode] → RenderView → escaped text/html). NO `rows_json : String`,
+-- NO request-body artifact JSON, NO manual node enumeration, NO JSON parser in `.ig`. App owns the row type,
+-- the view, and the empty-state; the host owns the read + schema. No capability id / scope / DSN / SQL.
+module TypedHtml
+
+import IgWebPrelude
+
+type QueryFilter {
+  field : String
+  op    : String
+  value : String
+}
+
+type QueryPlan {
+  source     : String
+  op         : String
+  projection : Collection[String]
+  filters    : Collection[QueryFilter]
+  limit      : Integer
+}
+
+type TodoRow {
+  id         : String
+  account_id : String
+  title      : String
+  done       : Bool
+  rank       : Integer
+}
+
+type DatasetMeta {
+  source    : String
+  count     : Integer
+  truncated : Bool
+}
+
+pure contract MakeFilter {
+  input field : String
+  input op    : String
+  input value : String
+  compute f = { field: field, op: op, value: value }
+  output f : QueryFilter
+}
+
+pure contract ListTypedTodos {
+  input account_id : String
+  compute projection : Collection[String] = ["id", "account_id", "title", "done", "rank"]
+  compute f_acct = call_contract("MakeFilter", "account_id", "eq", account_id)
+  compute filters : Collection[QueryFilter] = [f_acct]
+  compute plan : QueryPlan = {
+    source: "todos", op: "select",
+    projection: projection, filters: filters, limit: 50
+  }
+  output plan : QueryPlan
+}
+
+-- ── App-local HTML helpers (same flat HtmlNode/ViewArtifact records as todo_view_app) ───────────
+pure contract MakeLabel {
+  input text : String
+  compute node : HtmlNode = { kind: "label", id: "", label: "", text: text, required: false, action: "", options: [] }
+  output node : HtmlNode
+}
+
+pure contract MakeLink {
+  input text : String
+  input href : String
+  compute node : HtmlNode = { kind: "link", id: "", label: "", text: text, required: false, action: href, options: [] }
+  output node : HtmlNode
+}
+
+pure contract FormView {
+  input title : String
+  input body  : Collection[HtmlNode]
+  compute view : ViewArtifact = { artifact: "view", layout: "form", title: title, body: body }
+  output view : ViewArtifact
+}
+
+-- A typed host row → an HtmlNode label (proves call_contract over a crossed record; the title escapes).
+pure contract TodoRowLabel {
+  input row : TodoRow
+  compute node : HtmlNode = call_contract("MakeLabel", row.title)
+  output node : HtmlNode
+}
+
+-- ── Entry → ReadThen → typed HTML continuation ──────────────────────────────────────────────────
+pure contract FetchTodoHtml {
+  input req : Request
+  compute account_id : String = req.path
+  compute plan = call_contract("ListTypedTodos", account_id)
+  compute d : Decision = ReadThen { plan: plan, then: "TodoHtmlFromRows", carry: "" }
+  output d : Decision
+}
+
+-- The typed HTML continuation: host re-enters with materialized typed rows + meta. `filter` keeps pending
+-- todos, `map` turns them into HtmlNode labels, `meta` drives the view title + a "load more" affordance, and
+-- an empty set renders an APP-owned empty state (200) — never a host error. RenderView → escaped text/html.
+pure contract TodoHtmlFromRows {
+  input req  : Request
+  input rows : Collection[TodoRow]
+  input meta : DatasetMeta
+  compute total : Integer = count(rows)
+  compute pending : Collection[TodoRow] = filter(rows, t -> t.done == false)
+  compute labels : Collection[HtmlNode] = map(pending, t -> call_contract("TodoRowLabel", t))
+  compute more_link : HtmlNode = call_contract("MakeLink", "Load more", "/todos")
+  compute more : Collection[HtmlNode] = if meta.truncated {
+    [more_link]
+  } else {
+    []
+  }
+  compute empty_node : HtmlNode = call_contract("MakeLabel", "No todos yet")
+  compute body : Collection[HtmlNode] = if total == 0 {
+    [empty_node]
+  } else {
+    concat(labels, more)
+  }
+  compute view : ViewArtifact = call_contract("FormView", meta.source, body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
