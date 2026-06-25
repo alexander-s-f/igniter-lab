@@ -35,7 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         RunnerCliCommand::Check(cli) => {
-            let report = check_app_dir(&cli.app_dir)?;
+            // A check failure (incl. the P8 structural read-continuation diagnostic) exits with the stable
+            // taxonomy code, not a generic `1` — so CI can match on `[PROJECTION_SCHEMA_INVALID]`.
+            let report = match check_app_dir(&cli.app_dir) {
+                Ok(r) => r,
+                Err(e) => fail(classify_runner_error(&e)),
+            };
             println!(
                 "igweb-serve: check ok app_dir={} entry={} sources={} (no socket opened)",
                 cli.app_dir.display(),
@@ -146,6 +151,22 @@ fn run_machine_mode(
     // 2. Build the loaded app (async dispatch path, never calls ServerApp::call)
     let (app, manifest) =
         build_loaded_app_from_dir(&cli.app_dir).map_err(|e| classify_runner_error(&e))?;
+
+    // 2b. P8: structurally validate typed `ReadThen` continuations BEFORE binding the listener. A
+    //     source-independent invalid shape fails the runner closed here, never at first request.
+    let read_continuation_diags = app.validate_read_continuations();
+    if !read_continuation_diags.is_empty() {
+        let joined = read_continuation_diags
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(RunnerDiagnostic::new(
+            DiagCode::ProjectionSchemaInvalid,
+            joined,
+        ));
+    }
+
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
 
     // 3. Build a default no-op effect host (fallback path when no write binding is configured)

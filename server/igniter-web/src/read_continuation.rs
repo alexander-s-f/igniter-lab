@@ -20,6 +20,7 @@
 //!   sidecar, no name-based guessing.
 
 use crate::read_materialize::AppFieldType;
+use crate::runner_diag::{DiagCode, RunnerDiagnostic};
 use igniter_machine::machine::IgniterMachine;
 use serde_json::Value;
 
@@ -147,6 +148,43 @@ pub fn app_row_shape(
     // Deterministic order (BTreeMap-style) so diagnostics + reconciliation are stable across runs.
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
+}
+
+/// Structurally validate every loaded contract as a candidate read continuation (P8 boot/check subset).
+/// Scans the registry, classifies each contract by its compiled inputs, and emits one diagnostic per
+/// continuation whose read-crossing shape is invalid **independent of any DB source**:
+///
+/// - `Invalid` shape (declares both `rows_json` and `rows`; a scalar / non-collection `rows`);
+/// - `TypedRows` whose `<AppRow>` type is unrecoverable from `type_defs` or has a field with no v0
+///   projection landing (so it could never be a projection target, regardless of which source feeds it).
+///
+/// A `LegacyRowsJson` shape (incl. a contract declaring neither `rows` nor `rows_json`) is sound. This is
+/// the source-INDEPENDENT subset; the host-kind ⇎ row-type drift that needs a runtime `plan.source` stays a
+/// first-dispatch guard in `dispatch_with_read`. Contracts are scanned in name order for stable output.
+pub fn validate_read_continuations(machine: &IgniterMachine) -> Vec<RunnerDiagnostic> {
+    let mut names: Vec<String> = {
+        let reg = machine.registry.read();
+        reg.all().map(|(k, _)| k.clone()).collect()
+    };
+    names.sort();
+
+    let mut diags = Vec::new();
+    for name in &names {
+        let reason = match classify_continuation(machine, name) {
+            ReadContinuationShape::Invalid(reason) => Some(reason),
+            ReadContinuationShape::TypedRows { row_type, .. } => {
+                app_row_shape(machine, &row_type).err()
+            }
+            ReadContinuationShape::LegacyRowsJson => None,
+        };
+        if let Some(reason) = reason {
+            diags.push(RunnerDiagnostic::new(
+                DiagCode::ProjectionSchemaInvalid,
+                format!("read continuation `{name}`: {reason}"),
+            ));
+        }
+    }
+    diags
 }
 
 /// The leaf type name of a `type_ir` value (`{ "name": "...", "params": [...] }`), or `"Unknown"`.

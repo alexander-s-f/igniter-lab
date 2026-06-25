@@ -42,6 +42,12 @@ pub enum DiagCode {
     EffectUnbound,
     /// A bearer/passport was missing or rejected for an effect route. Host-owned.
     PassportDenied,
+    /// A typed `ReadThen` continuation is STRUCTURALLY invalid independent of any DB source
+    /// (LAB-IGNITER-DATA-PROJECTION-BOOT-DIAGNOSTIC-P8): a malformed crossing shape (both `rows_json`
+    /// and `rows`, a scalar `rows` element) or a `Collection[<AppRow>]` whose row type is unrecoverable
+    /// from compiled metadata or carries a field with no v0 projection landing. Caught at build/check
+    /// time, before any listener bind. (Source-dependent host-kind ⇎ row-type drift stays first-dispatch.)
+    ProjectionSchemaInvalid,
     /// An unexpected internal runner failure (tokio runtime, serve-loop IO).
     RunnerInternal,
 }
@@ -59,6 +65,7 @@ impl DiagCode {
             DiagCode::WriteDenied => "WRITE_DENIED",
             DiagCode::EffectUnbound => "EFFECT_UNBOUND",
             DiagCode::PassportDenied => "PASSPORT_DENIED",
+            DiagCode::ProjectionSchemaInvalid => "PROJECTION_SCHEMA_INVALID",
             DiagCode::RunnerInternal => "RUNNER_INTERNAL",
         }
     }
@@ -76,6 +83,7 @@ impl DiagCode {
             DiagCode::WriteDenied => 8,
             DiagCode::EffectUnbound => 9,
             DiagCode::PassportDenied => 10,
+            DiagCode::ProjectionSchemaInvalid => 12,
             DiagCode::RunnerInternal => 11,
         }
     }
@@ -146,6 +154,8 @@ pub fn classify_runner_error(e: &RunnerError) -> RunnerDiagnostic {
         RunnerError::Build(_) => DiagCode::AppBuild,
         RunnerError::Io(_) => DiagCode::RunnerInternal,
         RunnerError::Manifest(_) | RunnerError::Cli(_) => DiagCode::ConfigParse,
+        // A structurally invalid typed read continuation, caught at build/check (P8).
+        RunnerError::ReadContinuation(_) => DiagCode::ProjectionSchemaInvalid,
     };
     RunnerDiagnostic::new(code, e.to_string())
 }
@@ -210,6 +220,7 @@ mod tests {
         DiagCode::WriteDenied,
         DiagCode::EffectUnbound,
         DiagCode::PassportDenied,
+        DiagCode::ProjectionSchemaInvalid,
         DiagCode::RunnerInternal,
     ];
 

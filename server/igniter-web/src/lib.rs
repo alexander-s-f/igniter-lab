@@ -63,6 +63,17 @@ impl IgWebLoadedApp {
         }
     }
 
+    /// Structural validation of this app's typed `ReadThen` continuations (LAB-IGNITER-DATA-PROJECTION-
+    /// BOOT-DIAGNOSTIC-P8). Scans the loaded contracts and returns one diagnostic per continuation whose
+    /// read-crossing shape is invalid **independent of any DB source** — a malformed shape, or a typed
+    /// `Collection[<AppRow>]` whose row type is unrecoverable / un-projectable. Empty = structurally sound.
+    /// This is the boot/check-time subset; source-dependent host-kind ⇎ row-type drift stays first-dispatch
+    /// (`dispatch_with_read`). Pure metadata read — no dispatch, no listener, no source parsing.
+    #[cfg(feature = "machine")]
+    pub fn validate_read_continuations(&self) -> Vec<crate::runner_diag::RunnerDiagnostic> {
+        crate::read_continuation::validate_read_continuations(&self.machine)
+    }
+
     /// Dispatch with staged-read support (LAB-IGNITER-WEB-READTHEN-DISPATCH-P11; sequential/nested
     /// `ReadThen` LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38).
     ///
@@ -579,6 +590,10 @@ pub mod runner {
         /// malformed/forbidden runner CLI argument.
         Cli(String),
         Build(IgWebBuildError),
+        /// One or more typed `ReadThen` continuations are structurally invalid, independent of any DB
+        /// source (LAB-IGNITER-DATA-PROJECTION-BOOT-DIAGNOSTIC-P8). The string is the joined, stable
+        /// per-continuation diagnostic messages. Caught at build/check, before any listener bind.
+        ReadContinuation(String),
     }
 
     impl std::fmt::Display for RunnerError {
@@ -588,6 +603,9 @@ pub mod runner {
                 RunnerError::Manifest(m) => write!(f, "igweb.toml error: {m}"),
                 RunnerError::Cli(m) => write!(f, "igweb-serve argument error: {m}"),
                 RunnerError::Build(e) => write!(f, "igweb build error: {e:?}"),
+                RunnerError::ReadContinuation(m) => {
+                    write!(f, "invalid typed read continuation(s): {m}")
+                }
             }
         }
     }
@@ -925,16 +943,31 @@ pub mod runner {
         pub source_count: usize,
     }
 
-    /// Dry-build an app directory without opening a socket or composing runtime loop state.
+    /// Dry-build an app directory without opening a socket or composing runtime loop state. Under the
+    /// `machine` feature it ALSO runs the P8 structural read-continuation check (source-independent typed
+    /// `ReadThen` validation) and fails closed with `RunnerError::ReadContinuation` before any serve.
     pub fn check_app_dir(app_dir: &Path) -> Result<RunnerCheckReport, RunnerError> {
         let manifest = load_manifest(app_dir)?;
         let sources = resolve_sources(app_dir, &manifest)?;
         let source_count = sources.len();
-        build_igweb_app(IgWebBuildInput {
+        let loaded = crate::build_igweb_loaded_app(IgWebBuildInput {
             sources,
             entry: manifest.entry.clone(),
         })
         .map_err(RunnerError::Build)?;
+        #[cfg(feature = "machine")]
+        {
+            let diags = loaded.validate_read_continuations();
+            if !diags.is_empty() {
+                let joined = diags
+                    .iter()
+                    .map(|d| d.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(RunnerError::ReadContinuation(joined));
+            }
+        }
+        let _ = &loaded; // bound for the machine-gated check; a no-op build proof otherwise.
         Ok(RunnerCheckReport {
             entry: manifest.entry,
             source_count,
