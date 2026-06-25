@@ -9,8 +9,11 @@
 // printed), missing --version — each leaving NO partial bundle, plus help naming host-owned surfaces.
 
 use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 fn wrapper() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -167,4 +170,77 @@ fn app_help_names_host_owned_surfaces() {
     for needle in ["systemd", "TLS", "secrets"] {
         assert!(h.contains(needle), "help must name host-owned surface `{needle}`:\n{h}");
     }
+}
+
+// ── run smoke: the emitted run/run-<app>.sh actually serves a request from inside the bundle (P16) ──────
+
+/// Bundle todo_app, then run the EMITTED `run/run-todo_app.sh` (which execs the BUNDLED `bin/igweb-serve`
+/// against `bundle/app/todo_app`) on a loopback OS-chosen port, bounded to one request, and prove it answers
+/// `GET /health` with 200 — then exits cleanly with no orphan. Loads from the bundle, not the source path.
+#[test]
+fn emitted_run_script_serves_from_bundle_on_loopback() {
+    let out = tmp("runsmoke");
+    let (stdout, stderr, code) =
+        run_bundle(&[&todo_app(), "--out", out.to_str().unwrap(), "--version", "RUNV1"]);
+    assert_eq!(code, 0, "bundle must succeed: {stdout}{stderr}");
+    let bundle = out.join("todo_app-RUNV1");
+    let run_script = bundle.join("run/run-todo_app.sh");
+    assert!(run_script.exists(), "emitted run script must exist");
+
+    // PORT=0 → igweb-serve binds an OS-chosen free port (no collisions); MAX_REQUESTS=1 → bounded run.
+    // The run script reads exactly these env names and execs the BUNDLED bin/igweb-serve (not the repo target).
+    let mut child = Command::new("bash")
+        .arg(&run_script)
+        .env("IGNITER_TODO_APP_PORT", "0")
+        .env("IGNITER_TODO_APP_MAX_REQUESTS", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn emitted run script");
+
+    // Non-blind readiness: read stdout until the machine-readable `listening http://127.0.0.1:PORT` line.
+    let child_stdout = child.stdout.take().expect("child stdout");
+    let mut reader = BufReader::new(child_stdout);
+    let mut captured = String::new();
+    let addr = loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).expect("read stdout");
+        if n == 0 {
+            let _ = child.kill();
+            panic!("bundled runner exited before listening; stdout so far:\n{captured}");
+        }
+        captured.push_str(&line);
+        if let Some(rest) = line.split("listening http://").nth(1) {
+            break rest.split_whitespace().next().unwrap_or("").to_string();
+        }
+    };
+
+    // Loopback-only enforced by igweb-serve; and the app dir echoed must be the BUNDLE's, not the source path.
+    assert!(addr.starts_with("127.0.0.1:"), "must bind loopback, got `{addr}`:\n{captured}");
+    assert!(
+        captured.contains("todo_app-RUNV1/app/todo_app") || captured.contains("todo_app-RUNV1"),
+        "must serve the app from inside the bundle (versioned dir), not a source path:\n{captured}"
+    );
+
+    // One real request on the parsed socket; the runner is bounded to this single request.
+    let result = (|| -> std::io::Result<String> {
+        let mut stream = TcpStream::connect(&addr)?;
+        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        stream.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n")?;
+        let mut resp = String::new();
+        stream.read_to_string(&mut resp)?;
+        Ok(resp)
+    })();
+
+    match result {
+        Ok(resp) => assert!(resp.starts_with("HTTP/1.1 200"), "GET /health must be 200, got:\n{resp}"),
+        Err(e) => {
+            let _ = child.kill();
+            panic!("request to bundled runner failed: {e}\nserver stdout:\n{captured}");
+        }
+    }
+
+    // Bounded run must exit on its own (no daemon/orphan); clean up defensively if it lingers.
+    let status = child.wait().expect("wait bundled runner");
+    assert!(status.success(), "bundled runner must exit cleanly after its bounded run");
 }

@@ -1,5 +1,10 @@
 # lab-distribution-control-center-readiness-p6-v0 — `igniter` as the long-lived control center
 
+> **Partly superseded (2026-06-25):** `igniter app bundle` is no longer "RESERVED/deferred" — it is
+> **implemented (P14)** and run-proven (P16); `package`/`toolchain install|update` are **live** (P12/P11).
+> For the live surface see [`lab-distribution-implemented-surface-v0.md`](lab-distribution-implemented-surface-v0.md).
+> The rest of this taxonomy packet stands as history.
+
 **Card:** `LAB-DISTRIBUTION-CONTROL-CENTER-READINESS-P6` · **Type:** readiness (taxonomy decision, **no code**).
 **Authority: lab readiness — a recommendation, not an implementation.** Closed surfaces honored: no
 implementation, no install script, no root workspace, no binary rename, no public release/upload/registry/

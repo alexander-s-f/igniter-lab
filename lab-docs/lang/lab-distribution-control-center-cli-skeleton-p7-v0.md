@@ -1,5 +1,10 @@
 # lab-distribution-control-center-cli-skeleton-p7-v0 — the minimal `igniter` control-center skeleton
 
+> **Partly superseded (2026-06-25):** the "fail-closed placeholders" described here for `package` / `app` /
+> `toolchain install|update` are now **live** — `toolchain install|update` → installer (P11), `package` →
+> `igc` (P12), `app bundle` → assembly (P14). Only `igniter app …` (non-bundle) remains a placeholder. Live
+> surface: [`lab-distribution-implemented-surface-v0.md`](lab-distribution-implemented-surface-v0.md).
+
 **Card:** `LAB-DISTRIBUTION-CONTROL-CENTER-CLI-SKELETON-P7` · **Type:** implementation + proof
 **Status:** CLOSED — `bin/igniter` is now recognizably the v0 control center: the P6 taxonomy wired with
 **honest delegation** (`serve`/`check`/`doctor`/`toolchain list` live) and **fail-closed placeholders**

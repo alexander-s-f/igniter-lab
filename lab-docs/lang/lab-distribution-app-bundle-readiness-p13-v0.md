@@ -1,5 +1,9 @@
 # LAB-DISTRIBUTION-APP-BUNDLE-READINESS-P13 — `igniter app bundle` v0 design (readiness)
 
+> **Now implemented (2026-06-25):** this is the *design*; the command it specifies is **implemented (P14)**
+> and run-proven (P16). "NO implementation" below describes the readiness phase, not current state. Live
+> surface: [`lab-distribution-implemented-surface-v0.md`](lab-distribution-implemented-surface-v0.md).
+
 Status: readiness packet (design only — NO implementation)
 Card: `LAB-DISTRIBUTION-APP-BUNDLE-READINESS-P13`
 Date: 2026-06-25
