@@ -2,10 +2,15 @@
 
 **Type:** implemented-surface front door (hygiene; no code). **Updated:** 2026-06-25.
 
+> New here? Start with the command-oriented [igniter control-center developer guide](igniter-control-center-dev-guide-v0.md).
+>
+> Anti-rot guard: `tools/check_distribution_surface.sh` checks this doc's stable anchors against the live CLI
+> (`--with-tests` also runs the bounded smoke suites). Run it if you suspect the doc has drifted from code.
+
 This is the **current-truth** index for the `igniter` control-center distribution lane. Read THIS first
-during verify-first; the per-card readiness/proof packets (P1–P17) are historical evidence and several
+during verify-first; the per-card readiness/proof packets (P1–P35) are historical evidence and several
 describe earlier states (see "Superseded phrasings" below). When a packet and this doc disagree, **this doc
-wins** — but verify against live `bin/igniter` / `bin/igniter-install` before acting.
+wins** — but verify against live `bin/igniter` / `bin/igniter-install` / `igniter-agent` before acting.
 
 ## Live commands (what works today)
 
@@ -21,6 +26,9 @@ routes to a named owner that enforces the real policy.
 | `igniter toolchain install\|update [--with-repl] [--prefix PATH]` | live | `bin/igniter-install` | **local-source build+stage only** — NO remote/registry/solver/signing; `update` needs a prior `igniter-manifest.json`; staged-prefix is source-required (P11); `--with-repl` also stages the optional `igniter-repl` (P21) |
 | `igniter package lock\|verify\|verify-archive\|graph\|pack\|admit` | live | `igc` (igniter-compiler) | **argv routing only**, not a second resolver; `verify`=workspace, `verify-archive`=`.igpkg` archive (P12) |
 | `igniter app bundle <app_dir> --out <dir> --version <stamp>` | live | local orchestration | **assembly only** (P14); see below |
+| `igniter app admit <bundle_dir> --release-root <dir>` | live | local orchestration | **validate + copy only** (P35) — 10 gates, copies into `releases/<app>/<version>/`; NO `current` symlink, systemd, or deploy; see below |
+| `igniter env doctor\|template\|check <app_or_bundle>` | live | local | env-NAME catalogue from `host.example.toml`/`host.toml.example`; names + set/unset/empty only, **values never read/printed**; no `.env` (P33/P34); see below |
+| `igniter agent` | live | `igniter-agent` (stdio MCP) | command-center MCP; tools shell-delegate to this front door (P23–P26, P28, P34); see below |
 
 ### `igniter app bundle` — precise status
 
@@ -31,6 +39,43 @@ real `host.toml`, inline secrets, missing `--version`, non-loopback mode, or a f
 all refuse with no partial bundle. The emitted `run/run-<app>.sh` actually serves a request from inside the
 bundle on loopback (proven P16). It does **not** install systemd, bind public, manage TLS, create a DB, ship
 secrets, or swap the `current` symlink — those stay host-owned.
+
+### `igniter app admit` — precise status
+
+**Implemented (P35); validate + copy ONLY.** `igniter app admit <bundle_dir> --release-root <dir>` validates
+a P14 bundle through 10 fail-closed gates, then copies it (source is never moved/symlinked) into
+`<release-root>/releases/<app>/<version>/`. Gates: (1) `manifest.json` present + parses (app/version/
+runner.sha256), (2) `bundle_format_version == 1`, (3) `bind_policy == loopback`, (4) `public_release ==
+false`, (5) runner re-hash matches `manifest.runner.sha256`, (6) every app source re-hash matches, (7) the
+bundle's `checks/check.sh` passes (no socket/DB), (8) NO real `host.toml`, (9) a machine bundle
+(`requires_machine`) carries `host.toml.example`, (10) duplicate destination refused (no `--force` in v0).
+It does **not** touch `current`, install/enable systemd, bind, deploy, or run the app — admission is
+validate+place only; activation stays host-owned.
+
+### `igniter env` — precise status
+
+**Implemented (P33 doctor/template, P34 check).** Source of truth = the commit-safe env-NAME catalogue
+(`host.example.toml` in an app dir, `host.toml.example` in a bundle); the real `host.toml` is never read or
+required. **Values are never read or printed — only env-var NAMES + set/unset/empty status.** No `.env` is
+read; no injection.
+- `igniter env doctor <path>` — report each required var + `set`/`unset`/`empty`; always exit 0 (a report).
+- `igniter env template <path>` — blank `export NAME=` skeleton with `[section].key` comments; RHS stays
+  blank even when the var is set.
+- `igniter env check <path>` — the GATE: exit 0 when all required vars are set non-empty (or a pure app with
+  no catalogue); exit 1 when any is unset/empty; exit 2 on an invalid catalogue (empty env-name / template
+  syntax) or usage error.
+
+### `igniter agent` — precise status
+
+**Implemented (P23 shape → P24/P25/P26/P28/P34).** `igniter agent` launches the `igniter-agent` stdio
+JSON-RPC MCP server (a DISTINCT surface from the language/machine `igniter-mcp`). Every tool **shell-delegates
+to `bin/igniter`**, so it grants no authority of its own. Tools (all safe / non-mutating or bounded):
+`doctor`, `toolchain_list`, `check_app`, `package_verify`, `app_bundle`, `serve_app_bounded`
+(loopback + bounded ≤5, no daemon), `env_doctor`, `env_check`. Each result carries the P28 additive
+envelope — `content[0]` human text + `content[1]` `{tool, ok, exit_code, stdout, stderr, parsed}`; `env_*`
+tools' `parsed = {path, required_env:[{name,status}], ok}` and **never carry env values**. Missing required
+args → clean tool error (`isError:true`, `ok:false`, `exit_code:null`). `tools/list` excludes
+deploy/install/systemd/secret/apply/daemon/restart/bind/upload tools.
 
 ### `igniter-repl` — precise status
 
@@ -53,8 +98,12 @@ secrets, or swap the `current` symlink — those stay host-owned.
 
 - **Tool distribution:** no remote download, registry, version solver, signed artifacts, Homebrew, Docker,
   `.deb`/tarball channel (tarball/`.deb` have home-lab *precedent* for `tbackend` only).
-- **App deployment:** no systemd install/enable, no `current` symlink swap, no reverse proxy, no TLS, no DB
-  creation/migration, no secrets/DSNs/real `host.toml` in a bundle, no public bind.
+- **App deployment:** `igniter app admit` (validate + copy a bundle into `releases/<app>/<version>/`) IS
+  live (P35), but **activation stays closed** — no `current` symlink swap, no systemd install/enable, no
+  reverse proxy, no TLS, no DB creation/migration, no secrets/DSNs/real `host.toml` in a bundle, no public
+  bind, no running the app.
+- **Operator env:** `igniter env` (+ agent `env_*`) reports env-var NAMES and set/unset/empty only — **no
+  `.env` reading, no value reading/printing, no injection, no secret management** (P33/P34).
 - **Repo/build:** no root Cargo workspace (P5 — package-local + xtask/shell orchestration is the v0 model).
 - **REPL default-fleet inclusion:** still excluded (opt-in install IS implemented via `--with-repl`, P21);
   promoting repl into the *default* fleet remains a separate, unmade decision.
@@ -85,6 +134,11 @@ default 5-binary fleet) is unchanged and correct.
 still-outstanding (P17 readiness, P19 hygiene) is now stale — the headless smoke landed in **P20** and the
 installer opt-in (`--with-repl`) landed in **P21**. Those closed cards stay as history; the repl status
 section above is current truth.
+
+**Superseded by P33/P34/P35:** any earlier framing of `igniter env`, the agent `env_*` tools, or `igniter
+app admit` as reserved/deferred/readiness-only (e.g. the P30 env readiness packet, app-admit readiness) is
+stale — `env doctor|template|check` (P33/P34), the agent `env_doctor`/`env_check` tools (P34), and `app
+admit` (P35) are all **live**, as the sections above describe. The readiness packets stay as history.
 
 ## Authority boundary
 
