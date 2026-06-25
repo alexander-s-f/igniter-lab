@@ -206,3 +206,37 @@ pure contract TodoLinkHtml {
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }
+
+-- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NAV-P27: realistic Todo navigation/pagination expressed as a FLAT
+-- `Collection[HtmlNode]` of `link` nodes + app-local helpers — NO new node kind, NO nesting, NO layout.
+-- A per-row detail link (`index → /todos/<id>`) and a single "next page" cursor link (`?after=<id>`); the
+-- detail href and label both carry domain data, escaped by the projector.
+pure contract TodoDetailLink {
+  input todo : TodoItem
+  compute href : String = concat("/todos/", todo.id)
+  compute node : HtmlNode = call_contract("MakeLink", todo.title, href)
+  output node : HtmlNode
+}
+
+pure contract NextPageLink {
+  input after : String
+  compute href : String = concat("/todos?after=", after)
+  compute node : HtmlNode = call_contract("MakeLink", "Next page", href)
+  output node : HtmlNode
+}
+
+-- The nav view: map the domain collection to detail links (P4 Idiom A), then `append` the next-page link.
+-- A flat HtmlNode list; the malicious title proves projector escaping survives the link path.
+pure contract TodoNavHtml {
+  input req : Request
+  compute todos : Collection[TodoItem] = [
+    { id: "1", title: "Buy milk <script>", done: false },
+    { id: "2", title: "Write the spec",    done: true  }
+  ]
+  compute detail_links : Collection[HtmlNode] = map(todos, t -> call_contract("TodoDetailLink", t))
+  compute next : HtmlNode = call_contract("NextPageLink", "todo_2")
+  compute body : Collection[HtmlNode] = append(detail_links, next)
+  compute view : ViewArtifact = call_contract("FormView", "Todos", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}

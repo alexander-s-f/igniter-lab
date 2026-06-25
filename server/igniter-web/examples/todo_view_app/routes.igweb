@@ -20,6 +20,8 @@ app TodoViewWeb entry Serve {
   route GET "/todos/pending-html" -> TodoPendingHtml
   -- LAB-...-SELECT-OPTIONS-P23: a select node authored from an option collection.
   route GET "/todos/filter-html" -> TodoFilterHtml
+  -- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NAV-P27: detail links + next-page link as a flat HtmlNode list.
+  route GET "/todos/nav-html" -> TodoNavHtml
 
   route GET "/todos/:todo_id" -> TodoDetailView
 

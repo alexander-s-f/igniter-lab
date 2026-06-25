@@ -354,3 +354,45 @@ fn link_node_renders_safe_relative_href_from_path_param() {
         "link with param in href + text: {body}"
     );
 }
+
+// ---- LAB-IGNITER-WEB-VIEWARTIFACT-LINK-NAV-P27: detail links + next-page link as a flat HtmlNode list ----
+
+#[test]
+fn nav_html_renders_detail_links_and_next_page_link() {
+    // A realistic nav view: map a domain collection to per-row detail links, then `append` a next-page
+    // cursor link — all flat `link` nodes + app-local helpers, no schema/layout change.
+    let app = build();
+    let (status, wire) = roundtrip_raw(&*app, "GET", "/todos/nav-html", &[], "");
+    assert_eq!(status, 200);
+    let (head, body) = split(&wire);
+    assert!(
+        head.contains("content-type: text/html; charset=utf-8"),
+        "head: {head}"
+    );
+    assert!(body.starts_with("<!DOCTYPE html>"), "body: {body}");
+
+    // two detail links with safe relative hrefs, label = todo title, in authored order.
+    let i_d1 = body
+        .find("<a class=\"ig-link\" href=\"/todos/1\">")
+        .expect("detail link 1");
+    let i_d2 = body
+        .find("<a class=\"ig-link\" href=\"/todos/2\">Write the spec</a>")
+        .expect("detail link 2");
+    assert!(i_d1 < i_d2, "detail links in authored order");
+
+    // one next-page (cursor) link with a safe relative href, appended after the detail links.
+    let i_next = body
+        .find("<a class=\"ig-link\" href=\"/todos?after=todo_2\">Next page</a>")
+        .expect("next-page link");
+    assert!(i_d2 < i_next, "next-page link appended last");
+
+    // the malicious title is escaped on the way through the link path; no raw script.
+    assert!(
+        body.contains("href=\"/todos/1\">Buy milk &lt;script&gt;</a>"),
+        "detail link label escaped: {body}"
+    );
+    assert!(
+        !body.contains("<script>"),
+        "raw <script> must not appear: {body}"
+    );
+}
