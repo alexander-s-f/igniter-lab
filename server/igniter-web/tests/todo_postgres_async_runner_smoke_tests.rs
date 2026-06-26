@@ -641,6 +641,12 @@ fn show_found_todo_via_runner_200() {
             raw.contains("t1") && raw.contains("Buy milk"),
             "show response carries the row JSON (id + title), not the raw path param; raw={raw}"
         );
+        // P52: the typed show returns the Todo object DIRECTLY as the JSON body root via RespondJson — the
+        // `id` field is at the root and there is NO `{"body": …}` wrap.
+        assert!(
+            raw.contains("\"id\":\"t1\"") && !raw.contains("\"body\":"),
+            "show body is the Todo object root (not wrapped); raw={raw}"
+        );
         assert_eq!(adapter.query_count(), 1, "one read adapter query for show");
     });
 }

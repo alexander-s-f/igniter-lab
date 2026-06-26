@@ -31,12 +31,26 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | --- | --- | --- | --- | --- |
 | `GET /health` | `Health` | — | 200 `ok` | — |
 | `GET /accounts/:account_id/todos?after=<id>` | `AccountTodoIndex` → two-stage `ReadThen` (typed list, P50) | — | 200 **`{ "items": [...], "next": "<id>"\|"" }`** envelope (**ordered by `id` asc**; existing account + **empty list → `{ "items": [], "next": "" }`**, P24/P50). Keyset paginated: `next` = last row id when clamped to host cap, else `""`; feed it back as `?after=<id>` (P47). | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
-| `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
+| `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`), typed (P52) | — | 200 (the Todo JSON **object** as the body root, via `RespondJson`) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
 | `DELETE /accounts/:account_id/todos/:todo_id` | `AccountTodoDelete` → `InvokeEffect{todo-delete}` | **required** | 200 committed — the row is removed; **idempotent** (replay → 200 dedup; a later `show` → 404, `list` no longer shows it) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed (P44) |
 
 Unmatched path → **404**; wrong method on a known pattern → **405**.
+
+### HTML view routes (lab/product proofs — not a UI framework or report engine)
+
+| Route | Handler | Returns |
+| --- | --- | --- |
+| `GET /accounts/:account_id/todos.html` | `AccountTodoHtml` → `ReadThen` → `RenderView` | escaped `text/html` Todo list with per-row detail links + keyset "Load more" (P21) |
+| `GET /accounts/:account_id/report/money` | `AccountMoneyReport` → `ReadThen` → `RenderView` | escaped `text/html` exact-money report over typed `Decimal[2]` rows: `to_text` cells (trailing zeroes), `pad_left` alignment, a real Decimal `fold`-TOTAL (P25) |
+
+Both render through the same `ReadThen` → `RenderView` seam as the JSON API; the renderer owns escaping. The
+money report reads **typed `Decimal[2]`** rows (host `Decimal{scale:2}` materialized by P23) — a scale mismatch
+fails closed as drift before rendering. These are **lab/product view proofs**, not a general report engine,
+currency formatter, or export surface. The money route needs a host policy with a typed `Decimal` field kind
+for its source; `host.toml` cannot express per-field typed kinds yet, so the route is **proven DB-free** and a
+production deploy awaits the host-config typed-kind follow-on (`LAB-IGNITER-WEB-HOST-CONFIG-TYPED-FIELD-KINDS`).
 
 ### List-empty vs missing-account semantics (P24 + P38)
 
@@ -85,8 +99,12 @@ An empty existing account is `200 { "items": [], "next": "" }`; a missing accoun
 The list continuation is **typed** (P50): it receives `rows : Collection[TodoListRow]` + `meta : DatasetMeta`
 (the generic runner's typed crossing) and returns the envelope via the generic `RespondJson { status, body }`
 decision — the JSON-lane analogue of `RespondView`. `TodoListRow.done` is a `String` because the host read
-policy allowlists `todos` fields untyped (Text decode); a typed-`Bool` `done` is a separate host-policy lane.
-(The single-todo **show** route still uses the legacy `rows_json` continuation.)
+policy allowlists `todos` fields untyped (Text decode); a typed-`Bool` `done` is a separate host-policy lane —
+the host `Boolean`→`.ig Bool` crossing (filter on a real Bool, drift fail-closed) is **proven DB-free** (P53),
+but `host.toml` cannot yet express per-field typed kinds, so the shipped API keeps `done : String`.
+The single-todo **show** route is **also typed** (P52): it receives `rows : Collection[TodoListRow]` + `meta`
+and returns the found Todo object directly as the JSON body root via `RespondJson` (empty → app-owned 404).
+**No product route uses `rows_json` any more.**
 
 **Deferred (no dead-end):** a client-tunable `?limit=` (host cap + `next` suffice today); a nested `{ items,
 page: {…} }` envelope; a chronological `(inserted_at, id)` composite cursor (more substrate).
@@ -263,9 +281,10 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 
 ## Open product limitations (intentional v0)
 
-- The Todo **list** route is now typed (P50: `rows : Collection[TodoListRow]` + `meta : DatasetMeta` → a
-  `{ items, next }` envelope via `RespondJson`). The single-todo **show** route still uses the legacy
-  `rows_json` continuation; moving it to typed rows is a separate app slice, not a current runner blocker.
+- The Todo **list** (P50) and **show** (P52) routes are both typed (`rows : Collection[TodoListRow]` +
+  `meta : DatasetMeta` → `{ items, next }` / a Todo object body via `RespondJson`). **No product route uses
+  the legacy `rows_json` continuation any more** — `rows_json` remains only as the generic runner's
+  back-compat lane for non-product apps.
 - Object create bodies are parsed generically into `req.body_json : Map[String, Unknown]` (P35); the app
   reads only the `title` field. There is no general JSON query language and no nested/typed destructuring
   beyond `map_get_string`.

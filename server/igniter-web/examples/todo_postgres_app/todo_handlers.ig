@@ -194,14 +194,25 @@ pure contract AccountTodoIndexFromRows {
 -- Show read continuation (LAB-TODOAPP-API-SHOW-READTHEN-P14): the single-todo analogue of
 -- AccountTodoIndexFromRows. The host re-enters here with the FindTodo rows as a JSON string. Empty
 -- rows (no such todo for this account) are the APP's 404; a found row returns 200 carrying its JSON.
+-- LAB-TODOAPP-API-TYPED-SHOW-ENVELOPE-P52: the single-todo show continuation is now TYPED — the last product
+-- `rows_json` path is gone. It receives `rows : Collection[TodoListRow]` (the SAME Text-decoded row shape the
+-- list uses — `FindTodo` projects [id, account_id, title, done], `done` as Text per host policy) + `meta`. A
+-- found row returns the Todo JSON object DIRECTLY as the response body root via `RespondJson` (no `{"body":…}`
+-- wrap, no `{item:…}` indirection — `first` + `or_else` unwrap the single row); an empty result is the app's
+-- 404 `RespondError`. The `fallback` literal is only the type-level default for `or_else` and is never the
+-- body (the 404 branch owns the empty case).
 pure contract AccountTodoShowFromRows {
-  input req       : Request
-  input rows_json : String
+  input req  : Request
+  input rows : Collection[TodoListRow]
+  input meta : DatasetMeta
   compute not_found = call_contract("MakeApiError", "todo_not_found", "todo not found")
-  compute d : Decision = if rows_json == "[]" {
+  compute total : Integer = count(rows)
+  compute fallback : TodoListRow = { id: "", account_id: "", title: "", done: "" }
+  compute row : TodoListRow = or_else(first(rows), fallback)
+  compute d : Decision = if total == 0 {
     RespondError { status: 404, error: not_found }
   } else {
-    Respond { status: 200, body: rows_json }
+    RespondJson { status: 200, body: row }
   }
   output d : Decision
 }
@@ -535,6 +546,68 @@ pure contract AccountTodoHtmlFromRows {
     concat(links, more)
   }
   compute view : ViewArtifact = call_contract("MakeHtmlFormView", "Todos", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
+
+-- ── LAB-TODOAPP-VIEW-DB-MONEY-REPORT-ROUTE-P25: an additive DB-backed exact-money HTML report ───────────
+-- `GET /accounts/:account_id/report/money` reads typed `Decimal[2]` money lines through the SAME `ReadThen`
+-- path, renders exact cells (`to_text` trailing zeroes + `pad_left` alignment) and a real Decimal `fold`-TOTAL
+-- via `RenderView`. `amount` is an EXACT `Decimal[2]` (host `Decimal{scale:2}` materialized by P23) — a String
+-- would be rejected by `to_text`/`+`. No Float, no in-`.ig` decimal parser, no currency/locale, no schema. This
+-- route needs a typed-`Decimal` field kind in the host policy, which `host.toml` cannot express yet — proven
+-- DB-free; production deploy awaits the host-config typed-kind follow-on. Reuses the P21 HtmlNode helpers.
+type MoneyLineRow {
+  account_id : String
+  label      : String
+  amount     : Decimal[2]
+}
+
+-- One report row: `to_text(row.amount)` is the EXACT money text (proves a real Decimal); `pad_left(..., 8, " ")`
+-- right-aligns it into a fixed column; `concat` joins the (renderer-escaped) label.
+pure contract MoneyLineHtml {
+  input row : MoneyLineRow
+  compute cell : String = pad_left(to_text(row.amount), 8, " ")
+  compute line : String = concat(row.label, cell)
+  compute node : HtmlNode = call_contract("MakeHtmlLabel", line)
+  output node : HtmlNode
+}
+
+pure contract ListAccountMoney {
+  input account_id : String
+  compute projection : Collection[String] = ["account_id", "label", "amount"]
+  compute f_acct = call_contract("MakeFilter", "account_id", "eq", account_id)
+  compute filters : Collection[QueryFilter] = [f_acct]
+  compute order_by : Collection[QueryOrder] = []
+  compute plan : QueryPlan = {
+    source: "money_lines", op: "select",
+    projection: projection, filters: filters, order_by: order_by, limit: 50
+  }
+  output plan : QueryPlan
+}
+
+pure contract AccountMoneyReport {
+  input req        : Request
+  input account_id : Option[String]
+  compute acct : String = or_else(account_id, "")
+  compute plan = call_contract("ListAccountMoney", acct)
+  compute d : Decision = ReadThen { plan: plan, then: "AccountMoneyReportFromRows", carry: "" }
+  output d : Decision
+}
+
+-- The typed money continuation: render each row's exact cell (`map`), append a real Decimal `fold`-TOTAL, and
+-- `RenderView` to escaped text/html. An empty account renders an app-owned empty report (200), not an error.
+pure contract AccountMoneyReportFromRows {
+  input req  : Request
+  input rows : Collection[MoneyLineRow]
+  input meta : DatasetMeta
+  compute lines : Collection[HtmlNode] = map(rows, r -> call_contract("MoneyLineHtml", r))
+  compute total : Decimal[2] = fold(rows, decimal(0, 2), (acc, r) -> acc + r.amount)
+  compute total_cell : String = pad_left(to_text(total), 8, " ")
+  compute total_line : String = concat("TOTAL", total_cell)
+  compute total_node : HtmlNode = call_contract("MakeHtmlLabel", total_line)
+  compute body : Collection[HtmlNode] = concat(lines, [total_node])
+  compute view : ViewArtifact = call_contract("MakeHtmlFormView", "Money", body)
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }

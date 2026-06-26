@@ -14,6 +14,13 @@ app TodoPgWeb entry Serve {
   -- JSON API routes below are untouched.
   route GET "/accounts/:account_id/todos.html" -> AccountTodoHtml
 
+  -- LAB-TODOAPP-VIEW-DB-MONEY-REPORT-ROUTE-P25: an additive exact-money HTML report reading typed `Decimal[2]`
+  -- rows (host `Decimal{scale:2}` materialized, P23) through the SAME `ReadThen`→`RenderView` seam. The 3rd
+  -- segment `report` keeps it distinct from `todos`/`todos/:todo_id` — no authored-order shadowing. NOTE: this
+  -- route needs a host policy with a typed `Decimal` field kind for its source, which `host.toml` cannot
+  -- express yet (proven DB-free; production deploy awaits the host-config typed-kind follow-on).
+  route GET "/accounts/:account_id/report/money" -> AccountMoneyReport
+
   scope "/accounts/:account_id" {
     resource todos "/todos" {
       index  GET                     via LoadAccountTodos(account_id) as ctx         -> AccountTodoIndex
