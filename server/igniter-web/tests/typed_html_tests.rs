@@ -299,3 +299,46 @@ fn truncated_meta_renders_keyset_load_more_from_last_row_id() {
         );
     });
 }
+
+// ── 7 (P20): authored Decimal[2] money cells → exact text + pad_left alignment → escaped HTML ───────
+
+fn load_app_money() -> Arc<igniter_web::IgWebLoadedApp> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("igweb_p20_{}_{}", std::process::id(), stamp));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fx = dir.join("typed_html.ig");
+    std::fs::write(&fx, FIXTURE).unwrap();
+    build_igweb_loaded_app(IgWebBuildInput {
+        sources: vec![fx],
+        entry: "MoneyReportHtml".to_string(),
+    })
+    .expect("load typed_html fixture (money report)")
+}
+
+#[test]
+fn money_report_renders_exact_decimal_cells() {
+    // A pure RenderView route (no host read): authored Decimal[2] amounts via decimal(cents, 2).
+    let app = load_app_money();
+    rt().block_on(async {
+        let (status, ctype, html) = html_of(app.dispatch(get_req("/report")).await);
+        assert_eq!(status, 200);
+        assert!(ctype.contains("text/html"), "content-type: {ctype}");
+
+        // to_text(Decimal) is EXACT, trailing zeroes preserved.
+        assert!(html.contains("12.50"), "decimal(1250,2) → 12.50: {html}");
+        assert!(html.contains("123.45"), "decimal(12345,2) → 123.45: {html}");
+        assert!(html.contains("5.00"), "decimal(500,2) → 5.00 (trailing zeroes): {html}");
+
+        // pad_left(to_text(d), 8, " ") right-aligns into a fixed column — exact leading-space counts.
+        assert!(html.contains("   12.50"), "12.50 padded to width 8 (3 spaces): {html}");
+        assert!(html.contains("  123.45"), "123.45 padded to width 8 (2 spaces): {html}");
+        assert!(html.contains("    5.00"), "5.00 padded to width 8 (4 spaces): {html}");
+
+        // Escaping stays renderer-owned for the user-controlled label; no raw markup leaks.
+        assert!(html.contains("Coffee &lt;script&gt;"), "label escaped: {html}");
+        assert!(!html.contains("<script>"), "no raw script injected: {html}");
+    });
+}

@@ -169,3 +169,44 @@ pure contract TodoLinksHtmlFromRows {
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }
+
+-- ── LAB-TODOAPP-VIEW-MONEY-REPORT-P20: exact money cells from the new formatting surface ─────────────
+-- A tiny report view: authored `Decimal[2]` amounts → `to_text` (exact, trailing zeroes preserved) →
+-- `pad_left` (right-aligned column) → `concat` with an (escaped) label → an HtmlNode label → RenderView.
+-- No Float, no currency/locale/grouping, no local formatter, no renderer change. Money on a host READ would
+-- arrive as a String (typed Decimal projection is deferred), so the Decimal values are authored here.
+type LineItem {
+  label  : String
+  amount : Decimal[2]
+}
+
+-- Factory: build a `Decimal[2]` from minor units (cents) so the amount is a real Decimal, not a String.
+pure contract MakeLineItem {
+  input label : String
+  input cents : Integer
+  compute amt : Decimal[2] = decimal(cents, 2)
+  compute item : LineItem = { label: label, amount: amt }
+  output item : LineItem
+}
+
+-- One report row: `to_text(Decimal)` is the exact money text; `pad_left(..., 8, " ")` right-aligns it into a
+-- fixed column; `concat` joins the label. The renderer escapes the whole label (user text included).
+pure contract MoneyRow {
+  input item : LineItem
+  compute cell : String = pad_left(to_text(item.amount), 8, " ")
+  compute line : String = concat(item.label, cell)
+  compute node : HtmlNode = call_contract("MakeLabel", line)
+  output node : HtmlNode
+}
+
+pure contract MoneyReportHtml {
+  input req : Request
+  compute it1 = call_contract("MakeLineItem", "Coffee <script>", 1250)
+  compute it2 = call_contract("MakeLineItem", "Books", 12345)
+  compute it3 = call_contract("MakeLineItem", "Gift", 500)
+  compute items : Collection[LineItem] = [it1, it2, it3]
+  compute body : Collection[HtmlNode] = map(items, it -> call_contract("MoneyRow", it))
+  compute view : ViewArtifact = call_contract("FormView", "Report", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
