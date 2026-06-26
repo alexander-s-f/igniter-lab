@@ -18,8 +18,9 @@ field-read → `status: ok`; nested literal construction → `status: ok`; only 
 by a `tc_infer` depth budget (1000/fatal). So recursive *shapes* work today; recursive *walks* are the closed
 computation axis.
 
-**Path correction:** card's canon path `/Users/alex/dev/projects/igniter` has only `docs/{research,current-waves}`
-— NO covenant/spec. Real canon = `igniter-workspace/igniter-lang` (cited throughout).
+**Path correction:** the original card's canon path `/Users/alex/dev/projects/igniter` has only
+`docs/{research,current-waves}` — NO covenant/spec. Real canon =
+`igniter-workspace/igniter-lang` (cited throughout).
 
 **Recommendation: C now → B as the canon ask.** C (allow host-owned recursive descriptors, `.ig` traversal
 closed) is **already de-facto true + bounded** → zero lab change, exact ViewArtifact/HTML fit. B (allow
@@ -57,11 +58,12 @@ repetition only. The second axis is the open one.
 
 Verify first in the canon repo and lab:
 
-- `/Users/alex/dev/projects/igniter`
-- `/Users/alex/dev/projects/igniter/docs/language-covenant.md`
-- `/Users/alex/dev/projects/igniter/docs/spec/ch13-managed-recursion.md`
-- `/Users/alex/dev/projects/igniter/docs/spec/ch2-source-surface.md`
-- `/Users/alex/dev/projects/igniter/source/loops_and_recursion.ig`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/language-covenant.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch13-managed-recursion.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/docs/spec/ch2-source-surface.md`
+- `/Users/alex/dev/projects/igniter-workspace/igniter-lang/source/loops_and_recursion.ig`
+- `/Users/alex/dev/projects/igniter` (command-center wave maps only; not canon)
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/lang/igniter-compiler/src`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/server/igniter-web`
 - `/Users/alex/dev/projects/igniter-workspace/igniter-lab/frame-ui/igniter-render-html`

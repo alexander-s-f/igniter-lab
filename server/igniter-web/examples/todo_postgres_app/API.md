@@ -69,9 +69,11 @@ received — keyset, so paging never duplicates or skips rows (even under concur
 exhausted page is `200 []`; a missing account is still `404`.
 
 **Deferred (no dead-end):** a typed `{ "items": […], "next": <cursor> }` envelope and a client-tunable
-`?limit=` are not yet exposed — both need typed row destructuring of the `rows_json` continuation (and a
-`.ig` numeric parse). Today the client derives the next cursor from the last item's `id`. A bare
-non-`id`-monotone chronological order would need a composite `(inserted_at, id)` cursor (more substrate).
+`?limit=` are not yet exposed. The generic runner now supports typed row continuations + `DatasetMeta`,
+but this product JSON route still uses the legacy `rows_json` continuation; adopting the envelope is an app
+slice plus a small numeric/string DX slice for `limit`/badges. Today the client derives the next cursor from
+the last item's `id`. A bare non-`id`-monotone chronological order would need a composite `(inserted_at, id)`
+cursor (more substrate).
 
 ### Reads & freshness (`x-correlation-id`)
 
@@ -245,7 +247,9 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 
 ## Open product limitations (intentional v0)
 
-- No typed row destructuring — `ReadThen` continuations receive rows as a JSON **string**.
+- The generic runner supports typed rows + `DatasetMeta` continuations, and typed rows can render HTML via
+  `RenderView`; this Todo JSON API still uses the legacy `rows_json` continuation for list/show responses.
+  Moving these product routes to typed rows is a separate app slice, not a current runner blocker.
 - Object create bodies are parsed generically into `req.body_json : Map[String, Unknown]` (P35); the app
   reads only the `title` field. There is no general JSON query language and no nested/typed destructuring
   beyond `map_get_string`.

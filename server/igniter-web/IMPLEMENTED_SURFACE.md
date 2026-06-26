@@ -7,10 +7,11 @@ implemented", "observed only", "single-table read only", or "no live effect exec
 file and an old proof doc disagree, **this file + live source wins** (see
 [Historical docs rule](#historical-docs-rule)).
 
-Last refreshed against source: 2026-06-24 (route sugar `P16`-`P20`/`P22`/`P26`/`P27`,
-ViewArtifact authoring `P16`/`P19`, read/write binding `P25`/`P26`, hygiene `P29`-`P33`,
-Todo API product cards `P35`-`P41`, error envelope `P43`, delete `P44`, keyset pagination `P47`,
-and compiler package/admission pointers).
+Last refreshed against source: 2026-06-26 (route sugar `P16`-`P20`/`P22`/`P26`/`P27`,
+ViewArtifact authoring `P16`/`P19`, link node/nav `LINK-NODE`/`P27`, typed `ReadThen`
+crossing + `DatasetMeta` `P6`-`P8`, Todo typed rows -> HTML `P18`, Todo API product cards
+`P35`-`P41`, error envelope `P43`, delete `P44`, legacy body removal `P45`, keyset pagination
+`P47`, and compiler package/admission pointers).
 
 ## ReadThen status vocabulary
 
@@ -29,7 +30,9 @@ and compiler package/admission pointers).
 | Single staged read (`plan → rows → continuation`) | `runner-integrated` | `src/lib.rs::IgWebLoadedApp::dispatch_with_read` → `read_dispatch::StagedReadHost`; binary path `binary_path_readhost_from_config_found_200`. |
 | Sequential / nested staged reads (`carry`, bounded loop) | `runner-integrated` | Same `dispatch_with_read` loop, `MAX_READ_HOPS = 8`; two-stage account-existence (`P38`) drives it via `[postgres.read.accounts]`; `runaway_readthen_chain_is_bounded`, `local_account_existence_missing_404_and_existing_empty_200`, subprocess product e2e. |
 | Read freshness / opt-in replay | `runner-integrated` | `StagedReadHost::execute` keys receipts on `correlation_id`+`plan_digest`; uncorrelated reads run fresh (`P12`/`P23`). `uncorrelated_same_plan_reads_run_fresh`, `explicit_same_correlation_same_plan_replays`, `distinct_plans_never_collide`. |
-| Typed row destructuring in the continuation | `designed` (not implemented) | Continuation receives rows as a JSON **string** (`rows_json`); no typed columns. Humble v0. |
+| Typed row continuations (`rows : Collection[AppRow]` + `meta : DatasetMeta`) | `runner-integrated` | `src/read_continuation.rs` classifies continuation inputs from compiled metadata; `src/read_dispatch.rs::execute_typed` materializes typed rows + `DatasetMeta`; `src/lib.rs::dispatch_with_read` auto-routes typed vs legacy; `typed_readthen_tests`, `typed_row_crossing_tests`, `typed_html_tests`. |
+| Legacy `rows_json` continuations | `runner-integrated` (compatibility) | Continuations declaring `rows_json : String`, or neither `rows` nor `rows_json`, still receive `{ req, rows_json, carry }`; `legacy_lane_still_routes_to_rows_json`, `legacy_rows_json_path_still_works`. |
+| Boot/check structural diagnostics for typed continuations | Implemented (source-independent subset) | `src/read_continuation.rs::validate_read_continuations`; `src/runner_diag.rs::ProjectionSchemaInvalid` (`PROJECTION_SCHEMA_INVALID`, exit 12); `igweb-serve check` and machine mode fail before bind for malformed typed continuation shapes. Source-dependent host-kind drift remains a first-dispatch guard. |
 
 ## Implemented today
 
@@ -37,7 +40,8 @@ and compiler package/admission pointers).
 | --- | --- | --- | --- |
 | Sync observed mode (default) | Implemented | `src/bin/igweb-serve.rs` (`run`/no-flag path), `igniter-server::serving_loop` | Bounded loopback `serve_loop` via `ServerApp::call`. `InvokeEffect` is **observed, not executed**; effect identity never leaves the host. No `machine` feature needed. |
 | Async machine mode | Implemented | `src/bin/igweb-serve.rs::run_machine_mode` (`--host-config`), `src/machine_runner.rs` | Tokio loop via `serve_loop_loaded_with_read`; **never calls `ServerApp::call`**. Requires `--features machine`. |
-| `ReadThen { plan, then, carry }` | See [ReadThen vocabulary](#readthen-status-vocabulary) | `src/lib.rs::dispatch_with_read` (intercepts before `map_decision`) | Host runs the plan via `read_host`, then re-dispatches `then` with `{ req, rows_json, carry }`. The continuation may itself emit another `ReadThen` (sequential staged reads), bounded by `MAX_READ_HOPS = 8` → host 500. `Denied` → 403; `HostError` → 503. |
+| `ReadThen { plan, then, carry }` | See [ReadThen vocabulary](#readthen-status-vocabulary) | `src/lib.rs::dispatch_with_read` (intercepts before `map_decision`) | Host runs the plan via `read_host`, then re-dispatches `then` through the typed `{ req, rows, meta, carry }` crossing or legacy `{ req, rows_json, carry }` crossing based on compiled continuation metadata. The continuation may itself emit another `ReadThen` (sequential staged reads), bounded by `MAX_READ_HOPS = 8` → host 500. `Denied` → 403; `HostError` → 503. |
+| Typed `ReadThen` crossing | Implemented | `src/read_continuation.rs`, `src/read_materialize.rs`, `src/read_dispatch.rs`, `src/lib.rs` | The host chooses between typed `{ req, rows, meta, carry }` and legacy `{ req, rows_json, carry }` from compiled continuation metadata. Typed rows reconcile host read policy to the app row type before continuation dispatch. Residual row mismatch maps to 502. |
 | `StagedReadHost` | Implemented | `src/read_dispatch.rs` | Wraps a `CapabilityExecutorRegistry` + receipts; read idempotency key = `correlation_id` folded with a `plan_digest` (distinct queries never collide — `P12`). `Succeeded`→Rows, `Denied`→Denied(reason), other→HostError. |
 | Final `InvokeEffect` via `MachineEffectHost` | Implemented (async mode) | `src/machine_runner.rs` → `igniter-server::effect_host::{dispatch, MachineEffectHost}` | In **async machine mode** a final `InvokeEffect` routes through `MachineEffectHost`. Executes for real **only** when a write host is wired (below); an unbound target fails closed to host **502**. In **default sync mode** `InvokeEffect` stays observed. |
 | `host.toml` read/write/effects | Implemented | `src/host_config.rs` (`parse_host_config`/`load_host_config`/`resolve_host_config`) | Keys: `[host] mode` (`"loopback"` only); `[effects.<t>]` `route`(req)+`passport_env`(opt); `[postgres.read]` `dsn_env`(req)+`source`+`fields`+`row_limit`(def 100)+`capability`; `[postgres.read.<name>]` extra allowlisted `(source, fields)` (`P38`); `[postgres.write]` `dsn_env`(req)+`targets`+`ops`+`capability`+`key_column`(def `id`)+`columns`. Fail-closed on unknown section/key, inline secrets (`dsn`/`password`/`secret`/`token`/`passport`/`api_key`), template `*_env`, route w/o `/`, missing `route`/`dsn_env`, bad `mode`. `resolve_host_config` resolves every `*_env` **before** any socket bind. |
@@ -60,6 +64,9 @@ then maps handler `Decision` variants to the server response path.
 | Context `let` + single/same-name `guard` | Implemented | `igweb.rs::Binding`/`apply_bindings`; `ctx_let_guard_project_compiles_clean` and `ctx_accumulation_project_compiles_clean`. Distinct active guard names remain refused. |
 | `Render` / raw HTML response | Implemented | `src/lib.rs::map_decision` `Render` arm -> `render_to_decision`; `render_html_app` / view tests cover content-type and body bytes. |
 | `RenderView` / typed `ViewArtifact` records | Implemented | `src/lib.rs::map_decision` `RenderView` arm serializes the typed record and reuses the same renderer; `examples/todo_view_app` exercises typed authoring. |
+| ViewArtifact `link` node | Implemented | `frame-ui/igniter-render-html/src/lib.rs::render_component` `kind == "link"`; `safe_url`; `todo_view_app` `MakeLink`/`TodoLinkHtml`. | Safe relative/http(s) anchors; unsafe schemes fail closed; labels and hrefs are escaped. |
+| Flat link navigation | Proven with no new schema | `examples/todo_view_app::TodoNavHtml`; `todo_view_app_tests::nav_html_renders_detail_links_and_next_page_link`. | Index->detail links and `?after=` next-page links work as flat `HtmlNode` siblings. Bounded `list`/`item` layout remains held until grouping pressure appears. |
+| Typed rows -> HTML | Implemented | `tests/fixtures/typed_html/typed_html.ig`; `tests/typed_html_tests.rs`. | Typed `ReadThen` rows + `DatasetMeta` feed `filter`/`map` into `HtmlNode` helpers, then `RenderView` returns escaped `text/html`. No production source change was needed after P7/P8. |
 | Raw response / response envelope | Implemented | `map_decision` arms for `Respond`, `RespondError`, `Render`, and `RenderView`. App-authored `RespondError` is typed; host/framework errors keep their v0 shapes. |
 
 ### Todo API product path (`examples/todo_postgres_app`, cards `P35`-`P44`)
@@ -75,7 +82,7 @@ The generic surfaces above carry **one** product app end-to-end. App docs live i
 | Account-existence read semantics | Implemented (`P38`) | Two-stage read `FindAccount` → `CheckAccountThenList`: existing+rows → **200**; existing+empty → **200 `[]`**; missing account → app-owned **404**; denied source/field → host **403** (adapter not reached); adapter failure → host **503**. `local_account_existence_missing_404_and_existing_empty_200`. |
 | Error envelope (`RespondError`) | Implemented (`P43`) | Typed IgWeb-prelude `RespondError { status, error: ApiError{code,message} }` + a `map_decision` arm → `{"error":{"code","message"}}`. App-authored errors (invalid body, account/todo not-found) carry it; framework-app errors (route-miss/405/keyless from the lowering) and host infra error shapes are unchanged. |
 | Delete (`DELETE …/todos/:todo_id`) | Implemented (`P44`) | `AccountTodoDelete` → `BuildDeleteTodoIntent` (`operation: "delete"`, key = route `todo_id`) → `InvokeEffect{todo-delete}`. The write substrate's `delete` op was already seam-open (real adapter DELETE CTE + fake `remove`), gated by the host `ops` allowlist (`insert,upsert,delete`). Idempotent (absent row still commits; replay → no 2nd mutation); same key + different payload → **409**. Committed → **200**; row gone from later `show`/`list`. Proof: `write_delete_via_runner_200_removes_row_and_replay` (async HTTP through `MachineEffectHost`, DB-free), `local_delete_removes_existing_row_idempotently` (real adapter + DB), `delete_op_removes_business_row_idempotently` (fake substrate), and `scripts/todo_postgres_smoke.sh` (DELETE through the real binary → row removed, show → 404). |
-| List keyset pagination (`?after=`) | Implemented (`P47`) | List is ordered `id ASC`; `?after=<id>` adds a keyset filter `id > after` (Text range — enabled in `kind_allows_op`, real adapter pins `COLLATE "C"`). Page size = host read cap; client derives the next cursor from the last item's `id`. Query string parsed by the host (`parse_request` splits `?query` → `Request.query`; a query string used to break route matching). Proof: `local_keyset_pagination_pages_all_rows_once` (real DB, all rows once/ordered), `keyset_after_cursor_via_runner_filters_rows` (HTTP, DB-free), `text_keyset_range_and_order` (substrate), `parse_request_splits_query_from_path` (transport). **Deferred:** `{items,next}` envelope + client `limit` (need typed row destructuring). |
+| List keyset pagination (`?after=`) | Implemented (`P47`) | List is ordered `id ASC`; `?after=<id>` adds a keyset filter `id > after` (Text range — enabled in `kind_allows_op`, real adapter pins `COLLATE "C"`). Page size = host read cap; client derives the next cursor from the last item's `id`. Query string parsed by the host (`parse_request` splits `?query` → `Request.query`; a query string used to break route matching). Proof: `local_keyset_pagination_pages_all_rows_once` (real DB, all rows once/ordered), `keyset_after_cursor_via_runner_filters_rows` (HTTP, DB-free), `text_keyset_range_and_order` (substrate), `parse_request_splits_query_from_path` (transport). **Deferred:** `{items,next}` envelope + client `limit` are product-route work now that generic typed row crossing exists. |
 
 ### Package / admission front door
 
@@ -100,9 +107,11 @@ Do not infer a registry, semver solver, signing layer, deployment permission, or
 | Stable CLI promise | Closed | `igweb-serve` is a lab prototype; flags may change. |
 | Pool / backpressure | Closed | One connection at a time, bounded by `--max-requests`. |
 | Schema migration runner | Closed | DDL is operator-owned; the runner never creates/migrates tables. |
-| Typed row destructuring | Not implemented | `ReadThen` continuation receives `rows_json` as a `String`; no typed columns yet. |
+| Typed rows in the shipped Todo JSON API routes | Not adopted yet | The generic runner supports typed rows + `DatasetMeta`, and typed rows render to HTML in `typed_html_tests`. The current `examples/todo_postgres_app` JSON list/show routes still use legacy `rows_json`; migrating those product routes is a separate app slice, not a substrate blocker. |
+| Stronger typed projection landings | Deferred | v0 typed rows support String/Text/Integer/Bool plus limited Map/Collection[String]. Decimal/Timestamp, nested records/Json, and a generic `Dataset[T]` envelope remain future slices. |
 | Global protocol error envelope | Not implemented (deferred) | App-authored errors use the typed `RespondError` envelope (`P43`); a cross-crate envelope unifying host shapes too stays deferred. |
 | Multi-DSN reads / cross-DB joins | Not implemented | Multi-**table** allowlist exists (`extra_sources`), but a single read DSN and no join planner. |
+| App/export-specific file delivery | Not implemented | `ResponseBody::Raw` and HTML bytes exist, but content-disposition policy, storage handoff, streaming, and format-specific exporters remain separate work. |
 | Production deployment story | Closed | No daemon, no hosting, no SparkCRM/production DB interaction. |
 
 ## Failure taxonomy
@@ -137,6 +146,9 @@ From `server/igniter-web/`:
 scripts/check_implemented_surface.sh     # runner machinery: ReadThen + effect path + diagnostics + example + postgres-free tree
 scripts/check_todo_product_surface.sh    # Todo product contract: object body + surrogate id + account-existence + error contract (no DB)
 
+# Implemented-surface doc guard:
+cargo test --features machine --test implemented_surface_guard_tests
+
 # ReadThen + StagedReadHost + async MachineEffectHost + runner diagnostics (all machine-gated):
 cargo test --features machine
 #   readthen_dispatch_tests:        found_rows_flow_to_continuation_200,
@@ -158,6 +170,14 @@ cargo test --features machine
 #                                   unknown_section_fails_config_parse,
 #                                   non_loopback_addr_fails_closed,
 #                                   minimal_host_config_serves_one_request_and_exits_zero
+
+# Typed rows + boot diagnostics + typed HTML:
+cargo test --features machine --test typed_readthen_tests --test typed_html_tests --test boot_diagnostic_tests
+#   typed_readthen_tests: typed lane auto-routes rows + DatasetMeta; legacy rows_json remains green;
+#                         drift fails before dispatch; row mismatch maps to 502.
+#   boot_diagnostic_tests: source-independent continuation shape errors fail `igweb-serve check`
+#                          with PROJECTION_SCHEMA_INVALID exit 12 before bind.
+#   typed_html_tests: typed rows + DatasetMeta -> HtmlNode helpers -> RenderView -> escaped text/html.
 
 # host.toml parser + committed example guard (lib unit tests):
 cargo test --features machine --lib host_config   # parser fail-closed cases + committed_host_example_toml_parses

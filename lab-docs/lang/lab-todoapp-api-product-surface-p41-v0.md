@@ -1,12 +1,20 @@
-# LAB-TODOAPP-API-PRODUCT-SURFACE-P41 — current implemented surface
+# LAB-TODOAPP-API-PRODUCT-SURFACE-P41 — historical product-surface checkpoint
 
 **Date:** 2026-06-23
 **Type:** documentation + CI/smoke hardening (drift-prevention; NO behavior change)
 **Delegation:** OPUS-TODOAPP-API-PRODUCT-SURFACE-P41
 **Authority note:** lab evidence only — this is the `examples/todo_postgres_app` product surface, not Igniter canon.
 
-This is the one current surface for the Todo API. It supersedes scattered re-reading of P18/P20/P35/P36/P38
-proof docs. Everything below is **implemented and verified** unless a row says *designed*.
+> **Superseded status note (2026-06-26).** This P41 checkpoint is historical. It was current when written,
+> but later cards landed the app-scoped error envelope (`P43`), delete (`P44`), legacy string-body removal
+> (`P45`), keyset pagination (`P47`), and the generic typed `ReadThen`/`DatasetMeta` boundary. For current
+> Todo API behavior, start with
+> `server/igniter-web/examples/todo_postgres_app/API.md` and
+> `server/igniter-web/IMPLEMENTED_SURFACE.md`; do not route new work from the P41 route table below.
+
+This was the current surface for the Todo API at P41. It superseded scattered re-reading of
+P18/P20/P35/P36/P38 proof docs at the time; the current front doors listed above now supersede this packet.
+Everything below was **implemented and verified as of P41** unless a row says *designed*.
 
 ## Route table (machine/product path)
 
