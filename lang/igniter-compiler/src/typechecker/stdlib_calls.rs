@@ -351,9 +351,11 @@ impl TypeChecker {
                     }
                 }
             }
-            // LAB-LANG-NUMBER-TO-TEXT-P1: the smallest number→text surface — to_text : (Integer)->String.
-            // Mirrors the `char_at`/string builtins (OOF-TY0, String on every path incl. errors). NO implicit
-            // coercion, NO formatting/locale/padding; Float/Decimal HELD (a non-Integer arg is OOF-TY0).
+            // LAB-LANG-NUMBER-TO-TEXT-P1 + LAB-LANG-DECIMAL-TO-TEXT-P2: the exact number→text surface —
+            // to_text : (Integer | Decimal)->String. Mirrors the `char_at`/string builtins (OOF-TY0, String on
+            // every path incl. errors). NO implicit coercion, NO formatting/locale/rounding; **Float HELD**
+            // (a Float — or any other non-Integer/non-Decimal — arg is OOF-TY0). A bare `Decimal` value names
+            // `"Decimal"` (scale lives in params), the same convention the Decimal `+`/`-` arm relies on.
             "stdlib.string.to_text" | "to_text" => {
                 is_resolved = true;
                 resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
@@ -366,10 +368,13 @@ impl TypeChecker {
                     });
                 } else if let Some(first) = typed_args.first() {
                     let arg_name = self.type_name(&first.resolved_type);
-                    if arg_name != "Integer" && arg_name != "Unknown" {
+                    if arg_name != "Integer" && arg_name != "Decimal" && arg_name != "Unknown" {
                         type_errors.push(ClassifierDiagnostic {
                             rule: "OOF-TY0".to_string(),
-                            message: format!("to_text: argument must be Integer, got {}", arg_name),
+                            message: format!(
+                                "to_text: argument must be Integer or Decimal, got {}",
+                                arg_name
+                            ),
                             node: node_name.to_string(),
                             line: None,
                         });
@@ -726,6 +731,43 @@ impl TypeChecker {
                                 node: node_name.to_string(),
                                 line: None,
                             });
+                        }
+                    }
+                }
+            }
+            // LAB-LANG-STRING-PAD-LEFT-P3: pad_left(String, Integer, String) -> String — a table-column
+            // primitive (rune-counted width). OOF-TY0 on arity / wrong arg types, String on every path. NOT a
+            // formatter: numeric padding composes as `pad_left(to_text(x), width, "0")`.
+            "pad_left" | "stdlib.string.pad_left" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                if args.len() != 3 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!(
+                            "stdlib.string.pad_left: expected 3 argument(s), got {}",
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    for (i, want) in [(0usize, "String"), (1, "Integer"), (2, "String")] {
+                        if let Some(a) = typed_args.get(i) {
+                            let n = self.type_name(&a.resolved_type);
+                            if n != "Unknown" && n != want {
+                                type_errors.push(ClassifierDiagnostic {
+                                    rule: "OOF-TY0".to_string(),
+                                    message: format!(
+                                        "stdlib.string.pad_left arg {}: expected {}, got {}",
+                                        i + 1,
+                                        want,
+                                        n
+                                    ),
+                                    node: node_name.to_string(),
+                                    line: None,
+                                });
+                            }
                         }
                     }
                 }

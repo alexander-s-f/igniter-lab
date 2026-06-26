@@ -1,8 +1,8 @@
-// LAB-LANG-NUMBER-TO-TEXT-P1
+// LAB-LANG-NUMBER-TO-TEXT-P1 + LAB-LANG-DECIMAL-TO-TEXT-P2
 //
-// Compiler-side proof: `to_text` typechecks as `(Integer)->String`; a valid call compiles clean, and wrong
-// arity / a non-Integer argument are rejected deterministically (OOF-TY0). Each test writes a tiny `.ig` to a
-// tempdir and runs the real `igniter_compiler` binary. Float/Decimal are HELD (a Float arg is rejected).
+// Compiler-side proof: `to_text` typechecks as `(Integer | Decimal)->String`; valid calls compile clean, and
+// wrong arity / a Float (or other non-Integer/non-Decimal) argument are rejected deterministically (OOF-TY0).
+// Each test writes a tiny `.ig` to a tempdir and runs the real `igniter_compiler` binary. Float stays HELD.
 
 use serde_json::Value;
 use std::process::Command;
@@ -94,7 +94,7 @@ fn non_integer_argument_is_rejected() {
 
 #[test]
 fn float_argument_is_held() {
-    // Float is explicitly HELD in v0 — a Float arg is rejected, not silently formatted.
+    // Float is explicitly HELD — a Float arg is rejected, not silently formatted (Integer|Decimal only).
     let (_status, errors) = compile(
         "float",
         "module M.Float\n\npure contract C {\n  input f : Float\n  compute s : String = to_text(f)\n  output s : String\n}\n",
@@ -103,4 +103,20 @@ fn float_argument_is_held() {
         has_rule(&errors, "OOF-TY0"),
         "Float arg must be OOF-TY0 (held): {errors:?}"
     );
+}
+
+// ── LAB-LANG-DECIMAL-TO-TEXT-P2: to_text also accepts Decimal → String ──────────────────────────────
+
+#[test]
+fn valid_to_text_decimal_compiles_clean_as_string() {
+    // `to_text(Decimal) -> String` (money/report). `decimal(12345, 2)` has a literal scale → Decimal[2].
+    let (status, errors) = compile(
+        "decimal",
+        "module M.Dec\n\npure contract C {\n  compute d : Decimal[2] = decimal(12345, 2)\n  compute s : String = to_text(d)\n  output s : String\n}\n",
+    );
+    assert_eq!(
+        status, "ok",
+        "to_text(Decimal) must compile clean; errors={errors:?}"
+    );
+    assert!(!has_rule(&errors, "OOF-TY0"), "no type error: {errors:?}");
 }

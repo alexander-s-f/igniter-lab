@@ -65,6 +65,38 @@ fn stdlib_string_substring(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(Arc::from(result.as_str())))
 }
 
+// LAB-LANG-STRING-PAD-LEFT-P3: left-pad `text` to `width` Unicode scalar chars by prefixing repetitions of
+// `pad` (truncating the final fragment if it would overshoot). A table-column primitive, NOT a formatter.
+// Rune-counted like `char_at`/`substring`. Two documented edge cases:
+//   - `width <= len(text)` (incl. negative/zero width) → return `text` unchanged (TOTAL, no error);
+//   - padding needed but `pad` is empty → a domain error (the only precondition that can't make progress).
+pub fn stdlib_string_pad_left(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "stdlib.string.pad_left expects exactly 3 arguments, got {}",
+            args.len()
+        ));
+    }
+    let text = args[0].as_str()?;
+    let width = args[1].as_integer()?;
+    let pad = args[2].as_str()?;
+    let text_len = text.chars().count() as i64;
+    if width <= text_len {
+        return Ok(Value::String(Arc::from(text)));
+    }
+    if pad.is_empty() {
+        return Err("stdlib.string.pad_left: pad must be non-empty".to_string());
+    }
+    let need = (width - text_len) as usize; // scalar chars to prepend
+    let pad_chars: Vec<char> = pad.chars().collect();
+    let mut out = String::with_capacity(need + text.len());
+    for i in 0..need {
+        out.push(pad_chars[i % pad_chars.len()]); // repeat pad L→R, truncating the final fragment
+    }
+    out.push_str(text);
+    Ok(Value::String(Arc::from(out.as_str())))
+}
+
 // LAB-RACK-P9: pre-compiled dispatch entry for user-contract calls.
 // bytecode: compiled instructions for the callee contract.
 // input_names: input declaration names in declaration order (used for positional arg mapping).
@@ -868,6 +900,10 @@ impl VM {
                         "substring" | "stdlib.string.substring" => {
                             // substring(source, start, length), with rune-counted length.
                             stdlib_string_substring(&args)?
+                        }
+                        "pad_left" | "stdlib.string.pad_left" => {
+                            // pad_left(text, width, pad) — left-pad to a rune width (table columns).
+                            stdlib_string_pad_left(&args)?
                         }
                         "stdlib.IO.read_text" => {
                             if args.len() != 2 {
@@ -3399,6 +3435,37 @@ impl VM {
 /// `map`/`fold`/`filter` lambda bodies. Returns `None` when `fn_name` is not a math function (the caller
 /// falls through to its own dispatch); `Some(_)` carries the value or a deterministic error. Float-only (no
 /// implicit coercion); `det_*` never yield NaN/Inf — non-finite input and negative `det_sqrt` are errors.
+/// LAB-LANG-DECIMAL-TO-TEXT-P2: exact, canonical base-10 text for a `Value::Decimal { value, scale }`.
+///
+/// - exactly `scale` fractional digits (zero-padded), never trimmed;
+/// - never exponent notation, never locale/grouping/currency;
+/// - no rounding (lossless reflection of the stored integer + scale);
+/// - the sign applies to the whole number, including `-0.xx` (e.g. value `-5`, scale `2` → `"-0.05"`).
+///
+/// Integer/string arithmetic only — NO `f64`. `i64::MIN` is handled via `i128`'s `unsigned_abs` (a plain
+/// `i64::abs` would overflow), so the full `i64` value range is exact.
+fn decimal_to_text(value: i64, scale: u32) -> String {
+    let neg = value < 0;
+    // u128 magnitude — safe for i64::MIN (whose negation overflows i64).
+    let mut digits = (value as i128).unsigned_abs().to_string();
+    let s = scale as usize;
+    let body = if s == 0 {
+        digits
+    } else {
+        // Ensure at least one integer digit so the split always yields `<int>.<frac>`.
+        while digits.len() <= s {
+            digits.insert(0, '0');
+        }
+        let split = digits.len() - s;
+        format!("{}.{}", &digits[..split], &digits[split..])
+    };
+    if neg {
+        format!("-{body}")
+    } else {
+        body
+    }
+}
+
 pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
     // Arity + Float-type check, message-identical to the original bytecode arms.
     fn unary(
@@ -3701,9 +3768,10 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                 }
             }
         }
-        // LAB-LANG-NUMBER-TO-TEXT-P1: explicit Integer→String. Total + deterministic — Rust `i64::to_string`
-        // is base-10, no locale/grouping/padding, identical on every target (integer-only, no float/IEEE
-        // surface). Float/Decimal HELD: only an Integer is accepted. Shares the single `eval_math_call` source.
+        // LAB-LANG-NUMBER-TO-TEXT-P1 + LAB-LANG-DECIMAL-TO-TEXT-P2: explicit Integer|Decimal→String. Total +
+        // deterministic — `i64::to_string` / `decimal_to_text` are base-10, no locale/grouping/rounding,
+        // identical on every target (integer/string arithmetic only, NO f64/IEEE surface). **Float HELD**:
+        // only Integer and Decimal are accepted. Shares the single `eval_math_call` source.
         "stdlib.string.to_text" | "to_text" => {
             if args.len() != 1 {
                 Err(format!(
@@ -3713,7 +3781,10 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
             } else {
                 match &args[0] {
                     Value::Integer(i) => Ok(Value::String(Arc::from(i.to_string().as_str()))),
-                    _ => Err("to_text expects an Integer argument".to_string()),
+                    Value::Decimal { value, scale } => Ok(Value::String(Arc::from(
+                        decimal_to_text(*value, *scale).as_str(),
+                    ))),
+                    _ => Err("to_text expects an Integer or Decimal argument".to_string()),
                 }
             }
         }
@@ -5493,6 +5564,9 @@ fn eval_ast<'a>(
                     }
                     "substring" | "stdlib.string.substring" => {
                         stdlib_string_substring(&evaluated_operands)
+                    }
+                    "pad_left" | "stdlib.string.pad_left" => {
+                        stdlib_string_pad_left(&evaluated_operands)
                     }
                     // LAB-NUMERIC-DECIMAL-CONSTRUCT-P1: decimal(value, scale) in the
                     // eval_ast path (e.g. inside a fold/map lambda) — same lowering as the
