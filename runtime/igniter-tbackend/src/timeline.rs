@@ -95,17 +95,23 @@ impl ShardedFactLog {
             None => return Vec::new(),
         };
 
-        // Filter by transaction_time window [since, as_of] with a scan — order-independent
-        // (the timeline is in arrival order, not sorted by transaction_time). Callers that
-        // need ordering sort the result (e.g. backend `facts_for`).
-        timeline
+        // Scan + filter the [since, as_of] window, then sort by transaction_time.
+        // The timeline is in arrival order, not tt order, so a partition_point
+        // window would drop out-of-order facts. Mirrors pure_core's daemon path.
+        let mut window: Vec<FactData> = timeline
             .iter()
             .filter(|fact| {
                 since.map_or(true, |s| fact.transaction_time >= s)
                     && as_of.map_or(true, |a| fact.transaction_time <= a)
             })
             .cloned()
-            .collect()
+            .collect();
+        window.sort_by(|a, b| {
+            a.transaction_time
+                .partial_cmp(&b.transaction_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        window
     }
 
     pub fn facts_for_store(
@@ -119,15 +125,19 @@ impl ShardedFactLog {
             let shard = shard_lock.read();
             for ((s, _), timeline) in &shard.by_key {
                 if s == store {
-                    let start_idx = since.map_or(0, |s| {
-                        timeline.partition_point(|fact| fact.transaction_time < s)
-                    });
-                    let end_idx = as_of.map_or(timeline.len(), |a| {
-                        timeline.partition_point(|fact| fact.transaction_time <= a)
-                    });
-                    if start_idx < end_idx {
-                        results.extend(timeline[start_idx..end_idx].iter().cloned());
-                    }
+                    // Scan + filter the window per key — order-independent. A
+                    // partition_point window assumes a tt-sorted vector and would
+                    // drop in-window / leak out-of-window facts when the timeline
+                    // arrived out of transaction_time order.
+                    results.extend(
+                        timeline
+                            .iter()
+                            .filter(|fact| {
+                                since.map_or(true, |s| fact.transaction_time >= s)
+                                    && as_of.map_or(true, |a| fact.transaction_time <= a)
+                            })
+                            .cloned(),
+                    );
                 }
             }
         }
@@ -153,15 +163,21 @@ impl ShardedFactLog {
                 if s != store {
                     continue;
                 }
-                let latest = if let Some(as_of) = as_of {
-                    let pos = timeline.partition_point(|fact| fact.transaction_time <= as_of);
-                    if pos > 0 {
-                        Some(&timeline[pos - 1])
-                    } else {
-                        None
-                    }
-                } else {
-                    timeline.last()
+                // Resolve the latest fact at or before `as_of` by scanning for the
+                // greatest in-window transaction_time (mirrors `latest_for`). A
+                // partition_point + timeline[pos-1] assumes a tt-sorted vector and
+                // can pick the wrong fact for out-of-order timelines.
+                let cmp = |a: &&FactData, b: &&FactData| {
+                    a.transaction_time
+                        .partial_cmp(&b.transaction_time)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                };
+                let latest = match as_of {
+                    Some(as_of) => timeline
+                        .iter()
+                        .filter(|fact| fact.transaction_time <= as_of)
+                        .max_by(cmp),
+                    None => timeline.iter().max_by(cmp),
                 };
                 if let Some(fact) = latest {
                     if matches_filters(&fact.value, filters) {

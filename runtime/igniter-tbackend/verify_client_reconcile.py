@@ -129,7 +129,10 @@ def reconcile_after_timeout(fact: dict[str, Any], deadline_sec: float = 2.0) -> 
         for observed in facts:
             if observed.get("id") != fact["id"]:
                 continue
-            if observed.get("value_hash") == fact["value_hash"] and observed.get("value") == fact["value"]:
+            # LAB-TBACKEND-SERVER-CANONICAL-HASH-P4: value_hash is server-
+            # stamped canonical blake3, so reconcile by the client-visible
+            # logical payload rather than the legacy client-supplied hash.
+            if observed.get("value") == fact["value"]:
                 return COMMITTED_AFTER_TIMEOUT
             saw_conflict = True
         if saw_conflict:
@@ -265,7 +268,7 @@ def main() -> int:
         timeout_fact = make_fact("p14_timeout_unknown", "sent-no-ack")
         send_without_observing_ack({"op": "write_fact", "fact": timeout_fact})
         timeout_status = reconcile_after_timeout(timeout_fact)
-        assert_true(timeout_status == COMMITTED_AFTER_TIMEOUT, "exact id/value_hash scan finds committed_after_timeout")
+        assert_true(timeout_status == COMMITTED_AFTER_TIMEOUT, "exact id/value scan finds committed_after_timeout")
 
         missing = make_fact("p14_timeout_unknown", "never-sent")
         missing_status = reconcile_after_timeout(missing, deadline_sec=0.2)

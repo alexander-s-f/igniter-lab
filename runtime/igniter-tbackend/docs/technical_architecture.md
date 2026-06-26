@@ -35,7 +35,7 @@ graph TD
     C -->|Command Routes| D[Command Registry]
     C -->|Interception| E[Pipeline mpsc Queue]
     D -->|Store Engines| F[Sharded RwLocks 128 Shards]
-    F -->|O log N Search| G[Timeline Index]
+    F -->|Order-independent scan| G[Timeline Index]
     E -->|Background Workers| H[Reactive Pipelines]
     H -->|Combine / Rule Evaluators| I[ROP Short-Circuit]
     I -->|Template Rendering| J[Webhook & Target Stream Actions]
@@ -50,13 +50,15 @@ graph TD
     cores with reduced lock contention. Treat this as design and lab evidence;
     production capacity claims require dedicated load and failure-mode evidence.
 
-### B. $O(\log N)$ Logarithmic Temporal Search (Timeline Binary Search)
-*   **The Problem**: Traditional time-series lookups perform reverse linear scans ($O(N)$) over a key's commit history to find the active fact at a bitemporal `as_of` coordinate. As historical version depths grow (e.g., 5,000 updates), performance degrades linearly.
-*   **The Solution**: Since transactions are appended chronologically, every key's timeline vector is naturally sorted by transaction time. We implemented binary search via Rust's standard `partition_point`:
+### B. $O(N)$ Order-Independent Temporal Search (Correctness Over Version Depth)
+*   **The Problem**: A key's timeline vector is stored in **arrival order**, which is *not* guaranteed to be transaction-time order. Facts can arrive out of order under retries, backfills, and corrections (e.g. tx=100, tx=300, tx=200 appended in that sequence). A binary search (`partition_point`) assumes a sorted slice and therefore silently drops in-window facts, leaks out-of-window facts, and mis-resolves the active fact at an `as_of` coordinate.
+*   **The Solution**: Point reads (`latest_for`) and windowed reads (`facts_for_key`, `facts_for_store`, `query_scope`) scan the key's timeline and select by `transaction_time` directly — order-independent and correct regardless of insertion order. Windowed reads sort the selected rows by `transaction_time` for stable output:
     ```rust
-    let pos = timeline.partition_point(|fact| fact.transaction_time <= as_of);
+    timeline.iter()
+        .filter(|fact| fact.transaction_time <= as_of)
+        .max_by(by_transaction_time)   // latest_for / query_scope
     ```
-    This reduces point lookup complexity to $O(\log N)$. Point reads use binary search over the timeline vector.
+    This is $O(N)$ in the version depth of a single key. A future $O(\log N)$ path is possible only with a maintained tt-sorted index or a server-assigned monotonic `seq_id` (see `LAB-TBACKEND-SERVER-AUTHORITY-SEQID-P2`); until that invariant is enforced by all writers, correctness requires the scan.
 
 ### C. P2P WAL Gossip Anti-Entropy Replication (`MeshClusterPack`)
 *   **The Problem**: Traditional master-slave replication introduces coordination and availability tradeoffs.
@@ -70,6 +72,7 @@ graph TD
 *   **The Solution**: 
     - **Copy-On-Write Index Swapping**: During a compaction sweep, the compactor aggregates cold facts into bitemporal materialized summaries. It then builds a *fresh* memory index (`ShardedFactLog`) populated *only* with the warm facts, and swaps the active engine reference inside the global registry under a brief write lock.
   - **Atomic Log Compaction**: The compactor writes remaining warm facts to a temporary file (`.wal.tmp`), flushes it, and renames it atomically (`std::fs::rename`) to overwrite the active `.wal` file, using the filesystem rename boundary for the lab compaction model.
+*   **⚠ Safety status (LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6, DISABLED by default):** the "brief write lock" above spans only the engine *swap*, **not** the read→build→swap critical section. Any write that lands while a sweep is between its `facts_for_store` snapshot and the `engines.insert` swap is appended to the old engine and discarded — a silent loss of an acknowledged write (proven: `verify_compaction_loss.py` lost 19/28 concurrent acked writes). The rename is also **not** durability-safe: the temp WAL is `flush`ed but not `fsync`ed, and neither the file nor the directory is fsynced after `rename`, so a crash mid-compaction can leave a WAL missing history (routed to the durable-ack/fsync card). Because of this, compaction is now **disabled by default**: the background sweep is not spawned and `snapshot_trigger` refuses with `compaction_disabled_unsafe`. It runs only when the daemon is started with `--unsafe-compaction true` (never for a ledger/shadow). This is a lab compaction model, **not** a production-safe or shadow-safe compaction claim.
 
 ### E. Monadic ROP & MobX Reactive Event Engine (`PipelinePack`)
 The reactive pipeline engine combines two advanced functional programming paradigms:

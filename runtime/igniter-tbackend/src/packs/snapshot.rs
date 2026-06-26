@@ -99,6 +99,19 @@ fn run_rollup_and_compaction(
     policy: &RollupPolicy,
     kernel: &ServerKernel,
 ) -> Result<(usize, usize), String> {
+    // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: hard backstop. Compaction has no
+    // lock spanning read→build→swap (drops concurrent writes) and no fsync on
+    // the temp-WAL/rename (a crash can vanish history). Both callers below are
+    // already gated, but refuse here too so no future caller can run it
+    // implicitly on a ledger/shadow daemon.
+    if !kernel.compaction_unsafe {
+        return Err(
+            "compaction disabled for ledger/shadow safety (no read→swap lock, no fsync); \
+             start daemon with --unsafe-compaction true to opt in"
+                .to_string(),
+        );
+    }
+
     let source_engine = match kernel.get_or_create_engine(&policy.source_store) {
         Some(e) => e,
         None => return Err(format!("Source store '{}' not found", policy.source_store)),
@@ -332,9 +345,24 @@ impl CompactorService {
 
 impl BackgroundService for CompactorService {
     fn start(&self, kernel: Arc<ServerKernel>) -> Result<(), String> {
+        // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: do not spawn the routine 5s
+        // sweep unless compaction is explicitly opted into. By default a
+        // ledger/shadow daemon never runs unsafe compaction in the background.
+        if !kernel.compaction_unsafe {
+            println!(
+                "[Compactor Service] Auto-compaction DISABLED (ledger-safe default). \
+                 Enable with --unsafe-compaction true. See LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6."
+            );
+            return Ok(());
+        }
+
         let registry = self.registry.clone();
 
-        println!("[Compactor Service] Starting automatic background compactor sweep loop...");
+        println!(
+            "\x1b[33m[Compactor Service] WARNING: --unsafe-compaction enabled. Starting 5s sweep. \
+             Concurrent writes during a sweep may be lost (no read→swap lock) and a crash mid-rename \
+             may lose history (no fsync). Not for production/shadow ledgers.\x1b[0m"
+        );
         thread::spawn(move || {
             loop {
                 // Sleep for 5 seconds
@@ -465,6 +493,17 @@ impl ServerPack for SnapshotPack {
         // 3. Register "snapshot_trigger" Command Route
         let registry_c = self.registry.clone();
         command_reg.register("snapshot_trigger", Arc::new(move |req, kernel| {
+            // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: explicit command refuses
+            // unless the operator opted into unsafe compaction.
+            if !kernel.compaction_unsafe {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": "compaction disabled for ledger/shadow safety (no read→swap lock, no fsync); start daemon with --unsafe-compaction true to opt in",
+                    "error_code": "compaction_disabled_unsafe",
+                    "compaction_enabled": false
+                });
+            }
+
             let policy_id = match req.get("policy_id").and_then(|v| v.as_str()) {
                 Some(id) => id,
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'policy_id' parameter" }),

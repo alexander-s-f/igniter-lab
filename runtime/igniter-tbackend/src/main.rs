@@ -137,6 +137,52 @@ fn write_frame(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<usize> {
     Ok(total_written)
 }
 
+// ── Server-Authoritative Canonical Hash Enforcement ──────────────────────────
+// LAB-TBACKEND-SERVER-CANONICAL-HASH-P4. Applied by both write paths before a
+// fact enters the WAL or the in-memory log, so a tampered hash can never be
+// committed.
+//
+// Policy:
+//   * The server ALWAYS computes the canonical blake3 hash and stamps it onto
+//     the fact — that is what enters the ledger (and what write-once dedup/
+//     conflict detection compares).
+//   * Default (replace): a client hash that disagrees is overwritten. Legacy
+//     Ruby clients send SHA256 / CRC32 hashes that can never match blake3, so a
+//     blanket reject would break every existing write — the card's "legacy
+//     proves replacement safer" clause.
+//   * Strict (server `--hash-strict`, or per-request `strict_hash:true`): a
+//     non-empty client hash that disagrees is REJECTED loudly. An empty/absent
+//     client hash is never a mismatch — the client simply asserted nothing.
+//
+// Returns Err(response_json) when a strict mismatch must be rejected; otherwise
+// stamps `data.value_hash` with the canonical hash and returns Ok.
+fn enforce_canonical_hash(
+    data: &mut FactData,
+    req: &serde_json::Value,
+    kernel: &ServerKernel,
+) -> Result<(), serde_json::Value> {
+    let canonical = pure_core::canonical_value_hash(&data.value);
+    let strict = req
+        .get("strict_hash")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(kernel.hash_strict);
+
+    if strict && !data.value_hash.is_empty() && data.value_hash != canonical {
+        return Err(serde_json::json!({
+            "ok": false,
+            "error": "client value_hash does not match server canonical hash",
+            "error_code": "value_hash_mismatch",
+            "committed": false,
+            "retryable": false,
+            "server_value_hash": canonical,
+            "client_value_hash": data.value_hash,
+        }));
+    }
+
+    data.value_hash = canonical;
+    Ok(())
+}
+
 // ── Baseline Core Pack ────────────────────────────────────────────────────────
 
 struct CorePack;
@@ -166,10 +212,15 @@ impl ServerPack for CorePack {
                 Some(f) => f,
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'fact' parameter" }),
             };
-            let data: FactData = match serde_json::from_value(data_val.clone()) {
+            let mut data: FactData = match serde_json::from_value(data_val.clone()) {
                 Ok(d) => d,
                 Err(e) => return serde_json::json!({ "ok": false, "error": format!("Invalid fact data: {}", e) }),
             };
+
+            // Server is the authority for value_hash (canonical blake3).
+            if let Err(resp) = enforce_canonical_hash(&mut data, req, kernel) {
+                return resp;
+            }
 
             let engine = match kernel.get_or_create_engine(&data.store) {
                 Some(e) => e,
@@ -191,10 +242,18 @@ impl ServerPack for CorePack {
                 Some(f) => f,
                 None => return serde_json::json!({ "ok": false, "error": "Missing 'fact' parameter" }),
             };
-            let data: FactData = match serde_json::from_value(data_val.clone()) {
+            let mut data: FactData = match serde_json::from_value(data_val.clone()) {
                 Ok(d) => d,
                 Err(e) => return serde_json::json!({ "ok": false, "error": format!("Invalid fact data: {}", e) }),
             };
+
+            // Server is the authority for value_hash. Stamping the canonical hash
+            // BEFORE push_once means write-once dedup/conflict detection
+            // (pure_core::push_once) compares server canonical hashes, not client
+            // ones — so replay/conflict is decided by content, not client claim.
+            if let Err(resp) = enforce_canonical_hash(&mut data, req, kernel) {
+                return resp;
+            }
 
             let engine = match kernel.get_or_create_engine(&data.store) {
                 Some(e) => e,
@@ -343,6 +402,8 @@ fn main() {
     let mut auth_enabled = false;
     let mut mcp_enabled = mcp_enabled;
     let mut max_inflight_requests = 0usize;
+    let mut hash_strict = false;
+    let mut compaction_unsafe = false;
 
     // CLI argument parsing
     let mut i = 1;
@@ -436,9 +497,27 @@ fn main() {
                 mcp_enabled = true;
                 i += 1;
             }
+            "--hash-strict" => {
+                if i + 1 < args.len() {
+                    hash_strict = args[i + 1].parse().unwrap_or(false);
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --hash-strict");
+                    std::process::exit(1);
+                }
+            }
+            "--unsafe-compaction" => {
+                if i + 1 < args.len() {
+                    compaction_unsafe = args[i + 1].parse().unwrap_or(false);
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --unsafe-compaction");
+                    std::process::exit(1);
+                }
+            }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
-                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--max-inflight-requests <num>] [--mcp]");
+                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--max-inflight-requests <num>] [--hash-strict <true/false>] [--unsafe-compaction <true/false>] [--mcp]");
                 std::process::exit(1);
             }
         }
@@ -496,6 +575,17 @@ fn main() {
                     } else if let Some(me) = json.get("mcp_enabled").and_then(|v| v.as_str()) {
                         mcp_enabled = me.parse().unwrap_or(false);
                     }
+                    if let Some(hs) = json.get("hash_strict").and_then(|v| v.as_bool()) {
+                        hash_strict = hs;
+                    } else if let Some(hs) = json.get("hash_strict").and_then(|v| v.as_str()) {
+                        hash_strict = hs.parse().unwrap_or(false);
+                    }
+                    if let Some(uc) = json.get("unsafe_compaction").and_then(|v| v.as_bool()) {
+                        compaction_unsafe = uc;
+                    } else if let Some(uc) = json.get("unsafe_compaction").and_then(|v| v.as_str())
+                    {
+                        compaction_unsafe = uc.parse().unwrap_or(false);
+                    }
                 }
                 Err(e) => {
                     eprintln!("Error: Failed to parse JSON config file: {}", e);
@@ -511,7 +601,15 @@ fn main() {
 
     // ── Build and Assemble Server Profiles ───────────────────────────────────
 
-    let kernel = ServerKernel::new(host, port, data_dir, pool_size, auth_enabled);
+    let kernel = ServerKernel::new(
+        host,
+        port,
+        data_dir,
+        pool_size,
+        auth_enabled,
+        hash_strict,
+        compaction_unsafe,
+    );
 
     let mut assembler = ProfileAssembler::new();
     // Register structural packs
@@ -561,6 +659,22 @@ fn main() {
     );
     println!("  Thread Pool: \x1b[1m{} workers\x1b[0m", kernel.pool_size);
     println!("  Auth Enabled:\x1b[1m{}\x1b[0m", kernel.auth_enabled);
+    println!(
+        "  Hash Policy: \x1b[1m{}\x1b[0m (server canonical blake3 always stamped)",
+        if kernel.hash_strict {
+            "strict — reject client mismatch"
+        } else {
+            "replace — overwrite client hash"
+        }
+    );
+    println!(
+        "  Compaction:  \x1b[1m{}\x1b[0m",
+        if kernel.compaction_unsafe {
+            "UNSAFE — enabled (no read→swap lock, no fsync; may drop concurrent writes)"
+        } else {
+            "disabled (ledger-safe default; enable with --unsafe-compaction true)"
+        }
+    );
     println!(
         "  Backpressure:\x1b[1m{} max in-flight requests\x1b[0m",
         if max_inflight_requests == 0 {

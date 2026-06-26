@@ -257,21 +257,17 @@ pub fn run_mcp_loop(
                                         serde_json::json!(now)
                                     });
 
-                                let val_hash =
-                                    arguments.get("value_hash").cloned().unwrap_or_else(|| {
-                                        let val_str =
-                                            serde_json::to_string(&value).unwrap_or_default();
-                                        serde_json::Value::String(
-                                            blake3::hash(val_str.as_bytes()).to_hex().to_string(),
-                                        )
-                                    });
-
+                                // LAB-TBACKEND-SERVER-CANONICAL-HASH-P4: do not
+                                // compute a value_hash here. The server is the
+                                // authority and stamps the canonical blake3 hash
+                                // in the write_fact handler; computing a second
+                                // (non-canonical) hash here would just be a
+                                // divergent meaning the server then overwrites.
                                 let mut fact = json!({
                                     "id": id,
                                     "store": store,
                                     "key": key,
                                     "value": value,
-                                    "value_hash": val_hash,
                                     "transaction_time": tx_time,
                                     "schema_version": 1
                                 });

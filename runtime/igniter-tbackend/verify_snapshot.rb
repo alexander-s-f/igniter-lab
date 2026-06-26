@@ -73,7 +73,7 @@ FileUtils.mkdir_p(DATA_DIR)
 
 # 1. Spawn the compiled TBackend standalone daemon on port 7409 pointing to compaction_data/
 puts "\n[TBackend Daemon] Spawning daemon in the background on port 7409..."
-daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4", out: "/dev/null", err: "/dev/null")
+daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --unsafe-compaction true", out: "/dev/null", err: "/dev/null")
 sleep 1.0 # Allow socket to bind
 
 begin
@@ -183,7 +183,7 @@ begin
   Process.wait(daemon_pid)
 
   puts "\n[TBackend Daemon] Rebooting daemon on port 7409 using compacted storage..."
-  daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4", out: "/dev/null", err: "/dev/null")
+  daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --unsafe-compaction true", out: "/dev/null", err: "/dev/null")
   sleep 1.0 # Allow bind
 
   client2 = SnapshotTestClient.new("127.0.0.1", 7409)
@@ -194,7 +194,11 @@ begin
 
   # Verify warm facts values are intact
   res_warm = client2.send_req(op: "facts_for", store: "lead_signals", key: "lead-warm-0")
-  assert_equal("warm-hash-0", res_warm[:facts].first[:value_hash], "Warm fact payload replayed successfully from compacted WAL")
+  warm_fact = res_warm[:facts].first
+  assert_equal("eLocal", warm_fact[:value][:vendor_name], "Warm fact payload vendor replayed successfully from compacted WAL")
+  assert_equal("90210", warm_fact[:value][:zip_code], "Warm fact payload zip replayed successfully from compacted WAL")
+  assert(warm_fact[:value_hash].is_a?(String) && warm_fact[:value_hash].match?(/\A[0-9a-f]{64}\z/), "Warm fact carries server canonical blake3 value_hash")
+  assert(warm_fact[:value_hash] != "warm-hash-0", "Warm fact value_hash was server-stamped, not legacy client echo")
 
   client2.close
   puts "\n#{BOLD}#{GREEN}🏆 SNAPSHOT/COMPACTION PACK VERIFICATION COMPLETED SUCCESSFULLY!#{RESET}\n\n"

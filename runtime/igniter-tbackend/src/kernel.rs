@@ -98,6 +98,19 @@ pub struct ServerKernel {
     pub data_dir: Option<String>,
     pub pool_size: usize,
     pub auth_enabled: bool,
+    // LAB-TBACKEND-SERVER-CANONICAL-HASH-P4: when true, a fact whose client
+    // `value_hash` disagrees with the server canonical hash is rejected
+    // (`value_hash_mismatch`) instead of silently replaced. Default false for
+    // compatibility with legacy SHA256/CRC32 clients; opt-in for audit mode.
+    pub hash_strict: bool,
+    // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: when false (default), rollup/WAL
+    // compaction is DISABLED — the background CompactorService sweep is never
+    // spawned and `snapshot_trigger` refuses (`compaction_disabled_unsafe`).
+    // Compaction currently has no lock spanning read→build→swap (concurrent
+    // writes are silently dropped, P1/B3) and no fsync on the temp-WAL/rename
+    // (a crash can vanish history, P1/B4), so it is unsafe for a ledger/shadow.
+    // Set true (`--unsafe-compaction true`) only to opt into that risk.
+    pub compaction_unsafe: bool,
 
     // Active extensible registries
     pub command_registry: Arc<RwLock<CommandRegistry>>,
@@ -112,6 +125,8 @@ impl ServerKernel {
         data_dir: Option<String>,
         pool_size: usize,
         auth_enabled: bool,
+        hash_strict: bool,
+        compaction_unsafe: bool,
     ) -> Self {
         Self {
             host,
@@ -120,6 +135,8 @@ impl ServerKernel {
             data_dir,
             pool_size,
             auth_enabled,
+            hash_strict,
+            compaction_unsafe,
             command_registry: Arc::new(RwLock::new(CommandRegistry::new())),
             middleware_chain: Arc::new(RwLock::new(MiddlewareChain::new())),
             background_services: Arc::new(RwLock::new(Vec::new())),
