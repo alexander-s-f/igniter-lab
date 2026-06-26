@@ -6,6 +6,7 @@ CLI/API promise.
 
 Companion docs (read these for depth):
 [API.md](API.md) (routes, status/error contract, body contract) ·
+[EXAMPLES.md](EXAMPLES.md) (copy/paste curl examples) ·
 [host.example.toml](host.example.toml) (commit-safe operator config) ·
 [host_policy.md](host_policy.md) (read/write/effect authority) ·
 [../../IMPLEMENTED_SURFACE.md](../../IMPLEMENTED_SURFACE.md) (what `igniter-web` implements **today** —

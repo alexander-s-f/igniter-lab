@@ -12,6 +12,11 @@ fn script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/todo_postgres_smoke.sh")
 }
 
+fn examples_doc() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/todo_postgres_app/EXAMPLES.md")
+}
+
 /// Run the smoke script with an explicit env (PATH inherited so the shebang resolves), the two smoke
 /// vars removed first, then `vars` applied. Returns (exit_code, combined stdout+stderr).
 fn run(vars: &[(&str, &str)]) -> (i32, String) {
@@ -106,4 +111,42 @@ fn does_not_echo_token_or_full_dsn_on_refusal() {
         !out.contains("password=topsecret"),
         "full DSN must never appear; out={out}"
     );
+}
+
+#[test]
+fn examples_doc_pins_current_api_contract_without_inline_secrets() {
+    let path = examples_doc();
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+
+    for marker in [
+        "{\"title\":\"Buy milk\"}",
+        "bare JSON string body is removed and rejected",
+        "todo_<digest>",
+        "?after=$TODO_ID",
+        "RespondError { status, error }",
+        "last returned `id` as `after`",
+        "{items,next}",
+        "Authorization: Bearer $IGNITER_TODO_EFFECT_TOKEN",
+    ] {
+        assert!(
+            text.contains(marker),
+            "EXAMPLES.md must contain contract marker {marker:?}"
+        );
+    }
+
+    for forbidden in [
+        "Authorization: Bearer dev-token",
+        "Authorization: Bearer local",
+        "password=",
+        "postgres://",
+        "host=localhost",
+        "some-local-bearer-token",
+        "supersecrettoken",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "EXAMPLES.md must not inline secret-like value {forbidden:?}"
+        );
+    }
 }

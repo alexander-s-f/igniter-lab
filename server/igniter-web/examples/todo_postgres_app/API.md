@@ -10,7 +10,8 @@ allowlist, receipts, passport) is host-owned — see [`host.example.toml`](host.
 [`host_policy.md`](host_policy.md).
 
 **New here? Start with the one-page [`RUNBOOK.md`](RUNBOOK.md)** — run it locally, what's real vs not
-product-ready, troubleshooting, and the command that proves each claim.
+product-ready, troubleshooting, and the command that proves each claim. For copy/paste requests, use
+[`EXAMPLES.md`](EXAMPLES.md).
 
 ## Two run modes
 
