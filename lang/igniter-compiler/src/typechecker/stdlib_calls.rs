@@ -351,6 +351,31 @@ impl TypeChecker {
                     }
                 }
             }
+            // LAB-LANG-NUMBER-TO-TEXT-P1: the smallest number→text surface — to_text : (Integer)->String.
+            // Mirrors the `char_at`/string builtins (OOF-TY0, String on every path incl. errors). NO implicit
+            // coercion, NO formatting/locale/padding; Float/Decimal HELD (a non-Integer arg is OOF-TY0).
+            "stdlib.string.to_text" | "to_text" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                if args.len() != 1 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!("to_text: expected 1 argument, got {}", args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else if let Some(first) = typed_args.first() {
+                    let arg_name = self.type_name(&first.resolved_type);
+                    if arg_name != "Integer" && arg_name != "Unknown" {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-TY0".to_string(),
+                            message: format!("to_text: argument must be Integer, got {}", arg_name),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+            }
             // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only roots/powers/modulo. Integer args,
             // Integer result. OOF-MATH1 arity, OOF-MATH2 non-Integer. Domain errors are runtime (VM), not here.
             "stdlib.math.isqrt" | "isqrt" | "stdlib.math.ipow" | "ipow" | "stdlib.math.mod"

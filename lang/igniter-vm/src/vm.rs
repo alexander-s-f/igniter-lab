@@ -2076,6 +2076,8 @@ impl VM {
                         | "stdlib.math.mod" | "mod"
                         // LAB-STDLIB-NUMERIC-TO-FLOAT-P8: explicit Integer→Float via the same single source.
                         | "stdlib.math.to_float" | "to_float"
+                        // LAB-LANG-NUMBER-TO-TEXT-P1: explicit Integer→String, same single-source dispatch.
+                        | "stdlib.string.to_text" | "to_text"
                         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
                         | "stdlib.random.rng_seed" | "rng_seed" | "stdlib.random.rng_next" | "rng_next"
                         | "stdlib.random.rng_value" | "rng_value"
@@ -3696,6 +3698,22 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                 match &args[0] {
                     Value::Integer(i) => Ok(Value::Float(*i as f64)),
                     _ => Err("to_float expects an Integer argument".to_string()),
+                }
+            }
+        }
+        // LAB-LANG-NUMBER-TO-TEXT-P1: explicit Integer→String. Total + deterministic — Rust `i64::to_string`
+        // is base-10, no locale/grouping/padding, identical on every target (integer-only, no float/IEEE
+        // surface). Float/Decimal HELD: only an Integer is accepted. Shares the single `eval_math_call` source.
+        "stdlib.string.to_text" | "to_text" => {
+            if args.len() != 1 {
+                Err(format!(
+                    "to_text expects exactly 1 argument, got {}",
+                    args.len()
+                ))
+            } else {
+                match &args[0] {
+                    Value::Integer(i) => Ok(Value::String(Arc::from(i.to_string().as_str()))),
+                    _ => Err("to_text expects an Integer argument".to_string()),
                 }
             }
         }
@@ -6096,10 +6114,7 @@ fn eval_ast<'a>(
                     let val = eval_ast(v, inputs, temporal_context, local_env, backend, vm).await?;
                     map.insert(k.clone(), val);
                 }
-                map.insert(
-                    "__arm".to_string(),
-                    Value::String(Arc::from(arm_name)),
-                );
+                map.insert("__arm".to_string(), Value::String(Arc::from(arm_name)));
                 map.insert(
                     "__variant".to_string(),
                     Value::String(Arc::from(variant_name)),
