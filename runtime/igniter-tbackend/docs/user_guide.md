@@ -1,6 +1,21 @@
 # TBackend User Guide & Quick Start
 
-This guide records lab-local operator examples for the experimental TBackend playground: a standalone temporal ledger and reactive pipeline candidate used by Igniter Lab proofs. It is not public service documentation and does not promise stable API, production readiness, or performance behavior.
+This guide records operator examples for TBackend: a standalone temporal
+ledger and reactive pipeline substrate used by Igniter Lab proofs and
+Spark-shaped shadow systems.
+
+Current status:
+
+```text
+implemented lab substrate
+  -> shadow-ready candidate for side-ledger work
+  -> production promotion only after convergence gates
+```
+
+This is not public service documentation and does not promise stable API,
+production authority, or performance behavior. It **does** document a legitimate
+local daemon/client seam for bounded shadow deployments where the main
+application remains authoritative.
 
 ---
 
@@ -215,24 +230,37 @@ Deletes an active token from memory and persistent disk registry, addressed by t
 
 ## 3. Lab Scenario Sketches
 
-### Use Case A: Preventing Database Bloat & Compacting Logs (SparkCRM)
+### Use Case A: Side-Ledger Audit & Explainability (SparkCRM)
+A mature Rails/Postgres system can mirror selected lifecycle events to
+TBackend without changing the business write path. The first production-shaped
+role is **shadow side-ledger**, not replacement:
+
+1.  Rails/Postgres write remains authoritative.
+2.  An after-commit/outbox path writes bounded facts to TBackend.
+3.  TBackend answers point-in-time and lineage questions such as "why was this
+    technician unavailable at this slot?"
+4.  Shadow projections compare TBackend-derived summaries against the
+    ActiveRecord reference.
+5.  Convergence/stability evidence decides whether promotion is safe.
+
+### Use Case B: Preventing Database Bloat & Compacting Logs (SparkCRM)
 A high-write webhook workload can create write amplification and index pressure. Use `SnapshotPack` to automatically roll up old facts and reclaim disk space:
 1.  **Register a Rollup Policy**: Group facts older than 3 days by ZIP code and vendor, aggregating average bid prices and counts.
 2.  **Compact disk space**: The background sweep automatically prunes cold facts from the in-memory index, compiles summaries, and compacts WAL files on disk by **50% or more**, keeping RAM clean.
 
-### Use Case B: Out-of-Band Reactive Workflows (MobX/ROP)
+### Use Case C: Out-of-Band Reactive Workflows (MobX/ROP)
 Execute complex business rules dynamically without GVL blocking inside your core app:
 1.  Use `PipelinePack` to register a reactive pipeline over TCP.
 2.  Incoming webhook events trigger the pipeline immediately.
 3.  The server gathers auxiliary contexts (e.g. looking up partner balances and slot availabilities) and runs checks out-of-band.
 4.  If approved, a microservice webhook callback fires with a compiled JSON payload, while rejected events are short-circuited instantly without writing a target fact.
 
-### Use Case C: Edge Swarms & Distributed Synchronization (RPi5 / ESP32)
+### Use Case D: Edge Swarms & Distributed Synchronization (RPi5 / ESP32)
 Deploy standalone lightweight TBackend binaries to independent IoT devices:
 1.  Configure the node peers list using the `--peers 192.168.1.50:7401,192.168.1.51:7401` flag.
 2.  Devices gossip, exchange state vectors, and replicate missing WAL timelines, maintaining causal consistency in offline-first topologies.
 
-### Use Case D: Secure Multi-Tenant Ledger Isolation (SparkCRM Migration)
+### Use Case E: Secure Multi-Tenant Ledger Isolation (SparkCRM Migration)
 Securely isolate sensitive business ledgers and restrict client access on shared infrastructure:
 1.  **Enable Hardened Security**: Boot TBackend with `--auth-enabled true`.
 2.  **Isolate Operations by Role**: Create a `write_only` token (`write_token`) restricted to the `lead_signals` partition for ingestion webhooks, and a `read_only` token (`finance_token`) restricted to `financial_ledger` for reporting services.
@@ -297,4 +325,3 @@ Add the following block to your `claude_desktop_config.json` or Cursor custom MC
 }
 ```
 Now, your AI agent can query and write directly to your database partitions using natural language!
-
