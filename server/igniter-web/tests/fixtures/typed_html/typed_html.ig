@@ -120,3 +120,52 @@ pure contract TodoHtmlFromRows {
   compute d : Decision = RenderView { status: 200, view: view }
   output d : Decision
 }
+
+-- ── LAB-TODOAPP-VIEW-TYPED-ROW-LINKS-P19: row DATA drives navigation, not just text ─────────────────
+-- A typed host row → an HtmlNode DETAIL LINK: href built from `row.id` (a String field → clean `concat`,
+-- no Integer→String coercion), label from `row.title` (escaped by the projector). Same flat `link` node,
+-- no new schema.
+pure contract TodoRowDetailLink {
+  input row : TodoRow
+  compute href : String = concat("/todos/", row.id)
+  compute node : HtmlNode = call_contract("MakeLink", row.title, href)
+  output node : HtmlNode
+}
+
+-- P19 entry → ReadThen → typed links continuation (same plan/source as the label flow).
+pure contract FetchTodoLinksHtml {
+  input req : Request
+  compute account_id : String = req.path
+  compute plan = call_contract("ListTypedTodos", account_id)
+  compute d : Decision = ReadThen { plan: plan, then: "TodoLinksHtmlFromRows", carry: "" }
+  output d : Decision
+}
+
+-- The typed links continuation: each crossed row → a per-row detail link (`map`); the KEYSET "load more"
+-- href is built from the LAST row's id (the next page starts after it). `last` returns `Option[String]`,
+-- unwrapped with `or_else`. No `rows_json`, no new primitive, no Integer→String (id is a String field).
+pure contract TodoLinksHtmlFromRows {
+  input req  : Request
+  input rows : Collection[TodoRow]
+  input meta : DatasetMeta
+  compute total : Integer = count(rows)
+  compute links : Collection[HtmlNode] = map(rows, r -> call_contract("TodoRowDetailLink", r))
+  compute ids : Collection[String] = map(rows, r -> r.id)
+  compute last_id : String = or_else(last(ids), "")
+  compute more_href : String = concat("/todos?after=", last_id)
+  compute more_link : HtmlNode = call_contract("MakeLink", "Load more", more_href)
+  compute more : Collection[HtmlNode] = if meta.truncated {
+    [more_link]
+  } else {
+    []
+  }
+  compute empty_node : HtmlNode = call_contract("MakeLabel", "No todos yet")
+  compute body : Collection[HtmlNode] = if total == 0 {
+    [empty_node]
+  } else {
+    concat(links, more)
+  }
+  compute view : ViewArtifact = call_contract("FormView", meta.source, body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}

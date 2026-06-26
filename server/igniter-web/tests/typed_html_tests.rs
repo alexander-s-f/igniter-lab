@@ -227,3 +227,75 @@ fn drift_fails_before_html_continuation() {
         );
     });
 }
+
+// ── P19 (LAB-TODOAPP-VIEW-TYPED-ROW-LINKS): typed rows → per-row detail links + keyset load-more ──────
+
+fn load_app_links() -> Arc<igniter_web::IgWebLoadedApp> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("igweb_p19_{}_{}", std::process::id(), stamp));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fx = dir.join("typed_html.ig");
+    std::fs::write(&fx, FIXTURE).unwrap();
+    build_igweb_loaded_app(IgWebBuildInput {
+        sources: vec![fx],
+        entry: "FetchTodoLinksHtml".to_string(),
+    })
+    .expect("load typed_html fixture (links entry)")
+}
+
+// ── 5: typed rows → per-row detail links from `row.id` (href) + `row.title` (escaped label) ──────────
+
+#[test]
+fn typed_rows_render_per_row_detail_links() {
+    let app = load_app_links();
+    let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+    let host = make_read_host(adapter.clone(), matched_policy(100));
+    rt().block_on(async {
+        let (status, ctype, html) = html_of(app.dispatch_with_read(get_req("acct-7"), &host).await);
+        assert_eq!(status, 200);
+        assert!(ctype.contains("text/html"), "content-type: {ctype}");
+        // per-row detail links: href from `row.id`, label from `row.title`, in row order.
+        let d1 = html
+            .find("<a class=\"ig-link\" href=\"/todos/t1\">")
+            .expect("detail link for t1 (row.id → href)");
+        let d3 = html
+            .find("<a class=\"ig-link\" href=\"/todos/t3\">Pay bills</a>")
+            .expect("detail link for t3 (row.id + row.title)");
+        assert!(d1 < d3, "links follow row order");
+        // the malicious title is escaped INSIDE the link text — row data, not a literal.
+        assert!(
+            html.contains("href=\"/todos/t1\">Buy milk &lt;script&gt;</a>"),
+            "row.title escaped in link: {html}"
+        );
+        assert!(!html.contains("<script>"), "no raw script: {html}");
+        // not truncated (cap 100 ≥ rows) → no load-more affordance.
+        assert!(
+            !html.contains("Load more"),
+            "no load-more when not truncated: {html}"
+        );
+        assert_eq!(adapter.query_count(), 1);
+    });
+}
+
+// ── 6: truncated read → KEYSET load-more href built from the LAST crossed row's id ──────────────────
+
+#[test]
+fn truncated_meta_renders_keyset_load_more_from_last_row_id() {
+    let app = load_app_links();
+    let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+    // cap 1 clamps the contract's limit:50 → one row (t1) crosses, meta.truncated = true.
+    let host = make_read_host(adapter, matched_policy(1));
+    rt().block_on(async {
+        let (status, _ctype, html) =
+            html_of(app.dispatch_with_read(get_req("acct-7"), &host).await);
+        assert_eq!(status, 200);
+        // KEYSET cursor: the load-more href carries the last crossed row's id, not a generic "/todos".
+        assert!(
+            html.contains("<a class=\"ig-link\" href=\"/todos?after=t1\">Load more</a>"),
+            "keyset load-more href from last row id: {html}"
+        );
+    });
+}
