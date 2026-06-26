@@ -137,7 +137,11 @@ where
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
     let receipts: std::sync::Arc<dyn TBackend> = std::sync::Arc::new(InMemoryBackend::new());
+    // P50: attach the read policy so a TYPED `ReadThen` continuation (e.g. the Todo list's
+    // `AccountTodoIndexFromRows : Collection[TodoListRow]`) can derive its `ProjectionSpec` in the runner
+    // contour. Without it the typed routing fails closed; the legacy `rows_json` path never needs it.
     crate::read_dispatch::StagedReadHost::new(registry, receipts, &binding.capability_id)
+        .with_read_policy(binding.policy.clone())
 }
 
 // ── Real Postgres write host factory (postgres feature) ──────────────────────────────────────────

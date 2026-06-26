@@ -84,7 +84,10 @@ fn projection_expr(col: &str, kind: PostgresReadValueKind) -> String {
     match kind {
         PostgresReadValueKind::Text
         | PostgresReadValueKind::Timestamp
-        | PostgresReadValueKind::DecimalString => format!("{q}::text"),
+        | PostgresReadValueKind::DecimalString
+        // P23: a typed `Decimal{scale}` reads the same lossless `::text` digits; the host materializer
+        // parses them into `{value, scale}`. Never a lossy `::float`.
+        | PostgresReadValueKind::Decimal { .. } => format!("{q}::text"),
         PostgresReadValueKind::Integer => format!("{q}::bigint"),
         PostgresReadValueKind::Boolean => format!("{q}::bool"),
         PostgresReadValueKind::Json | PostgresReadValueKind::Array => format!("{q}::jsonb"),
@@ -98,7 +101,10 @@ fn decode_value(row: &tokio_postgres::Row, i: usize, kind: PostgresReadValueKind
     match kind {
         PostgresReadValueKind::Text
         | PostgresReadValueKind::Timestamp
-        | PostgresReadValueKind::DecimalString => row
+        | PostgresReadValueKind::DecimalString
+        // P23: typed `Decimal{scale}` decodes the exact digit string here; the host materializer turns it
+        // into `{value, scale}`. The decode is identical to `DecimalString` — only the host kind differs.
+        | PostgresReadValueKind::Decimal { .. } => row
             .get::<_, Option<String>>(i)
             .map(Value::String)
             .unwrap_or(Value::Null),

@@ -158,10 +158,36 @@ pure contract FindTodo {
 -- unknown account also lists `200 []`; an account-table existence read is a separate future card. (Show,
 -- which addresses a single resource, still 404s when the row is absent — see AccountTodoShowFromRows.)
 -- No machine internals here — the query/read authority is host-owned; this contract is pure.
+-- LAB-TODOAPP-API-TYPED-LIST-ENVELOPE-P50: the list continuation is now TYPED — it receives
+-- `rows : Collection[TodoListRow]` + `meta : DatasetMeta` (the host materializer crossing, P7) instead of a
+-- stringly `rows_json`, and returns a flat `{ items, next }` envelope via the generic `RespondJson` arm. The
+-- row type MATCHES the host read policy: `host.example.toml` allowlists `todos` fields untyped, so every field
+-- decodes as Text → `done : String` (NOT Bool), no `rank`. `next` is the keyset cursor: the last row's id when
+-- the read was clamped (`meta.truncated`), else "" (exhausted). Empty page → `{ items: [], next: "" }`, 200.
+type TodoListRow {
+  id         : String
+  account_id : String
+  title      : String
+  done       : String
+}
+
+type TodoListPage {
+  items : Collection[TodoListRow]
+  next  : String
+}
+
 pure contract AccountTodoIndexFromRows {
-  input req       : Request
-  input rows_json : String
-  compute d : Decision = Respond { status: 200, body: rows_json }
+  input req  : Request
+  input rows : Collection[TodoListRow]
+  input meta : DatasetMeta
+  compute ids  : Collection[String] = map(rows, r -> r.id)
+  compute next : String = if meta.truncated {
+    or_else(last(ids), "")
+  } else {
+    ""
+  }
+  compute page : TodoListPage = { items: rows, next: next }
+  compute d : Decision = RespondJson { status: 200, body: page }
   output d : Decision
 }
 

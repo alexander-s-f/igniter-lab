@@ -30,7 +30,7 @@ Source of truth: [`routes.igweb`](routes.igweb) (+ handlers in [`todo_handlers.i
 | Method & path | Handler | Idempotency | Success | Not-found / denied |
 | --- | --- | --- | --- | --- |
 | `GET /health` | `Health` | — | 200 `ok` | — |
-| `GET /accounts/:account_id/todos?after=<id>` | `AccountTodoIndex` → two-stage `ReadThen` | — | 200 (rows JSON, **ordered by `id` asc**; existing account + **empty list → `200 []`**, P24). Keyset paginated: optional `?after=<id>` returns rows with `id > after`; page size = host cap (P47). | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
+| `GET /accounts/:account_id/todos?after=<id>` | `AccountTodoIndex` → two-stage `ReadThen` (typed list, P50) | — | 200 **`{ "items": [...], "next": "<id>"\|"" }`** envelope (**ordered by `id` asc**; existing account + **empty list → `{ "items": [], "next": "" }`**, P24/P50). Keyset paginated: `next` = last row id when clamped to host cap, else `""`; feed it back as `?after=<id>` (P47). | **404 `account not found`** if the account does not exist (P38); read denied by host policy → 403; host read error → 503 |
 | `GET /accounts/:account_id/todos/:todo_id` | `AccountTodoShow` → `ReadThen` (`FindTodo`) | — | 200 (row JSON) | 404 `todo not found` (no matching row); 404 if account/todo missing (guard); 403/503 as above |
 | `POST /accounts/:account_id/todos` | `AccountTodoCreate` → `InvokeEffect{todo-create}` | **required** | 200 committed (replay same key → 200 dedup, no 2nd write) | keyless → **400**; non-string/empty/malformed body → **400**; same key + different body → **409 conflict**; sync mode → 202 observed |
 | `POST /accounts/:account_id/todos/:todo_id/done` | `AccountTodoDone` → `InvokeEffect{todo-done}` | **required** | 200 committed (replay → 200 dedup) | keyless → **400**; same key + different `todo_id` → **409 conflict**; sync mode → 202 observed |
@@ -43,12 +43,14 @@ Unmatched path → **404**; wrong method on a known pattern → **405**.
 `GET /accounts/:id/todos` is a **collection**, and the two empty-ish outcomes are now distinguished
 (LAB-TODOAPP-API-ACCOUNT-EXISTENCE-P38):
 
-- **account exists, zero todos → `200 []`** (an empty collection is a valid 200, not a 404).
+- **account exists, zero todos → `200 { "items": [], "next": "" }`** (an empty collection is a valid
+  200 envelope, not a 404).
 - **account does not exist → `404 account not found`** (app-owned).
 
 The handler is a **two-stage staged read**: stage 1 reads the `accounts` table to prove the account
-exists (empty rows ⇒ 404); only then does stage 2 issue the `todos` list (empty rows ⇒ `200 []`). A single
-`todos` read could not tell the two apart (both yield `[]`). The host read policy must allowlist **both**
+exists (empty rows ⇒ 404); only then does stage 2 issue the `todos` list (empty rows ⇒
+`200 { "items": [], "next": "" }`). A single `todos` read could not tell the two apart (both yield an empty
+row set). The host read policy must allowlist **both**
 the `todos` and `accounts` sources (multi-source `[postgres.read.*]`, see [`host_policy.md`](host_policy.md));
 the generic runner threads the route-captured `account_id` from stage 1 to stage 2 via an opaque `carry`
 on `ReadThen` and bounds the staged-read chain (no infinite continuation loop). `show`
@@ -66,15 +68,28 @@ curl 'http://127.0.0.1:PORT/accounts/acct-1/todos?after=todo_<lastid>'  # next p
 ```
 
 Page size is **server-fixed** at the host read cap. The cursor is the **`id` of the last item** you
-received — keyset, so paging never duplicates or skips rows (even under concurrent insert). An empty /
-exhausted page is `200 []`; a missing account is still `404`.
+received — keyset, so paging never duplicates or skips rows (even under concurrent insert).
 
-**Deferred (no dead-end):** a typed `{ "items": […], "next": <cursor> }` envelope and a client-tunable
-`?limit=` are not yet exposed. The generic runner now supports typed row continuations + `DatasetMeta`,
-but this product JSON route still uses the legacy `rows_json` continuation; adopting the envelope is an app
-slice plus a small numeric/string DX slice for `limit`/badges. Today the client derives the next cursor from
-the last item's `id`. A bare non-`id`-monotone chronological order would need a composite `(inserted_at, id)`
-cursor (more substrate).
+The list returns a **typed `{ "items": [...], "next": "<id>" | "" }` envelope** (P50): `items` is the page of
+todo rows; `next` is the keyset cursor for the following page — the last row's `id` when the page was clamped
+to the host cap (more rows exist), or `""` when the page is exhausted (no more). A client pages by feeding
+`next` back as `?after=`:
+
+```bash
+curl 'http://127.0.0.1:PORT/accounts/acct-1/todos'                 # first page → { "items": [...], "next": "todo_<id>"|"" }
+curl 'http://127.0.0.1:PORT/accounts/acct-1/todos?after=todo_<id>' # next page, where <id> = the prior "next"
+```
+
+An empty existing account is `200 { "items": [], "next": "" }`; a missing account is still `404`.
+
+The list continuation is **typed** (P50): it receives `rows : Collection[TodoListRow]` + `meta : DatasetMeta`
+(the generic runner's typed crossing) and returns the envelope via the generic `RespondJson { status, body }`
+decision — the JSON-lane analogue of `RespondView`. `TodoListRow.done` is a `String` because the host read
+policy allowlists `todos` fields untyped (Text decode); a typed-`Bool` `done` is a separate host-policy lane.
+(The single-todo **show** route still uses the legacy `rows_json` continuation.)
+
+**Deferred (no dead-end):** a client-tunable `?limit=` (host cap + `next` suffice today); a nested `{ items,
+page: {…} }` envelope; a chronological `(inserted_at, id)` composite cursor (more substrate).
 
 ### Reads & freshness (`x-correlation-id`)
 
@@ -112,7 +127,7 @@ The status code carries the error class. Error bodies have **three stable shapes
 | invalid create body (P35) | app | **400** | `{"error":{"code":"invalid_body","message":"create body must provide a non-empty title"}}` (P43) | none |
 | account not found | app | **404** | `{"error":{"code":"account_not_found","message":"account not found"}}` (P43) | none |
 | todo not found (show) | app | **404** | `{"error":{"code":"todo_not_found","message":"todo not found"}}` (P43) | none |
-| list empty (no todos) | app | **200** | `{"body":"[]"}` (P24: an empty list is a valid 200, not a not-found) | none |
+| list empty (no todos) | app | **200** | `{"items":[],"next":""}` (P24/P50: an empty list is a valid 200 envelope, not a not-found) | none |
 | read denied by host policy | host | **403** | `{"error":"…"}` (names the requested source/field/op) | no DSN/SQL |
 | read host unavailable | host | **503** | `{"error":"…"}` | no DSN |
 | write committed | host | **200** | `{"status":"committed","result":…}` | none |
@@ -248,9 +263,9 @@ IGNITER_TODO_PG_DSN=… cargo test --features postgres \
 
 ## Open product limitations (intentional v0)
 
-- The generic runner supports typed rows + `DatasetMeta` continuations, and typed rows can render HTML via
-  `RenderView`; this Todo JSON API still uses the legacy `rows_json` continuation for list/show responses.
-  Moving these product routes to typed rows is a separate app slice, not a current runner blocker.
+- The Todo **list** route is now typed (P50: `rows : Collection[TodoListRow]` + `meta : DatasetMeta` → a
+  `{ items, next }` envelope via `RespondJson`). The single-todo **show** route still uses the legacy
+  `rows_json` continuation; moving it to typed rows is a separate app slice, not a current runner blocker.
 - Object create bodies are parsed generically into `req.body_json : Map[String, Unknown]` (P35); the app
   reads only the `title` field. There is no general JSON query language and no nested/typed destructuring
   beyond `map_get_string`.

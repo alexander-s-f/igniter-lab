@@ -129,22 +129,40 @@ fn product_todos_index_found_returns_200() {
         assert_eq!(out.result["count"], json!(2));
         assert_eq!(adapter.query_count(), 1);
 
-        // rows → rows_json → the PRODUCT continuation contract.
-        let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
+        // P50: typed rows + meta → the PRODUCT continuation → a `{ items, next }` envelope via RespondJson.
+        let rows = out.result["rows"].clone();
         let decision = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req(), "rows_json": rows_json}),
+                json!({"req": min_req(), "rows": rows.clone(),
+                       "meta": {"source": "todos", "count": 2, "truncated": false}}),
             )
             .await
             .unwrap();
 
-        assert_eq!(decision["__arm"], json!("Respond"));
+        assert_eq!(decision["__arm"], json!("RespondJson"));
         assert_eq!(decision["status"], json!(200));
-        let body = decision["body"].as_str().unwrap();
+        let items = decision["body"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "envelope carries both rows");
+        let body_s = decision["body"].to_string();
         assert!(
-            body.contains("todo-1") && body.contains("Write spec"),
-            "200 carries the todo-shaped rows: {body}"
+            body_s.contains("todo-1") && body_s.contains("Write spec"),
+            "items carry the todo-shaped rows: {body_s}"
+        );
+        assert_eq!(decision["body"]["next"], json!(""), "not truncated → empty cursor");
+
+        // Truncated page: the keyset cursor is the LAST row's id.
+        let truncated = m
+            .dispatch(
+                "AccountTodoIndexFromRows",
+                json!({"req": min_req(), "rows": rows,
+                       "meta": {"source": "todos", "count": 2, "truncated": true}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            truncated["body"]["next"], json!("todo-2"),
+            "truncated → next = last row id (keyset cursor)"
         );
     });
 }
@@ -164,18 +182,19 @@ fn product_todos_index_empty_returns_200_empty_list() {
         let out = host_read(&plan, todos_policy(100), adapter).await;
         assert_eq!(out.result["count"], json!(0));
 
-        let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
-        assert_eq!(rows_json, "[]");
+        // P50: empty existing account → the typed envelope `{ "items": [], "next": "" }` (a list, not 404).
         let decision = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req(), "rows_json": rows_json}),
+                json!({"req": min_req(), "rows": [],
+                       "meta": {"source": "todos", "count": 0, "truncated": false}}),
             )
             .await
             .unwrap();
-        assert_eq!(decision["__arm"], json!("Respond"));
-        assert_eq!(decision["status"], json!(200), "empty list = 200 []");
-        assert_eq!(decision["body"], json!("[]"), "body carries the empty array");
+        assert_eq!(decision["__arm"], json!("RespondJson"));
+        assert_eq!(decision["status"], json!(200), "empty list = 200 envelope");
+        assert_eq!(decision["body"]["items"], json!([]), "empty items array");
+        assert_eq!(decision["body"]["next"], json!(""), "exhausted → empty cursor");
     });
 }
 

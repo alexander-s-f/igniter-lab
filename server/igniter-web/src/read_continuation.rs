@@ -205,6 +205,16 @@ fn app_field_type(type_ir: &Value) -> Option<AppFieldType> {
         "Text" => Some(AppFieldType::Text),
         "Integer" => Some(AppFieldType::Integer),
         "Bool" | "Boolean" => Some(AppFieldType::Bool),
+        // P23: `Decimal[N]` — the scale `N` is the first type param. In the persisted type_env a
+        // `Decimal[2]` annotation is `{name:"Decimal", params:["2"]}` (the param is a bare string); accept
+        // an object `{name:"2"}` form too for robustness. A missing/unparseable scale → `None` (fail closed).
+        "Decimal" => type_ir
+            .get("params")
+            .and_then(|p| p.as_array())
+            .and_then(|a| a.first())
+            .and_then(|p| p.as_str().or_else(|| p.get("name").and_then(|n| n.as_str())))
+            .and_then(|s| s.parse::<u32>().ok())
+            .map(AppFieldType::Decimal),
         "Map" => Some(AppFieldType::MapUnknown),
         "Collection" => {
             // Only Collection[String] lands in v0 (the Array kind).

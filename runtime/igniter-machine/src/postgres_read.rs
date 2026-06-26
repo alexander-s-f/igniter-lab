@@ -306,8 +306,15 @@ pub enum PostgresReadValueKind {
     Json,
     /// date/time rendered as a lossless string (RFC3339-ish), never an epoch number.
     Timestamp,
-    /// arbitrary-precision `numeric` kept as a String — NEVER a lossy `f64`.
+    /// arbitrary-precision `numeric` kept as a String — NEVER a lossy `f64`. DISPLAY-ONLY: it crosses as
+    /// an `.ig String` (no in-language arithmetic). For exact typed money use `Decimal { scale }` instead.
     DecimalString,
+    /// LAB-IGNITER-DATA-PROJECTION-DECIMAL-CROSSING-P23: a `numeric(p,s)` column crossed as an EXACT typed
+    /// `.ig Decimal[scale]`. The adapter still reads the lossless decimal digits as a String (never `f64`);
+    /// the host materializer parses that string against `scale` into the `{ value, scale }` shape the VM's
+    /// `from_json` turns into `Value::Decimal` (real arithmetic). Distinct from `DecimalString` (display-only)
+    /// so the operator opts in per field, and a host scale ≠ app `Decimal[N]` scale fails closed as drift.
+    Decimal { scale: u32 },
     /// v0 narrow support: a JSON/JSONB array field decoded to a `Value::Array`. Native PG arrays
     /// (`int[]`) are deferred — see the proof doc.
     Array,

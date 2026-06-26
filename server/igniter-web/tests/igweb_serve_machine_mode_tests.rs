@@ -304,10 +304,11 @@ mod readthen_p23 {
 
     const READ_CAP: &str = "IO.PostgresRead";
 
+    // `done` is a STRING — `host.example.toml` allowlists `todos` fields untyped → Text decode (P50).
     fn sample_todos(account_id: &str) -> Vec<serde_json::Value> {
         vec![
-            json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": false}),
-            json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": true}),
+            json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": "false"}),
+            json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": "true"}),
         ]
     }
 
@@ -321,11 +322,12 @@ mod readthen_p23 {
             .allow_ops(&["select"])
             .allow_source("todos", &["id", "account_id", "title", "done"])
             .allow_source("accounts", &["id", "name"]);
-        let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
+        let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy.clone()));
         let mut registry = CapabilityExecutorRegistry::new();
         registry.register(exec);
         let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        StagedReadHost::new(registry, receipts, READ_CAP)
+        // P50: the typed list continuation needs the policy attached to build its ProjectionSpec.
+        StagedReadHost::new(registry, receipts, READ_CAP).with_read_policy(policy)
     }
 
     /// Components for a no-op write-side effect host. All borrows must outlive the host.

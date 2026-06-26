@@ -91,8 +91,10 @@ fn json_kind_name(v: &Value) -> &'static str {
 fn value_matches_kind(v: &Value, kind: PostgresReadValueKind) -> bool {
     use PostgresReadValueKind::*;
     match kind {
-        // Text, and the v0 lossless-string crossings, require a JSON string.
-        Text | DecimalString | Timestamp => v.is_string(),
+        // Text, and the v0 lossless-string crossings, require a JSON string. A typed `Decimal{scale}` also
+        // arrives as the exact digit STRING (P23) — never a Float; the string→{value,scale} parse (and its
+        // own validity check) happens in `materialize_rows`, so a non-string here is already the wrong kind.
+        Text | DecimalString | Timestamp | Decimal { .. } => v.is_string(),
         // Integer must be an integral JSON number within i64 — NOT a float, NOT a stringified int.
         Integer => v.is_i64() || v.is_u64(),
         Boolean => v.is_boolean(),
@@ -101,6 +103,43 @@ fn value_matches_kind(v: &Value, kind: PostgresReadValueKind) -> bool {
         // Array (v0 narrow): a JSON array.
         Array => v.is_array(),
     }
+}
+
+/// Parse a CANONICAL finite decimal string into the scaled-integer magnitude `value` for a fixed `scale`,
+/// the `i64` the `{ value, scale }` Decimal shape carries (P23). Accepts only `[-]?digits[.digits]` — NO
+/// exponent, `+`, whitespace, NaN/Inf, or empty. Fewer fractional digits than `scale` are zero-padded
+/// (`"12.5"`@2 → 1250); MORE fractional digits than `scale` fail (no silent truncation/rounding). Overflow of
+/// `i64` fails. A rounded/zero magnitude is unsigned (`-0` → `0`). This is host-side parsing — `.ig` never
+/// parses money strings.
+fn parse_decimal(s: &str, scale: u32) -> Result<i64, String> {
+    let (neg, body) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, s),
+    };
+    let (int_part, frac_part) = body.split_once('.').unwrap_or((body, ""));
+    if int_part.is_empty()
+        || !int_part.bytes().all(|b| b.is_ascii_digit())
+        || !frac_part.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(format!("not a canonical decimal string: {s:?}"));
+    }
+    let frac_len = frac_part.len() as u32;
+    if frac_len > scale {
+        return Err(format!(
+            "decimal {s:?} has {frac_len} fractional digits, more than the declared scale {scale}"
+        ));
+    }
+    // Scaled-integer digits = int ++ frac ++ zero-pad to `scale`. Leading zeros are harmless for parse.
+    let mut digits = String::with_capacity(int_part.len() + scale as usize);
+    digits.push_str(int_part);
+    digits.push_str(frac_part);
+    for _ in 0..(scale - frac_len) {
+        digits.push('0');
+    }
+    let mag: i64 = digits
+        .parse()
+        .map_err(|_| format!("decimal {s:?} overflows i64 at scale {scale}"))?;
+    Ok(if neg && mag != 0 { -mag } else { mag })
 }
 
 /// Align typed read rows to the projection spec, producing a **total + typed** `serde_json` array the host
@@ -129,7 +168,20 @@ pub fn materialize_rows(rows: &[Value], spec: &ProjectionSpec) -> Result<Value, 
                     json_kind_name(v)
                 ));
             }
-            sanitized.insert(field.name.clone(), v.clone());
+            // Most kinds cross verbatim; a typed `Decimal{scale}` is RESHAPED here — the exact digit string
+            // (`"12.50"`) becomes the `{ value, scale }` object the VM's `from_json` turns into a real
+            // `Value::Decimal` (P23). The string was already validated as a string above; a non-canonical
+            // string fails the parse here, fail-closed before continuation dispatch.
+            let crossed = match field.kind {
+                PostgresReadValueKind::Decimal { scale } => {
+                    let s = v.as_str().unwrap_or_default(); // value_matches_kind guaranteed a string
+                    let value = parse_decimal(s, scale)
+                        .map_err(|e| format!("row {i} field `{}`: {e}", field.name))?;
+                    json!({ "value": value, "scale": scale })
+                }
+                _ => v.clone(),
+            };
+            sanitized.insert(field.name.clone(), crossed);
         }
         out.push(Value::Object(sanitized));
     }
@@ -146,6 +198,9 @@ pub enum AppFieldType {
     Text,
     Integer,
     Bool,
+    /// `Decimal[scale]` — the typed exact-money landing (P23). The scale is part of the type, so a host
+    /// `Decimal{scale}` is assignable only when the scales match exactly.
+    Decimal(u32),
     /// `Map[String, Unknown]` — the v0 landing for a `Json` column.
     MapUnknown,
     /// `Collection[String]` — the v0 landing for an `Array` column.
@@ -153,24 +208,23 @@ pub enum AppFieldType {
 }
 
 /// Is a host decode-kind assignable to a declared `<AppRow>` field type? The P3 §3 assignability matrix,
-/// mirroring the language's own `text_arg_compatible` rule (String accepted where Text is expected).
+/// mirroring the language's own `text_arg_compatible` rule (String accepted where Text is expected). A typed
+/// `Decimal{scale}` host kind is assignable to an app `Decimal[N]` field ONLY when the scales are equal —
+/// a scale mismatch (or a display-only `DecimalString` against a typed `Decimal[N]`) fails closed as drift.
 fn kind_assignable(kind: PostgresReadValueKind, ty: AppFieldType) -> bool {
     use AppFieldType as T;
     use PostgresReadValueKind as K;
-    matches!(
-        (kind, ty),
-        (K::Text, T::String)
-            | (K::Text, T::Text)
-            | (K::Integer, T::Integer)
-            | (K::Boolean, T::Bool)
-            | (K::DecimalString, T::String)
-            | (K::DecimalString, T::Text)
-            | (K::Timestamp, T::String)
-            | (K::Timestamp, T::Text)
-            | (K::Json, T::MapUnknown)
-            | (K::Json, T::String)
-            | (K::Array, T::CollectionString)
-    )
+    match (kind, ty) {
+        (K::Text, T::String) | (K::Text, T::Text) => true,
+        (K::Integer, T::Integer) => true,
+        (K::Boolean, T::Bool) => true,
+        (K::DecimalString, T::String) | (K::DecimalString, T::Text) => true,
+        (K::Decimal { scale }, T::Decimal(app_scale)) => scale == app_scale,
+        (K::Timestamp, T::String) | (K::Timestamp, T::Text) => true,
+        (K::Json, T::MapUnknown) | (K::Json, T::String) => true,
+        (K::Array, T::CollectionString) => true,
+        _ => false,
+    }
 }
 
 /// Reconcile the host projection spec against the app's declared `<AppRow>` shape (the P3 §3 drift gate).

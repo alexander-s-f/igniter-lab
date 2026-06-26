@@ -4,8 +4,8 @@
 in one process). **Verify-first:** any doc claiming this is "only a PROP-042 sketch"
 or "not implemented" is **stale** — this file + `cargo test` are ground truth.
 Last full-green baseline: **2026-06-15** (70 tests pass, `cargo test --no-default-features`).
-Surface refresh: **2026-06-24** doc/source grep for Postgres read/write status, Text range/order,
-fake-vs-real adapters, idempotency, DSN safety, and host policy.
+Surface refresh: **2026-06-26** doc/source grep for Postgres read/write status, Text range/order,
+typed Decimal read value kind, fake-vs-real adapters, idempotency, DSN safety, and host policy.
 Fleet recheck: **2026-06-24 HOLD** — `cargo test --test machine_tests test_machine_fleet_sweep`
 is **11/13**, not whole-fleet green. Current blockers are `batch_importer`
 (`VMExecutionError("Unsupported AST kind in VM evaluator: variant_construct")`) and `web_router`
@@ -47,8 +47,10 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 > is now DONE too — P8 (`TokioPostgresWriteAdapter`, one-atomic-statement writable CTE +
 > `effect_receipts`, real reconcile) proven against a DEDICATED `igniter_pg_test` (never SparkCRM);
 > see the "real local Postgres write" row + `…-postgres-local-write-p8-v0.md`.** Postgres wave
-> P1→P8 complete (fake P1–P4, gate P5, real read P6, wire-atomic P7, real write P8). Remaining named
-> follow-ons: connection pool, `postgres-tls`, rich type mapping, fuller filter predicates. The
+> P1→P8 complete (fake P1–P4, gate P5, real read P6, wire-atomic P7, real write P8). P23 adds an
+> opt-in exact Decimal read value kind (`Decimal { scale }`) for typed projection in `igniter-web`.
+> Remaining named follow-ons: connection pool, `postgres-tls`, Timestamp/nested rich type mapping,
+> fuller filter predicates. The
 > operator-console and webhook-auction designs above remain design/readiness only — no code yet.
 
 ## Quick Status Map
@@ -57,6 +59,7 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 |---|---|---|
 | Typed Postgres reads | Implemented (fake adapter + opt-in real adapter) | `src/postgres_read.rs::{QueryPlan, PostgresReadPolicy, PostgresReadExecutor}`; `src/postgres_real.rs::TokioPostgresReadAdapter`; `tests/postgres_read_tests.rs`, `tests/postgres_real_read_tests.rs`. |
 | Text range/order for keyset pagination | Implemented | `kind_allows_op(Text, gt/gte/lt/lte)` and `kind_allows_order(Text)` in `src/postgres_read.rs`; real SQL casts Text comparisons/order to `::text COLLATE "C"` in `src/postgres_real.rs`; `text_keyset_range_and_order`. |
+| Decimal read value kind | Implemented as opt-in host policy (`P23`) | `PostgresReadValueKind::Decimal { scale }` in `src/postgres_read.rs`; real adapter decodes it as exact text like `DecimalString` in `src/postgres_real.rs`; `igniter-web` materializes it to `.ig Decimal[N]` and rejects scale drift. This is not Float, currency, locale, or a broad decoder framework. |
 | Fake vs real adapter boundary | Implemented and explicit | Fake adapters live in `postgres_read.rs` / `postgres_write.rs`; real adapters are `#[cfg(feature = "postgres")]` in `postgres_real.rs`. Default build stays fake/no-driver. |
 | Receipt-gated writes | Implemented | `src/postgres_write.rs::PostgresWriteExecutor` uses existing `write::run_write_effect`; fake adapter models PG-side `effect_receipts`; `tests/postgres_write_tests.rs`. |
 | Real local Postgres write | Implemented, opt-in + DSN-gated | `src/postgres_real.rs::TokioPostgresWriteAdapter`; tests use separate `IGNITER_PG_WRITE_DSN` and dedicated `igniter_pg_test`, never SparkCRM. |

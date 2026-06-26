@@ -362,10 +362,11 @@ fn http_status(raw: &str) -> u16 {
         .unwrap_or(0)
 }
 
+// `done` is a STRING — `host.example.toml` allowlists `todos` fields untyped → Text decode (P50).
 fn sample_todos(account_id: &str) -> Vec<Value> {
     vec![
-        json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": false}),
-        json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": true}),
+        json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": "false"}),
+        json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": "true"}),
     ]
 }
 

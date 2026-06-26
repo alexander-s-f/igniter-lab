@@ -483,6 +483,17 @@ fn map_decision(decision: &Value, correlation_id: Option<String>) -> ServerDecis
                 json!({ "error": fields.get("error").cloned().unwrap_or(Value::Null) }),
             ),
         },
+        // LAB-TODOAPP-API-TYPED-LIST-ENVELOPE-P50: the generic structured-JSON response — the JSON-lane
+        // analogue of `RespondView`. The `body` field (prelude `body : Unknown`, the open structured-payload
+        // position) is a typed `.ig` record the VM serialized to a clean JSON object; it becomes the response
+        // body ROOT verbatim (no `{"body": …}` wrap, no string double-parse). NOT pagination-specific and NOT
+        // a global error envelope — any app record returned as JSON.
+        "RespondJson" => ServerDecision::Respond {
+            response: ServerResponse::json(
+                get_i("status") as u16,
+                fields.get("body").cloned().unwrap_or(Value::Null),
+            ),
+        },
         // LAB-IGNITER-WEB-STRUCTURED-EFFECT-INPUT-P7: `input` is a typed `.ig` record (prelude field
         // `input : Unknown`, the open structured-payload position). The VM serialized it to a clean JSON
         // object; pass it through verbatim as `serde_json::Value` — no string wrap, no double-parse — the

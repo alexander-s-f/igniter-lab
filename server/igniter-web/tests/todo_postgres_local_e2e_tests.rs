@@ -299,17 +299,18 @@ fn local_read_found_returns_app_200() {
             "real rows returned"
         );
 
-        let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
+        // P50: typed rows + meta → the `{ items, next }` envelope via RespondJson.
         let found = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req("acct-7"), "rows_json": rows_json}),
+                json!({"req": min_req("acct-7"), "rows": out.result["rows"].clone(),
+                       "meta": {"source": "todos", "count": out.result["count"].clone(), "truncated": false}}),
             )
             .await
             .unwrap();
-        assert_eq!(found["__arm"], json!("Respond"));
+        assert_eq!(found["__arm"], json!("RespondJson"));
         assert_eq!(found["status"], json!(200), "found rows → app 200");
-        assert!(found["body"].as_str().unwrap().contains("todo-1"));
+        assert!(found["body"].to_string().contains("todo-1"));
     });
 }
 
@@ -328,20 +329,21 @@ fn local_read_empty_returns_200_empty_list() {
             .unwrap();
         let out = host_read(&dsn, &plan).await;
         assert_eq!(out.result["count"], json!(0), "no rows for this account");
-        let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
         let empty_list = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req("acct-empty"), "rows_json": rows_json}),
+                json!({"req": min_req("acct-empty"), "rows": [],
+                       "meta": {"source": "todos", "count": 0, "truncated": false}}),
             )
             .await
             .unwrap();
         assert_eq!(
             empty_list["status"],
             json!(200),
-            "empty list → 200 [], not a not-found"
+            "empty list → 200 envelope, not a not-found"
         );
-        assert_eq!(empty_list["body"], json!("[]"), "body carries the empty array");
+        assert_eq!(empty_list["body"]["items"], json!([]), "empty items array");
+        assert_eq!(empty_list["body"]["next"], json!(""), "exhausted → empty cursor");
     });
 }
 
@@ -856,7 +858,9 @@ fn local_read_after_write_is_fresh_same_process() {
             read_policy(),
         )));
         let rrecs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP);
+        // P50: attach the policy so the typed list continuation can build its ProjectionSpec.
+        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP)
+            .with_read_policy(read_policy());
         let (app, _) = build_loaded_app_from_dir(&app_dir()).unwrap();
 
         let list_req = || {
@@ -943,7 +947,9 @@ fn local_account_existence_missing_404_and_existing_empty_200() {
             read_policy(),
         )));
         let rrecs: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP);
+        // P50: attach the policy so the typed list continuation can build its ProjectionSpec.
+        let read_host = igniter_web::read_dispatch::StagedReadHost::new(rreg, rrecs, READ_CAP)
+            .with_read_policy(read_policy());
         let (app, _) = build_loaded_app_from_dir(&app_dir()).unwrap();
 
         let list = |acct: &str| {
@@ -968,8 +974,10 @@ fn local_account_existence_missing_404_and_existing_empty_200() {
 
         // Existing account, zero todos → 200 [] (stage 1 found the account; stage 2 list is empty).
         let (s_empty, b_empty) = parts(app.dispatch_with_read(list(existing), &read_host).await);
-        assert_eq!(s_empty, 200, "existing account, no todos → 200 []; body={b_empty}");
-        assert_eq!(b_empty["body"], json!("[]"), "empty list body, not a 404");
+        assert_eq!(s_empty, 200, "existing account, no todos → 200 envelope; body={b_empty}");
+        // P50: empty existing account → `{ "items": [], "next": "" }` envelope (not a bare array, not a 404).
+        assert_eq!(b_empty["items"], json!([]), "empty items; body={b_empty}");
+        assert_eq!(b_empty["next"], json!(""), "exhausted cursor; body={b_empty}");
 
         // Missing account → 404 (stage-1 existence read empty → app-owned 404; list never issued).
         let (s_missing, b_missing) = parts(app.dispatch_with_read(list(missing), &read_host).await);

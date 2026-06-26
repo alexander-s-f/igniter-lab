@@ -48,6 +48,7 @@ pub enum StagedReadResult {
 /// Kept a SEPARATE enum from `StagedReadResult` on purpose: the existing `rows_json` loop
 /// (`dispatch_with_read`) is untouched, so every pre-P6 continuation that takes `input rows_json : String`
 /// stays green. Selecting this path per-continuation (from the compiled IR) is the named P7 follow-on.
+#[derive(Debug)]
 pub enum TypedReadResult {
     /// Materialized, total + typed rows (`Value::Array` of records) + the `DatasetMeta` provenance sidecar.
     /// Cross `rows` and `meta` as sibling continuation inputs; the VM's `from_json` materializes

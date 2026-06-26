@@ -281,17 +281,21 @@ fn make_read_host(adapter: Arc<FakePostgresAdapter>) -> StagedReadHost {
         .allow_ops(&["select"])
         .allow_source("todos", &["id", "account_id", "title", "done"])
         .allow_source("accounts", &["id", "name"]);
-    let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy));
+    let exec = Arc::new(PostgresReadExecutor::new(READ_CAP, adapter, policy.clone()));
     let mut registry = CapabilityExecutorRegistry::new();
     registry.register(exec);
     let receipts: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-    StagedReadHost::new(registry, receipts, READ_CAP)
+    // P50: the typed list continuation (`AccountTodoIndexFromRows`) needs the read policy attached so the
+    // runner can build the ProjectionSpec for the `Collection[TodoListRow]` crossing.
+    StagedReadHost::new(registry, receipts, READ_CAP).with_read_policy(policy)
 }
 
+// `done` is a STRING because `host.example.toml` allowlists `todos` fields untyped → Text decode (P50). The
+// fake adapter yields the stored JSON value verbatim, so it must already be the Text form a real adapter emits.
 fn sample_todos(account_id: &str) -> Vec<Value> {
     vec![
-        json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": false}),
-        json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": true}),
+        json!({"id": "t1", "account_id": account_id, "title": "Buy milk", "done": "false"}),
+        json!({"id": "t2", "account_id": account_id, "title": "Write spec", "done": "true"}),
     ]
 }
 
@@ -482,6 +486,17 @@ fn read_found_todos_via_runner_200() {
             raw.contains("Write spec"),
             "response body carries the second todo title"
         );
+        // P50: the body is the typed `{ "items": [...], "next": "" }` envelope (not a bare array). Not
+        // truncated (cap 100 ≥ rows) → next is empty. The envelope is the JSON body ROOT — RespondJson does
+        // NOT wrap it as `{"body": …}` (the JSON-lane analogue of RespondView).
+        assert!(
+            raw.contains("\"items\"") && raw.contains("\"next\":\"\""),
+            "typed list envelope shape, next empty when not truncated; raw={raw}"
+        );
+        assert!(
+            !raw.contains("\"body\":"),
+            "RespondJson body is the JSON root, not wrapped in {{\"body\": …}}; raw={raw}"
+        );
         assert_eq!(
             adapter.query_count(),
             2,
@@ -526,7 +541,11 @@ fn read_empty_todos_via_runner_200_empty_list() {
             200,
             "existing account + zero todos → 200 [] (a list, not a not-found); raw={raw}"
         );
-        assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
+        // P50: empty existing account → the typed envelope `{ "items": [], "next": "" }` (a list, not 404).
+        assert!(
+            raw.contains("\"items\":[]") && raw.contains("\"next\":\"\""),
+            "empty page = typed envelope with empty items + empty cursor; raw={raw}"
+        );
         assert_eq!(
             adapter.query_count(),
             2,

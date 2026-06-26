@@ -82,6 +82,7 @@ variant Decision {
   InvokeEffect { target : String, input : Unknown, idempotency_key : String }
   RespondView  { status : Integer, view : View }
   RespondError { status : Integer, error : ApiError }
+  RespondJson  { status : Integer, body : Unknown }
   Render       { status : Integer, artifact_json : String }
   RenderView   { status : Integer, view : ViewArtifact }
   ReadThen     { plan : Unknown, then : String, carry : String }

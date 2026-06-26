@@ -35,9 +35,10 @@ Expected: `200` with body `ok`.
 curl -i "$BASE/accounts/$ACCOUNT/todos"
 ```
 
-Account-existence semantics:
+The list returns a typed `{ "items": [...], "next": "<id>" | "" }` envelope (P50). Account-existence semantics:
 
-- existing account with no todos -> `200 []`
+- existing account with todos -> `200 { "items": [ … ], "next": "<id>"|"" }`
+- existing account with no todos -> `200 { "items": [], "next": "" }`
 - missing account -> app-owned `404`
 
 The app-owned error envelope is:
@@ -160,16 +161,21 @@ a later `show` for the same `TODO_ID` returns `404`.
 
 ## Keyset Pagination
 
-List is ordered by surrogate `id` ascending. To fetch the next page, pass the
-last returned `id` as `after`:
+List is ordered by surrogate `id` ascending and returns a typed `{items,next}`
+envelope (`{ "items": [...], "next": "<id>" | "" }`, P50). The `next` field is the
+keyset cursor — the **last returned `id`** when the page hit the host cap, else `""`
+when exhausted. To fetch the next page, pass the last returned `id` as `after` (i.e.
+the prior response's `next`):
 
 ```bash
+# first page → { "items": [ … ], "next": "todo_<id>" | "" }
+curl -s "$BASE/accounts/$ACCOUNT/todos"
+# next page: feed the prior "next" back as ?after=
 curl -i "$BASE/accounts/$ACCOUNT/todos?after=$TODO_ID"
 ```
 
-Today the client derives the next cursor from the last row's `id` in the current
-array response. A typed `{items,next}` response envelope and client `limit`
-parameter are deferred to a separate product slice.
+A client-tunable `?limit=` parameter is deferred to a separate product slice (the
+host read cap + the `next` cursor suffice today).
 
 ## Secret Safety
 

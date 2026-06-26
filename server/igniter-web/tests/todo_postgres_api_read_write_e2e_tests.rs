@@ -355,17 +355,19 @@ fn product_read_then_write_e2e() {
         assert_eq!(out.result["count"], json!(2));
         assert_eq!(adapter.query_count(), 1, "host adapter ran once");
 
-        let rows_json = serde_json::to_string(&out.result["rows"]).unwrap();
+        // P50: typed rows + meta → the `{ items, next }` envelope via RespondJson.
         let found = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req(), "rows_json": rows_json}),
+                json!({"req": min_req(), "rows": out.result["rows"].clone(),
+                       "meta": {"source": "todos", "count": 2, "truncated": false}}),
             )
             .await
             .unwrap();
-        assert_eq!(found["__arm"], json!("Respond"));
+        assert_eq!(found["__arm"], json!("RespondJson"));
         assert_eq!(found["status"], json!(200), "found rows → app 200");
-        assert!(found["body"].as_str().unwrap().contains("todo-1"));
+        assert!(found["body"].to_string().contains("todo-1"));
+        assert_eq!(found["body"]["next"], json!(""), "not truncated → empty cursor");
 
         // ── READ: empty path → 200 [] (a list, not a not-found) — P24 ──
         let empty_plan = m
@@ -375,21 +377,21 @@ fn product_read_then_write_e2e() {
         let empty_adapter = Arc::new(FakePostgresAdapter::new()); // allowlisted source, no rows.
         let empty_out = host_read(&empty_plan, todos_policy(100), empty_adapter).await;
         assert_eq!(empty_out.result["count"], json!(0));
-        let empty_rows = serde_json::to_string(&empty_out.result["rows"]).unwrap();
-        assert_eq!(empty_rows, "[]");
         let empty_list = m
             .dispatch(
                 "AccountTodoIndexFromRows",
-                json!({"req": min_req(), "rows_json": empty_rows}),
+                json!({"req": min_req(), "rows": [],
+                       "meta": {"source": "todos", "count": 0, "truncated": false}}),
             )
             .await
             .unwrap();
         assert_eq!(
             empty_list["status"],
             json!(200),
-            "empty list → 200 [], not a not-found"
+            "empty list → 200 envelope, not a not-found"
         );
-        assert_eq!(empty_list["body"], json!("[]"), "body carries the empty array");
+        assert_eq!(empty_list["body"]["items"], json!([]), "empty items array");
+        assert_eq!(empty_list["body"]["next"], json!(""), "exhausted → empty cursor");
 
         // ── WRITE: keyed create EXECUTES through the machine effect host → committed receipt ──
         let (h, r) = prod(3).await;
