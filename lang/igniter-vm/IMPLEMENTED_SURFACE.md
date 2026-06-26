@@ -4,8 +4,9 @@
 **Verify-first rule:** any doc claim that one of these is "not implemented",
 "deferred", or "blocked" is **stale** — this file + a source grep are ground truth.
 Last verified against source: **2026-06-15**.
-Surface refresh: **2026-06-24** doc/source grep for stdlib collection `zip`, HOF math parity,
-deterministic math evidence tiers, Vec3/Mat3 package proofs, and package/admission pointers. This
+Surface refresh: **2026-06-26** doc/source grep for stdlib collection `zip`, HOF math parity,
+deterministic math evidence tiers, Vec3/Mat3 package proofs, package/admission pointers, and the
+current formatting surface (`to_text` exact Integer/Decimal, `pad_left`, Float policy hold). This
 refresh did not rerun the full VM fleet.
 
 Machine fleet note: a 2026-06-24 `runtime/igniter-machine` fleet recheck is **HOLD 11/13**.
@@ -71,6 +72,8 @@ compiler emitting the right SIR and the VM evaluating the HOF/eval_ast path corr
 | Collection `zip` signature | Implemented in stdlib declarations | `lang/igniter-stdlib/stdlib/collections.ig` declares `zip(a,b) -> Collection[Pair[A,B]]` with shorter-length truncation semantics; proof marker `LAB-STDLIB-COLLECTION-ZIP-PROOF-P2`. |
 | HOF runtime parity for math calls | Implemented for covered shapes | `lang/igniter-vm/tests/stdlib_math_hof_tests.rs` covers `sin`, `cos`, `sqrt`, `pi`, `det_sin`, `det_sqrt` inside `fold`/`map` lambda bodies through `eval_ast`, not only bytecode `OP_CALL`. |
 | Deterministic math evidence tiers | Implemented for current Tier-1/Tier-2 proofs | Deterministic functions are tested by golden bits / error behavior in VM tests; fast math exists as separate convenience evidence, not replay-safe equivalence. |
+| Exact text conversion `to_text` | Implemented for `Integer` and `Decimal`; `Float` held | `lang/igniter-compiler/src/typechecker/stdlib_calls.rs` accepts `to_text` / `stdlib.string.to_text` for `Integer | Decimal -> String` and rejects `Float`; `lang/igniter-vm/src/vm.rs` routes both bytecode `OP_CALL` and `eval_ast` through the same VM arm. `Integer` renders exact base-10; `Decimal { value, scale }` renders canonical fixed decimal text with exactly `scale` fractional digits, no locale/grouping/currency/rounding. Proof docs: `lab-lang-number-to-text-p1-v0.md`, `lab-lang-decimal-to-text-p2-v0.md`; tests: `stdlib_to_text_tests` in compiler + VM. |
+| String `pad_left` | Implemented as rune-counted table primitive | `pad_left(text, width, pad)` / `stdlib.string.pad_left` is `(String, Integer, String) -> String`, counts Unicode scalar chars like `char_at`/`substring`, no-ops when `width <= len(text)`, and errors only for an empty pad when padding is needed. Numeric/report alignment composes explicitly as `pad_left(to_text(x), width, pad)`. Proof doc: `lab-lang-string-pad-left-p3-v0.md`; tests: `stdlib_pad_left_tests` in compiler + VM. |
 | Float `Vec3` local package | Implemented as package proof | `lang/igniter-compiler/tests/fixtures/project_mode/linalg_vec3` plus `lang/igniter-vm/tests/linalg_vec3_tests.rs`; pure `.ig`, package resolver path, no VM builtins. |
 | Float `Mat3` local package | Implemented as package proof | `lang/igniter-compiler/tests/fixtures/project_mode/linalg_mat3` plus `lang/igniter-vm/tests/linalg_mat3_tests.rs`; imports Vec3 and Mat3 through project mode and runs exact VM value checks. |
 | Nested HOF coverage | Partly implemented / coverage-bounded | Covered HOF+math lambda paths run; do not generalize to every nested HOF, `filter_map`, `reduce`, recursion, or dynamic dispatch without a specific test. |
@@ -149,6 +152,12 @@ function SIR materialization plus VM static app-local function runtime.
 - Generic matrix libraries, arbitrary nested HOF coverage, `filter_map`/`reduce` eval_ast parity, and
   package execution/admission are not proven by the Vec3/Mat3 or stdlib math rows.
 - Package/admission evidence in this file is a pointer to compiler-owned surfaces, not VM authority.
+- Float text formatting remains held. Do not infer `to_text(Float)` from `to_text(Integer|Decimal)`:
+  Float formatting is policy-only in `lab-lang-float-to-text-readiness-p4-v0.md` and
+  `lab-lang-float-to-text-policy-p5-v0.md`; implementation must use an explicit
+  `float_to_text(x, decimals, rounding)` surface after a separate implementation card.
+- `pad_left` is a table primitive, not a general formatter: no `pad_right`/center, display-width policy,
+  grouping, locale, currency, exponent/scientific notation, or implicit numeric-to-string coercion.
 
 ## Provenance
 
