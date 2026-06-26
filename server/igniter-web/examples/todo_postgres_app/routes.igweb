@@ -8,6 +8,12 @@ app TodoPgWeb entry Serve {
 
   route GET "/health" -> Health
 
+  -- LAB-TODOAPP-VIEW-DB-BACKED-TODO-HTML-P21: one HTML page reading Todo rows through the SAME host
+  -- `ReadThen` path the JSON index uses, rendered as escaped text/html via `RenderView`. The `.html` suffix
+  -- keeps it distinct from `/todos` (index) and `/todos/:todo_id` (show) — no authored-order shadowing. The
+  -- JSON API routes below are untouched.
+  route GET "/accounts/:account_id/todos.html" -> AccountTodoHtml
+
   scope "/accounts/:account_id" {
     resource todos "/todos" {
       index  GET                     via LoadAccountTodos(account_id) as ctx         -> AccountTodoIndex

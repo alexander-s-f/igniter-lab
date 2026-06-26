@@ -417,3 +417,98 @@ pure contract AccountTodoDelete {
   compute d : Decision = InvokeEffect { target: "todo-delete", input: intent, idempotency_key: req.idempotency_key }
   output d : Decision
 }
+
+-- ── LAB-TODOAPP-VIEW-DB-BACKED-TODO-HTML-P21: a DB-backed Todo HTML page ─────────────────────────────
+-- `GET /accounts/:account_id/todos.html` reads Todo rows through the SAME host `ReadThen` path the JSON
+-- index uses (`ListTodosByAccount` → host materializer → typed continuation), then renders escaped text/html
+-- via `RenderView`. No `rows_json`, no request-body artifact JSON, no manual HTML strings. The JSON API is
+-- untouched. Sidecar provenance crosses as `DatasetMeta`.
+type DatasetMeta {
+  source    : String
+  count     : Integer
+  truncated : Bool
+}
+
+-- The HTML row type MATCHES the host read policy exactly: `host.example.toml` declares the `todos` fields as
+-- a bare allowlist (`fields = "id,account_id,title,done"`), so EVERY field decodes as Text. `done` is
+-- therefore `String` here — NOT `Bool` — and there is no `rank`. The HTML page does not branch on `done`; it
+-- renders a per-row link, so the Text decode is sufficient (a typed-Bool projection is a separate lane).
+type TodoHtmlRow {
+  id         : String
+  account_id : String
+  title      : String
+  done       : String
+}
+
+-- App-local HtmlNode/ViewArtifact helpers over the shared IgWebPrelude records (same flat shape as
+-- todo_view_app); set the verbose defaulted fields once.
+pure contract MakeHtmlLabel {
+  input text : String
+  compute node : HtmlNode = { kind: "label", id: "", label: "", text: text, required: false, action: "", options: [] }
+  output node : HtmlNode
+}
+
+pure contract MakeHtmlLink {
+  input text : String
+  input href : String
+  compute node : HtmlNode = { kind: "link", id: "", label: "", text: text, required: false, action: href, options: [] }
+  output node : HtmlNode
+}
+
+pure contract MakeHtmlFormView {
+  input title : String
+  input body  : Collection[HtmlNode]
+  compute view : ViewArtifact = { artifact: "view", layout: "form", title: title, body: body }
+  output view : ViewArtifact
+}
+
+-- One typed row → a per-row detail link `/accounts/<account_id>/todos/<id>` (the JSON `show` route), label =
+-- the (escaped-by-renderer) title. Href built from String fields via `concat` — no Integer→String needed.
+pure contract TodoHtmlRowLink {
+  input row : TodoHtmlRow
+  compute base : String = concat("/accounts/", row.account_id)
+  compute mid  : String = concat(base, "/todos/")
+  compute href : String = concat(mid, row.id)
+  compute node : HtmlNode = call_contract("MakeHtmlLink", row.title, href)
+  output node : HtmlNode
+}
+
+-- HTML entry: build the SAME `ListTodosByAccount` QueryPlan (projection [id, account_id, title, done]) and
+-- hand off to the host via `ReadThen`. The host materializes typed rows + meta and re-enters the continuation.
+pure contract AccountTodoHtml {
+  input req        : Request
+  input account_id : Option[String]
+  compute acct : String = or_else(account_id, "")
+  compute plan = call_contract("ListTodosByAccount", acct, "")
+  compute d : Decision = ReadThen { plan: plan, then: "AccountTodoHtmlFromRows", carry: "" }
+  output d : Decision
+}
+
+-- The typed HTML continuation: each crossed row → a detail link (`map`); a KEYSET "load more" href from the
+-- LAST row's id when the read was clamped (`meta.truncated`); an empty set renders an APP-owned empty state
+-- (200), never a host error. `RenderView` → escaped text/html.
+pure contract AccountTodoHtmlFromRows {
+  input req  : Request
+  input rows : Collection[TodoHtmlRow]
+  input meta : DatasetMeta
+  compute total : Integer = count(rows)
+  compute links : Collection[HtmlNode] = map(rows, r -> call_contract("TodoHtmlRowLink", r))
+  compute ids : Collection[String] = map(rows, r -> r.id)
+  compute last_id : String = or_else(last(ids), "")
+  compute more_href : String = concat("?after=", last_id)
+  compute more_link : HtmlNode = call_contract("MakeHtmlLink", "Load more", more_href)
+  compute more : Collection[HtmlNode] = if meta.truncated {
+    [more_link]
+  } else {
+    []
+  }
+  compute empty_node : HtmlNode = call_contract("MakeHtmlLabel", "No todos yet")
+  compute body : Collection[HtmlNode] = if total == 0 {
+    [empty_node]
+  } else {
+    concat(links, more)
+  }
+  compute view : ViewArtifact = call_contract("MakeHtmlFormView", "Todos", body)
+  compute d : Decision = RenderView { status: 200, view: view }
+  output d : Decision
+}
