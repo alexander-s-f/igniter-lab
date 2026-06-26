@@ -2114,6 +2114,8 @@ impl VM {
                         | "stdlib.math.to_float" | "to_float"
                         // LAB-LANG-NUMBER-TO-TEXT-P1: explicit Integer→String, same single-source dispatch.
                         | "stdlib.string.to_text" | "to_text"
+                        // LAB-LANG-FLOAT-TO-TEXT-IMPL-P7: explicit Float→String (fixed-point), same source.
+                        | "stdlib.string.float_to_text" | "float_to_text"
                         // LAB-STDLIB-RANDOM-PRNG-WITHOUT-BITOPS-P2: PRNG shares the same single-source dispatch.
                         | "stdlib.random.rng_seed" | "rng_seed" | "stdlib.random.rng_next" | "rng_next"
                         | "stdlib.random.rng_value" | "rng_value"
@@ -3466,6 +3468,37 @@ fn decimal_to_text(value: i64, scale: u32) -> String {
     }
 }
 
+// LAB-LANG-FLOAT-TO-TEXT-IMPL-P7: explicit fixed-point Float→String (NEVER implicit `to_text(Float)`).
+// Per the P5 policy packet: v0 rounding mode `"half_even"` ONLY; finite Float only; `decimals ∈ 0..=17`;
+// rounded-zero magnitude normalized to UNSIGNED zero. The rounding leans on std `format!("{:.*}")`, which is
+// verified correctly-rounded ties-to-even and integer-based (`flt2dec`, no libm) → cross-arch deterministic;
+// the only post-processing is the two-line negative-zero normalize. NOT a formatter (no locale/grouping/
+// exponent); f64 reality is preserved (`2.675 @2 → "2.67"` because the binary value is below the literal).
+fn float_to_text(x: f64, decimals: i64, mode: &str) -> Result<String, String> {
+    if mode != "half_even" {
+        return Err(format!(
+            "float_to_text: unsupported rounding mode \"{mode}\"; v0 supports only \"half_even\""
+        ));
+    }
+    if !x.is_finite() {
+        return Err("float_to_text: non-finite Float input is not permitted".to_string());
+    }
+    if !(0..=17).contains(&decimals) {
+        return Err(format!(
+            "float_to_text: decimals must be in 0..=17, got {decimals}"
+        ));
+    }
+    let s = format!("{:.*}", decimals as usize, x);
+    // Negative-zero normalize: if the magnitude rounds to all-zero digits, drop a leading '-'
+    // (`-0.0`/`-0.001`@2 → "0.00", `-0.4`@0 → "0"). Std preserves the zero's sign; for a DISPLAY value the
+    // sign of a zero magnitude is not reader-recoverable, and "-0.00" breaks naive table equality/diff.
+    if s.starts_with('-') && s.chars().all(|c| c == '-' || c == '.' || c == '0') {
+        Ok(s[1..].to_string())
+    } else {
+        Ok(s)
+    }
+}
+
 pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
     // Arity + Float-type check, message-identical to the original bytecode arms.
     fn unary(
@@ -3785,6 +3818,25 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                         decimal_to_text(*value, *scale).as_str(),
                     ))),
                     _ => Err("to_text expects an Integer or Decimal argument".to_string()),
+                }
+            }
+        }
+        // LAB-LANG-FLOAT-TO-TEXT-IMPL-P7: explicit fixed-point Float→String (mode/finite/bound validated).
+        "stdlib.string.float_to_text" | "float_to_text" => {
+            if args.len() != 3 {
+                Err(format!(
+                    "float_to_text expects exactly 3 arguments, got {}",
+                    args.len()
+                ))
+            } else {
+                match (&args[0], &args[1], &args[2]) {
+                    (Value::Float(x), Value::Integer(decimals), Value::String(mode)) => {
+                        float_to_text(*x, *decimals, mode.as_ref())
+                            .map(|s| Value::String(Arc::from(s.as_str())))
+                    }
+                    _ => Err(
+                        "float_to_text expects (Float, Integer, String) arguments".to_string(),
+                    ),
                 }
             }
         }

@@ -381,6 +381,61 @@ impl TypeChecker {
                     }
                 }
             }
+            // LAB-LANG-FLOAT-TO-TEXT-IMPL-P7: explicit fixed-point Float→String.
+            //   float_to_text(Float, Integer, String) -> String  (mode `"half_even"` only in v0).
+            // OOF-TY0 on arity / wrong arg types AND on a LITERAL unsupported rounding mode (the §2 message);
+            // a dynamic mode is rejected at runtime (VM). NOT implicit `to_text(Float)` — this is explicit.
+            "float_to_text" | "stdlib.string.float_to_text" => {
+                is_resolved = true;
+                resolved_type = self.type_ir(&serde_json::Value::String("String".to_string()));
+                if args.len() != 3 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-TY0".to_string(),
+                        message: format!(
+                            "float_to_text: expected 3 argument(s), got {}",
+                            args.len()
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                } else {
+                    for (i, want) in [(0usize, "Float"), (1, "Integer"), (2, "String")] {
+                        if let Some(a) = typed_args.get(i) {
+                            let n = self.type_name(&a.resolved_type);
+                            if n != "Unknown" && n != want {
+                                type_errors.push(ClassifierDiagnostic {
+                                    rule: "OOF-TY0".to_string(),
+                                    message: format!(
+                                        "float_to_text arg {}: expected {}, got {}",
+                                        i + 1,
+                                        want,
+                                        n
+                                    ),
+                                    node: node_name.to_string(),
+                                    line: None,
+                                });
+                            }
+                        }
+                    }
+                    // Literal rounding-mode rejection (knowable at compile time → fail early).
+                    if let Expr::Literal { value, type_tag } = &args[2] {
+                        if type_tag == "String" {
+                            if let Some(m) = value.as_str() {
+                                if m != "half_even" {
+                                    type_errors.push(ClassifierDiagnostic {
+                                        rule: "OOF-TY0".to_string(),
+                                        message: format!(
+                                            "float_to_text: unsupported rounding mode \"{m}\"; v0 supports only \"half_even\""
+                                        ),
+                                        node: node_name.to_string(),
+                                        line: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // LAB-STDLIB-MATH-INTEGER-ROOTS-AND-MOD-P8: N1 integer-only roots/powers/modulo. Integer args,
             // Integer result. OOF-MATH1 arity, OOF-MATH2 non-Integer. Domain errors are runtime (VM), not here.
             "stdlib.math.isqrt" | "isqrt" | "stdlib.math.ipow" | "ipow" | "stdlib.math.mod"
