@@ -50,7 +50,9 @@ contract Button {
 }
 
 -- The list screen view, hand-authored (feel the pain: a named compute per node, every Attrs spelled
--- out, item rows HAND-UNROLLED because there is no map/fold over a collection).
+-- out, and item rows written out one by one).
+-- NOTE: this static/manual specimen intentionally avoids `map` for readability. The dynamic sibling
+-- (`list_view_dynamic.ig`) proves map-based body construction — `map`/`fold`/`filter` DO exist.
 contract ListView {
   input sel_title : String
 

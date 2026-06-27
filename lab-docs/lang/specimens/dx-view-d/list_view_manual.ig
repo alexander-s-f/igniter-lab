@@ -4,7 +4,9 @@ import FrameElements
 -- (a) THE LIST SCREEN AUTHORED THE WAY YOU MUST WRITE IT TODAY.
 -- Element-contracts compose fine — but feel the Axis-A pain: every node is a named `compute`,
 -- every Attrs is spelled out in full, children are hand-built lists threading outputs, and the
--- item rows are HAND-UNROLLED because there is no map/fold over a collection.
+-- item rows are written out one by one. NOTE: this manual specimen intentionally avoids `map` for
+-- readability; `map`/`fold`/`filter` DO exist — the dynamic sibling (`list_view_dynamic.ig`) proves
+-- map-based body construction.
 
 contract ListViewManual {
   input sel_title : String   -- selected item's title (would come from state)
@@ -18,8 +20,9 @@ contract ListViewManual {
   compute a_toggle  = { dir: "leaf", main: 48,  flex: 0, pad: 0,  gap: 0  }
 
   -- PAIN #2 — nesting: one named compute per node; no inline child expressions.
-  -- PAIN #3 — repeat: these three rows would be ONE `each lead in leads`, but there is no
-  --           map/fold over a collection (canon AP-P03), so the list size is HARD-CODED to 3.
+  -- PAIN #3 — repeat: this manual specimen lists 3 rows by hand for readability. `map` DOES exist,
+  --           so a dynamic list is `map(leads, l -> call_contract("Leaf", a_row, l))` — see
+  --           `list_view_dynamic.ig`, which proves it. The pain here is the manual nesting, not map.
   compute item0 = call_contract("Leaf",   a_row, "Review Ada's lead")
   compute item1 = call_contract("Leaf",   a_row, "Call Grace back")
   compute item2 = call_contract("Leaf",   a_row, "Send Linus the quote")

@@ -100,8 +100,11 @@ fn node_for(rect: &Rect, i: &ElInfo) -> ProjectedNode {
             json!({ "kind": "row", "label": i.text, "selected": false }),
         ),
         "leaf" => ProjectedNode::from_rect(rect, None, json!({ "kind": "label", "label": i.text })),
+        // a padded container draws a panel; an unpadded one is purely structural (shapes layout only)
         "col" | "row" if i.pad > 0 => ProjectedNode::from_rect(rect, None, json!({ "kind": "panel" })),
-        _ => ProjectedNode::from_rect(rect, None, json!({ "kind": "none" })),
+        "col" | "row" => ProjectedNode::from_rect(rect, None, json!({ "kind": "none" })),
+        // UNKNOWN tag — fail closed VISIBLY (a warn marker), never silently drop it
+        other => ProjectedNode::from_rect(rect, None, json!({ "kind": "note", "tone": "warn", "label": format!("?unknown tag: {other}") })),
     }
 }
 
@@ -200,6 +203,15 @@ mod tests {
     fn malformed_json_is_total_no_panic() {
         let svg = render_ig_view("{ not json", 200, 80);
         assert!(svg.contains("bad Element JSON"));
+    }
+
+    #[test]
+    fn unknown_tag_fails_closed_visibly() {
+        // a tag the bridge doesn't know must not be silently dropped — it renders a warn marker
+        let tree = json!({ "tag": "blink", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 },
+                           "text": "x", "intent": "", "children": [] });
+        let svg = render_ig_view(&tree.to_string(), 300, 80);
+        assert!(svg.contains("unknown tag: blink"), "unknown tag should surface a marker: {svg}");
     }
 
     #[test]
