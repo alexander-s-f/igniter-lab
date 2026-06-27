@@ -33,6 +33,19 @@ pub struct FactData {
     pub schema_version: u32,
     pub producer: Option<String>,
     pub derivation: Option<String>,
+    // LAB-TBACKEND-SEQID-PER-STORE-P9: server-assigned, per-store, monotonic
+    // ordering authority. `transaction_time` stays client/app evidence. Assigned
+    // ONLY by the daemon on first insert (never on replay/conflict) and excluded
+    // from the canonical value hash. `#[serde(default)]` keeps pre-P9 WAL frames
+    // loadable (legacy `seq_id == 0`, backfilled by append order on replay); a
+    // non-zero `seq_id` marks a seq-authoritative frame.
+    #[serde(default)]
+    pub seq_id: u64,
+    // Reserved for the future mesh version-vector `{origin_node -> origin_seq}`
+    // (LAB-TBACKEND-SERVER-AUTHORITY-SEQID-READINESS-P8). Not populated here; kept
+    // additive so the mesh slice needs no second WAL-format change.
+    #[serde(default)]
+    pub origin_node: Option<String>,
 }
 
 // ── Canonical Server-Authoritative Content Hash ─────────────────────────────
@@ -114,12 +127,16 @@ struct ShardInner {
 pub struct ShardedFactLog {
     shards: Vec<RwLock<ShardInner>>,
     write_once_lock: Mutex<()>,
+    // LAB-TBACKEND-SEQID-PER-STORE-P9: next per-store seq to assign. 1-based, so
+    // an assigned seq is never 0 (which marks a legacy/unassigned fact). Restored
+    // to `max(replayed seq) + 1` on boot by `load_replayed`.
+    next_seq: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
 pub enum WriteOnceResult {
-    Inserted,
-    Replay,
+    Inserted { seq_id: u64 },
+    Replay { seq_id: u64 },
     Conflict { existing: FactData },
 }
 
@@ -135,7 +152,65 @@ impl ShardedFactLog {
         ShardedFactLog {
             shards,
             write_once_lock: Mutex::new(()),
+            next_seq: AtomicU64::new(1),
         }
+    }
+
+    /// Assign the next per-store `seq_id` (server ordering authority). Monotonic
+    /// and atomic across both write paths; gap-free on the success path (a write
+    /// whose WAL append fails consumes its seq — acceptable for an error path).
+    pub fn assign_seq(&self) -> u64 {
+        self.next_seq.fetch_add(1, AtomicOrdering::AcqRel)
+    }
+
+    /// Load WAL-replayed facts at boot: backfill legacy (`seq_id == 0`) facts by
+    /// append order — placed ABOVE any real assigned seq — and set the counter to
+    /// `max(seq) + 1`. Legacy seq is therefore deterministic across restarts
+    /// (append order is stable) and never collides with a previously assigned seq.
+    /// The WAL file is not rewritten (no destructive migration).
+    pub fn load_replayed(&self, facts: Vec<FactData>) {
+        let max_assigned = facts.iter().map(|f| f.seq_id).max().unwrap_or(0);
+        let mut counter = max_assigned;
+        for mut fact in facts {
+            if fact.seq_id == 0 {
+                counter += 1;
+                fact.seq_id = counter;
+            }
+            self.push(fact);
+        }
+        self.next_seq.store(counter + 1, AtomicOrdering::Release);
+    }
+
+    /// Server-order ("by seq") read: every fact whose `seq_id` is in
+    /// `(after_seq, until_seq]`, sorted by `seq_id`. Clock-free — it never touches
+    /// `transaction_time`. Correct regardless of arrival order (scan + filter,
+    /// matching the P2 correctness-first stance for tt reads). Per-key timelines
+    /// are already seq-sorted on the serialized `write_fact_once` path, so a
+    /// `partition_point` O(log N) refinement is a safe later optimization.
+    pub fn facts_by_seq(
+        &self,
+        store: &str,
+        after_seq: u64,
+        until_seq: Option<u64>,
+    ) -> Vec<FactData> {
+        let mut results = Vec::new();
+        for shard_lock in &self.shards {
+            let shard = shard_lock.read();
+            for ((s, _), timeline) in &shard.by_key {
+                if s == store {
+                    results.extend(
+                        timeline
+                            .iter()
+                            .filter(|f| {
+                                f.seq_id > after_seq && until_seq.map_or(true, |u| f.seq_id <= u)
+                            })
+                            .cloned(),
+                    );
+                }
+            }
+        }
+        results.sort_by(|a, b| a.seq_id.cmp(&b.seq_id));
+        results
     }
 
     fn get_shard_index(&self, store: &str, key: &str) -> usize {
@@ -197,14 +272,24 @@ impl ShardedFactLog {
                 && existing.value_hash == data.value_hash
                 && existing.value == data.value
             {
-                return Ok(WriteOnceResult::Replay);
+                // Replay returns the ORIGINAL seq_id — never a new one. Identity is
+                // id + canonical hash + value; seq_id is not compared.
+                return Ok(WriteOnceResult::Replay {
+                    seq_id: existing.seq_id,
+                });
             }
             return Ok(WriteOnceResult::Conflict { existing });
         }
 
+        // First insert: assign the server seq_id BEFORE the WAL append so the
+        // durable frame carries it (and frame order == seq order on this path,
+        // since the whole insert runs under `write_once_lock`).
+        let mut data = data;
+        let seq_id = self.assign_seq();
+        data.seq_id = seq_id;
         before_append(&data)?;
         self.push(data);
-        Ok(WriteOnceResult::Inserted)
+        Ok(WriteOnceResult::Inserted { seq_id })
     }
 
     pub fn latest_for(&self, store: &str, key: &str, as_of: Option<f64>) -> Option<FactData> {
@@ -634,6 +719,8 @@ mod tests {
             schema_version: 1,
             producer: None,
             derivation: None,
+            seq_id: 0,
+            origin_node: None,
         }
     }
 
@@ -808,5 +895,134 @@ mod tests {
             all.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
             vec!["f100", "f200", "f300"]
         );
+    }
+
+    // ── LAB-TBACKEND-SEQID-PER-STORE-P9 ─────────────────────────────────────
+
+    fn noop_append(_: &FactData) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[test]
+    fn seqid_assigned_monotonic_and_gap_free() {
+        let log = ShardedFactLog::new();
+        for (i, id) in ["a", "b", "c"].iter().enumerate() {
+            let r = log
+                .push_once(fact("s", "k", id, 100.0, serde_json::json!({"n": i})), noop_append)
+                .unwrap();
+            match r {
+                WriteOnceResult::Inserted { seq_id } => assert_eq!(seq_id, (i as u64) + 1),
+                other => panic!("expected Inserted, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn replay_returns_original_seq_and_does_not_increment() {
+        let log = ShardedFactLog::new();
+        // Insert -> seq 1.
+        let ins = log
+            .push_once(fact("s", "k", "x", 100.0, serde_json::json!({"v": 1})), noop_append)
+            .unwrap();
+        assert!(matches!(ins, WriteOnceResult::Inserted { seq_id: 1 }));
+        // Replay the SAME content but as a client would send it (seq_id 0) ->
+        // returns the ORIGINAL seq, proving seq is excluded from identity.
+        let mut same = fact("s", "k", "x", 999.0, serde_json::json!({"v": 1}));
+        same.seq_id = 0;
+        let rep = log.push_once(same, noop_append).unwrap();
+        assert!(matches!(rep, WriteOnceResult::Replay { seq_id: 1 }));
+        // A new insert is seq 2 — the replay did NOT consume a seq.
+        let next = log
+            .push_once(fact("s", "k", "y", 100.0, serde_json::json!({"v": 2})), noop_append)
+            .unwrap();
+        assert!(matches!(next, WriteOnceResult::Inserted { seq_id: 2 }));
+    }
+
+    #[test]
+    fn conflict_allocates_no_seq() {
+        let log = ShardedFactLog::new();
+        log.push_once(fact("s", "k", "x", 100.0, serde_json::json!({"v": 1})), noop_append)
+            .unwrap();
+        // Same id, different payload -> Conflict, no seq minted.
+        let c = log
+            .push_once(fact("s", "k", "x", 100.0, serde_json::json!({"v": 2})), noop_append)
+            .unwrap();
+        assert!(matches!(c, WriteOnceResult::Conflict { .. }));
+        // Next insert is seq 2 — the conflict did not advance the counter past it.
+        let n = log
+            .push_once(fact("s", "k", "z", 100.0, serde_json::json!({"v": 3})), noop_append)
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 2 }));
+    }
+
+    #[test]
+    fn factdata_without_seqid_deserializes_to_zero() {
+        // A pre-P9 frame has no seq_id/origin_node keys. serde(default) loads them.
+        let legacy = serde_json::json!({
+            "id": "f1", "store": "s", "key": "k", "value": {"v": 1},
+            "transaction_time": 1.0, "schema_version": 1
+        });
+        let f: FactData = serde_json::from_value(legacy).unwrap();
+        assert_eq!(f.seq_id, 0);
+        assert_eq!(f.origin_node, None);
+    }
+
+    #[test]
+    fn load_replayed_backfills_legacy_by_append_order_and_recovers_counter() {
+        let log = ShardedFactLog::new();
+        // Three legacy facts (seq 0) replayed in file order.
+        let facts = vec![
+            fact("s", "k", "f1", 100.0, serde_json::json!({"v": 1})),
+            fact("s", "k", "f2", 100.0, serde_json::json!({"v": 2})),
+            fact("s", "k", "f3", 100.0, serde_json::json!({"v": 3})),
+        ];
+        log.load_replayed(facts);
+        let got = log.facts_by_seq("s", 0, None);
+        assert_eq!(
+            got.iter().map(|f| (f.id.as_str(), f.seq_id)).collect::<Vec<_>>(),
+            vec![("f1", 1), ("f2", 2), ("f3", 3)]
+        );
+        // Counter continues above the backfilled max.
+        let n = log
+            .push_once(fact("s", "k", "f4", 100.0, serde_json::json!({"v": 4})), noop_append)
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 4 }));
+    }
+
+    #[test]
+    fn load_replayed_recovers_counter_from_assigned_seqs() {
+        let log = ShardedFactLog::new();
+        let mut f1 = fact("s", "k", "f1", 100.0, serde_json::json!({"v": 1}));
+        f1.seq_id = 7;
+        let mut f2 = fact("s", "k", "f2", 100.0, serde_json::json!({"v": 2}));
+        f2.seq_id = 8;
+        log.load_replayed(vec![f1, f2]);
+        // next_seq = max(7,8)+1 = 9.
+        let n = log
+            .push_once(fact("s", "k", "f3", 100.0, serde_json::json!({"v": 3})), noop_append)
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 9 }));
+    }
+
+    #[test]
+    fn facts_by_seq_window_is_clock_free() {
+        let log = ShardedFactLog::new();
+        // Assign seq 1..4 with DECREASING transaction_time — seq must ignore tt.
+        for (i, id) in ["a", "b", "c", "d"].iter().enumerate() {
+            log.push_once(
+                fact("s", "k", id, 1000.0 - i as f64, serde_json::json!({"n": i})),
+                noop_append,
+            )
+            .unwrap();
+        }
+        // (after_seq=1, until=3] -> seq 2,3.
+        let win = log.facts_by_seq("s", 1, Some(3));
+        assert_eq!(
+            win.iter().map(|f| f.seq_id).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        // after_seq only.
+        let tail = log.facts_by_seq("s", 2, None);
+        assert_eq!(tail.iter().map(|f| f.seq_id).collect::<Vec<_>>(), vec![3, 4]);
     }
 }

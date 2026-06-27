@@ -181,9 +181,10 @@ impl ServerKernel {
                 Ok(fb) => {
                     let wal_arc = Arc::new(fb);
                     if let Ok(facts) = wal_arc.replay_pure() {
-                        for fact in facts {
-                            log.push(fact);
-                        }
+                        // Restore facts AND the per-store seq_id counter
+                        // (next_seq = max replayed seq + 1; legacy seq=0 backfilled
+                        // by append order). LAB-TBACKEND-SEQID-PER-STORE-P9.
+                        log.load_replayed(facts);
                     }
                     Some(wal_arc)
                 }

@@ -311,7 +311,7 @@ fn execute_pipeline(
             .get_or_create_engine(target_store)
             .ok_or_else(|| format!("Action target store '{}' invalid", target_store))?;
 
-        let out_fact = FactData {
+        let mut out_fact = FactData {
             id: uuid::Uuid::new_v4().to_string(),
             store: target_store.clone(),
             key: format!("stream-{}-{}", pipeline.id, triggering_fact.key),
@@ -322,11 +322,17 @@ fn execute_pipeline(
             valid_time: Some(now),
             schema_version: 1,
             producer: Some(format!("PipelinePack:{}", pipeline.id)),
+            seq_id: 0,
+            origin_node: None,
             derivation: Some(format!(
                 "Reactive pipeline transformation of {} key {}",
                 triggering_fact.store, triggering_fact.key
             )),
         };
+
+        // A pipeline-derived fact is a real fact in the target store — give it a
+        // server seq_id before the WAL append. LAB-TBACKEND-SEQID-PER-STORE-P9.
+        out_fact.seq_id = engine.log.assign_seq();
 
         if let Some(ref fb) = engine.wal {
             fb.write_fact_data(&out_fact)

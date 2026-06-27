@@ -263,6 +263,10 @@ fn run_rollup_and_compaction(
             valid_time: Some(now),
             schema_version: 1,
             producer: Some("SnapshotPack".to_string()),
+            // Compaction is gated off (P6); rollup summaries are derived facts.
+            // seq_id left 0 (backfilled by append order if ever replayed).
+            seq_id: 0,
+            origin_node: None,
             derivation: Some(format!(
                 "Rollup from {} (Pruned {} raw facts)",
                 policy.source_store,

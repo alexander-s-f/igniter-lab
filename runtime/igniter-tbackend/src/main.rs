@@ -235,6 +235,7 @@ fn durable_write_once_response(
     req: &serde_json::Value,
     kernel: &ServerKernel,
     idempotent_replay: bool,
+    seq_id: u64,
 ) -> serde_json::Value {
     match apply_durability(wal, req, kernel) {
         Ok((durability, warning)) => {
@@ -243,6 +244,7 @@ fn durable_write_once_response(
                 "committed": true,
                 "idempotent_replay": idempotent_replay,
                 "durability": durability,
+                "seq_id": seq_id,
             });
             if let Some(w) = warning {
                 resp["warning"] = serde_json::json!(w);
@@ -255,6 +257,7 @@ fn durable_write_once_response(
             "retryable": true,
             "idempotent_replay": idempotent_replay,
             "durability": "accepted",
+            "seq_id": seq_id,
             "error": format!("durable sync failed: {}", e),
         }),
     }
@@ -304,6 +307,11 @@ impl ServerPack for CorePack {
                 None => return serde_json::json!({ "ok": false, "error": "Invalid store name" }),
             };
 
+            // Assign the per-store server seq_id BEFORE the WAL append so the
+            // durable frame carries it. LAB-TBACKEND-SEQID-PER-STORE-P9.
+            data.seq_id = engine.log.assign_seq();
+            let seq_id = data.seq_id;
+
             if let Some(ref fb) = engine.wal {
                 if let Err(e) = fb.write_fact_data(&data) {
                     return serde_json::json!({ "ok": false, "error": format!("WAL write failed: {}", e) });
@@ -318,7 +326,8 @@ impl ServerPack for CorePack {
                     let mut resp = serde_json::json!({
                         "ok": true,
                         "committed": true,
-                        "durability": durability
+                        "durability": durability,
+                        "seq_id": seq_id
                     });
                     if let Some(w) = warning {
                         resp["warning"] = serde_json::json!(w);
@@ -367,11 +376,11 @@ impl ServerPack for CorePack {
             });
 
             match result {
-                Ok(WriteOnceResult::Inserted) => {
-                    durable_write_once_response(engine.wal.as_deref(), req, kernel, false)
+                Ok(WriteOnceResult::Inserted { seq_id }) => {
+                    durable_write_once_response(engine.wal.as_deref(), req, kernel, false, seq_id)
                 }
-                Ok(WriteOnceResult::Replay) => {
-                    durable_write_once_response(engine.wal.as_deref(), req, kernel, true)
+                Ok(WriteOnceResult::Replay { seq_id }) => {
+                    durable_write_once_response(engine.wal.as_deref(), req, kernel, true, seq_id)
                 }
                 Ok(WriteOnceResult::Conflict { existing }) => serde_json::json!({
                     "ok": false,
@@ -425,6 +434,25 @@ impl ServerPack for CorePack {
             } else {
                 engine.log.facts_for_store(store, since, as_of)
             };
+            serde_json::json!({ "ok": true, "facts": facts })
+        }));
+
+        // 4b. facts_by_seq — server-order (clock-free) read.
+        // LAB-TBACKEND-SEQID-PER-STORE-P9. Returns facts with seq_id in
+        // (after_seq, until_seq], sorted by seq_id — independent of client clocks.
+        registry.register("facts_by_seq", Arc::new(|req, kernel| {
+            let store = match req.get("store").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return serde_json::json!({ "ok": false, "error": "Missing 'store' parameter" }),
+            };
+            let after_seq = req.get("after_seq").and_then(|v| v.as_u64()).unwrap_or(0);
+            let until_seq = req.get("until_seq").and_then(|v| v.as_u64());
+
+            let engine = match kernel.get_or_create_engine(store) {
+                Some(e) => e,
+                None => return serde_json::json!({ "ok": false, "error": "Invalid store name" }),
+            };
+            let facts = engine.log.facts_by_seq(store, after_seq, until_seq);
             serde_json::json!({ "ok": true, "facts": facts })
         }));
 
