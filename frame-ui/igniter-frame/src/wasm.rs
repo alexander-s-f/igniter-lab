@@ -321,6 +321,14 @@ impl Default for WasmScrollList {
     }
 }
 
+/// LAB-FRAME-DX-VIEW-D host bridge — render an `.ig`-authored `Element` tree (JSON) through the
+/// frame-ui pipeline (layout → solve → canonical widgets → shared host). Closes the loop: a view
+/// authored as pure igniter element-contracts renders live, machine-free, in the browser.
+#[wasm_bindgen]
+pub fn render_ig_view(element_json: &str, w: i32, h: i32) -> String {
+    crate::ig_bridge::render_ig_view(element_json, w as i64, h as i64)
+}
+
 /// LAB-FRAME-LAYOUT-VOCAB-P4 — author a layout as TEXT, see it solved live. Parses the layout DSL and
 /// returns an inspection SVG of the solved boxes; on a parse error returns an SVG card naming the
 /// 1-based line and message. Pure + total — safe to call on every keystroke from a text field.

@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 
 pub mod form_screen;
 pub mod host;
+pub mod ig_bridge;
 pub mod layout;
 pub mod list_screen;
 pub mod runtime;

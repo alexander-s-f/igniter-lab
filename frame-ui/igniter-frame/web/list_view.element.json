@@ -1,0 +1,27 @@
+{
+  "tag": "row",
+  "attrs": { "dir": "row", "main": 0, "flex": 0, "pad": 0, "gap": 0 },
+  "text": "", "intent": "",
+  "children": [
+    {
+      "tag": "col",
+      "attrs": { "dir": "col", "main": 248, "flex": 0, "pad": 12, "gap": 8 },
+      "text": "", "intent": "",
+      "children": [
+        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Review Ada's lead", "intent": "select", "children": [] },
+        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Call Grace back", "intent": "select", "children": [] },
+        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Send Linus the quote", "intent": "select", "children": [] },
+        { "tag": "button", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "+ add item", "intent": "add", "children": [] }
+      ]
+    },
+    {
+      "tag": "col",
+      "attrs": { "dir": "col", "main": 1, "flex": 1, "pad": 18, "gap": 14 },
+      "text": "", "intent": "",
+      "children": [
+        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 30, "flex": 0, "pad": 0, "gap": 0 }, "text": "Review Ada's lead", "intent": "", "children": [] },
+        { "tag": "button", "attrs": { "dir": "leaf", "main": 48, "flex": 0, "pad": 0, "gap": 0 }, "text": "mark done", "intent": "toggle", "children": [] }
+      ]
+    }
+  ]
+}
