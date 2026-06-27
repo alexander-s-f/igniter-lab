@@ -37,7 +37,7 @@ contract Row {
 contract Leaf {
   input attrs : Attrs
   input text  : String
-  compute el = { tag: "leaf", attrs: attrs, text: text, intent: "", children: [] }
+  compute el = { tag: "leaf", attrs: attrs, text: text, intent: "select", children: [] }
   output el : Element
 }
 

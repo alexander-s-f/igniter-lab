@@ -1,27 +1,120 @@
 {
-  "tag": "row",
-  "attrs": { "dir": "row", "main": 0, "flex": 0, "pad": 0, "gap": 0 },
-  "text": "", "intent": "",
+  "attrs": {
+    "dir": "row",
+    "flex": 0,
+    "gap": 0,
+    "main": 0,
+    "pad": 0
+  },
   "children": [
     {
-      "tag": "col",
-      "attrs": { "dir": "col", "main": 248, "flex": 0, "pad": 12, "gap": 8 },
-      "text": "", "intent": "",
+      "attrs": {
+        "dir": "col",
+        "flex": 0,
+        "gap": 8,
+        "main": 248,
+        "pad": 12
+      },
       "children": [
-        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Review Ada's lead", "intent": "select", "children": [] },
-        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Call Grace back", "intent": "select", "children": [] },
-        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "Send Linus the quote", "intent": "select", "children": [] },
-        { "tag": "button", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 }, "text": "+ add item", "intent": "add", "children": [] }
-      ]
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Review Ada's lead"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Call Grace back"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Send Linus the quote"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "add",
+          "tag": "button",
+          "text": "+ add item"
+        }
+      ],
+      "intent": "",
+      "tag": "col",
+      "text": ""
     },
     {
-      "tag": "col",
-      "attrs": { "dir": "col", "main": 1, "flex": 1, "pad": 18, "gap": 14 },
-      "text": "", "intent": "",
+      "attrs": {
+        "dir": "col",
+        "flex": 1,
+        "gap": 14,
+        "main": 1,
+        "pad": 18
+      },
       "children": [
-        { "tag": "leaf", "attrs": { "dir": "leaf", "main": 30, "flex": 0, "pad": 0, "gap": 0 }, "text": "Review Ada's lead", "intent": "", "children": [] },
-        { "tag": "button", "attrs": { "dir": "leaf", "main": 48, "flex": 0, "pad": 0, "gap": 0 }, "text": "mark done", "intent": "toggle", "children": [] }
-      ]
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 30,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Review Ada's lead"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 48,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "toggle",
+          "tag": "button",
+          "text": "mark done"
+        }
+      ],
+      "intent": "",
+      "tag": "col",
+      "text": ""
     }
-  ]
+  ],
+  "intent": "",
+  "tag": "row",
+  "text": ""
 }
