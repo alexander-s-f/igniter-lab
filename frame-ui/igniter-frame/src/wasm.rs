@@ -62,3 +62,52 @@ impl Default for WasmRuntime {
         Self::new()
     }
 }
+
+/// LAB-FRAME-LAYOUT-VOCAB-P2 — the declarative list/detail screen exposed to the browser. A thin
+/// wrapper over `ListScreenRuntime`: the whole screen is composed from `layout` boxes and `solve`d
+/// in Rust; the JS host only draws the SVG and forwards pointer coords. Click a row to select, the
+/// ＋ row to add (the list auto-flows), the detail button to toggle done.
+#[wasm_bindgen]
+pub struct WasmListScreen {
+    inner: crate::list_screen::ListScreenRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmListScreen {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmListScreen {
+        WasmListScreen {
+            inner: crate::list_screen::ListScreenRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmListScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -26,6 +26,8 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 pub mod host;
+pub mod layout;
+pub mod list_screen;
 pub mod runtime;
 
 #[cfg(feature = "wasm")]
@@ -83,6 +85,26 @@ pub struct ProjectedNode {
     pub sw: Option<i64>,
     pub sh: Option<i64>,
     pub data: Value,
+}
+
+impl ProjectedNode {
+    /// Build a box node from a solved `layout::Rect` + its declared interaction `intent` + render
+    /// `data`. The seam that lets a projector author a screen by COMPOSING `layout::LayoutBox`es and
+    /// `solve`ing them, instead of hand-computing every `(sx, sy, sw, sh)` with screen constants.
+    pub fn from_rect(rect: &crate::layout::Rect, intent: Option<Value>, data: Value) -> Self {
+        ProjectedNode {
+            id: rect.id.clone(),
+            x: rect.x as f64,
+            y: rect.y as f64,
+            z: 0.0,
+            sx: rect.x,
+            sy: rect.y,
+            intent,
+            sw: Some(rect.w),
+            sh: Some(rect.h),
+            data,
+        }
+    }
 }
 
 /// A deterministic projection of a world snapshot — render-agnostic data + lineage.
