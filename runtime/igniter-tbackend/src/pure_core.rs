@@ -1,13 +1,15 @@
 // src/pure_core.rs
 // FFI-free Pure Rust Bitemporal Ledger Core Engine
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
+use std::time::{Duration, Instant};
 
 const SHARD_COUNT: usize = 128;
 
@@ -386,32 +388,188 @@ struct FileBackendInner {
     writer: BufWriter<File>,
 }
 
-pub struct FileBackend(Mutex<FileBackendInner>);
+// Group-commit coordinator for `durable` acks (LAB-TBACKEND-DURABLE-ACK-GROUP-COMMIT-P6).
+// One fdatasync amortized across all writers in a bounded window. The fsync runs
+// OUTSIDE the global `write_once_lock` and outside the append mutex (it uses a
+// dup'd fd, `sync_handle`), so durable writes do not serialize appends.
+struct CommitInner {
+    synced_seq: u64,     // highest write_seq known durable on the device
+    leader_active: bool, // exactly one writer drives each group fsync
+    generation: u64,     // bumps after every sync attempt (followers re-check)
+    last_err: Option<String>,
+    last_attempt_seq: u64, // write_seq the most recent (failed) attempt tried to cover
+}
+
+pub struct FileBackend {
+    inner: Mutex<FileBackendInner>,
+    // Separate fd (dup of the WAL file) used only for fdatasync, so syncing never
+    // contends the append `inner` mutex.
+    sync_handle: File,
+    // Monotonic count of appended frames this process lifetime; the durability barrier.
+    write_seq: AtomicU64,
+    // Test seam: number of fdatasync syscalls actually issued (proves the durable path ran).
+    sync_count: AtomicU64,
+    // Test seam: when armed, the next group fsync fails instead of calling the syscall.
+    sync_fault: AtomicBool,
+    commit: Mutex<CommitInner>,
+    commit_cond: Condvar,
+}
 
 impl FileBackend {
     pub fn new_pure(path: &str) -> Result<Self, std::io::Error> {
         let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(FileBackend(Mutex::new(FileBackendInner {
-            path: path.to_string(),
-            writer: BufWriter::new(file),
-        })))
+        let sync_handle = file.try_clone()?;
+        Ok(FileBackend {
+            inner: Mutex::new(FileBackendInner {
+                path: path.to_string(),
+                writer: BufWriter::new(file),
+            }),
+            sync_handle,
+            write_seq: AtomicU64::new(0),
+            sync_count: AtomicU64::new(0),
+            sync_fault: AtomicBool::new(false),
+            commit: Mutex::new(CommitInner {
+                synced_seq: 0,
+                leader_active: false,
+                generation: 0,
+                last_err: None,
+                last_attempt_seq: 0,
+            }),
+            commit_cond: Condvar::new(),
+        })
     }
 
     pub fn write_fact_data(&self, data: &FactData) -> Result<(), String> {
         let body = rmp_serde::to_vec_named(data).map_err(|e| e.to_string())?;
         let crc = crc32fast::hash(&body);
-        let mut inner = self.0.lock();
-        inner
-            .writer
-            .write_all(&(body.len() as u32).to_be_bytes())
-            .and_then(|_| inner.writer.write_all(&body))
-            .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
-            .and_then(|_| inner.writer.flush())
-            .map_err(|e| e.to_string())
+        {
+            let mut inner = self.inner.lock();
+            inner
+                .writer
+                .write_all(&(body.len() as u32).to_be_bytes())
+                .and_then(|_| inner.writer.write_all(&body))
+                .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
+                .and_then(|_| inner.writer.flush())
+                .map_err(|e| e.to_string())?;
+        }
+        // The frame is now in the OS page cache (`accepted`). Publish the barrier
+        // so a `durable` caller can wait for an fdatasync that covers it.
+        self.write_seq.fetch_add(1, AtomicOrdering::AcqRel);
+        Ok(())
+    }
+
+    /// Current append barrier — the seq a `durable` caller waits to see synced.
+    pub fn current_seq(&self) -> u64 {
+        self.write_seq.load(AtomicOrdering::Acquire)
+    }
+
+    /// fdatasync syscalls actually issued (test seam for the group-commit proof).
+    pub fn sync_count(&self) -> u64 {
+        self.sync_count.load(AtomicOrdering::Acquire)
+    }
+
+    pub fn synced_seq(&self) -> u64 {
+        self.commit.lock().synced_seq
+    }
+
+    /// Test-only: arm/disarm an injected fdatasync failure.
+    pub fn arm_sync_fault(&self, on: bool) {
+        self.sync_fault.store(on, AtomicOrdering::Release);
+    }
+
+    /// Block until an fdatasync covering `barrier` has succeeded (the `durable`
+    /// ack boundary). Coalesces concurrent durable writers: the first becomes the
+    /// leader, waits a bounded window (`interval_ms`, cut short when the pending
+    /// batch reaches `max_batch`), issues ONE fdatasync, and releases all
+    /// followers it covered. Returns Err (retryable upstream) if the sync that
+    /// would have covered `barrier` failed — never a silent downgrade.
+    pub fn commit_durable(
+        &self,
+        barrier: u64,
+        interval_ms: u64,
+        max_batch: u64,
+    ) -> Result<(), String> {
+        let mut g = self.commit.lock();
+        loop {
+            if g.synced_seq >= barrier {
+                return Ok(());
+            }
+            if !g.leader_active {
+                // Become leader and drive one fresh fdatasync attempt. `last_err`
+                // is attempt-scoped: cleared at the start so a retry after a
+                // disarmed/transient fault is never blocked by a stale error.
+                g.leader_active = true;
+                g.last_err = None;
+                drop(g);
+
+                // Batch window: let other durable writers arrive and append so one
+                // fsync covers them all. Cut short once the pending batch is large.
+                let deadline = Instant::now() + Duration::from_millis(interval_ms);
+                loop {
+                    let pending = self
+                        .write_seq
+                        .load(AtomicOrdering::Acquire)
+                        .saturating_sub(self.commit.lock().synced_seq);
+                    if pending >= max_batch.max(1) || Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_micros(200));
+                }
+
+                let seq_to_sync = self.write_seq.load(AtomicOrdering::Acquire);
+                let res = if self.sync_fault.load(AtomicOrdering::Acquire) {
+                    Err("injected fdatasync fault".to_string())
+                } else {
+                    self.sync_handle.sync_data().map_err(|e| e.to_string())
+                };
+
+                let mut g2 = self.commit.lock();
+                g2.last_attempt_seq = seq_to_sync;
+                match res {
+                    Ok(()) => {
+                        if g2.synced_seq < seq_to_sync {
+                            g2.synced_seq = seq_to_sync;
+                        }
+                        self.sync_count.fetch_add(1, AtomicOrdering::AcqRel);
+                        g2.last_err = None;
+                    }
+                    Err(e) => {
+                        g2.last_err = Some(e);
+                    }
+                }
+                g2.leader_active = false;
+                g2.generation = g2.generation.wrapping_add(1);
+                self.commit_cond.notify_all();
+
+                // Decide my outcome from THIS attempt.
+                if g2.synced_seq >= barrier {
+                    return Ok(());
+                }
+                if g2.last_err.is_some() && g2.last_attempt_seq >= barrier {
+                    return Err(g2.last_err.clone().unwrap());
+                }
+                // My barrier wasn't covered (a later append raised it); retry.
+                g = g2;
+                continue;
+            } else {
+                // Follower: wait for the in-flight attempt to complete, then judge
+                // by that attempt's result.
+                let gen = g.generation;
+                self.commit_cond
+                    .wait_for(&mut g, Duration::from_millis(interval_ms.max(1) * 4 + 50));
+                if g.synced_seq >= barrier {
+                    return Ok(());
+                }
+                if g.generation != gen && g.last_err.is_some() && g.last_attempt_seq >= barrier {
+                    return Err(g.last_err.clone().unwrap());
+                }
+                continue;
+            }
+        }
     }
 
     pub fn replay_pure(&self) -> Result<Vec<FactData>, std::io::Error> {
-        let path = self.0.lock().path.clone();
+        let path = self.inner.lock().path.clone();
         let mut file = File::open(&path)?;
         file.seek(SeekFrom::Start(0))?;
 
@@ -448,7 +606,7 @@ impl FileBackend {
     }
 
     pub fn flush_pure(&self) -> Result<(), std::io::Error> {
-        self.0.lock().writer.flush()
+        self.inner.lock().writer.flush()
     }
 }
 

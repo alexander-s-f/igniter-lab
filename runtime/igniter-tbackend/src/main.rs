@@ -183,6 +183,83 @@ fn enforce_canonical_hash(
     Ok(())
 }
 
+// ── Ack Durability (LAB-TBACKEND-DURABLE-ACK-GROUP-COMMIT-P6) ─────────────────
+// Resolves the requested durability (per-request `durability` field overrides the
+// server default) and, for `durable`, waits for a group-commit fdatasync covering
+// this write before returning. Runs AFTER the write path released the global
+// `write_once_lock`, so the fsync wait never serializes appends.
+//
+//   Ok(("accepted", None))            -> page-cache ack (default; survives process
+//                                        crash, not power loss)
+//   Ok(("durable",  None))            -> fdatasync covering this write succeeded
+//   Ok(("in_memory", Some(warning)))  -> durable asked of an ephemeral (no-WAL)
+//                                        daemon; downgraded, never a false durable
+//   Err(msg)                          -> the sync that would cover this write
+//                                        failed; caller must fail the ack
+//                                        (committed:false, retryable:true)
+fn apply_durability(
+    wal: Option<&pure_core::FileBackend>,
+    req: &serde_json::Value,
+    kernel: &ServerKernel,
+) -> Result<(&'static str, Option<String>), String> {
+    let requested = req
+        .get("durability")
+        .and_then(|v| v.as_str())
+        .unwrap_or(kernel.durability_default.as_str());
+
+    if requested != "durable" {
+        return Ok(("accepted", None));
+    }
+
+    match wal {
+        None => Ok((
+            "in_memory",
+            Some(
+                "durable requested but daemon is ephemeral (no WAL); ack is in_memory, NOT durable"
+                    .to_string(),
+            ),
+        )),
+        Some(fb) => {
+            let barrier = fb.current_seq();
+            match fb.commit_durable(barrier, kernel.commit_interval_ms, kernel.commit_max_batch) {
+                Ok(()) => Ok(("durable", None)),
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
+// Shapes the durability outcome into the write_fact_once response (Inserted/Replay).
+fn durable_write_once_response(
+    wal: Option<&pure_core::FileBackend>,
+    req: &serde_json::Value,
+    kernel: &ServerKernel,
+    idempotent_replay: bool,
+) -> serde_json::Value {
+    match apply_durability(wal, req, kernel) {
+        Ok((durability, warning)) => {
+            let mut resp = serde_json::json!({
+                "ok": true,
+                "committed": true,
+                "idempotent_replay": idempotent_replay,
+                "durability": durability,
+            });
+            if let Some(w) = warning {
+                resp["warning"] = serde_json::json!(w);
+            }
+            resp
+        }
+        Err(e) => serde_json::json!({
+            "ok": false,
+            "committed": false,
+            "retryable": true,
+            "idempotent_replay": idempotent_replay,
+            "durability": "accepted",
+            "error": format!("durable sync failed: {}", e),
+        }),
+    }
+}
+
 // ── Baseline Core Pack ────────────────────────────────────────────────────────
 
 struct CorePack;
@@ -233,7 +310,29 @@ impl ServerPack for CorePack {
                 }
             }
             engine.log.push(data);
-            serde_json::json!({ "ok": true })
+
+            // Ack durability (default accepted; per-request `durability:"durable"`
+            // waits for a group-commit fdatasync).
+            match apply_durability(engine.wal.as_deref(), req, kernel) {
+                Ok((durability, warning)) => {
+                    let mut resp = serde_json::json!({
+                        "ok": true,
+                        "committed": true,
+                        "durability": durability
+                    });
+                    if let Some(w) = warning {
+                        resp["warning"] = serde_json::json!(w);
+                    }
+                    resp
+                }
+                Err(e) => serde_json::json!({
+                    "ok": false,
+                    "committed": false,
+                    "retryable": true,
+                    "durability": "accepted",
+                    "error": format!("durable sync failed: {}", e)
+                }),
+            }
         }));
 
         // 3. write_fact_once
@@ -268,16 +367,12 @@ impl ServerPack for CorePack {
             });
 
             match result {
-                Ok(WriteOnceResult::Inserted) => serde_json::json!({
-                    "ok": true,
-                    "committed": true,
-                    "idempotent_replay": false
-                }),
-                Ok(WriteOnceResult::Replay) => serde_json::json!({
-                    "ok": true,
-                    "committed": true,
-                    "idempotent_replay": true
-                }),
+                Ok(WriteOnceResult::Inserted) => {
+                    durable_write_once_response(engine.wal.as_deref(), req, kernel, false)
+                }
+                Ok(WriteOnceResult::Replay) => {
+                    durable_write_once_response(engine.wal.as_deref(), req, kernel, true)
+                }
                 Ok(WriteOnceResult::Conflict { existing }) => serde_json::json!({
                     "ok": false,
                     "error": "Duplicate fact id conflict",
@@ -361,6 +456,60 @@ impl ServerPack for CorePack {
             }),
         );
 
+        // 8. __durability_stats — test seam: prove the group-commit fdatasync path
+        // executed (sync_count) and expose the durability barriers for a store.
+        registry.register(
+            "__durability_stats",
+            Arc::new(|req, kernel| {
+                let store = req.get("store").and_then(|v| v.as_str()).unwrap_or("");
+                let engine = match kernel.get_or_create_engine(store) {
+                    Some(e) => e,
+                    None => {
+                        return serde_json::json!({ "ok": false, "error": "Invalid store name" })
+                    }
+                };
+                match engine.wal {
+                    Some(ref fb) => serde_json::json!({
+                        "ok": true,
+                        "durable_capable": true,
+                        "sync_count": fb.sync_count(),
+                        "write_seq": fb.current_seq(),
+                        "synced_seq": fb.synced_seq()
+                    }),
+                    None => serde_json::json!({
+                        "ok": true,
+                        "durable_capable": false,
+                        "sync_count": 0,
+                        "write_seq": 0,
+                        "synced_seq": 0
+                    }),
+                }
+            }),
+        );
+
+        // 9. __durability_fault — test seam: arm/disarm an injected fdatasync
+        // failure so the fsync-failure ack path can be exercised without real I/O faults.
+        registry.register(
+            "__durability_fault",
+            Arc::new(|req, kernel| {
+                let store = req.get("store").and_then(|v| v.as_str()).unwrap_or("");
+                let armed = req.get("armed").and_then(|v| v.as_bool()).unwrap_or(false);
+                let engine = match kernel.get_or_create_engine(store) {
+                    Some(e) => e,
+                    None => {
+                        return serde_json::json!({ "ok": false, "error": "Invalid store name" })
+                    }
+                };
+                match engine.wal {
+                    Some(ref fb) => {
+                        fb.arm_sync_fault(armed);
+                        serde_json::json!({ "ok": true, "armed": armed })
+                    }
+                    None => serde_json::json!({ "ok": false, "error": "ephemeral; no WAL" }),
+                }
+            }),
+        );
+
         Ok(())
     }
 }
@@ -404,6 +553,9 @@ fn main() {
     let mut max_inflight_requests = 0usize;
     let mut hash_strict = false;
     let mut compaction_unsafe = false;
+    let mut durability_default = "accepted".to_string();
+    let mut commit_interval_ms = 5u64;
+    let mut commit_max_batch = 256u64;
 
     // CLI argument parsing
     let mut i = 1;
@@ -515,9 +667,40 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            "--durability" => {
+                if i + 1 < args.len() {
+                    durability_default = args[i + 1].clone();
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --durability");
+                    std::process::exit(1);
+                }
+            }
+            "--commit-interval-ms" => {
+                if i + 1 < args.len() {
+                    commit_interval_ms = args[i + 1]
+                        .parse()
+                        .expect("commit-interval-ms must be an integer");
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --commit-interval-ms");
+                    std::process::exit(1);
+                }
+            }
+            "--commit-max-batch" => {
+                if i + 1 < args.len() {
+                    commit_max_batch = args[i + 1]
+                        .parse()
+                        .expect("commit-max-batch must be an integer");
+                    i += 2;
+                } else {
+                    eprintln!("Error: Missing value for --commit-max-batch");
+                    std::process::exit(1);
+                }
+            }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
-                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--max-inflight-requests <num>] [--hash-strict <true/false>] [--unsafe-compaction <true/false>] [--mcp]");
+                println!("Usage: tbackend [--host <ip>] [--port <port>] [--data-dir <dir>] [--pool-size <num>] [--peers <comma_ips>] [--config <json_file>] [--auth-enabled <true/false>] [--max-inflight-requests <num>] [--hash-strict <true/false>] [--unsafe-compaction <true/false>] [--durability <accepted|durable>] [--commit-interval-ms <num>] [--commit-max-batch <num>] [--mcp]");
                 std::process::exit(1);
             }
         }
@@ -586,6 +769,15 @@ fn main() {
                     {
                         compaction_unsafe = uc.parse().unwrap_or(false);
                     }
+                    if let Some(d) = json.get("durability").and_then(|v| v.as_str()) {
+                        durability_default = d.to_string();
+                    }
+                    if let Some(ci) = json.get("commit_interval_ms").and_then(|v| v.as_u64()) {
+                        commit_interval_ms = ci;
+                    }
+                    if let Some(cb) = json.get("commit_max_batch").and_then(|v| v.as_u64()) {
+                        commit_max_batch = cb;
+                    }
                 }
                 Err(e) => {
                     eprintln!("Error: Failed to parse JSON config file: {}", e);
@@ -601,6 +793,15 @@ fn main() {
 
     // ── Build and Assemble Server Profiles ───────────────────────────────────
 
+    // Honest vocabulary only: an unrecognized server default falls back to accepted.
+    if durability_default != "accepted" && durability_default != "durable" {
+        eprintln!(
+            "[TBackend] Unknown --durability '{}', falling back to 'accepted'",
+            durability_default
+        );
+        durability_default = "accepted".to_string();
+    }
+
     let kernel = ServerKernel::new(
         host,
         port,
@@ -609,6 +810,9 @@ fn main() {
         auth_enabled,
         hash_strict,
         compaction_unsafe,
+        durability_default,
+        commit_interval_ms,
+        commit_max_batch,
     );
 
     let mut assembler = ProfileAssembler::new();
@@ -674,6 +878,16 @@ fn main() {
         } else {
             "disabled (ledger-safe default; enable with --unsafe-compaction true)"
         }
+    );
+    println!(
+        "  Durability:  \x1b[1m{}\x1b[0m (default; per-request override; group-commit {}ms / {} batch)",
+        if kernel.durability_default == "durable" {
+            "durable — fdatasync before ack"
+        } else {
+            "accepted — page cache (survives process crash, NOT power loss)"
+        },
+        kernel.commit_interval_ms,
+        kernel.commit_max_batch
     );
     println!(
         "  Backpressure:\x1b[1m{} max in-flight requests\x1b[0m",

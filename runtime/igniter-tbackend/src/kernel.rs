@@ -111,6 +111,15 @@ pub struct ServerKernel {
     // (a crash can vanish history, P1/B4), so it is unsafe for a ledger/shadow.
     // Set true (`--unsafe-compaction true`) only to opt into that risk.
     pub compaction_unsafe: bool,
+    // LAB-TBACKEND-DURABLE-ACK-GROUP-COMMIT-P6: ack durability vocabulary.
+    // `durability_default` is the server-wide mode ("accepted" = current
+    // flush/page-cache ack, survives process crash not power loss; "durable" =
+    // waits for a group-commit fdatasync before ack). A per-request
+    // `durability` field overrides it. `commit_interval_ms`/`commit_max_batch`
+    // tune the group-commit window (one fdatasync amortized across the batch).
+    pub durability_default: String,
+    pub commit_interval_ms: u64,
+    pub commit_max_batch: u64,
 
     // Active extensible registries
     pub command_registry: Arc<RwLock<CommandRegistry>>,
@@ -127,6 +136,9 @@ impl ServerKernel {
         auth_enabled: bool,
         hash_strict: bool,
         compaction_unsafe: bool,
+        durability_default: String,
+        commit_interval_ms: u64,
+        commit_max_batch: u64,
     ) -> Self {
         Self {
             host,
@@ -137,6 +149,9 @@ impl ServerKernel {
             auth_enabled,
             hash_strict,
             compaction_unsafe,
+            durability_default,
+            commit_interval_ms,
+            commit_max_batch,
             command_registry: Arc::new(RwLock::new(CommandRegistry::new())),
             middleware_chain: Arc::new(RwLock::new(MiddlewareChain::new())),
             background_services: Arc::new(RwLock::new(Vec::new())),
