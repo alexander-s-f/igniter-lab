@@ -5,6 +5,7 @@ use crate::instructions::*;
 use crate::tbackend::TBackend;
 use crate::value::Value;
 use igniter_stdlib::decimal::Decimal;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -140,6 +141,20 @@ fn checked_int_div(a: i64, b: i64) -> Result<i64, String> {
 fn checked_int_neg(a: i64) -> Result<i64, String> {
     a.checked_neg()
         .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn decimal_from_value(value: &Value) -> Option<Decimal> {
+    match value {
+        Value::Decimal { value, scale } => Some(Decimal::new(*value, *scale)),
+        _ => None,
+    }
+}
+
+fn value_eq_exact(a: &Value, b: &Value) -> Result<bool, String> {
+    match (decimal_from_value(a), decimal_from_value(b)) {
+        (Some(da), Some(db)) => Ok(da.cmp_decimal(&db)? == Ordering::Equal),
+        _ => Ok(a == b),
+    }
 }
 
 // LAB-FUNCTION-SIR-RUNTIME-P1: a statically-emitted app-local `def` function.
@@ -508,10 +523,12 @@ impl VM {
                         ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
-                            let res_dec = da.mul(&db);
-                            Value::Decimal {
-                                value: res_dec.value,
-                                scale: res_dec.scale,
+                            match da.mul(&db) {
+                                Ok(res_dec) => Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                },
+                                Err(e) => return Err(e),
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
@@ -578,7 +595,7 @@ impl VM {
                     let a = stack
                         .pop()
                         .ok_or("Stack underflow during EQ first operand")?;
-                    stack.push(Value::Bool(a == b));
+                    stack.push(Value::Bool(value_eq_exact(&a, &b)?));
                     ip += 1;
                 }
 
@@ -599,11 +616,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() > db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Greater,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av > bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av > bv),
                         _ => {
@@ -631,11 +647,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() < db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Less,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av < bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av < bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av < bv),
@@ -664,11 +679,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() <= db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Greater,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av <= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av <= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av <= bv),
@@ -697,11 +711,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() >= db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Less,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av >= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av >= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av >= bv),
@@ -720,7 +733,7 @@ impl VM {
                     let a = stack
                         .pop()
                         .ok_or("Stack underflow during NE first operand")?;
-                    stack.push(Value::Bool(a != b));
+                    stack.push(Value::Bool(!value_eq_exact(&a, &b)?));
                     ip += 1;
                 }
 
@@ -1136,7 +1149,11 @@ impl VM {
                                     "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
                                 )),
                             };
-                            Value::Decimal { value, scale }
+                            let decimal = Decimal::checked_new(value, scale)?;
+                            Value::Decimal {
+                                value: decimal.value,
+                                scale: decimal.scale,
+                            }
                         }
                         "length" => {
                             if args.len() != 1 {
@@ -3865,9 +3882,9 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                         float_to_text(*x, *decimals, mode.as_ref())
                             .map(|s| Value::String(Arc::from(s.as_str())))
                     }
-                    _ => Err(
-                        "float_to_text expects (Float, Integer, String) arguments".to_string(),
-                    ),
+                    _ => {
+                        Err("float_to_text expects (Float, Integer, String) arguments".to_string())
+                    }
                 }
             }
         }
@@ -4188,11 +4205,13 @@ fn eval_ast<'a>(
                         ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
-                            let res_dec = da.mul(&db);
-                            Ok(Value::Decimal {
-                                value: res_dec.value,
-                                scale: res_dec.scale,
-                            })
+                            match da.mul(&db) {
+                                Ok(res_dec) => Ok(Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                }),
+                                Err(e) => Err(e),
+                            }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
                             Ok(Value::Integer(checked_int_mul(*av, *bv)?))
@@ -4239,8 +4258,8 @@ fn eval_ast<'a>(
                             left_val, right_val
                         )),
                     },
-                    "==" => Ok(Value::Bool(left_val == right_val)),
-                    "!=" => Ok(Value::Bool(left_val != right_val)),
+                    "==" => Ok(Value::Bool(value_eq_exact(&left_val, &right_val)?)),
+                    "!=" => Ok(Value::Bool(!value_eq_exact(&left_val, &right_val)?)),
                     ">" => match (&left_val, &right_val) {
                         (
                             Value::Decimal {
@@ -4251,11 +4270,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() > db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Greater,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av > bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
                         _ => Err(format!(
@@ -4273,11 +4291,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() < db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Less,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av < bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
@@ -4296,11 +4313,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() <= db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Greater,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av <= bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
@@ -4319,11 +4335,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Less,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av >= bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
@@ -5678,7 +5693,11 @@ fn eval_ast<'a>(
                                 "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
                             )),
                         };
-                        Ok(Value::Decimal { value, scale })
+                        let decimal = Decimal::checked_new(value, scale)?;
+                        Ok(Value::Decimal {
+                            value: decimal.value,
+                            scale: decimal.scale,
+                        })
                     }
                     "map" => {
                         if evaluated_operands.len() != 2 {
@@ -5991,11 +6010,13 @@ fn eval_ast<'a>(
                                 ) => {
                                     let da = Decimal::new(*av, *as_);
                                     let db = Decimal::new(*bv, *bs);
-                                    let res_dec = da.mul(&db);
-                                    Ok(Value::Decimal {
-                                        value: res_dec.value,
-                                        scale: res_dec.scale,
-                                    })
+                                    match da.mul(&db) {
+                                        Ok(res_dec) => Ok(Value::Decimal {
+                                            value: res_dec.value,
+                                            scale: res_dec.scale,
+                                        }),
+                                        Err(e) => Err(e),
+                                    }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Integer(checked_int_mul(*av, *bv)?))
@@ -6042,8 +6063,8 @@ fn eval_ast<'a>(
                                     left_val, right_val
                                 )),
                             },
-                            "==" | "eq" => Ok(Value::Bool(left_val == right_val)),
-                            "!=" | "ne" => Ok(Value::Bool(left_val != right_val)),
+                            "==" | "eq" => Ok(Value::Bool(value_eq_exact(left_val, right_val)?)),
+                            "!=" | "ne" => Ok(Value::Bool(!value_eq_exact(left_val, right_val)?)),
                             ">" | "gt" | "stdlib.integer.gt" => match (left_val, right_val) {
                                 (
                                     Value::Decimal {
@@ -6054,11 +6075,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() > db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        == Ordering::Greater,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av > bv))
                                 }
@@ -6078,11 +6098,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() < db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        == Ordering::Less,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av < bv))
                                 }
@@ -6103,11 +6122,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() <= db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        != Ordering::Greater,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av <= bv))
                                 }
@@ -6128,11 +6146,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        != Ordering::Less,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av >= bv))
                                 }

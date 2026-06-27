@@ -44,8 +44,27 @@ fn op_div() -> Instruction {
     Instruction::new(OP_DIV, vec![])
 }
 
+fn op_eq() -> Instruction {
+    Instruction::new(OP_EQ, vec![])
+}
+
+fn op_gt() -> Instruction {
+    Instruction::new(OP_GT, vec![])
+}
+
+fn op_lt() -> Instruction {
+    Instruction::new(OP_LT, vec![])
+}
+
 fn op_neg() -> Instruction {
     Instruction::new(OP_NEG, vec![])
+}
+
+fn op_call(name: &str) -> Instruction {
+    Instruction::new(
+        OP_CALL,
+        vec![Value::String(Arc::from(name)), Value::Integer(2)],
+    )
 }
 
 fn op_ret() -> Instruction {
@@ -111,12 +130,7 @@ async fn checked_integer_arithmetic_errors_in_bytecode_path() {
         "Integer overflow",
     );
     assert_err_contains(
-        run_bytecode(vec![
-            push_lit(Value::Integer(i64::MIN)),
-            op_neg(),
-            op_ret(),
-        ])
-        .await,
+        run_bytecode(vec![push_lit(Value::Integer(i64::MIN)), op_neg(), op_ret()]).await,
         "Integer overflow",
     );
     assert_err_contains(
@@ -141,12 +155,7 @@ async fn checked_integer_arithmetic_errors_in_bytecode_path() {
         Ok(Value::Integer(42))
     );
     assert_eq!(
-        run_bytecode(vec![
-            push_lit(Value::Integer(-7)),
-            op_neg(),
-            op_ret(),
-        ])
-        .await,
+        run_bytecode(vec![push_lit(Value::Integer(-7)), op_neg(), op_ret(),]).await,
         Ok(Value::Integer(7))
     );
 }
@@ -282,7 +291,7 @@ async fn test_decimal_multiplication_scale_summation() {
 }
 
 #[tokio::test]
-async fn test_decimal_division_scale_subtraction() {
+async fn test_decimal_division_preserves_lhs_scale() {
     let vm = VM::new(None);
     let instructions = vec![
         push_lit(Value::Decimal {
@@ -303,9 +312,29 @@ async fn test_decimal_division_scale_subtraction() {
     assert_eq!(
         res,
         Ok(Value::Decimal {
-            value: 105,
-            scale: 1
+            value: 1050,
+            scale: 2
         })
+    );
+}
+
+#[tokio::test]
+async fn test_decimal_division_inexact_error() {
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: 1000,
+                scale: 2,
+            }),
+            push_lit(Value::Decimal {
+                value: 300,
+                scale: 2,
+            }),
+            op_div(),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM3",
     );
 }
 
@@ -327,6 +356,129 @@ async fn test_decimal_division_by_zero_error() {
         .await;
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("OOF-DM2"));
+}
+
+#[tokio::test]
+async fn decimal_checked_arithmetic_errors_in_bytecode_path() {
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: i64::MAX,
+                scale: 0,
+            }),
+            push_lit(Value::Decimal { value: 1, scale: 0 }),
+            op_add(),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM1",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: i64::MIN,
+                scale: 0,
+            }),
+            push_lit(Value::Decimal { value: 1, scale: 0 }),
+            op_sub(),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM1",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: i64::MAX,
+                scale: 0,
+            }),
+            push_lit(Value::Decimal { value: 2, scale: 0 }),
+            op_mul(),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM1",
+    );
+}
+
+#[tokio::test]
+async fn decimal_scale_bound_errors_in_bytecode_path() {
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: 1,
+                scale: 10,
+            }),
+            push_lit(Value::Decimal { value: 1, scale: 9 }),
+            op_mul(),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM4",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(1)),
+            push_lit(Value::Integer(19)),
+            op_call("decimal"),
+            op_ret(),
+        ])
+        .await,
+        "OOF-DM4",
+    );
+}
+
+#[tokio::test]
+async fn decimal_equality_and_order_are_scale_normalized() {
+    assert_eq!(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: 15,
+                scale: 1,
+            }),
+            push_lit(Value::Decimal {
+                value: 150,
+                scale: 2,
+            }),
+            op_eq(),
+            op_ret(),
+        ])
+        .await,
+        Ok(Value::Bool(true))
+    );
+    assert_eq!(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: 10,
+                scale: 1,
+            }),
+            push_lit(Value::Decimal { value: 5, scale: 0 }),
+            op_lt(),
+            op_ret(),
+        ])
+        .await,
+        Ok(Value::Bool(true))
+    );
+}
+
+#[tokio::test]
+async fn decimal_large_order_does_not_lose_f64_precision() {
+    assert_eq!(
+        run_bytecode(vec![
+            push_lit(Value::Decimal {
+                value: 9_007_199_254_740_993,
+                scale: 0,
+            }),
+            push_lit(Value::Decimal {
+                value: 9_007_199_254_740_992,
+                scale: 0,
+            }),
+            op_gt(),
+            op_ret(),
+        ])
+        .await,
+        Ok(Value::Bool(true))
+    );
 }
 
 #[tokio::test]

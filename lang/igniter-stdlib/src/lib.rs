@@ -63,13 +63,17 @@ pub extern "C" fn stdlib_decimal_mul(
     b_scale: u32,
     out_val: *mut i64,
     out_scale: *mut u32,
-) {
+) -> i32 {
     let a = decimal::Decimal::new(a_val, a_scale);
     let b = decimal::Decimal::new(b_val, b_scale);
-    let res = a.mul(&b);
-    unsafe {
-        *out_val = res.value;
-        *out_scale = res.scale;
+
+    match a.mul(&b) {
+        Ok(res) => unsafe {
+            *out_val = res.value;
+            *out_scale = res.scale;
+            0
+        },
+        Err(_) => 1,
     }
 }
 
