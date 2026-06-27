@@ -98,10 +98,12 @@ impl<A: ServerApp> AuthTokenApp<A> {
 
 impl<A: ServerApp> ServerApp for AuthTokenApp<A> {
     fn call(&self, mut request: ServerRequest) -> ServerDecision {
+        request.headers.remove("x-auth-ok");
+        let expected = self.expected_token.trim();
         let ok = request
             .headers
             .get("authorization")
-            .map(|h| h.strip_prefix("Bearer ").unwrap_or(h) == self.expected_token)
+            .map(|h| !expected.is_empty() && h.strip_prefix("Bearer ").unwrap_or(h) == expected)
             .unwrap_or(false);
 
         if !ok {

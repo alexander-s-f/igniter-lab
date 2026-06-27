@@ -10,7 +10,7 @@ use igniter_server::protocol::{
     AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
 };
 use igniter_server::reload::ReloadableApp;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -155,6 +155,47 @@ fn short_circuit_auth_does_not_call_inner() {
         ServerDecision::Respond { response } => assert_eq!(response.status, 401),
         other => panic!("expected 401 Respond, got {other:?}"),
     }
+}
+
+#[test]
+fn auth_empty_expected_token_fails_closed() {
+    let stack = AuthTokenApp::new(PanicApp, "");
+    match stack.call(req(
+        "POST",
+        "/x",
+        &[("authorization", "Bearer ")],
+        json!({}),
+    )) {
+        ServerDecision::Respond { response } => assert_eq!(response.status, 401),
+        other => panic!("expected 401 Respond, got {other:?}"),
+    }
+}
+
+#[test]
+fn auth_strips_inbound_auth_ok_spoof() {
+    let stack = AuthTokenApp::new(PanicApp, "TOK");
+    match stack.call(req("POST", "/x", &[("x-auth-ok", "true")], json!({}))) {
+        ServerDecision::Respond { response } => assert_eq!(response.status, 401),
+        other => panic!("expected 401 Respond, got {other:?}"),
+    }
+
+    let (rec, calls, seen) = RecordingApp::new("v1");
+    let stack = AuthTokenApp::new(rec, "TOK");
+    match stack.call(req(
+        "POST",
+        "/x",
+        &[("authorization", "Bearer TOK"), ("x-auth-ok", "spoofed")],
+        json!({}),
+    )) {
+        ServerDecision::Respond { response } => assert_eq!(response.status, 200),
+        other => panic!("expected 200 Respond, got {other:?}"),
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let inner_req = &seen.lock().unwrap()[0];
+    assert_eq!(
+        inner_req.headers.get("x-auth-ok").map(String::as_str),
+        Some("true")
+    );
 }
 
 // 3 ── body-limit short-circuit: oversized body → 413, inner never called ──────────────────────────

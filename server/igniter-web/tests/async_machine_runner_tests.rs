@@ -32,6 +32,7 @@ use igniter_machine::single_flight::SingleFlight;
 use igniter_server::effect_host::MachineEffectHost;
 use igniter_server::protocol::{ServerDecision, ServerRequest};
 use igniter_web::machine_runner;
+use igniter_web::runner::IgwebManifest;
 use igniter_web::runner::build_loaded_app_from_dir;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -230,6 +231,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: WRITE_CAP.into(),
         operation: "write_record".into(),
@@ -267,6 +269,15 @@ async fn post_todo(addr: std::net::SocketAddr, idem_key: &str) -> String {
         body.len(),
         body
     );
+    stream.write_all(raw.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    String::from_utf8_lossy(&buf).to_string()
+}
+
+async fn raw_http(addr: std::net::SocketAddr, raw: String) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     stream.write_all(raw.as_bytes()).await.unwrap();
     stream.flush().await.unwrap();
     let mut buf = Vec::new();
@@ -325,6 +336,91 @@ fn serve_once_loaded_executes_invoke_effect_over_socket() {
         assert_eq!(st.adapter.attempts(), 1, "one adapter attempt");
         assert_eq!(st.adapter.business_row_count(), 1, "one business row");
         assert_eq!(st.adapter.effect_receipt_count(), 1, "one PG-side receipt");
+    });
+}
+
+#[test]
+fn loaded_runner_applies_manifest_auth_and_trace_before_dispatch() {
+    let (loaded, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+
+    rt().block_on(async {
+        let (h, r) = prod(1).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+        let env_name = "IGNITER_TEST_P28_AUTH_TOKEN";
+        std::env::set_var(env_name, "TOK");
+        let middleware = machine_runner::LoadedMiddleware::from_manifest(&IgwebManifest {
+            trace: true,
+            auth_token_env: Some(env_name.to_string()),
+            ..IgwebManifest::default()
+        });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let bad_client = tokio::spawn(async move {
+            raw_http(
+                addr,
+                "GET /health HTTP/1.1\r\nHost: x\r\nx-auth-ok: true\r\nContent-Length: 0\r\n\r\n"
+                    .to_string(),
+            )
+            .await
+        });
+        machine_runner::serve_once_loaded_with_middleware(&listener, &loaded, &eh, &middleware)
+            .await
+            .unwrap();
+        let bad_raw = bad_client.await.unwrap();
+        assert_eq!(http_status(&bad_raw), 401, "spoofed auth marker rejected");
+
+        let good_client = tokio::spawn(async move {
+            raw_http(
+                addr,
+                "GET /health HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer TOK\r\nContent-Length: 0\r\n\r\n"
+                    .to_string(),
+            )
+            .await
+        });
+        machine_runner::serve_once_loaded_with_middleware(&listener, &loaded, &eh, &middleware)
+            .await
+            .unwrap();
+        let good_raw = good_client.await.unwrap();
+        assert_eq!(http_status(&good_raw), 200);
+        assert!(
+            good_raw.contains("x-correlation-id: corr-"),
+            "trace header should decorate loaded-app Respond; raw={good_raw}"
+        );
+    });
+}
+
+#[test]
+fn loaded_runner_applies_manifest_body_limit_before_dispatch() {
+    let (loaded, _) = build_loaded_app_from_dir(&app_dir()).expect("build todo_postgres_app");
+
+    rt().block_on(async {
+        let (h, r) = prod(1).await;
+        let st = effect_state();
+        let c = cfg(&st);
+        let eh = effect_host(&r, &h, &c);
+        let middleware = machine_runner::LoadedMiddleware::from_manifest(&IgwebManifest {
+            body_limit_bytes: Some(4),
+            ..IgwebManifest::default()
+        });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            raw_http(
+                addr,
+                "POST /health HTTP/1.1\r\nHost: x\r\nContent-Length: 7\r\n\r\n{\"x\":1}"
+                    .to_string(),
+            )
+            .await
+        });
+        machine_runner::serve_once_loaded_with_middleware(&listener, &loaded, &eh, &middleware)
+            .await
+            .unwrap();
+        let raw = client.await.unwrap();
+        assert_eq!(http_status(&raw), 413);
     });
 }
 
@@ -392,7 +488,7 @@ fn async_path_carries_no_authority_surface() {
 
 #[test]
 fn host_config_accepts_env_ref_rejects_inline_secrets() {
-    use igniter_web::host_config::{parse_host_config, HostConfigError};
+    use igniter_web::host_config::{HostConfigError, parse_host_config};
 
     let good = r#"
 [host]

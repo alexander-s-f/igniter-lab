@@ -42,7 +42,7 @@ use igniter_server::serving_loop::ServingPolicy;
 use igniter_web::machine_runner;
 use igniter_web::read_dispatch::StagedReadHost;
 use igniter_web::runner::build_loaded_app_from_dir;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -248,6 +248,7 @@ fn write_bridge_cfg(s: &WriteEffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: WRITE_CAP.into(),
         operation: "write_record".into(),
@@ -832,8 +833,16 @@ fn write_delete_via_runner_200_removes_row_and_replay() {
 
         let (r_create, r_del, r_rep) = client.await.unwrap();
         assert_eq!(http_status(&r_create), 200, "create → 200; raw={r_create}");
-        assert_eq!(http_status(&r_del), 200, "delete committed → 200; raw={r_del}");
-        assert_eq!(http_status(&r_rep), 200, "delete replay → still 200; raw={r_rep}");
+        assert_eq!(
+            http_status(&r_del),
+            200,
+            "delete committed → 200; raw={r_del}"
+        );
+        assert_eq!(
+            http_status(&r_rep),
+            200,
+            "delete replay → still 200; raw={r_rep}"
+        );
         // create (1) + delete (1); the replay deduped at the machine receipt → no third attempt.
         assert_eq!(st.adapter.attempts(), 2, "create + delete; replay deduped");
         // the created row was removed by the delete (the DELETE branch of the fake adapter).

@@ -19,13 +19,13 @@
 
 use crate::backend::TBackend;
 use crate::capability::{
-    verify_passport, CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind,
-    RunMode, RECEIPTS_STORE,
+    CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind, PassportVerifier,
+    RECEIPTS_STORE, RunMode, verify_passport, verify_passport_signed,
 };
 use crate::clock::ClockProvider;
 use crate::errors::EngineError;
 use crate::fact::Fact;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// Lifecycle state of a write receipt. `PermanentFailure` is reached by reconciliation (P7,
@@ -235,9 +235,53 @@ pub async fn run_write_effect(
                 return Ok(WriteResult::refused(&format!(
                     "authority refused ({:?})",
                     reason
-                )))
+                )));
             }
         };
+    run_write_effect_with_authority_digest(registry, receipts, clock, authority_digest, req, mode)
+        .await
+}
+
+/// Signed passport variant for host data-plane paths. Authentication happens before the
+/// two-phase write receipt gate; untrusted/tampered passports write no receipt and reach no
+/// executor.
+pub async fn run_write_effect_signed(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
+    let authority_digest = match verify_passport_signed(
+        verifier,
+        passport,
+        &req.capability_id,
+        required_scope,
+        clock,
+    ) {
+        Ok(d) => d,
+        Err(reason) => {
+            return Ok(WriteResult::refused(&format!(
+                "authority refused ({:?})",
+                reason
+            )));
+        }
+    };
+    run_write_effect_with_authority_digest(registry, receipts, clock, authority_digest, req, mode)
+        .await
+}
+
+async fn run_write_effect_with_authority_digest(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    authority_digest: String,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
     if req.idempotency_key.is_empty() {
         return Ok(WriteResult::refused("missing idempotency_key"));
     }
@@ -364,8 +408,8 @@ pub async fn run_write_effect(
 
 use crate::capability::{CapabilityExecutor, EffectOutcome};
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// What a fake write executor does when reached.
 #[derive(Clone, Copy)]

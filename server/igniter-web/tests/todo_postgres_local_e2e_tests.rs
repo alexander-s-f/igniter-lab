@@ -23,8 +23,8 @@
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    run_effect, CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind,
-    RunMode, RECEIPTS_STORE,
+    CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind, RECEIPTS_STORE,
+    RunMode, run_effect,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock, SystemClock};
 use igniter_machine::coordination::CoordinationHub;
@@ -36,7 +36,7 @@ use igniter_machine::postgres_write::{
     PostgresWriteExecutor, PostgresWriteIntent, PostgresWritePolicy,
 };
 use igniter_machine::single_flight::SingleFlight;
-use igniter_machine::write::{run_write_effect, WriteRequest, WriteState};
+use igniter_machine::write::{WriteRequest, WriteState, run_write_effect};
 
 use igniter_server::effect_host::MachineEffectHost;
 use igniter_server::serving_loop::ServingPolicy;
@@ -47,7 +47,7 @@ use igniter_web::host_config::{load_host_config, resolve_host_config};
 use igniter_web::machine_runner;
 use igniter_web::runner::build_loaded_app_from_dir;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -324,7 +324,10 @@ fn local_read_empty_returns_200_empty_list() {
         };
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-empty", "after": ""}))
+            .dispatch(
+                "ListTodosByAccount",
+                json!({"account_id": "acct-empty", "after": ""}),
+            )
             .await
             .unwrap();
         let out = host_read(&dsn, &plan).await;
@@ -343,7 +346,11 @@ fn local_read_empty_returns_200_empty_list() {
             "empty list → 200 envelope, not a not-found"
         );
         assert_eq!(empty_list["body"]["items"], json!([]), "empty items array");
-        assert_eq!(empty_list["body"]["next"], json!(""), "exhausted → empty cursor");
+        assert_eq!(
+            empty_list["body"]["next"],
+            json!(""),
+            "exhausted → empty cursor"
+        );
     });
 }
 
@@ -974,10 +981,17 @@ fn local_account_existence_missing_404_and_existing_empty_200() {
 
         // Existing account, zero todos → 200 [] (stage 1 found the account; stage 2 list is empty).
         let (s_empty, b_empty) = parts(app.dispatch_with_read(list(existing), &read_host).await);
-        assert_eq!(s_empty, 200, "existing account, no todos → 200 envelope; body={b_empty}");
+        assert_eq!(
+            s_empty, 200,
+            "existing account, no todos → 200 envelope; body={b_empty}"
+        );
         // P50: empty existing account → `{ "items": [], "next": "" }` envelope (not a bare array, not a 404).
         assert_eq!(b_empty["items"], json!([]), "empty items; body={b_empty}");
-        assert_eq!(b_empty["next"], json!(""), "exhausted cursor; body={b_empty}");
+        assert_eq!(
+            b_empty["next"],
+            json!(""),
+            "exhausted cursor; body={b_empty}"
+        );
 
         // Missing account → 404 (stage-1 existence read empty → app-owned 404; list never issued).
         let (s_missing, b_missing) = parts(app.dispatch_with_read(list(missing), &read_host).await);
@@ -1070,6 +1084,7 @@ fn binary_path_readhost_from_config_found_200() {
             receipts: &receipts,
             effect_clock: &clk,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: "noop".to_string(),
             operation: "noop".to_string(),
@@ -1186,6 +1201,7 @@ fn binary_path_write_from_config_committed() {
             receipts: &state.receipts,
             effect_clock: &state.clk,
             effect_passport: &state.ep,
+            effect_passport_verifier: None,
             single_flight: &state.sf,
             capability_id: state.capability_id.clone(),
             operation: "write_record".to_string(),
@@ -1292,7 +1308,7 @@ fn binary_path_write_from_config_committed() {
 fn subprocess_product_command_read_write_replay_e2e() {
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::process::Command;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     rt().block_on(async {
         let write_key = "p12-write-k1";
@@ -1530,14 +1546,20 @@ fn subprocess_product_command_read_write_replay_e2e() {
             .await
             .unwrap()
             .get(0);
-        assert_eq!(n_row, 1, "exactly one business row under the minted surrogate id");
+        assert_eq!(
+            n_row, 1,
+            "exactly one business row under the minted surrogate id"
+        );
         // The raw idempotency key is NOT a business row id (the coupling is gone).
         let n_by_key: i64 = client
             .query_one("SELECT count(*) FROM todos WHERE id = $1", &[&write_key])
             .await
             .unwrap()
             .get(0);
-        assert_eq!(n_by_key, 0, "P36: the idempotency key is NOT stored as a Todo id");
+        assert_eq!(
+            n_by_key, 0,
+            "P36: the idempotency key is NOT stored as a Todo id"
+        );
         let acct: Option<String> = client
             .query_one("SELECT account_id FROM todos WHERE id = $1", &[&written_id])
             .await
@@ -1569,7 +1591,10 @@ fn subprocess_product_command_read_write_replay_e2e() {
             .await
             .unwrap()
             .get(0);
-        assert_eq!(n_rcpt, 1, "exactly one PG effect_receipts row for the minted id");
+        assert_eq!(
+            n_rcpt, 1,
+            "exactly one PG effect_receipts row for the minted id"
+        );
 
         // Cleanup test-owned rows (children first for the FK), then the temp file.
         client
@@ -1627,7 +1652,11 @@ fn local_write_same_key_different_payload_conflicts_row_unchanged() {
             )
             .await
             .unwrap();
-        assert_eq!(intent_a["key"], json!(business_id), "same key → same surrogate id");
+        assert_eq!(
+            intent_a["key"],
+            json!(business_id),
+            "same key → same surrogate id"
+        );
         assert_ne!(intent_a, intent_b, "different titles → different payloads");
 
         let adapter = Arc::new(
@@ -1726,7 +1755,7 @@ fn local_write_same_key_different_payload_conflicts_row_unchanged() {
 fn subprocess_non_string_create_body_writes_no_row() {
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::process::Command;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     rt().block_on(async {
         let bad_key = "p18-badbody-k1";

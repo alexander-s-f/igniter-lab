@@ -8,13 +8,13 @@
 //! Requires `--features machine`. Not a stable CLI surface. Loopback only.
 
 use igniter_server::reload::ReloadableApp;
-use igniter_server::serving_loop::{serve_loop, ServingPolicy};
+use igniter_server::serving_loop::{ServingPolicy, serve_loop};
 #[cfg(feature = "machine")]
 use igniter_web::runner::RunnerCliOptions;
 use igniter_web::runner::{
-    build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
+    RunnerCliCommand, build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources,
 };
-use igniter_web::runner_diag::{classify_runner_error, RunnerDiagnostic};
+use igniter_web::runner_diag::{RunnerDiagnostic, classify_runner_error};
 use std::net::TcpListener;
 
 /// Print a coded, redacted diagnostic to stderr and exit with its stable non-zero code.
@@ -80,7 +80,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
     println!(
         "igweb-serve: app_dir={} entry={} sources={} listening http://{} (loopback, bounded to {} request(s))",
-        app_dir.display(), manifest.entry, source_count, addr, max
+        app_dir.display(),
+        manifest.entry,
+        source_count,
+        addr,
+        max
     );
     let reloadable = ReloadableApp::new(app);
     let report = serve_loop(
@@ -114,7 +118,7 @@ fn run_machine_mode(
     use igniter_web::machine_runner;
     use igniter_web::read_dispatch::StagedReadHost;
     use igniter_web::runner::build_loaded_app_from_dir;
-    use igniter_web::runner_diag::{classify_host_config_error, classify_runner_error, DiagCode};
+    use igniter_web::runner_diag::{DiagCode, classify_host_config_error, classify_runner_error};
     use std::sync::Arc;
 
     // 1. Parse + resolve host config — env var expansion happens here; secrets never interpolated.
@@ -168,6 +172,7 @@ fn run_machine_mode(
     }
 
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
+    let middleware = machine_runner::LoadedMiddleware::from_manifest(&manifest);
 
     // 3. Build a default no-op effect host (fallback path when no write binding is configured)
     let router = IngressRouter::new();
@@ -191,6 +196,7 @@ fn run_machine_mode(
         receipts: &receipts,
         effect_clock: &clk,
         effect_passport: &ep,
+        effect_passport_verifier: None,
         single_flight: &sf,
         capability_id: "noop".to_string(),
         operation: "noop".to_string(),
@@ -273,6 +279,7 @@ fn run_machine_mode(
                     receipts: &state.receipts,
                     effect_clock: &state.clk,
                     effect_passport: &state.ep,
+                    effect_passport_verifier: Some(&state.effect_verifier),
                     single_flight: &state.sf,
                     capability_id: state.capability_id.clone(),
                     operation: "write_record".to_string(),
@@ -297,8 +304,13 @@ fn run_machine_mode(
                     app_dir_str, entry, bound, max
                 );
                 let policy = ServingPolicy::new(max).loopback_only();
-                let report = machine_runner::serve_loop_loaded_with_read(
-                    &listener, &app, &real_effect_host, &read_host, &policy,
+                let report = machine_runner::serve_loop_loaded_with_read_and_middleware(
+                    &listener,
+                    &app,
+                    &real_effect_host,
+                    &read_host,
+                    &policy,
+                    &middleware,
                 )
                 .await
                 .map_err(|e| {
@@ -325,12 +337,18 @@ fn run_machine_mode(
             app_dir_str, entry, bound, max
         );
         let policy = ServingPolicy::new(max).loopback_only();
-        let report =
-            machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-                .await
-                .map_err(|e| {
-                    RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
-                })?;
+        let report = machine_runner::serve_loop_loaded_with_read_and_middleware(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+            &middleware,
+        )
+        .await
+        .map_err(|e| {
+            RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
+        })?;
         println!(
             "igweb-serve: machine-mode served {} request(s); exiting",
             report.requests_served

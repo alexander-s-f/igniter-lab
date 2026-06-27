@@ -15,10 +15,12 @@
 //! idle locks; for the proof it is unbounded.
 
 use crate::backend::TBackend;
-use crate::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode};
+use crate::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, PassportVerifier, RunMode,
+};
 use crate::clock::ClockProvider;
 use crate::errors::EngineError;
-use crate::write::{run_write_effect, WriteRequest, WriteResult};
+use crate::write::{WriteRequest, WriteResult, run_write_effect, run_write_effect_signed};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -61,6 +63,36 @@ pub async fn run_write_effect_atomic(
         registry,
         receipts,
         clock,
+        passport,
+        required_scope,
+        req,
+        mode,
+    )
+    .await
+}
+
+/// Signed-passport variant of `run_write_effect_atomic` for host data-plane use. The per-key
+/// lock still covers the full receipt gate; passport authenticity is checked inside the lock by
+/// the signed write runner before any receipt or executor call.
+pub async fn run_write_effect_atomic_signed(
+    single_flight: &SingleFlight,
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
+    let key = format!("{}:{}", req.capability_id, req.idempotency_key);
+    let lock = single_flight.lock_for(&key);
+    let _guard = lock.lock().await;
+    run_write_effect_signed(
+        registry,
+        receipts,
+        clock,
+        verifier,
         passport,
         required_scope,
         req,

@@ -17,8 +17,8 @@
 //! never the contract. This is machine-host IO, NOT language IO.
 
 use crate::capability::{
-    run_effect_with_clock, run_effect_with_passport, CapabilityExecutorRegistry,
-    CapabilityPassport, EffectOutcome, EffectRequest, RunMode,
+    CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest, PassportVerifier,
+    RunMode, run_effect_with_clock, run_effect_with_passport, run_effect_with_verified_passport,
 };
 use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;
@@ -163,7 +163,7 @@ pub async fn run_service_with_clock(
         None => {
             return Ok(EffectOutcome::denied(
                 "preflight: effect not declared by contract",
-            ))
+            ));
         }
     };
 
@@ -200,7 +200,7 @@ pub async fn run_service_with_passport(
         None => {
             return Ok(EffectOutcome::denied(
                 "preflight: effect not declared by contract",
-            ))
+            ));
         }
     };
 
@@ -214,6 +214,53 @@ pub async fn run_service_with_passport(
         registry,
         &machine.storage,
         clock,
+        passport,
+        required_scope,
+        &effect_req,
+        mode,
+    )
+    .await
+}
+
+/// Host entrypoint with signed typed `CapabilityPassport` authority. This is the P21-authenticated
+/// variant of `run_service_with_passport`; a forged or unsigned passport is refused before the
+/// executor and writes no effect receipt.
+pub async fn run_service_with_verified_passport(
+    machine: &IgniterMachine,
+    registry: &CapabilityExecutorRegistry,
+    clock: &Arc<dyn ClockProvider>,
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &HostRequest,
+    mode: RunMode,
+) -> Result<EffectOutcome, EngineError> {
+    let surface = discover_effect_surface(machine, &req.contract)?;
+    if surface.is_pure() {
+        return Ok(EffectOutcome::denied(
+            "preflight: contract declares no effect (pure)",
+        ));
+    }
+    let capability_id = match surface.capability_type_for(&req.effect) {
+        Some(t) => t,
+        None => {
+            return Ok(EffectOutcome::denied(
+                "preflight: effect not declared by contract",
+            ));
+        }
+    };
+
+    let effect_req = EffectRequest {
+        capability_id,
+        idempotency_key: req.idempotency_key.clone(),
+        authority_ref: req.authority_ref.clone(),
+        args: req.args.clone(),
+    };
+    run_effect_with_verified_passport(
+        registry,
+        &machine.storage,
+        clock,
+        verifier,
         passport,
         required_scope,
         &effect_req,

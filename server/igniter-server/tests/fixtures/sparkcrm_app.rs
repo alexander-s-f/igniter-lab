@@ -10,7 +10,7 @@
 use igniter_server::protocol::{
     AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -120,7 +120,7 @@ impl ServerApp for SparkCrmApp {
             None => {
                 return ServerDecision::Respond {
                     response: ServerResponse::json(404, json!({ "error": "no route" })),
-                }
+                };
             }
         };
         // Keyless webhook → 400, ZERO effects (never silently treated as fresh).
@@ -132,7 +132,7 @@ impl ServerApp for SparkCrmApp {
                         400,
                         json!({ "error": "missing duplicate key" }),
                     ),
-                }
+                };
             }
         };
         let input = Self::normalize_input(target, &req.body);
@@ -151,7 +151,7 @@ impl ServerApp for SparkCrmApp {
 
 /// Sanitized, in-memory webhook fixtures (fabricated — no real vendor data).
 pub mod payloads {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     pub fn lead_intake() -> Value {
         json!({

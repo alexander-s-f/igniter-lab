@@ -9,16 +9,110 @@
 //!
 //! Feature `machine` only.
 
-use crate::read_dispatch::StagedReadHost;
 use crate::IgWebLoadedApp;
+use crate::read_dispatch::StagedReadHost;
+use crate::runner::IgwebManifest;
 use igniter_server::effect_host::{
-    dispatch as effect_dispatch, read_server_request, MachineEffectHost,
+    MachineEffectHost, dispatch as effect_dispatch, read_server_request,
 };
 use igniter_server::host::encode_response;
+use igniter_server::protocol::{ServerDecision, ServerRequest, ServerResponse};
 use igniter_server::serving_loop::{ServingPolicy, ServingReport};
+use serde_json::json;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+
+/// Host middleware plan for the loaded async runner. Mirrors the sync runner's manifest policy while
+/// keeping this path off `ServerApp::call`.
+#[derive(Clone, Debug, Default)]
+pub struct LoadedMiddleware {
+    trace: bool,
+    body_limit_bytes: Option<usize>,
+    auth_token: Option<String>,
+}
+
+impl LoadedMiddleware {
+    pub fn from_manifest(manifest: &IgwebManifest) -> Self {
+        Self {
+            trace: manifest.trace,
+            body_limit_bytes: manifest.body_limit_bytes,
+            auth_token: manifest
+                .auth_token_env
+                .as_ref()
+                .map(|env_name| std::env::var(env_name).unwrap_or_default()),
+        }
+    }
+
+    fn prepare_request(&self, mut req: ServerRequest) -> Result<ServerRequest, ServerResponse> {
+        if let Some(max_bytes) = self.body_limit_bytes {
+            let body_len = serde_json::to_vec(&req.body).map(|v| v.len()).unwrap_or(0);
+            if body_len > max_bytes {
+                return Err(ServerResponse::json(
+                    413,
+                    json!({ "error": "payload too large" }),
+                ));
+            }
+        }
+
+        if let Some(token) = &self.auth_token {
+            req.headers.remove("x-auth-ok");
+            let expected = token.trim();
+            let ok = req
+                .headers
+                .get("authorization")
+                .map(|h| !expected.is_empty() && h.strip_prefix("Bearer ").unwrap_or(h) == expected)
+                .unwrap_or(false);
+            if !ok {
+                return Err(ServerResponse::json(
+                    401,
+                    json!({ "error": "unauthorized" }),
+                ));
+            }
+            req.headers
+                .insert("x-auth-ok".to_string(), "true".to_string());
+        }
+
+        if self.trace {
+            let correlation_id = req
+                .correlation_id
+                .clone()
+                .unwrap_or_else(|| deterministic_correlation(&req));
+            req.correlation_id = Some(correlation_id.clone());
+            req.headers
+                .insert("x-correlation-id".to_string(), correlation_id);
+        }
+
+        Ok(req)
+    }
+
+    fn decorate_response(
+        &self,
+        mut response: ServerResponse,
+        req: &ServerRequest,
+    ) -> ServerResponse {
+        if self.trace {
+            if let Some(correlation_id) = &req.correlation_id {
+                response
+                    .headers
+                    .insert("x-correlation-id".to_string(), correlation_id.clone());
+            }
+        }
+        response
+    }
+}
+
+fn deterministic_correlation(req: &ServerRequest) -> String {
+    let mut h = DefaultHasher::new();
+    req.method.hash(&mut h);
+    req.path.hash(&mut h);
+    serde_json::to_vec(&req.body)
+        .unwrap_or_default()
+        .hash(&mut h);
+    format!("corr-{:016x}", h.finish())
+}
 
 /// Serve exactly ONE inbound connection through the async loaded-app + machine-effect path.
 /// Awaits `IgWebLoadedApp::dispatch` — no nested `block_on`.
@@ -27,10 +121,28 @@ pub async fn serve_once_loaded(
     app: &IgWebLoadedApp,
     effect_host: &MachineEffectHost<'_>,
 ) -> std::io::Result<()> {
+    serve_once_loaded_with_middleware(listener, app, effect_host, &LoadedMiddleware::default())
+        .await
+}
+
+pub async fn serve_once_loaded_with_middleware(
+    listener: &TcpListener,
+    app: &IgWebLoadedApp,
+    effect_host: &MachineEffectHost<'_>,
+    middleware: &LoadedMiddleware,
+) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
     let req = read_server_request(&mut stream).await?;
+    let req = match middleware.prepare_request(req) {
+        Ok(req) => req,
+        Err(response) => {
+            stream.write_all(&encode_response(&response)).await?;
+            return stream.flush().await;
+        }
+    };
     let decision = app.dispatch(req.clone()).await;
     let resp = effect_dispatch(&req, decision, effect_host).await;
+    let resp = middleware.decorate_response(resp, &req);
     stream.write_all(&encode_response(&resp)).await?;
     stream.flush().await
 }
@@ -43,6 +155,23 @@ pub async fn serve_loop_loaded(
     effect_host: &MachineEffectHost<'_>,
     policy: &ServingPolicy,
 ) -> std::io::Result<ServingReport> {
+    serve_loop_loaded_with_middleware(
+        listener,
+        app,
+        effect_host,
+        policy,
+        &LoadedMiddleware::default(),
+    )
+    .await
+}
+
+pub async fn serve_loop_loaded_with_middleware(
+    listener: &TcpListener,
+    app: &Arc<IgWebLoadedApp>,
+    effect_host: &MachineEffectHost<'_>,
+    policy: &ServingPolicy,
+    middleware: &LoadedMiddleware,
+) -> std::io::Result<ServingReport> {
     let addr = listener.local_addr()?;
     if policy.loopback_only && !addr.ip().is_loopback() {
         return Err(std::io::Error::new(
@@ -53,7 +182,7 @@ pub async fn serve_loop_loaded(
     let mut requests_served = 0;
     let mut app_versions_seen = Vec::with_capacity(policy.max_requests);
     while requests_served < policy.max_requests {
-        serve_once_loaded(listener, app, effect_host).await?;
+        serve_once_loaded_with_middleware(listener, app, effect_host, middleware).await?;
         requests_served += 1;
         app_versions_seen.push(format!("loaded:{}", requests_served));
     }
@@ -76,10 +205,40 @@ pub async fn serve_once_loaded_with_read(
     effect_host: &MachineEffectHost<'_>,
     read_host: &StagedReadHost,
 ) -> std::io::Result<()> {
+    serve_once_loaded_with_read_and_middleware(
+        listener,
+        app,
+        effect_host,
+        read_host,
+        &LoadedMiddleware::default(),
+    )
+    .await
+}
+
+pub async fn serve_once_loaded_with_read_and_middleware(
+    listener: &TcpListener,
+    app: &IgWebLoadedApp,
+    effect_host: &MachineEffectHost<'_>,
+    read_host: &StagedReadHost,
+    middleware: &LoadedMiddleware,
+) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
     let req = read_server_request(&mut stream).await?;
+    let req = match middleware.prepare_request(req) {
+        Ok(req) => req,
+        Err(response) => {
+            stream.write_all(&encode_response(&response)).await?;
+            return stream.flush().await;
+        }
+    };
     let decision = app.dispatch_with_read(req.clone(), read_host).await;
-    let resp = effect_dispatch(&req, decision, effect_host).await;
+    let resp = match decision {
+        ServerDecision::Respond { response } => middleware.decorate_response(response, &req),
+        other => {
+            let resp = effect_dispatch(&req, other, effect_host).await;
+            middleware.decorate_response(resp, &req)
+        }
+    };
     stream.write_all(&encode_response(&resp)).await?;
     stream.flush().await
 }
@@ -93,6 +252,25 @@ pub async fn serve_loop_loaded_with_read(
     read_host: &StagedReadHost,
     policy: &ServingPolicy,
 ) -> std::io::Result<ServingReport> {
+    serve_loop_loaded_with_read_and_middleware(
+        listener,
+        app,
+        effect_host,
+        read_host,
+        policy,
+        &LoadedMiddleware::default(),
+    )
+    .await
+}
+
+pub async fn serve_loop_loaded_with_read_and_middleware(
+    listener: &TcpListener,
+    app: &Arc<IgWebLoadedApp>,
+    effect_host: &MachineEffectHost<'_>,
+    read_host: &StagedReadHost,
+    policy: &ServingPolicy,
+    middleware: &LoadedMiddleware,
+) -> std::io::Result<ServingReport> {
     let addr = listener.local_addr()?;
     if policy.loopback_only && !addr.ip().is_loopback() {
         return Err(std::io::Error::new(
@@ -103,7 +281,14 @@ pub async fn serve_loop_loaded_with_read(
     let mut requests_served = 0;
     let mut app_versions_seen = Vec::with_capacity(policy.max_requests);
     while requests_served < policy.max_requests {
-        serve_once_loaded_with_read(listener, app, effect_host, read_host).await?;
+        serve_once_loaded_with_read_and_middleware(
+            listener,
+            app,
+            effect_host,
+            read_host,
+            middleware,
+        )
+        .await?;
         requests_served += 1;
         app_versions_seen.push(format!("loaded:{}", requests_served));
     }

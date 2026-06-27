@@ -4,12 +4,13 @@
 //! raw HTTP/1.1 client over the socket. No public listener, no framework, no machine, no DB.
 
 use igniter_server::fixture::DemoApp;
-use igniter_server::host::serve_once;
+use igniter_server::host::{HardenedReadPolicy, read_request_with_policy, serve_once};
 use igniter_server::protocol::{ServerApp, ServerDecision, ServerRequest, ServerResponse};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use std::time::Duration;
 
 /// Send a raw HTTP/1.1 request to `addr`, return `(status_code, body_json)`.
 fn roundtrip(
@@ -54,6 +55,21 @@ fn serve_one_in_thread(app: impl ServerApp + Send + 'static) -> String {
         serve_once(&listener, &app).unwrap();
     });
     addr
+}
+
+struct PanicApp;
+impl ServerApp for PanicApp {
+    fn call(&self, _req: ServerRequest) -> ServerDecision {
+        panic!("app must not be called after transport read rejection");
+    }
+}
+
+fn raw_status(raw: &[u8]) -> u16 {
+    String::from_utf8_lossy(raw)
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 #[test]
@@ -101,6 +117,55 @@ fn invoke_route_is_observed_invoke_decision() {
     assert_eq!(status, 202);
     assert_eq!(body["decision"], json!("invoke"));
     assert_eq!(body["target"], json!("demo-invoke"));
+}
+
+#[test]
+fn oversized_content_length_rejected_before_app_dispatch() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let server = thread::spawn(move || {
+        serve_once(&listener, &PanicApp).unwrap();
+    });
+
+    let mut stream = TcpStream::connect(addr).unwrap();
+    let raw = "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 1048577\r\n\r\n";
+    stream.write_all(raw.as_bytes()).unwrap();
+    stream.flush().unwrap();
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).unwrap();
+
+    assert_eq!(raw_status(&response), 413);
+    server.join().unwrap();
+}
+
+#[test]
+fn incomplete_body_times_out_before_app_dispatch() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        read_request_with_policy(
+            &mut stream,
+            HardenedReadPolicy::new(1024, Duration::from_millis(50)),
+        )
+        .unwrap_err()
+    });
+
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream
+        .write_all(b"POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n")
+        .unwrap();
+    stream.flush().unwrap();
+    thread::sleep(Duration::from_millis(100));
+
+    let err = server.join().unwrap();
+    assert!(
+        matches!(
+            err.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ),
+        "expected timeout-ish error, got {err:?}"
+    );
 }
 
 /// The host owns NO route meaning: the same `serve_once` host, given a DIFFERENT app, routes

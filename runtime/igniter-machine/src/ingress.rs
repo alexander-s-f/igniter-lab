@@ -19,17 +19,21 @@
 //! `invoke` + `audit_ingress`).
 
 use crate::backend::TBackend;
-use crate::capability::{CapabilityExecutorRegistry, CapabilityPassport, RunMode};
+use crate::capability::{
+    CapabilityExecutorRegistry, CapabilityPassport, PassportVerifier, RunMode,
+};
 use crate::clock::ClockProvider;
-use crate::coordination::{select_replica, CoordinationHub, DuplicatePolicy, PoolRefusal};
-use crate::single_flight::{run_write_effect_atomic, SingleFlight};
+use crate::coordination::{CoordinationHub, DuplicatePolicy, PoolRefusal, select_replica};
+use crate::single_flight::{SingleFlight, run_write_effect_atomic, run_write_effect_atomic_signed};
 use crate::write::{WriteRequest, WriteState};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time;
 
 /// A parsed inbound webhook request.
 pub struct IngressRequest {
@@ -89,6 +93,10 @@ pub struct EffectBridgeConfig<'a> {
     pub receipts: &'a Arc<dyn TBackend>,
     pub effect_clock: &'a Arc<dyn ClockProvider>,
     pub effect_passport: &'a CapabilityPassport,
+    /// Optional signed-passport verifier for host data-plane paths. When present, the effect
+    /// passport must authenticate before the write gate; legacy/proof call-sites can leave this
+    /// unset until their host-config surfaces are migrated.
+    pub effect_passport_verifier: Option<&'a PassportVerifier>,
     /// Host-provided per-key atomic gate (P18) for the effect side (LAB-MACHINE-POSTGRES-WIRE-
     /// ATOMIC-P7). The host passes ONE `SingleFlight` explicitly (no implicit global), shared with
     /// any other effect path (e.g. `ServiceEffectBridge`) so the same effect idempotency key
@@ -646,18 +654,36 @@ impl IngressRouter {
                 // Atomic gate (P18) on the effect idempotency key — concurrent same-key wire
                 // requests serialize so the downstream effect runs exactly once even when a real
                 // backend yields mid-write. Host-provided per-key lock → distinct keys run parallel.
-                let (status, body, state_str) = match run_write_effect_atomic(
-                    cfg.single_flight,
-                    cfg.registry,
-                    cfg.receipts,
-                    cfg.effect_clock,
-                    cfg.effect_passport,
-                    &cfg.scope,
-                    &write_req,
-                    RunMode::Live,
-                )
-                .await
-                {
+                let write_out = match cfg.effect_passport_verifier {
+                    Some(verifier) => {
+                        run_write_effect_atomic_signed(
+                            cfg.single_flight,
+                            cfg.registry,
+                            cfg.receipts,
+                            cfg.effect_clock,
+                            verifier,
+                            cfg.effect_passport,
+                            &cfg.scope,
+                            &write_req,
+                            RunMode::Live,
+                        )
+                        .await
+                    }
+                    None => {
+                        run_write_effect_atomic(
+                            cfg.single_flight,
+                            cfg.registry,
+                            cfg.receipts,
+                            cfg.effect_clock,
+                            cfg.effect_passport,
+                            &cfg.scope,
+                            &write_req,
+                            RunMode::Live,
+                        )
+                        .await
+                    }
+                };
+                let (status, body, state_str) = match write_out {
                     Ok(o) => {
                         let (s, b) =
                             map_effect_outcome(o.state, &o.result, &o.detail, &correlation_id);
@@ -991,6 +1017,37 @@ pub fn map_refusal(e: &PoolRefusal) -> (u16, Value) {
 
 // ── real loopback HTTP/1.1 server (one connection) ─────────────────────────────
 
+const DEFAULT_MAX_HEADER_BYTES: usize = 16 * 1024;
+const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
+const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HardenedReadPolicy {
+    pub max_header_bytes: usize,
+    pub max_body_bytes: usize,
+    pub read_timeout: Duration,
+}
+
+impl Default for HardenedReadPolicy {
+    fn default() -> Self {
+        Self {
+            max_header_bytes: DEFAULT_MAX_HEADER_BYTES,
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            read_timeout: DEFAULT_READ_TIMEOUT,
+        }
+    }
+}
+
+impl HardenedReadPolicy {
+    pub fn new(max_body_bytes: usize, read_timeout: Duration) -> Self {
+        Self {
+            max_body_bytes,
+            read_timeout,
+            ..Self::default()
+        }
+    }
+}
+
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
@@ -1041,8 +1098,11 @@ fn status_text(status: u16) -> &'static str {
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        408 => "Request Timeout",
         409 => "Conflict",
+        413 => "Payload Too Large",
         429 => "Too Many Requests",
+        431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         502 => "Bad Gateway",
         503 => "Service Unavailable",
@@ -1051,27 +1111,84 @@ fn status_text(status: u16) -> &'static str {
 }
 
 async fn read_one_request(stream: &mut tokio::net::TcpStream) -> std::io::Result<IngressRequest> {
+    read_one_request_with_policy(stream, HardenedReadPolicy::default()).await
+}
+
+pub async fn read_one_request_with_policy(
+    stream: &mut tokio::net::TcpStream,
+    policy: HardenedReadPolicy,
+) -> std::io::Result<IngressRequest> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {
-        let n = stream.read(&mut tmp).await?;
+        let n = read_with_timeout(stream, &mut tmp, policy.read_timeout).await?;
         if n == 0 {
             break;
         }
         buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > policy.max_header_bytes && find_subslice(&buf, b"\r\n\r\n").is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "request headers too large",
+            ));
+        }
         if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            let need = pos + 4 + content_length(&buf[..pos]);
+            let body_len = content_length(&buf[..pos]);
+            if body_len > policy.max_body_bytes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "payload too large",
+                ));
+            }
+            let need = pos + 4 + body_len;
             while buf.len() < need {
-                let n = stream.read(&mut tmp).await?;
+                let n = read_with_timeout(stream, &mut tmp, policy.read_timeout).await?;
                 if n == 0 {
                     break;
                 }
                 buf.extend_from_slice(&tmp[..n]);
+                if buf.len() > need {
+                    buf.truncate(need);
+                }
             }
             break;
         }
     }
     Ok(parse_request(&buf))
+}
+
+async fn read_with_timeout(
+    stream: &mut tokio::net::TcpStream,
+    tmp: &mut [u8],
+    timeout: Duration,
+) -> std::io::Result<usize> {
+    match time::timeout(timeout, stream.read(tmp)).await {
+        Ok(result) => result,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "request read timeout",
+        )),
+    }
+}
+
+fn read_error_response(err: &std::io::Error) -> IngressResponse {
+    let status = match err.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => 408,
+        std::io::ErrorKind::InvalidData if err.to_string().contains("payload too large") => 413,
+        std::io::ErrorKind::InvalidData if err.to_string().contains("headers too large") => 431,
+        _ => 400,
+    };
+    let error = match status {
+        408 => "request timeout",
+        413 => "payload too large",
+        431 => "request headers too large",
+        _ => "bad request",
+    };
+    IngressResponse {
+        status,
+        body: json!({ "error": error }),
+        correlation_id: "read-error".to_string(),
+    }
 }
 
 async fn write_one_response(
@@ -1099,7 +1216,10 @@ pub async fn serve_once(
     hub: &CoordinationHub,
 ) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
-    let req = read_one_request(&mut stream).await?;
+    let req = match read_one_request(&mut stream).await {
+        Ok(req) => req,
+        Err(e) => return write_one_response(&mut stream, &read_error_response(&e)).await,
+    };
     let resp = router.handle(hub, &req).await;
     write_one_response(&mut stream, &resp).await
 }
@@ -1114,7 +1234,10 @@ pub async fn serve_once_effect(
     cfg: &EffectBridgeConfig<'_>,
 ) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
-    let req = read_one_request(&mut stream).await?;
+    let req = match read_one_request(&mut stream).await {
+        Ok(req) => req,
+        Err(e) => return write_one_response(&mut stream, &read_error_response(&e)).await,
+    };
     let resp = router.handle_effect(hub, &req, cfg).await;
     write_one_response(&mut stream, &resp).await
 }

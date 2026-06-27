@@ -18,7 +18,7 @@ use crate::clock::{ClockProvider, SystemClock};
 use crate::errors::EngineError;
 use crate::fact::Fact;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -251,7 +251,7 @@ pub fn sign_passport(issuer_key: &[u8; 32], passport: &CapabilityPassport) -> St
 /// A set of trusted issuer keys. A passport is authentic iff its `evidence_digest` is a valid
 /// keyed-hash signature over its material under SOME trusted key. The host can no longer simply
 /// fabricate a passport — it must be signed by a trusted issuer.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PassportVerifier {
     trusted_keys: Vec<[u8; 32]>,
 }
@@ -443,7 +443,7 @@ pub async fn run_effect_with_passport(
             return Ok(EffectOutcome::denied(&format!(
                 "preflight: authority refused ({:?})",
                 reason
-            )))
+            )));
         }
     };
     run_effect_core(registry, receipts, clock, req, &digest, mode).await
@@ -474,7 +474,7 @@ pub async fn run_effect_with_verified_passport(
             return Ok(EffectOutcome::denied(&format!(
                 "preflight: authority refused ({:?})",
                 reason
-            )))
+            )));
         }
     };
     run_effect_core(registry, receipts, clock, req, &digest, mode).await

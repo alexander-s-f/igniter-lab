@@ -29,8 +29,8 @@ use igniter_server::effect_host::MachineEffectHost;
 use igniter_server::serving_loop::ServingPolicy;
 use igniter_web::machine_runner;
 use igniter_web::read_dispatch::StagedReadHost;
-use igniter_web::{build_igweb_loaded_app, IgWebBuildInput};
-use serde_json::{json, Value};
+use igniter_web::{IgWebBuildInput, build_igweb_loaded_app};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -125,6 +125,7 @@ impl EffectHostGuard {
             receipts: &self.receipts,
             effect_clock: &self.clk,
             effect_passport: &self.ep,
+            effect_passport_verifier: None,
             single_flight: &self.sf,
             capability_id: READ_CAP.to_string(),
             operation: "read".to_string(),

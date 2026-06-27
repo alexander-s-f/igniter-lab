@@ -157,7 +157,10 @@ async fn http_post(addr: std::net::SocketAddr, key: String, corr: String) -> u16
     let body = json!({ "base": 1000 }).to_string();
     let req = format!(
         "POST /w HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer vtok\r\nX-Vendor-Event-Id: {}\r\nX-Correlation-Id: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        key, corr, body.len(), body
+        key,
+        corr,
+        body.len(),
+        body
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut resp = Vec::new();
@@ -181,6 +184,7 @@ fn cfg<'a>(
         receipts,
         effect_clock: eclock,
         effect_passport: ep,
+        effect_passport_verifier: None,
         single_flight: sf,
         capability_id: CAP.into(),
         operation: "create_lead".into(),

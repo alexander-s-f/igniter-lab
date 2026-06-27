@@ -5,14 +5,23 @@
 //   ~/Library/Application Support/Claude/claude_desktop_config.json
 //   { "mcpServers": { "igniter": { "command": "/path/to/igniter-mcp" } } }
 
+use igniter_machine::capability::RECEIPTS_STORE;
 use igniter_machine::capsule::CapsuleManager;
+use igniter_machine::coordination::{
+    COORD_AUDIT_STORE, INGRESS_DEDUP_STORE, MESSENGER_STORE, RECIPES_STORE, TRANSFERS_STORE,
+};
 use igniter_machine::fact::Fact;
 use igniter_machine::machine::IgniterMachine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+const MCP_AUTH_TOKEN_ENV: &str = "IGNITER_MCP_AUTH_TOKEN";
+const MCP_CHECKPOINT_ROOT_ENV: &str = "IGNITER_MCP_CHECKPOINT_ROOT";
+const MCP_AUTH_REFUSED: &str = "MCP authority refused: missing or invalid local authority";
 
 fn respond(out: &mut impl Write, id: Value, result: Value) {
     let msg = json!({ "jsonrpc": "2.0", "id": id, "result": result });
@@ -50,10 +59,161 @@ fn tool_err(out: &mut impl Write, id: Value, text: String) {
     );
 }
 
+fn token_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        let av = *a.get(i).unwrap_or(&0);
+        let bv = *b.get(i).unwrap_or(&0);
+        diff |= (av ^ bv) as usize;
+    }
+    diff == 0
+}
+
+fn authorize_tool_call(args: &Value) -> Result<(), String> {
+    let expected = std::env::var(MCP_AUTH_TOKEN_ENV)
+        .ok()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| MCP_AUTH_REFUSED.to_string())?;
+    let presented = args
+        .get("authority_token")
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| MCP_AUTH_REFUSED.to_string())?;
+
+    if token_eq(&expected, presented) {
+        Ok(())
+    } else {
+        Err(MCP_AUTH_REFUSED.to_string())
+    }
+}
+
+fn add_authority_token_schema(mut tools: Value) -> Value {
+    let Some(items) = tools.as_array_mut() else {
+        return tools;
+    };
+    for tool in items {
+        let Some(schema) = tool.get_mut("inputSchema") else {
+            continue;
+        };
+        if let Some(props) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+            props.insert(
+                "authority_token".to_string(),
+                json!({
+                    "type": "string",
+                    "description": "Process-local MCP authority token from IGNITER_MCP_AUTH_TOKEN"
+                }),
+            );
+        }
+        match schema.get_mut("required") {
+            Some(Value::Array(required)) => {
+                if !required
+                    .iter()
+                    .any(|item| item.as_str() == Some("authority_token"))
+                {
+                    required.push(json!("authority_token"));
+                }
+            }
+            _ => {
+                schema["required"] = json!(["authority_token"]);
+            }
+        }
+    }
+    tools
+}
+
+fn mcp_checkpoint_root() -> Result<PathBuf, String> {
+    let root = match std::env::var(MCP_CHECKPOINT_ROOT_ENV) {
+        Ok(raw) if !raw.trim().is_empty() => PathBuf::from(raw),
+        _ => PathBuf::from(".igniter-mcp").join("checkpoints"),
+    };
+
+    std::fs::create_dir_all(&root).map_err(|e| format!("Checkpoint root unavailable: {}", e))?;
+    root.canonicalize()
+        .map_err(|e| format!("Checkpoint root unavailable: {}", e))
+}
+
+fn normalize_lexical(path: &Path) -> Result<PathBuf, String> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) => {
+                return Err("Checkpoint path refused: unsupported path prefix".to_string());
+            }
+            Component::RootDir => normalized.push(Path::new("/")),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err("Checkpoint path refused: path escapes checkpoint root".to_string());
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    Ok(normalized)
+}
+
+fn resolve_checkpoint_path(raw: &str) -> Result<PathBuf, String> {
+    if raw.trim().is_empty() {
+        return Err("Checkpoint path refused: missing path".to_string());
+    }
+
+    let root = mcp_checkpoint_root()?;
+    let requested = Path::new(raw);
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    let resolved = normalize_lexical(&candidate)?;
+
+    if !resolved.starts_with(&root) || resolved == root {
+        return Err("Checkpoint path refused: outside MCP checkpoint root".to_string());
+    }
+    if resolved
+        .symlink_metadata()
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err("Checkpoint path refused: checkpoint target is a symlink".to_string());
+    }
+
+    let Some(parent) = resolved.parent() else {
+        return Err("Checkpoint path refused: missing parent directory".to_string());
+    };
+    if !parent.starts_with(&root) {
+        return Err("Checkpoint path refused: outside MCP checkpoint root".to_string());
+    }
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Checkpoint path refused: cannot create parent: {}", e))?;
+    let parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Checkpoint path refused: cannot verify parent: {}", e))?;
+    if !parent.starts_with(&root) {
+        return Err("Checkpoint path refused: outside MCP checkpoint root".to_string());
+    }
+
+    Ok(resolved)
+}
+
+fn is_reserved_store(store: &str) -> bool {
+    const RESERVED_STORES: &[&str] = &[
+        RECEIPTS_STORE,
+        COORD_AUDIT_STORE,
+        MESSENGER_STORE,
+        TRANSFERS_STORE,
+        RECIPES_STORE,
+        INGRESS_DEDUP_STORE,
+    ];
+
+    store.starts_with("__") || RESERVED_STORES.contains(&store)
+}
+
 // ── Tool schemas ─────────────────────────────────────────────────────────────
 
 fn tools_list() -> Value {
-    json!([
+    add_authority_token_schema(json!([
         {
             "name": "igniter_compile",
             "description": "Compile Igniter (.ig) source code and return OOF diagnostics. Does NOT load into the machine. Use this to check a contract for errors before loading.",
@@ -236,7 +396,7 @@ fn tools_list() -> Value {
                 "required": ["contract_name"]
             }
         }
-    ])
+    ]))
 }
 
 // ── Tool handlers ─────────────────────────────────────────────────────────────
@@ -312,18 +472,22 @@ fn handle_load_contract(
                 _ => "⚪",
             };
 
-            tool_ok(out, id, format!(
-                "## Contract Loaded: `{}`\n\n{} Fragment class: **{}**\n\n✅ Contract is ready. Use `igniter_dispatch` to execute it.",
-                name, icon, frag
-            ));
+            tool_ok(
+                out,
+                id,
+                format!(
+                    "## Contract Loaded: `{}`\n\n{} Fragment class: **{}**\n\n✅ Contract is ready. Use `igniter_dispatch` to execute it.",
+                    name, icon, frag
+                ),
+            );
         }
         Err(e) => tool_err(
             out,
             id,
             format!(
-            "## Compilation Failed: `{}`\n\n```\n{}\n```\n\nFix the errors above and try again.",
-            name, e
-        ),
+                "## Compilation Failed: `{}`\n\n```\n{}\n```\n\nFix the errors above and try again.",
+                name, e
+            ),
         ),
     }
 }
@@ -447,6 +611,16 @@ fn handle_write_fact(
         Some(s) => s,
         None => return tool_err(out, id, "Missing store".into()),
     };
+    if is_reserved_store(store) {
+        return tool_err(
+            out,
+            id,
+            format!(
+                "Reserved store writes are refused through igniter_write_fact: `{}`",
+                store
+            ),
+        );
+    }
     let key = match args["key"].as_str() {
         Some(k) => k,
         None => return tool_err(out, id, "Missing key".into()),
@@ -486,10 +660,18 @@ fn handle_write_fact(
             } else {
                 String::new()
             };
-            tool_ok(out, id, format!(
-                "## Fact Written ✅\n\n- **Store:** `{}`\n- **Key:** `{}`\n- **ID:** `{}`\n- **tx_time:** `{:.0}`{}\n\nUse `igniter_query_facts` to retrieve it.",
-                store, key, &fact_id[..8], now, vt_note
-            ));
+            tool_ok(
+                out,
+                id,
+                format!(
+                    "## Fact Written ✅\n\n- **Store:** `{}`\n- **Key:** `{}`\n- **ID:** `{}`\n- **tx_time:** `{:.0}`{}\n\nUse `igniter_query_facts` to retrieve it.",
+                    store,
+                    key,
+                    &fact_id[..8],
+                    now,
+                    vt_note
+                ),
+            );
         }
         Err(e) => tool_err(out, id, format!("Failed to write fact: {}", e)),
     }
@@ -517,8 +699,14 @@ fn handle_query_facts(
     match futures::executor::block_on(m.storage.facts_for(store, key, None, Some(as_of))) {
         Ok(facts) => {
             if facts.is_empty() {
-                return tool_ok(out, id, format!(
-                    "## Facts: `{}/{}`\n\nNo facts found. Use `igniter_write_fact` to add data.", store, key));
+                return tool_ok(
+                    out,
+                    id,
+                    format!(
+                        "## Facts: `{}/{}`\n\nNo facts found. Use `igniter_write_fact` to add data.",
+                        store, key
+                    ),
+                );
             }
             let mut lines = vec![format!(
                 "## Facts: `{}/{}` ({} total)\n",
@@ -582,18 +770,33 @@ fn handle_time_travel(
     };
     match result {
         Ok(Some(fact)) => {
-            let vt = fact.valid_time.map(|v| format!("\n- **Valid time:** `{:.0}`", v)).unwrap_or_default();
-            tool_ok(out, id, format!(
-                "## Time Travel: `{}/{}` @ `{}`\n\n- **Fact ID:** `{}`\n- **tx_time:** `{:.0}`{}\n\n### Value\n```json\n{}\n```",
-                store, key, dt,
-                &fact.id[..8], fact.transaction_time, vt,
-                serde_json::to_string_pretty(&fact.value).unwrap_or_default()
-            ));
+            let vt = fact
+                .valid_time
+                .map(|v| format!("\n- **Valid time:** `{:.0}`", v))
+                .unwrap_or_default();
+            tool_ok(
+                out,
+                id,
+                format!(
+                    "## Time Travel: `{}/{}` @ `{}`\n\n- **Fact ID:** `{}`\n- **tx_time:** `{:.0}`{}\n\n### Value\n```json\n{}\n```",
+                    store,
+                    key,
+                    dt,
+                    &fact.id[..8],
+                    fact.transaction_time,
+                    vt,
+                    serde_json::to_string_pretty(&fact.value).unwrap_or_default()
+                ),
+            );
         }
-        Ok(None) => tool_ok(out, id, format!(
-            "## Time Travel: `{}/{}` @ `{}`\n\nNo fact found at this timestamp. The entity either didn't exist yet or has no record before this point.",
-            store, key, dt
-        )),
+        Ok(None) => tool_ok(
+            out,
+            id,
+            format!(
+                "## Time Travel: `{}/{}` @ `{}`\n\nNo fact found at this timestamp. The entity either didn't exist yet or has no record before this point.",
+                store, key, dt
+            ),
+        ),
         Err(e) => tool_err(out, id, format!("Time travel query failed: {}", e)),
     }
 }
@@ -605,15 +808,23 @@ fn handle_checkpoint(
     machine: &Mutex<IgniterMachine>,
 ) {
     let path = match args["path"].as_str() {
-        Some(p) => std::path::Path::new(p),
+        Some(p) => match resolve_checkpoint_path(p) {
+            Ok(path) => path,
+            Err(e) => return tool_err(out, id, e),
+        },
         None => return tool_err(out, id, "Missing path".into()),
     };
     let m = machine.lock().unwrap();
-    match futures::executor::block_on(m.checkpoint(path)) {
-        Ok(()) => tool_ok(out, id, format!(
-            "## Checkpoint Saved ✅\n\n**Path:** `{}`\n\nMachine state (contracts + facts + observations) has been saved. Use `igniter-mcp --resume {}` to restore.",
-            path.display(), path.display()
-        )),
+    match futures::executor::block_on(m.checkpoint(&path)) {
+        Ok(()) => tool_ok(
+            out,
+            id,
+            format!(
+                "## Checkpoint Saved ✅\n\n**Path:** `{}`\n\nMachine state (contracts + facts + observations) has been saved. Use `igniter-mcp --resume {}` to restore.",
+                path.display(),
+                path.display()
+            ),
+        ),
         Err(e) => tool_err(out, id, format!("Checkpoint failed: {}", e)),
     }
 }
@@ -624,10 +835,14 @@ fn handle_status(out: &mut impl Write, id: Value, machine: &Mutex<IgniterMachine
     let obs_count = m.observations.read().len();
     let backend_type = m.backend_type();
 
-    tool_ok(out, id, format!(
-        "## Igniter Machine Status\n\n- **Backend:** `{}`\n- **Contracts loaded:** {}\n- **Observations:** {}\n\n### Available Tools\nUse `igniter_load_contract` to load a contract, `igniter_dispatch` to run it, `igniter_write_fact` / `igniter_query_facts` for bitemporal data.",
-        backend_type, contract_count, obs_count
-    ));
+    tool_ok(
+        out,
+        id,
+        format!(
+            "## Igniter Machine Status\n\n- **Backend:** `{}`\n- **Contracts loaded:** {}\n- **Observations:** {}\n\n### Available Tools\nUse `igniter_load_contract` to load a contract, `igniter_dispatch` to run it, `igniter_write_fact` / `igniter_query_facts` for bitemporal data.",
+            backend_type, contract_count, obs_count
+        ),
+    );
 }
 
 // ── Capsule tools (LAB-MACHINE-CAPSULE-MANAGER-P1) ────────────────────────────
@@ -646,8 +861,14 @@ fn handle_capsule_snapshot(
     let m = machine.lock().unwrap();
     let mut caps = capsules.lock().unwrap();
     match futures::executor::block_on(caps.snapshot(name, &m)) {
-        Ok(()) => tool_ok(out, id, format!(
-            "## Capsule snapshot ✅\n\n- **Name:** `{}`\n\nFrame frozen (immutable). Use `capsule_fork` for what-ifs, `capsule_activate` to run it, `capsule_diff` to compare.", name)),
+        Ok(()) => tool_ok(
+            out,
+            id,
+            format!(
+                "## Capsule snapshot ✅\n\n- **Name:** `{}`\n\nFrame frozen (immutable). Use `capsule_fork` for what-ifs, `capsule_activate` to run it, `capsule_diff` to compare.",
+                name
+            ),
+        ),
         Err(e) => tool_err(out, id, format!("Snapshot failed: {}", e)),
     }
 }
@@ -695,8 +916,12 @@ fn handle_capsule_activate(
             out,
             id,
             format!(
-            "## Activate: `{}` @ capsule `{}`\n\n**Inputs:** `{}`\n\n### Result\n```json\n{}\n```",
-            contract, name, inputs, serde_json::to_string_pretty(&result).unwrap_or_default()),
+                "## Activate: `{}` @ capsule `{}`\n\n**Inputs:** `{}`\n\n### Result\n```json\n{}\n```",
+                contract,
+                name,
+                inputs,
+                serde_json::to_string_pretty(&result).unwrap_or_default()
+            ),
         ),
         Err(e) => tool_err(out, id, format!("Activation failed: {}", e)),
     }
@@ -745,8 +970,16 @@ fn handle_capsule_fork(
     }
     let mut caps = capsules.lock().unwrap();
     match futures::executor::block_on(caps.fork(from, new_name, &facts)) {
-        Ok(()) => tool_ok(out, id, format!(
-            "## Capsule fork ✅\n\n- **From:** `{}` (untouched)\n- **New:** `{}`\n- **Patched facts:** {}\n\nA new immutable frame.", from, new_name, facts.len())),
+        Ok(()) => tool_ok(
+            out,
+            id,
+            format!(
+                "## Capsule fork ✅\n\n- **From:** `{}` (untouched)\n- **New:** `{}`\n- **Patched facts:** {}\n\nA new immutable frame.",
+                from,
+                new_name,
+                facts.len()
+            ),
+        ),
         Err(e) => tool_err(out, id, format!("Fork failed: {}", e)),
     }
 }
@@ -825,9 +1058,51 @@ fn handle_capsule_activate_many(
             }
         })
         .collect();
-    tool_ok(out, id, format!(
-        "## Filmstrip: `{}` over {} capsule(s){}\n\n**Inputs:** `{}`\n\n| capsule | output / error |\n|---|---|\n{}",
-        contract, names.len(), if parallel { " (parallel)" } else { "" }, inputs, rows.join("\n")));
+    tool_ok(
+        out,
+        id,
+        format!(
+            "## Filmstrip: `{}` over {} capsule(s){}\n\n**Inputs:** `{}`\n\n| capsule | output / error |\n|---|---|\n{}",
+            contract,
+            names.len(),
+            if parallel { " (parallel)" } else { "" },
+            inputs,
+            rows.join("\n")
+        ),
+    );
+}
+
+fn dispatch_tool_call(
+    out: &mut impl Write,
+    id: Value,
+    tool: &str,
+    args: &Value,
+    machine: &Mutex<IgniterMachine>,
+    capsules: &Mutex<CapsuleManager>,
+) {
+    if let Err(message) = authorize_tool_call(args) {
+        return tool_err(out, id, message);
+    }
+
+    match tool {
+        "igniter_compile" => handle_compile(out, id, args),
+        "igniter_load_contract" => handle_load_contract(out, id, args, machine),
+        "igniter_dispatch" => handle_dispatch(out, id, args, machine),
+        "igniter_list_contracts" => handle_list_contracts(out, id, machine),
+        "igniter_get_contract_ir" => handle_get_contract_ir(out, id, args, machine),
+        "igniter_write_fact" => handle_write_fact(out, id, args, machine),
+        "igniter_query_facts" => handle_query_facts(out, id, args, machine),
+        "igniter_time_travel" => handle_time_travel(out, id, args, machine),
+        "igniter_checkpoint" => handle_checkpoint(out, id, args, machine),
+        "igniter_status" => handle_status(out, id, machine),
+        "capsule_snapshot" => handle_capsule_snapshot(out, id, args, machine, capsules),
+        "capsule_list" => handle_capsule_list(out, id, capsules),
+        "capsule_activate" => handle_capsule_activate(out, id, args, capsules),
+        "capsule_fork" => handle_capsule_fork(out, id, args, capsules),
+        "capsule_diff" => handle_capsule_diff(out, id, args, capsules),
+        "capsule_activate_many" => handle_capsule_activate_many(out, id, args, capsules),
+        _ => tool_err(out, id, format!("Unknown tool: `{}`", tool)),
+    }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -921,33 +1196,7 @@ fn main() {
 
             "tools/call" => {
                 let tool = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                match tool {
-                    "igniter_compile" => handle_compile(&mut stdout, id, args),
-                    "igniter_load_contract" => {
-                        handle_load_contract(&mut stdout, id, args, &machine)
-                    }
-                    "igniter_dispatch" => handle_dispatch(&mut stdout, id, args, &machine),
-                    "igniter_list_contracts" => handle_list_contracts(&mut stdout, id, &machine),
-                    "igniter_get_contract_ir" => {
-                        handle_get_contract_ir(&mut stdout, id, args, &machine)
-                    }
-                    "igniter_write_fact" => handle_write_fact(&mut stdout, id, args, &machine),
-                    "igniter_query_facts" => handle_query_facts(&mut stdout, id, args, &machine),
-                    "igniter_time_travel" => handle_time_travel(&mut stdout, id, args, &machine),
-                    "igniter_checkpoint" => handle_checkpoint(&mut stdout, id, args, &machine),
-                    "igniter_status" => handle_status(&mut stdout, id, &machine),
-                    "capsule_snapshot" => {
-                        handle_capsule_snapshot(&mut stdout, id, args, &machine, &capsules)
-                    }
-                    "capsule_list" => handle_capsule_list(&mut stdout, id, &capsules),
-                    "capsule_activate" => handle_capsule_activate(&mut stdout, id, args, &capsules),
-                    "capsule_fork" => handle_capsule_fork(&mut stdout, id, args, &capsules),
-                    "capsule_diff" => handle_capsule_diff(&mut stdout, id, args, &capsules),
-                    "capsule_activate_many" => {
-                        handle_capsule_activate_many(&mut stdout, id, args, &capsules)
-                    }
-                    _ => tool_err(&mut stdout, id, format!("Unknown tool: `{}`", tool)),
-                }
+                dispatch_tool_call(&mut stdout, id, tool, args, &machine, &capsules);
             }
 
             _ => respond_err(
@@ -960,4 +1209,128 @@ fn main() {
     }
 
     eprintln!("[igniter-mcp] EOF. Shutting down.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn temp_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("igniter_mcp_p30_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn parse_response(bytes: &[u8]) -> Value {
+        serde_json::from_slice(bytes).expect("valid json-rpc response")
+    }
+
+    #[test]
+    fn tools_call_requires_local_authority_and_allows_valid_token() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var(MCP_AUTH_TOKEN_ENV);
+
+        let machine = Mutex::new(IgniterMachine::new(None, "in_memory").unwrap());
+        let capsules = Mutex::new(CapsuleManager::new("in_memory"));
+
+        let mut unauthorized = Vec::new();
+        dispatch_tool_call(
+            &mut unauthorized,
+            json!(1),
+            "igniter_status",
+            &json!({}),
+            &machine,
+            &capsules,
+        );
+        let response = parse_response(&unauthorized);
+        assert_eq!(response["result"]["isError"].as_bool(), Some(true));
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("authority refused")
+        );
+
+        std::env::set_var(MCP_AUTH_TOKEN_ENV, "p30-local-token");
+        let mut authorized = Vec::new();
+        dispatch_tool_call(
+            &mut authorized,
+            json!(2),
+            "igniter_status",
+            &json!({ "authority_token": "p30-local-token" }),
+            &machine,
+            &capsules,
+        );
+        let response = parse_response(&authorized);
+        assert!(response["result"]["isError"].is_null());
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Igniter Machine Status")
+        );
+
+        std::env::remove_var(MCP_AUTH_TOKEN_ENV);
+    }
+
+    #[test]
+    fn checkpoint_paths_are_confined_to_mcp_root() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = temp_path("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::env::set_var(MCP_CHECKPOINT_ROOT_ENV, &root);
+
+        let safe = resolve_checkpoint_path("nested/state.igm").unwrap();
+        assert!(safe.starts_with(root.canonicalize().unwrap()));
+        assert!(safe.parent().unwrap().exists());
+
+        assert!(resolve_checkpoint_path("../escape.igm").is_err());
+        let outside = temp_path("outside").join("state.igm");
+        assert!(resolve_checkpoint_path(outside.to_str().unwrap()).is_err());
+
+        std::env::remove_var(MCP_CHECKPOINT_ROOT_ENV);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn public_write_edge_refuses_reserved_stores() {
+        let machine = Mutex::new(IgniterMachine::new(None, "in_memory").unwrap());
+        let mut out = Vec::new();
+        handle_write_fact(
+            &mut out,
+            json!(1),
+            &json!({
+                "store": RECEIPTS_STORE,
+                "key": "receipt-1",
+                "value": { "status": "internal" }
+            }),
+            &machine,
+        );
+
+        let response = parse_response(&out);
+        assert_eq!(response["result"]["isError"].as_bool(), Some(true));
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Reserved store writes are refused")
+        );
+        assert!(is_reserved_store("__messenger__"));
+        assert!(!is_reserved_store("leads"));
+    }
+
+    #[test]
+    fn tool_schemas_require_authority_token() {
+        let tools = tools_list();
+        for tool in tools.as_array().unwrap() {
+            let required = tool["inputSchema"]["required"].as_array().unwrap();
+            assert!(
+                required
+                    .iter()
+                    .any(|item| item.as_str() == Some("authority_token"))
+            );
+            assert!(tool["inputSchema"]["properties"]["authority_token"].is_object());
+        }
+    }
 }

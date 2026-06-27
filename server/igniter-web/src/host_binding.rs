@@ -198,9 +198,43 @@ pub struct WriteHostComponents {
     pub receipts: std::sync::Arc<dyn igniter_machine::backend::TBackend>,
     pub clk: std::sync::Arc<dyn igniter_machine::clock::ClockProvider>,
     pub ep: igniter_machine::capability::CapabilityPassport,
+    pub effect_verifier: igniter_machine::capability::PassportVerifier,
     pub sf: igniter_machine::single_flight::SingleFlight,
     pub capability_id: String,
     pub bind_targets: Vec<(String, String)>,
+}
+
+#[cfg(feature = "postgres")]
+fn host_process_effect_signing_key() -> [u8; 32] {
+    let material = format!(
+        "igweb-effect-host|pid:{}|nanos:{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    *blake3::hash(material.as_bytes()).as_bytes()
+}
+
+#[cfg(feature = "postgres")]
+fn signed_passport(
+    key: &[u8; 32],
+    subject: &str,
+    capability_id: &str,
+    scopes: Vec<String>,
+) -> igniter_machine::capability::CapabilityPassport {
+    let mut passport = igniter_machine::capability::CapabilityPassport {
+        subject: subject.to_string(),
+        capability_id: capability_id.to_string(),
+        scopes,
+        issued_at: 0.0,
+        expires_at: Some(f64::MAX),
+        revoked: false,
+        evidence_digest: String::new(),
+    };
+    passport.evidence_digest = igniter_machine::capability::sign_passport(key, &passport);
+    passport
 }
 
 /// Build all host-owned write infrastructure from the resolved host config.
@@ -221,11 +255,11 @@ pub async fn build_write_host_from_resolved(
 ) -> Result<Option<WriteHostComponents>, Box<dyn std::error::Error + Send + Sync>> {
     use igniter_machine::{
         backend::{InMemoryBackend, TBackend},
-        capability::{CapabilityExecutorRegistry, CapabilityPassport},
+        capability::{CapabilityExecutorRegistry, PassportVerifier},
         clock::{ClockProvider, SystemClock},
         coordination::{
-            AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
-            PoolVisibility, ServiceRecipe, COORDINATION_CAPABILITY,
+            AgentIdentity, AgentKind, AgentStatus, COORDINATION_CAPABILITY, CoordinationHub,
+            DuplicatePolicy, PoolRight, PoolVisibility, ServiceRecipe,
         },
         ingress::IngressRouter,
         machine::IgniterMachine,
@@ -284,17 +318,21 @@ pub async fn build_write_host_from_resolved(
 
     let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);
     let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-    let mut hub = CoordinationHub::new(Arc::clone(&audit), Arc::clone(&clk));
+    let signing_key = host_process_effect_signing_key();
+    let verifier = PassportVerifier::new().trust(signing_key);
+    let mut hub =
+        CoordinationHub::new_signed(Arc::clone(&audit), Arc::clone(&clk), verifier.clone());
 
     // Host-internal coordination subjects (never product-named; purely infra).
     let actor_id = "host:write-actor";
     let dev_id = "host:dev";
     let svc_id = "host:svc";
 
-    let coord_passport = CapabilityPassport {
-        subject: svc_id.to_string(),
-        capability_id: COORDINATION_CAPABILITY.to_string(),
-        scopes: vec![
+    let coord_passport = signed_passport(
+        &signing_key,
+        svc_id,
+        COORDINATION_CAPABILITY,
+        vec![
             "create_pool".into(),
             "import_capsule".into(),
             "activate_capsule".into(),
@@ -302,20 +340,13 @@ pub async fn build_write_host_from_resolved(
             "accept_recipe".into(),
             "invoke".into(),
         ],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
-    let dev_passport = CapabilityPassport {
-        subject: dev_id.to_string(),
-        capability_id: COORDINATION_CAPABILITY.to_string(),
-        scopes: vec!["accept_recipe".into(), "grant_access".into()],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
+    );
+    let dev_passport = signed_passport(
+        &signing_key,
+        dev_id,
+        COORDINATION_CAPABILITY,
+        vec!["accept_recipe".into(), "grant_access".into()],
+    );
 
     hub.register_agent(AgentIdentity {
         agent_id: actor_id.into(),
@@ -411,15 +442,7 @@ pub async fn build_write_host_from_resolved(
         router.token(token, coord_passport.clone());
     }
 
-    let ep = CapabilityPassport {
-        subject: "host".into(),
-        capability_id: capability_id.clone(),
-        scopes: vec!["write".into()],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
+    let ep = signed_passport(&signing_key, "host", &capability_id, vec!["write".into()]);
 
     Ok(Some(WriteHostComponents {
         hub,
@@ -428,6 +451,7 @@ pub async fn build_write_host_from_resolved(
         receipts: Arc::new(InMemoryBackend::new()),
         clk,
         ep,
+        effect_verifier: verifier,
         sf: SingleFlight::new(),
         capability_id,
         bind_targets: plan.bind_targets,
