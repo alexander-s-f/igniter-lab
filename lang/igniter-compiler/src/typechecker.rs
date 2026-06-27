@@ -3789,6 +3789,40 @@ impl TypeChecker {
                         .map(|b| rewrite_block(self, b, symbol_types)),
                 }
             }
+            Expr::Lambda { params, body } => {
+                use crate::parser::{BlockBody, ExprOrBlock, Stmt};
+
+                let body = match body.as_ref() {
+                    ExprOrBlock::Expr(e) => {
+                        ExprOrBlock::Expr(self.rewrite_concat_calls(e, symbol_types))
+                    }
+                    ExprOrBlock::Block(block) => {
+                        let stmts = block
+                            .stmts
+                            .iter()
+                            .map(|s| match s {
+                                Stmt::Let { name, expr } => Stmt::Let {
+                                    name: name.clone(),
+                                    expr: self.rewrite_concat_calls(expr, symbol_types),
+                                },
+                                Stmt::ExprStmt { expr } => Stmt::ExprStmt {
+                                    expr: self.rewrite_concat_calls(expr, symbol_types),
+                                },
+                            })
+                            .collect();
+                        let return_expr = block
+                            .return_expr
+                            .as_ref()
+                            .map(|e| Box::new(self.rewrite_concat_calls(e, symbol_types)));
+                        ExprOrBlock::Block(BlockBody { stmts, return_expr })
+                    }
+                };
+
+                Expr::Lambda {
+                    params: params.clone(),
+                    body: Box::new(body),
+                }
+            }
             Expr::ArrayLiteral { items } => Expr::ArrayLiteral {
                 items: items
                     .iter()
