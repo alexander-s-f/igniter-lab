@@ -6,6 +6,12 @@ Type: audit / fresh verify-first
 Date: 2026-06-26
 Skill: idd-agent-protocol
 
+> Refresh note 2026-06-27: this remains a 2026-06-26 audit snapshot. Some
+> findings below have since closed; route current work through
+> `lab-docs/igniter-foundation-hardening-roadmap-p1.md` and
+> `lab-docs/lang/lab-audit-foundation-status-refresh-p2-v0.md`, not the
+> `Status: OPEN` line alone.
+
 ## Onboarding
 
 This is **lab/frontier evidence, not authority**: a code-first audit of the live
@@ -151,6 +157,15 @@ never reads `igniter.lock`; sha256 verification is a separate, opt-in `igc verif
 (`main.rs:234`). A tampered/drifted dependency compiles and runs cleanly. The
 "tamper-evident reproducible build" property does not hold by default (TOCTOU by
 design). `project.rs:302-360`.
+
+Update 2026-06-27 (`LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`): project compile
+now has explicit build-path enforcement:
+`igc compile --project-root ROOT --entry MODULE --out OUT --locked` (alias
+`--frozen`) reads `igniter.lock`, runs the same `verify_lock`
+digest/toolchain-drift check, then runs `check_workspace_integrity` before
+project resolve or emit. Default project compile and single-file compile remain
+unchanged, so tamper-evident builds are still CI/operator opt-in rather than
+default-on.
 
 **B-I2. Symlink escape + no path containment in the dep resolver.** Dependency
 paths are normalized *lexically* (`normalize_abs`, `project.rs:1635`, "does NOT

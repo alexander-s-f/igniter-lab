@@ -19,6 +19,37 @@ Skill: idd-agent-protocol
 | 7 | igniter-server | `lab-docs/igniter-server-core-foundation-audit-p1.md` |
 | 8 | frame-ui (frame/3d/gui/ui-kit/console) | `lab-docs/igniter-frame-ui-foundation-audit-p1.md` |
 
+## Status refresh - 2026-06-27
+
+This roadmap remains the 2026-06-26 prioritization artifact. The tiers below are
+kept for historical sequencing, but current routing should start from this
+refresh table, the package-local `IMPLEMENTED_SURFACE.md` files, and
+`lab-docs/lang/lab-audit-foundation-status-refresh-p2-v0.md`.
+
+| Finding family | Current status | Route now |
+|---|---|---|
+| Compiler parser depth + float literal crash-safety | CLOSED by `LAB-IGNITER-COMPILER-INPUT-ROBUSTNESS-P1`: parser depth is budgeted and non-finite/overflowing float literals return diagnostics. | Do not route new work to parser-depth/float-panic blockers. Remaining compiler foundation gaps are type-IR soundness, interprocedural effects, resolver containment/default policy, and deeper emitter/assembler hardening. |
+| Compiler lock-on-build | PARTLY CLOSED by `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`: `compile --project-root ... --locked` / `--frozen` fails missing, stale, or integrity-bad locks before emit. | Remaining supply-chain work is policy/default-on choice and dependency-path canonicalize/containment, not "lock is computed but never build-enforced." |
+| VM checked arithmetic, eval depth, collection budget, and step budget | CLOSED by `LAB-IGNITER-VM-EVAL-DEPTH-AND-COLLECTION-BUDGET-P2` plus the checked arithmetic sweep. | Do not cite old VM overflow, `eval_ast` native-stack, huge-range allocation, or non-progress bytecode-loop blockers as open. |
+| Decimal money arithmetic + comparison | CLOSED by `LAB-STDLIB-DECIMAL-MONEY-CONTRACT-READINESS-P1` and `LAB-STDLIB-DECIMAL-MONEY-SAFE-P2`: checked i128 arithmetic, exact-only division, bounded scale, and scale-normalized comparison are implemented. | Remaining Decimal adoption blocker is host-config typed field-kind syntax for product routes, not arithmetic safety. |
+| stdlib IO sandbox, render-html `safe_url`, frame-ui empty leads | CLOSED locally by `lab-stdlib-io-sandbox-hardening-p1`, `lab-igniter-web-render-html-output-safety-p1`, and `LAB-FRAME-UI-EMPTY-LEADS-PANIC-P1`. | Later IO work can focus on host-routed capability readiness. Do not re-open symlink escape, C0-control URL bypass, or empty-leads panic from the audit snapshot alone. |
+| Machine signed passport data-plane | CLOSED for signed data-plane entrypoints by `LAB-MACHINE-SIGNED-PASSPORT-DATAPLANE-P26`: signed service/write paths and negative forged-passport tests exist. | Legacy unsigned entrypoints remain compatibility surfaces. New production wiring should choose signed entrypoints explicitly rather than assuming every old caller is signed. |
+| IgWeb signed effect passport | CLOSED by `LAB-IGNITER-WEB-SIGNED-EFFECT-PASSPORT-P27`: IgWeb effect host signs effect passports and verifies them on the write bridge. | v0 uses a process-local signing key. Durable/operator-provided signing key configuration remains future work. |
+| Inbound read hardening + loopback/live bind gate | CLOSED for body cap/read-timeout/auth composition by `lab-igniter-server-inbound-hardened-read-p28`; CLOSED for server gate API by `LAB-IGNITER-SERVER-LIVE-BIND-GATE-P31`; IgWeb pre-bind wiring is live in source and indexed by `server/igniter-web/IMPLEMENTED_SURFACE.md` (`P32`). | Public bind remains closed. Remaining live-gate work is TLS/checklist/operator config, not unbounded reads or missing pre-bind refusal. |
+| MCP local auth/checkpoint sandbox | CLOSED by `lab-machine-mcp-auth-checkpoint-sandbox-p30`: `tools/call` requires local authority token, checkpoint paths are root-confined, and reserved stores are refused. | This is a local stdio/env-token gate, not a signed-passport or network-auth story. |
+| VM map-lambda `call_contract`, `variant_construct`, and machine fleet | CLOSED for covered parity: `lab-vm-map-lambda-callcontract-parity-p1-v0.md` and `LAB-VM-EVALAST-VARIANT-CONSTRUCT-IMPL-P5`; live recheck `cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture` is 13/13 OK on 2026-06-27. | `rule_engine` dynamic dispatch remains governance-gated; recursive self-call/TCO and source-to-run/REPL remain separate missing surfaces. |
+
+### Current verified next cards
+
+- `LAB-IGNITER-WEB-HOST-CONFIG-TYPED-FIELD-KINDS` — shared operator-config blocker for typed `Bool` Todo `done` and Decimal money routes.
+- `LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P*` — replace stringly/type-name IR surfaces with an enum type model.
+- `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-P*` — interprocedural purity/effect summary over the existing call graph.
+- `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P*` and/or compile-lock default policy — canonicalize/contain dependency paths and decide default-on build locking.
+- `LAB-IGNITER-SERVER-LIVE-BIND-TLS-CHECKLIST-P*` — TLS/checklist/operator config before any public bind.
+- `LAB-MACHINE-DURABLE-CAS-SEQID-FSYNC-P*` — multi-process/durable exactly-once and replay ordering foundation.
+- `LAB-IGNITER-VM-SOURCE-RUN-REPL-P*` — DX surface for direct source execution; distinct from current `.igapp` VM runtime.
+- `LAB-FRAME-UI-IDE-PREVIEW-REHOME-P2` / layout vocab / render-host work — product unpause, not crash-safety.
+
 ## The two cross-cutting roots (every audit found the same shape)
 
 - **R1 — Design/model right, enforcement thin / mislocated / UNWIRED.** The hard
@@ -106,9 +137,12 @@ This is what turns "#7 human-gated-live" from a cliff into a controlled decision
   arbitrary-fs-write. **Can be now-live if any untrusted local agent speaks MCP** — pull
   forward to T0 if so. Passport-gate the MCP edge (reuse ingress's verified-passport
   pattern) + path-validate checkpoint + a reserved-store firewall.
-- **T1.5 Compiler supply-chain (L10).** Enforce the sha256 lock on the build path (today
-  opt-in `igc verify` only) + canonicalize/containment in the dep resolver (symlink/`..`
-  escape). Makes builds tamper-evident with code already written.
+- **T1.5 Compiler supply-chain (L10).** `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`
+  added explicit project-build enforcement:
+  `igc compile --project-root ROOT --entry MODULE --out OUT --locked` (alias
+  `--frozen`) checks committed `igniter.lock` drift/toolchain plus strict
+  workspace integrity before emit. Remaining: default-on policy and
+  canonicalize/containment in the dep resolver (symlink/`..` escape).
 
 ## TIER 2 — Durability & determinism foundation (the shared substrate)
 

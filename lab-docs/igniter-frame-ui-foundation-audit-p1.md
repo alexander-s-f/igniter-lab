@@ -6,6 +6,12 @@ Type: audit (problem lens) + opportunity synthesis (solution lens)
 Date: 2026-06-26
 Skill: idd-agent-protocol
 
+> Refresh note 2026-06-27: this remains a 2026-06-26 audit snapshot. Some
+> findings below have since closed; route current work through
+> `lab-docs/igniter-foundation-hardening-roadmap-p1.md` and
+> `lab-docs/lang/lab-audit-foundation-status-refresh-p2-v0.md`, not the
+> `Status: OPEN` line alone.
+
 ## Onboarding
 
 Lab/frontier evidence, not authority. **Dual-lens** pass over the frame-ui stack

@@ -4,13 +4,13 @@
 in one process). **Verify-first:** any doc claiming this is "only a PROP-042 sketch"
 or "not implemented" is **stale** — this file + `cargo test` are ground truth.
 Last full-green baseline: **2026-06-15** (70 tests pass, `cargo test --no-default-features`).
-Surface refresh: **2026-06-26** doc/source grep for Postgres read/write status, Text range/order,
-typed Decimal read value kind, fake-vs-real adapters, idempotency, DSN safety, and host policy.
-Fleet recheck: **2026-06-24 HOLD** — `cargo test --test machine_tests test_machine_fleet_sweep`
-is **11/13**, not whole-fleet green. Current blockers are `batch_importer`
-(`VMExecutionError("Unsupported AST kind in VM evaluator: variant_construct")`) and `web_router`
-(match-arm record literal parse ambiguity: record bodies starting with `{` are parsed as blocks).
-Do not cite the 2026-06-15 full-suite count as current fleet status until those two follow-ups close.
+Surface refresh: **2026-06-27** doc/source grep for Postgres read/write status, Text range/order,
+typed Decimal read value kind, fake-vs-real adapters, idempotency, DSN safety, host policy,
+signed passport data-plane entrypoints, MCP auth/checkpoint sandboxing, and fleet status.
+Fleet recheck: **2026-06-27 OK** —
+`cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`
+is **13/13 OK**. The prior 2026-06-24 HOLD for `batch_importer` and `web_router` is closed;
+do not cite the old 11/13 status as current.
 
 > Reality check: the old `igniter-delta-1.md` claim that igniter-machine "contains
 > only PROP-042.md" is FALSE. It is a working, tested fused kernel.
@@ -65,6 +65,8 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 | Real local Postgres write | Implemented, opt-in + DSN-gated | `src/postgres_real.rs::TokioPostgresWriteAdapter`; tests use separate `IGNITER_PG_WRITE_DSN` and dedicated `igniter_pg_test`, never SparkCRM. |
 | Delete op | Implemented | Real write adapter switches the business CTE to `DELETE ... WHERE ... AND EXISTS (SELECT 1 FROM ins)` under the same receipt gate; exercised by Todo API P44 from `igniter-web`. |
 | Idempotency / reconcile | Implemented | Machine receipt plus PG-side `effect_receipts(idempotency_key)`; `reconcile_postgres_unknown_write` reads back the PG-side receipt, never re-runs the write. |
+| Signed passport data-plane | Implemented as explicit signed entrypoints | `write::run_write_effect_signed`, `single_flight::run_write_effect_atomic_signed`, `coordination::CoordinationHub::new_signed`, and `service_loop::run_service_with_verified_passport`; proof `lab-machine-signed-passport-dataplane-p26.md` and `tests/signed_passport_dataplane_tests.rs`. Legacy unsigned entrypoints remain compatibility surfaces. |
+| MCP local auth/checkpoint sandbox | Implemented | `src/bin/mcp.rs` requires `IGNITER_MCP_AUTH_TOKEN` plus per-call `authority_token` for `tools/call`, confines `igniter_checkpoint` under `IGNITER_MCP_CHECKPOINT_ROOT` or `.igniter-mcp/checkpoints`, and refuses public writes to reserved stores. Proof: `lab-machine-mcp-auth-checkpoint-sandbox-p30.md`; tests live in the MCP binary. |
 | Host policy / DSN safety | Implemented at this layer as policy boundaries | Contract input names logical source/target only. Host allowlists source/fields/ops; DSNs are runtime/env secrets and must not enter receipts. |
 
 ## Kernel API (`src/machine.rs::IgniterMachine`)
@@ -87,6 +89,7 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 | **real substrate executor** | ✅ (first real, read-only) | `executors::TBackendReadExecutor` — read-only `CapabilityExecutor` over a real `Arc<dyn TBackend>` (RocksDB on disk / remote-TCP). `run_service` + receipts UNCHANGED; only the executor is real. Outcome mapping: found→Succeeded, none→PermanentFailure, backend Err→UnknownExternalState (unavailable=epistemic). Proven on real RocksDB read + real RemoteTcp dead-port unavailability. Read-only — no writes/HTTP/scheduler. (LAB-MACHINE-CAPABILITY-IO-P3) |
 | **host clock capability** | ✅ | `clock::{ClockProvider, FixedClock, SystemClock}` — receipt `transaction_time` from an injected provider, read ONLY at the ServiceLoop boundary (`run_effect_with_clock` / `run_service_with_clock`; `run_effect`/`run_service` default to `SystemClock`). No `now()` in the language; `dispatch` has no clock (contract can't read time). Replay writes no receipt → never rewrites a timestamp. (LAB-MACHINE-CAPABILITY-IO-CLOCK-P4) |
 | **typed capability authority** | ✅ | `capability::{CapabilityPassport, verify_passport, AuthRefusal, run_effect_with_passport}` + `service_loop::run_service_with_passport` — verifiable passport (subject/capability/scopes/expiry/revoked/evidence) checked at the host boundary before the executor; expiry uses the injected clock; refusals (wrong-cap/missing-scope/revoked/expired) write NO receipt; executor denial stays denial-as-data; receipt records `authority_digest`; replay requires the same digest. Shared `run_effect_core` (zero churn to P1–P4). No OAuth/JWT/roles. (LAB-MACHINE-CAPABILITY-IO-AUTHORITY-P5) |
+| **signed capability data-plane** | ✅ (explicit signed entrypoints) | `write::run_write_effect_signed`, `single_flight::run_write_effect_atomic_signed`, `coordination::CoordinationHub::new_signed`, and `service_loop::run_service_with_verified_passport` verify `PassportVerifier` signatures before the existing P5 authority checks. Forged/unsigned/untrusted passports write no receipt and reach no executor. Legacy unsigned entrypoints remain for compatibility/proof callers. (LAB-MACHINE-SIGNED-PASSPORT-DATAPLANE-P26) |
 | **receipt-gated write** | ✅ (lifecycle + real local write) | `write::{run_write_effect, WriteState, WriteRequest, WriteResult, FactWrite, payload_digest, FakeWriteExecutor}` + `executors::TBackendWriteExecutor` — two-phase receipt: `prepared` (gate, before executor) → `committed`/`denied`/`unknown_external_state` (`aborted` reserved). Idempotency binds capability+operation+authority+`payload_digest` (payload_digest FORCED to include store+key+value+valid_time): same payload→replay, different payload→refuse-no-write; timeout/failure→unknown with NO blind retry; prepare-receipt failure → executor not called. **P6b: real `TBackendWriteExecutor` over on-disk RocksDB** behind the same protocol (write→committed+read-back; failure→unknown). Reuses P4 clock + P5 passport. (LAB-MACHINE-CAPABILITY-IO-WRITE-P6 a+b) |
 | **unknown-write reconciliation** | ✅ | `reconcile::{reconcile_unknown_write, ReconcileResult}` — resolves an `unknown_external_state` write receipt by READING the target back (`facts_for` history scan; never re-writes/retries): our value present→`committed`, absent→`permanent_failure` (new `WriteState`), substrate error→still-unknown. Receipt records `target_store`/`target_key`/`value_digest` for read-back; reconciled receipt upgrades the unknown one; idempotent on terminals. Prerequisite for a retry scheduler. (LAB-MACHINE-CAPABILITY-IO-RECONCILIATION-P7) |
 | **bounded reconcile-gated retry** | ✅ | `retry::{run_write_with_retry, RetryPolicy, RetryOutcome}` — retries a write safely: fresh idempotency key per attempt (`base:a{n}`); transient/permanent split via `WriteState::Retryable` + `EffectOutcome::retryable` (executor asserts no-mutation); on `unknown` it RECONCILES (P7) and continues only on a proven not-landed; bails `Unresolved` on still-unknown (no double-write); denial/hard-permanent not retried; bounded by attempt count. In-call only. (LAB-MACHINE-CAPABILITY-IO-RETRY-P8) |
@@ -131,7 +134,7 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 | Rust lib | ✅ kernel API above |
 | Ruby FFI (magnus, `Igniter::Machine`) | ❌ **REMOVED 2026-06-17 — dead rudiment** (did not compile, no gem/extconf build harness, frozen since import). In-process embedding is explicitly NOT the architecture: Igniter and host apps run as **separate processes over HTTP** (ingress + serving loop). Do not revive. |
 | REPL `igniter-repl` | present (`repl` feature) — not yet verified live here |
-| MCP server `igniter-mcp` | ✅ **verified live** — JSON-RPC 2.0 over stdio (`initialize`/`tools/list`/`tools/call`); 11 tools. Drove a full agent session: load `Add` → dispatch →`42`, write_fact, status, time_travel. `igniter_time_travel` now takes optional `valid_at` → routes to `read_bitemporal` (both bitemporal axes agent-drivable). |
+| MCP server `igniter-mcp` | ✅ **verified live** — JSON-RPC 2.0 over stdio (`initialize`/`tools/list`/`tools/call`); 11 tools. `tools/call` now requires local authority (`IGNITER_MCP_AUTH_TOKEN` + `authority_token` argument); `tools/list`/`initialize` remain discoverable. `igniter_checkpoint` is sandboxed under `IGNITER_MCP_CHECKPOINT_ROOT` or `.igniter-mcp/checkpoints`, and public writes to reserved stores are refused. This is a local stdio/env-token gate, not the P26 signed-passport transport. |
 | backends | ✅ in-memory, **`MpkFileBackend`** (persistent; `"rocksdb"` mode + back-compat alias `RocksDBBackend`), remote-TCP — **NB:** the persistent backend is a **pure-Rust `.mpk` file store**, NOT the real RocksDB crate. **Hardened in P3** (`LAB-MACHINE-FACTSTORE-DURABILITY-HARDENING-P3`, `../lab-docs/lang/lab-machine-factstore-durability-hardening-p3-v0.md`): **atomic** temp→fsync→rename writes, corruption is **observable+refused** (`corrupt_files()` / `EngineError::Corruption`, no more silent `unwrap_or_default` loss), receipt spine goes through this hardened path. Crash/torn-write atomic + fsync-to-OS; **full power-loss durability remains platform-gated** (macOS needs `F_FULLFSYNC`). P2 audit: `../lab-docs/lang/lab-machine-rocksdb-durability-p2-v0.md`. |
 
 ## Proven by tests (`tests/machine_tests.rs`)
@@ -143,16 +146,15 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
   closure capturing an enclosing compute) → 3.
 - `test_machine_cross_contract_dispatch` — **orchestrator → `call_contract("Helper")`**
   resolves and runs → 10.
-- `test_machine_loads_multifile_app` — **currently HOLD for `web_router`** after
-  `LAB-LANG-MATCH-ARM-BINDINGS-P2`: match-arm bodies that are record literals beginning with `{`
-  parse as blocks and fail on `:` tokens. Workaround/proof route: parenthesized record literals
-  or parser disambiguation.
+- `test_machine_loads_multifile_app` — green for the current multifile `web_router` fixture after
+  the match-arm record-literal/block disambiguation fix.
 - `test_machine_fleet_sweep` — **13 fleet apps** (advanced_logistics, air_combat,
   audit_ledger, batch_importer, call_router, erp_logistics, igniter_parser, job_runner,
   lead_router, query_engine, reconciler, vector_editor, web_router). Current live recheck
-  2026-06-24 is **11/13**, with two blockers: `batch_importer` needs `variant_construct` support
-  in `eval_ast`; `web_router` needs match-arm record-literal/block disambiguation. Do not claim
-  full machine↔CLI parity until both close and the sweep is rerun.
+  2026-06-27 is **13/13 OK** via
+  `cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`.
+  This is a finite zero-input fleet proof, not a claim of dynamic dispatch or public language
+  completeness.
 - `tests/capability_io_tests.rs` (13) — **production capability IO boundary**: receipt-as-fact,
   idempotency prevents the 2nd executor call, replay bypasses the executor, `unknown_external_state`
   stays epistemic (distinct from `permanent_failure`), preflight refusal vs executor denial-as-data,
@@ -231,6 +233,9 @@ Do not cite the 2026-06-15 full-suite count as current fleet status until those 
 - `tests/capability_io_signed_passport_tests.rs` (5) — **signed passport** (P21): valid signed →
   authorizes+receipt; untrusted/bogus sig → refused (no executor/receipt); tampered scope → no
   escalation; signed-but-expired/revoked/wrong-scope still refused; refusal taxonomy unit.
+- `tests/signed_passport_dataplane_tests.rs` (5) — **signed data-plane entrypoints** (P26):
+  signed write accepts valid passports, forged/untrusted/expired/missing-scope passports are refused,
+  and `CoordinationHub::new_signed` rejects unsigned/forged coordination passports before state change.
 - `tests/capability_io_secrets_tests.rs` (5) — **secret providers** (P22): env allowlist-only; file
   reads root + rejects traversal; layered override+fall-through; file-sourced secret never in receipt
   (resolved value reached transport, not the fact); missing secret → refuse before send.
