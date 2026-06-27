@@ -191,14 +191,13 @@ fn cli_accepts_loopback_addr_and_max_override() {
 }
 
 #[test]
-fn cli_rejects_public_addr_zero_max_unknown_option_and_extra_app_dir() {
-    assert!(
-        matches!(
-            parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]),
-            Err(RunnerError::Cli(_))
-        ),
-        "public bind forbidden"
-    );
+fn cli_parses_public_addr_for_server_gate_and_rejects_other_bad_args() {
+    match parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]).unwrap() {
+        RunnerCliCommand::Run(opts) => {
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8080");
+        }
+        other => panic!("expected run, got {other:?}"),
+    }
     assert!(
         matches!(
             parse_cli_args(["--max-requests", "0", "examples/todo_app"]),

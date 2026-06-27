@@ -8,20 +8,30 @@
 //! Requires `--features machine`. Not a stable CLI surface. Loopback only.
 
 use igniter_server::reload::ReloadableApp;
-use igniter_server::serving_loop::{ServingPolicy, serve_loop};
+use igniter_server::serving_gate::authorize_bind;
+use igniter_server::serving_loop::{serve_loop, ServingPolicy};
 #[cfg(feature = "machine")]
 use igniter_web::runner::RunnerCliOptions;
 use igniter_web::runner::{
-    RunnerCliCommand, build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources,
+    build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
 };
-use igniter_web::runner_diag::{RunnerDiagnostic, classify_runner_error};
-use std::net::TcpListener;
+use igniter_web::runner_diag::{classify_runner_error, DiagCode, RunnerDiagnostic};
+use std::net::{SocketAddr, TcpListener};
 
 /// Print a coded, redacted diagnostic to stderr and exit with its stable non-zero code.
 /// stdout stays reserved for the machine-readable `listening http://…` line.
 fn fail(diag: RunnerDiagnostic) -> ! {
     eprintln!("{diag}");
     std::process::exit(diag.exit_code());
+}
+
+fn authorize_runner_bind(addr: SocketAddr) -> Result<(), RunnerDiagnostic> {
+    authorize_bind(addr, None).map(|_| ()).map_err(|e| {
+        RunnerDiagnostic::new(
+            DiagCode::BindRefused,
+            format!("live bind gate refused {addr}: {}", e.code()),
+        )
+    })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,6 +84,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sync path (unchanged)
     let app_dir = &cli.app_dir;
     let (app, manifest) = build_app_from_dir(app_dir)?;
+    if let Err(diag) = authorize_runner_bind(cli.addr) {
+        fail(diag);
+    }
     let listener = TcpListener::bind(cli.addr)?;
     let addr = listener.local_addr()?;
     let source_count = resolve_sources(app_dir, &manifest)?.len();
@@ -118,7 +131,7 @@ fn run_machine_mode(
     use igniter_web::machine_runner;
     use igniter_web::read_dispatch::StagedReadHost;
     use igniter_web::runner::build_loaded_app_from_dir;
-    use igniter_web::runner_diag::{DiagCode, classify_host_config_error, classify_runner_error};
+    use igniter_web::runner_diag::{classify_host_config_error, classify_runner_error};
     use std::sync::Arc;
 
     // 1. Parse + resolve host config — env var expansion happens here; secrets never interpolated.
@@ -208,6 +221,7 @@ fn run_machine_mode(
     let app_dir_str = cli.app_dir.display().to_string();
     let entry = manifest.entry.clone();
     let addr = cli.addr;
+    authorize_runner_bind(addr)?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -703,7 +703,7 @@ pub mod runner {
     where
         I: IntoIterator<Item = String>,
     {
-        let mut addr = parse_loopback_addr(DEFAULT_ADDR)?;
+        let mut addr = parse_bind_addr(DEFAULT_ADDR)?;
         let mut max_requests = None;
         let mut app_dir = None;
         let mut host_config_path = None;
@@ -715,7 +715,7 @@ pub mod runner {
                     let value = iter
                         .next()
                         .ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
-                    addr = parse_loopback_addr(&value)?;
+                    addr = parse_bind_addr(&value)?;
                 }
                 "--max-requests" => {
                     let value = iter.next().ok_or_else(|| {
@@ -761,16 +761,9 @@ pub mod runner {
         }))
     }
 
-    fn parse_loopback_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
-        let addr = raw
-            .parse::<SocketAddr>()
-            .map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))?;
-        if !addr.ip().is_loopback() {
-            return Err(RunnerError::Cli(format!(
-                "--addr must be loopback-only, got `{raw}`"
-            )));
-        }
-        Ok(addr)
+    fn parse_bind_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
+        raw.parse::<SocketAddr>()
+            .map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))
     }
 
     /// Hand-rolled tiny `igweb.toml` parse (no toml crate; mirrors `project.rs::parse_source_roots_toml`).

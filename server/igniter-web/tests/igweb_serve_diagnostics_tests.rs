@@ -157,8 +157,8 @@ fn non_loopback_addr_fails_closed() {
 
     assert_ne!(r.code, 0, "non-loopback bind must fail closed");
     assert!(
-        r.stderr.contains("[CONFIG_PARSE]") && r.stderr.contains("loopback"),
-        "stderr must carry a coded loopback refusal; stderr={}",
+        r.stderr.contains("[BIND_REFUSED]") && r.stderr.contains("non_loopback_without_checklist"),
+        "stderr must carry a coded live-bind gate refusal; stderr={}",
         r.stderr
     );
     assert!(

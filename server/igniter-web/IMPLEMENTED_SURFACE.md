@@ -7,12 +7,14 @@ implemented", "observed only", "single-table read only", or "no live effect exec
 file and an old proof doc disagree, **this file + live source wins** (see
 [Historical docs rule](#historical-docs-rule)).
 
-Last refreshed against source: 2026-06-26 (route sugar `P16`-`P20`/`P22`/`P26`/`P27`,
+Last refreshed against source: 2026-06-27 (route sugar `P16`-`P20`/`P22`/`P26`/`P27`,
 ViewArtifact authoring `P16`/`P19`, link node/nav `LINK-NODE`/`P27`, typed `ReadThen`
 crossing + `DatasetMeta` `P6`-`P8`, Todo typed rows -> HTML `P18`, Todo API product cards
 `P35`-`P41`, error envelope `P43`, delete `P44`, legacy body removal `P45`, keyset pagination
 `P47`, typed Todo list envelope + `RespondJson` `P50`, typed Decimal row crossing `P23`,
 DB-backed Decimal money report proof `P24`, and compiler package/admission pointers).
+Live-bind status refreshed for `P32`: IgWeb now calls `igniter-server::serving_gate::authorize_bind`
+before both sync and machine-mode listener binds; no public bind is enabled in v0.
 
 ## ReadThen status vocabulary
 
@@ -106,7 +108,7 @@ Do not infer a registry, semver solver, signing layer, deployment permission, or
 
 | Surface | Status | Note |
 | --- | --- | --- |
-| Public listener mode | Closed | Loopback-only; non-loopback bind is refused (`ServingPolicy::loopback_only`). |
+| Public listener mode | Closed | IgWeb calls `igniter-server::serving_gate::authorize_bind(addr, None)` before sync and machine-mode binds. Loopback is allowed; non-loopback fails closed with `BIND_REFUSED` / `non_loopback_without_checklist` before `TcpListener::bind`. `ServingPolicy::loopback_only()` remains post-bind defense-in-depth. No host checklist parser or TLS enablement exists in IgWeb v0. |
 | Stable CLI promise | Closed | `igweb-serve` is a lab prototype; flags may change. |
 | Pool / backpressure | Closed | One connection at a time, bounded by `--max-requests`. |
 | Schema migration runner | Closed | DDL is operator-owned; the runner never creates/migrates tables. |
