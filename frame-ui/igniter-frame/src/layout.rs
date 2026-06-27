@@ -252,6 +252,153 @@ pub fn table(
     LayoutBox::col(id, Size::Flex(1), children)
 }
 
+// ── Text DSL: author a layout as text (LAB-FRAME-LAYOUT-VOCAB-P4) ────────────────────────────────
+
+/// A parse error from the layout DSL, carrying a 1-based line number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseError {
+    pub line: usize,
+    pub msg: String,
+}
+
+const MAX_PARSE_DEPTH: usize = 32;
+
+/// Parse a compact, indentation-based layout DSL into a `LayoutBox` tree. Each line is
+/// `<kind> <id> [fixed N | flex N] [pad N] [gap N]`, where `kind` is `col` / `row` / `leaf`;
+/// two leading spaces nest a child under the line above. Blank lines and `#` / `--` comments are
+/// ignored. **Total**: any malformed line yields a `ParseError` with its 1-based number — never a
+/// panic — so it is safe to drive from a live text field.
+pub fn parse(text: &str) -> Result<LayoutBox, ParseError> {
+    let mut stack: Vec<(usize, LayoutBox)> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let lineno = i + 1;
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("--") {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        if !line[..indent].chars().all(|c| c == ' ') {
+            return Err(ParseError { line: lineno, msg: "indentation must be spaces (2 per level)".into() });
+        }
+        if indent % 2 != 0 {
+            return Err(ParseError { line: lineno, msg: "indentation must be a multiple of 2 spaces".into() });
+        }
+        let depth = indent / 2;
+        if depth > MAX_PARSE_DEPTH {
+            return Err(ParseError { line: lineno, msg: "layout nested too deep".into() });
+        }
+        let node = parse_line(trimmed, lineno)?;
+
+        if stack.is_empty() {
+            if depth != 0 {
+                return Err(ParseError { line: lineno, msg: "the first node must be at indentation 0".into() });
+            }
+        } else {
+            while let Some((d, _)) = stack.last() {
+                if *d >= depth {
+                    let (_, child) = stack.pop().unwrap();
+                    stack.last_mut().unwrap().1.children.push(child);
+                } else {
+                    break;
+                }
+            }
+            match stack.last().map(|(d, _)| *d) {
+                Some(pd) if pd + 1 == depth => {}
+                _ => return Err(ParseError {
+                    line: lineno,
+                    msg: "bad indentation (a child must be exactly one level deeper than its parent)".into(),
+                }),
+            }
+        }
+        stack.push((depth, node));
+    }
+    if stack.is_empty() {
+        return Err(ParseError { line: 0, msg: "empty layout".into() });
+    }
+    while stack.len() > 1 {
+        let (_, child) = stack.pop().unwrap();
+        stack.last_mut().unwrap().1.children.push(child);
+    }
+    Ok(stack.pop().unwrap().1)
+}
+
+fn parse_line(s: &str, lineno: usize) -> Result<LayoutBox, ParseError> {
+    let err = |msg: String| ParseError { line: lineno, msg };
+    let mut toks = s.split_whitespace();
+    let kind = toks.next().ok_or_else(|| err("empty node".into()))?;
+    let id = toks.next().ok_or_else(|| err(format!("`{kind}` needs an id")))?;
+    let dir = match kind {
+        "col" | "leaf" => Dir::Col,
+        "row" => Dir::Row,
+        other => return Err(err(format!("unknown node kind `{other}` (expected col/row/leaf)"))),
+    };
+    let mut b = LayoutBox { id: id.to_string(), dir, main: Size::Flex(1), pad: 0, gap: 0, children: Vec::new() };
+    while let Some(key) = toks.next() {
+        let val = toks.next().ok_or_else(|| err(format!("`{key}` needs a value")))?;
+        let n: i64 = val.parse().map_err(|_| err(format!("`{key}` value `{val}` is not an integer")))?;
+        match key {
+            "fixed" => b.main = Size::Fixed(n.max(0)),
+            "flex" => b.main = Size::Flex(n.max(1)),
+            "pad" => b.pad = n.max(0),
+            "gap" => b.gap = n.max(0),
+            other => return Err(err(format!("unknown attribute `{other}` (expected fixed/flex/pad/gap)"))),
+        }
+    }
+    Ok(b)
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn depths(b: &LayoutBox, d: usize, out: &mut Vec<(String, usize)>) {
+    out.push((b.id.clone(), d));
+    for c in &b.children {
+        depths(c, d + 1, out);
+    }
+}
+
+/// Render a SOLVED layout tree to an inspection SVG: each box as a labeled rect, colored by nesting
+/// depth (containers tinted, IDs labeled). The visual behind a live "author layout as text"
+/// playground. Box ids are HTML-escaped, so arbitrary author text is safe.
+pub fn preview_svg(root: &LayoutBox, w: i64, h: i64) -> String {
+    const PALETTE: [&str; 6] = ["#1f6feb", "#238636", "#9e6a03", "#8957e5", "#1f6f8b", "#bc4c00"];
+    let rects = solve(root, 0, 0, w, h);
+    let mut dv = Vec::new();
+    depths(root, 0, &mut dv);
+    let depth_of = |id: &str| dv.iter().find(|(k, _)| k == id).map(|(_, d)| *d).unwrap_or(0);
+
+    let mut body = String::new();
+    for r in &rects {
+        let d = depth_of(&r.id);
+        let c = PALETTE[d % PALETTE.len()];
+        body.push_str(&format!(
+            "  <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"5\" fill=\"{c}\" fill-opacity=\"0.14\" stroke=\"{c}\" stroke-opacity=\"0.9\"/>\n",
+            r.x, r.y, r.w.max(0), r.h.max(0)
+        ));
+        if r.w >= 30 && r.h >= 14 {
+            body.push_str(&format!(
+                "  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"11\" fill=\"{c}\">{}</text>\n",
+                r.x + 5, r.y + 13, esc(&r.id)
+            ));
+        }
+    }
+    format!(
+        "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{w}\" height=\"{h}\" fill=\"#010409\"/>\n{body}</svg>\n"
+    )
+}
+
+/// Render a `ParseError` as an SVG card — the "your layout text is malformed" view for the live
+/// playground. The message is HTML-escaped.
+pub fn error_svg(e: &ParseError, w: i64, h: i64) -> String {
+    let loc = if e.line > 0 { format!("line {}", e.line) } else { "layout".to_string() };
+    format!(
+        "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{w}\" height=\"{h}\" fill=\"#010409\"/>\n  <rect x=\"12\" y=\"12\" width=\"{cw}\" height=\"58\" rx=\"6\" fill=\"#3d1418\" stroke=\"#f85149\"/>\n  <text x=\"24\" y=\"38\" font-family=\"monospace\" font-size=\"13\" fill=\"#f85149\">parse error · {loc}</text>\n  <text x=\"24\" y=\"57\" font-family=\"monospace\" font-size=\"12\" fill=\"#ff9ca0\">{msg}</text>\n</svg>\n",
+        cw = (w - 24).max(0),
+        msg = esc(&e.msg),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +591,57 @@ mod tests {
         // rows stack: header h=30 at y0, r0 at 30, r1 at 54
         assert_eq!(rect(&rs, "r0").y, 30);
         assert_eq!(rect(&rs, "r1").y, 54);
+    }
+
+    #[test]
+    fn parse_builds_the_same_tree_as_the_builder() {
+        let src = "col root pad 16 gap 12\n  leaf title fixed 28\n  row body flex 1 gap 10\n    leaf sidebar fixed 220\n    col main flex 1\n";
+        let t = parse(src).unwrap();
+        assert_eq!(t.id, "root");
+        assert_eq!((t.pad, t.gap), (16, 12));
+        assert_eq!(t.children.len(), 2);
+        assert_eq!(t.children[0].id, "title");
+        assert!(matches!(t.children[0].main, Size::Fixed(28)));
+        let body = &t.children[1];
+        assert_eq!(body.id, "body");
+        assert!(matches!(body.dir, Dir::Row));
+        assert_eq!(body.children.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["sidebar", "main"]);
+        // and the parsed tree solves like any other
+        let rs = solve(&t, 0, 0, 600, 400);
+        assert_eq!(rect(&rs, "root").w, 600);
+    }
+
+    #[test]
+    fn parse_ignores_comments_and_blank_lines() {
+        let t = parse("# header comment\ncol root gap 4\n\n  -- child comment\n  leaf a fixed 10\n").unwrap();
+        assert_eq!(t.children.len(), 1);
+        assert_eq!(t.children[0].id, "a");
+    }
+
+    #[test]
+    fn parse_reports_errors_with_line_numbers_and_never_panics() {
+        assert_eq!(parse("box x").unwrap_err().line, 1); // unknown kind
+        assert_eq!(parse("col").unwrap_err().line, 1); // missing id
+        assert_eq!(parse("col root\n leaf a fixed 1").unwrap_err().line, 2); // odd indent
+        assert_eq!(parse("col root\n    leaf a fixed 1").unwrap_err().line, 2); // indent jump
+        assert_eq!(parse("  col root").unwrap_err().line, 1); // first node indented
+        let e = parse("col root\n  leaf a fixed wide").unwrap_err();
+        assert!(e.line == 2 && e.msg.contains("not an integer"));
+        assert!(parse("leaf a wiggle 3").unwrap_err().msg.contains("unknown attribute"));
+        assert!(parse("\n# only a comment\n").is_err()); // empty
+    }
+
+    #[test]
+    fn preview_svg_is_deterministic_and_escapes_author_text() {
+        let t = parse("col root pad 8\n  leaf a fixed 30\n  leaf b flex 1").unwrap();
+        assert_eq!(preview_svg(&t, 200, 120), preview_svg(&t, 200, 120));
+        assert!(preview_svg(&t, 200, 120).starts_with("<svg"));
+        // arbitrary author ids are escaped — no raw markup injection from the live text field
+        let evil = parse("leaf <script>x</script> fixed 50").unwrap();
+        let svg = preview_svg(&evil, 200, 80);
+        assert!(!svg.contains("<script>") && svg.contains("&lt;script&gt;"));
+        // a parse error renders a card, not a panic
+        assert!(error_svg(&parse("nope").unwrap_err(), 200, 80).contains("parse error"));
     }
 
     #[test]

@@ -150,3 +150,46 @@ no console errors.
 Remaining of the "three moves": retarget `.igv` to emit the composed layout (beyond the one
 workbench template); optionally refactor `WorkbenchProjector` onto `solve` (prove byte-identical,
 retire its constants).
+
+---
+
+## P4 — author a layout as TEXT + live playground (CLOSED)
+
+The authoring-DX surface the vocab opens (the "retarget authoring" move, realized self-contained in
+`igniter-frame` rather than churning ui-kit's workbench-shaped `.igv`). A compact, total text DSL →
+the same `LayoutBox` tree → `solve` → an inspection render, driven live from a browser text field.
+
+- `layout::parse(text) -> Result<LayoutBox, ParseError>` — indentation-based: each line is
+  `<kind> <id> [fixed N | flex N] [pad N] [gap N]` (`kind` = `col`/`row`/`leaf`), two spaces nest a
+  child; `#` / `--` comments and blanks ignored. **Total** — any malformed line returns a
+  `ParseError{line, msg}` with a 1-based number, never a panic (safe to call on every keystroke).
+- `layout::preview_svg(tree, w, h)` — solved boxes as depth-colored labeled rects; ids HTML-escaped
+  (arbitrary author text can't inject markup). `layout::error_svg(err, w, h)` — a parse-error card.
+- `wasm: layout_preview(src, w, h) -> String` (free fn) + `web/playground.html` — a textarea + a live
+  SVG pane that re-parses/re-solves on input, with `app shell` / `3-pane` / `form` / `holy grail`
+  examples. The Rust parse+solve runs in the browser; no JS computes layout.
+
+Evidence:
+
+```text
+cargo test     # 45 pass / 0 fail (adds parse_builds_the_same_tree_as_the_builder,
+               #   parse_ignores_comments_and_blank_lines, parse_reports_errors_*, preview_svg_*)
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean
+wasm: layout_preview exported; ZERO kernel symbols.
+```
+
+Tests: parse round-trips to the builder tree (and solves); comments/blanks ignored; **errors carry
+1-based line numbers and never panic** (unknown kind/attr, odd indent, indent jump, non-integer,
+indented root, empty); preview is deterministic and **escapes author markup** (`<script>` →
+`&lt;script&gt;`), and a parse error renders a card.
+
+**Proven LIVE in the browser**: the default app-shell spec renders 14 nested depth-colored boxes
+(screen→header/body→sidebar(nav-a/b/c)+main(toolbar/cards→card-1/2/3)→footer); editing the text
+reflows instantly (a 3-pane spec → split/left/middle/right); a malformed spec shows
+`parse error · line 2 · indentation must be a multiple of 2 spaces`; an `<img onerror=…>` author
+string does not inject (no raw `<img>`); no console errors. Run: `./web/run-list-demo.sh` →
+`/playground.html` (also `/list.html`, `/table.html`).
+
+The layout vocabulary now spans: engine (P1) → composed list (P2) → data-bound table (P3) → text
+authoring + live playground (P4). Still open: a true `.igv` retarget in ui-kit (this DSL is the
+target shape it would lower to); optional `WorkbenchProjector`-onto-`solve` byte-identical refactor.

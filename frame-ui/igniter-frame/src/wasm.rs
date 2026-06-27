@@ -159,3 +159,14 @@ impl Default for WasmTableScreen {
         Self::new()
     }
 }
+
+/// LAB-FRAME-LAYOUT-VOCAB-P4 — author a layout as TEXT, see it solved live. Parses the layout DSL and
+/// returns an inspection SVG of the solved boxes; on a parse error returns an SVG card naming the
+/// 1-based line and message. Pure + total — safe to call on every keystroke from a text field.
+#[wasm_bindgen]
+pub fn layout_preview(src: &str, w: i32, h: i32) -> String {
+    match crate::layout::parse(src) {
+        Ok(tree) => crate::layout::preview_svg(&tree, w as i64, h as i64),
+        Err(e) => crate::layout::error_svg(&e, w as i64, h as i64),
+    }
+}

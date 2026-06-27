@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · layout playground (LAB-FRAME-LAYOUT-VOCAB-P4)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { padding:20px 24px 0; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 4px; font-size:12px; max-width:920px; }
+  code { color:var(--acc); }
+  #app { display:flex; gap:20px; flex-wrap:wrap; padding:16px 24px 28px; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; gap:8px; }
+  label { color:var(--dim); font-size:12px; }
+  textarea { width:380px; max-width:92vw; height:420px; background:#010409; color:var(--fg); border:1px solid var(--line);
+             border-radius:10px; padding:12px; font:13px/1.55 ui-monospace, Menlo, monospace; resize:vertical; tab-size:2; }
+  textarea:focus { outline:none; border-color:var(--acc); }
+  #pane { width:600px; max-width:92vw; aspect-ratio:600/420; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#010409; }
+  #pane svg { display:block; width:100%; height:100%; }
+  .examples { display:flex; gap:8px; flex-wrap:wrap; }
+  .examples button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px; }
+  .examples button:hover { border-color:var(--acc); }
+  .legend { color:var(--dim); font-size:12px; max-width:600px; line-height:1.7; }
+  a { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Layout playground — author a screen as text</h1>
+    <p class="sub">Type a layout in the box. Each line is <code>&lt;kind&gt; &lt;id&gt; [fixed N | flex N] [pad N] [gap N]</code>, where <code>kind</code> is <code>col</code> / <code>row</code> / <code>leaf</code>; two spaces of indent nest a child. The Rust <code>layout::parse</code> + <code>solve</code> run in your browser on every keystroke and draw the solved boxes — deterministic, machine-free. This is the text surface the layout vocabulary opens (the engine behind <a href="./list.html">list</a> / <a href="./table.html">table</a>).</p>
+  </header>
+  <div id="app">
+    <div class="col">
+      <label for="src">layout source</label>
+      <textarea id="src" spellcheck="false"></textarea>
+      <div class="examples">
+        <button data-ex="shell">app shell</button>
+        <button data-ex="split">3-pane</button>
+        <button data-ex="form">form</button>
+        <button data-ex="holy">holy grail</button>
+      </div>
+    </div>
+    <div class="col">
+      <label>solved layout (live)</label>
+      <div id="pane">loading wasm…</div>
+      <p class="legend">Boxes are tinted by nesting depth and labeled by id. <code>fixed N</code> takes N px on the main axis; <code>flex N</code> shares the rest by weight (remainder spread one-px-each, so it fills exactly). The cross axis stretches. Resize a <code>fixed</code> or change a <code>flex</code> weight and watch everything reflow.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { layout_preview } from "./igniter_frame.js";
+
+    const EX = {
+      shell: `col screen pad 16 gap 12
+  leaf header fixed 40
+  row body flex 1 gap 12
+    col sidebar fixed 200 gap 8
+      leaf nav-a fixed 32
+      leaf nav-b fixed 32
+      leaf nav-c fixed 32
+    col main flex 1 gap 10
+      leaf toolbar fixed 36
+      row cards flex 1 gap 10
+        leaf card-1 flex 1
+        leaf card-2 flex 1
+        leaf card-3 flex 1
+  leaf footer fixed 28`,
+      split: `row split gap 10 pad 10
+  leaf left flex 1
+  leaf middle flex 2
+  leaf right flex 1`,
+      form: `col form pad 18 gap 14
+  leaf title fixed 30
+  leaf field-name fixed 44
+  leaf field-email fixed 44
+  leaf field-notes flex 1
+  row actions fixed 44 gap 10
+    leaf cancel flex 1
+    leaf submit flex 1`,
+      holy: `col page gap 8 pad 8
+  leaf masthead fixed 44
+  row body flex 1 gap 8
+    leaf nav fixed 160
+    col content flex 1 gap 8
+      leaf article flex 1
+      leaf comments fixed 120
+    leaf aside fixed 200
+  leaf footer fixed 32`,
+    };
+
+    const src = document.getElementById("src");
+    const pane = document.getElementById("pane");
+    function draw() { pane.innerHTML = layout_preview(src.value, 600, 420); }
+
+    await init();
+    src.value = EX.shell;
+    draw();
+    src.addEventListener("input", draw);
+    for (const b of document.querySelectorAll(".examples button")) {
+      b.addEventListener("click", () => { src.value = EX[b.dataset.ex]; draw(); });
+    }
+  </script>
+</body>
+</html>
