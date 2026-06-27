@@ -204,7 +204,7 @@ ruby -I /Users/alex/dev/projects/igniter-workspace/igniter-lang/lib \
   lab-docs/lang/specimens/dx-view-d/list_view_dynamic.ig \
   --out /tmp/frame-list-dynamic.igapp
 
-cargo test -p igniter-frame <focused_test_name>
+cargo test -p igniter_frame <focused_test_name>
 git diff --check
 ```
 

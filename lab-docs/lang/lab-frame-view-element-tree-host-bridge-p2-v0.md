@@ -75,7 +75,7 @@ The adapter lives only in frame-ui proof space; no product semantics moved into 
 
 ## 6. Tests (focused frame-ui proof)
 
-`cargo test -p igniter-frame` (run from `frame-ui/igniter-frame`): **65 passed / 0 failed.** Bridge
+`cargo test -p igniter_frame` (run from `frame-ui/igniter-frame`): **65 passed / 0 failed.** Bridge
 tests:
 - `ig_element_tree_lays_out_like_the_handwritten_list` — the `.ig` tree lays out IDENTICALLY to the
   hand-written list: sidebar `Fixed(248)`, detail fills the rest, items at y `12/60/108/156`.
