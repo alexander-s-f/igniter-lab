@@ -29,6 +29,7 @@ struct ElInfo {
     tag: String,
     text: String,
     intent: String,
+    key: String,
     pad: i64,
 }
 
@@ -53,6 +54,7 @@ fn element_to_layout(el: &Value, path: String, info: &mut HashMap<String, ElInfo
             tag: tag.clone(),
             text: el.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             intent: el.get("intent").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            key: el.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             pad,
         },
     );
@@ -92,11 +94,13 @@ fn node_for(rect: &Rect, i: &ElInfo) -> ProjectedNode {
     match i.tag.as_str() {
         "button" => {
             let tone = if i.intent == "add" { "add" } else { "go" };
-            ProjectedNode::from_rect(rect, Some(json!({ "action": i.intent })), json!({ "kind": "button", "label": i.text, "tone": tone }))
+            ProjectedNode::from_rect(rect, Some(json!({ "action": i.intent, "key": i.key })), json!({ "kind": "button", "label": i.text, "tone": tone }))
         }
         "leaf" if !i.intent.is_empty() => ProjectedNode::from_rect(
             rect,
-            Some(json!({ "action": i.intent })),
+            // the authored intent carries the DOMAIN key (e.g. "lead:1") so the host can route it to
+            // the `.ig` reducer — see ig_vm_loop / LAB-FRAME-VIEW-IG-VM-IN-THE-LOOP-P6.
+            Some(json!({ "action": i.intent, "key": i.key })),
             json!({ "kind": "row", "label": i.text, "selected": false }),
         ),
         "leaf" => ProjectedNode::from_rect(rect, None, json!({ "kind": "label", "label": i.text })),

@@ -1,0 +1,76 @@
+{
+    "latency_us": 65,
+    "observations": [],
+    "result": {
+        "attrs": {
+            "dir": "col",
+            "flex": 0,
+            "gap": 8,
+            "main": 248,
+            "pad": 12
+        },
+        "children": [
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:0",
+                "tag": "leaf",
+                "text": "Review Ada's lead"
+            },
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:1",
+                "tag": "leaf",
+                "text": "Call Grace back"
+            },
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:2",
+                "tag": "leaf",
+                "text": "Send Linus the quote"
+            },
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 24,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "",
+                "key": "status",
+                "tag": "leaf",
+                "text": ""
+            }
+        ],
+        "intent": "",
+        "key": "",
+        "tag": "col",
+        "text": ""
+    },
+    "status": "success"
+}
