@@ -6,7 +6,7 @@
 use igniter_vm::instructions::*;
 use igniter_vm::tbackend::MemoryHistoryBackend;
 use igniter_vm::value::Value;
-use igniter_vm::vm::VM;
+use igniter_vm::vm::{VM, MAX_COLLECTION_ELEMENTS};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task;
@@ -65,6 +65,10 @@ fn op_call(name: &str) -> Instruction {
         OP_CALL,
         vec![Value::String(Arc::from(name)), Value::Integer(2)],
     )
+}
+
+fn op_jmp(target: i64) -> Instruction {
+    Instruction::new(OP_JMP, vec![Value::Integer(target)])
 }
 
 fn op_ret() -> Instruction {
@@ -480,6 +484,39 @@ async fn decimal_large_order_does_not_lose_f64_precision() {
         Ok(Value::Bool(true))
     );
 }
+
+#[tokio::test]
+async fn vm_runtime_step_budget_stops_nonprogress_jump() {
+    assert_err_contains(
+        run_bytecode(vec![op_jmp(0)]).await,
+        "OOF-VM-BUDGET",
+    );
+}
+
+#[tokio::test]
+async fn vm_collection_budget_rejects_huge_range_before_allocation() {
+    use igniter_vm::compiler::Compiler;
+
+    let contract = serde_json::json!({
+        "contract_id": "HugeRangeBudget",
+        "inputs": [],
+        "expression": {
+            "kind": "range",
+            "start": { "kind": "literal", "value": 0 },
+            "end": { "kind": "literal", "value": (MAX_COLLECTION_ELEMENTS as i64) + 1 }
+        }
+    });
+
+    let mut compiler = Compiler::new();
+    let bytecode = compiler.compile(&contract).expect("Compilation failed");
+    assert_err_contains(
+        VM::new(None)
+            .execute(&bytecode, &HashMap::new(), &HashMap::new())
+            .await,
+        "OOF-VM-COLLECTION-BUDGET",
+    );
+}
+
 
 #[tokio::test]
 async fn test_numeric_fallbacks() {

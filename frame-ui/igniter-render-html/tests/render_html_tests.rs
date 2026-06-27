@@ -147,6 +147,25 @@ fn link_rejects_dangerous_schemes_without_emitting_anchor() {
 }
 
 #[test]
+fn link_rejects_control_character_scheme_bypasses_and_protocol_relative_urls() {
+    for href in [
+        "java\\nscript:alert(1)",
+        "java\\tscript:alert(1)",
+        "\\u0001javascript:alert(1)",
+        "//evil.example/x",
+    ] {
+        let artifact = format!(
+            r#"{{ "artifact":"view", "layout":"form", "title":"Nav", "body":[ {{ "kind":"link", "text":"Click", "action":"{href}" }} ] }}"#
+        );
+        let r = render_html(&artifact);
+        assert!(
+            matches!(r, Err(RenderHtmlError::UnsafeUrl(_))),
+            "href {href:?} must fail closed, got {r:?}"
+        );
+    }
+}
+
+#[test]
 fn link_text_and_href_are_escaped() {
     // malicious label + an href carrying an HTML-significant `&` are both escaped on the way to bytes.
     let artifact = r#"{ "artifact":"view", "layout":"form", "title":"X",
@@ -163,6 +182,21 @@ fn link_text_and_href_are_escaped() {
     assert!(
         html.contains("href=\"/q?a=1&amp;b=2\""),
         "href escaped: {html}"
+    );
+}
+
+#[test]
+fn link_href_attribute_escapes_double_and_single_quotes() {
+    let artifact = r#"{ "artifact":"view", "layout":"form", "title":"X",
+        "body":[ { "kind":"link", "text":"Quotes", "action":"/q?double=\"&single='" } ] }"#;
+    let html = render_html(artifact).unwrap();
+    assert!(
+        html.contains("href=\"/q?double=&quot;&amp;single=&#x27;\""),
+        "href attribute quotes escaped: {html}"
+    );
+    assert!(
+        !html.contains("href=\"/q?double=\"&single='\""),
+        "raw attribute quotes must not leak: {html}"
     );
 }
 
