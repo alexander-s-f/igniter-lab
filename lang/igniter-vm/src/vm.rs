@@ -114,6 +114,34 @@ pub struct DispatchEntry {
 // Prevents stack overflow from deep or cyclic dispatch chains.
 pub const MAX_CALL_DEPTH: i64 = 64;
 
+fn checked_int_add(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_add(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_sub(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_sub(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_mul(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_mul(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_div(a: i64, b: i64) -> Result<i64, String> {
+    if b == 0 {
+        return Err("Division by zero".to_string());
+    }
+    a.checked_div(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_neg(a: i64) -> Result<i64, String> {
+    a.checked_neg()
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
 // LAB-FUNCTION-SIR-RUNTIME-P1: a statically-emitted app-local `def` function.
 // params: parameter names in declaration order; body: runnable SIR (eval_ast-evaluated).
 // Built from the igapp `functions` array at load time. No dynamic dispatch: only names
@@ -408,7 +436,9 @@ impl VM {
                                 Err(e) => return Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_add(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
                         _ => {
                             return Err(format!("Invalid operand types for ADD: {:?} + {:?}", a, b))
@@ -446,7 +476,9 @@ impl VM {
                                 Err(e) => return Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av - bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_sub(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av - bv),
                         _ => {
                             return Err(format!("Invalid operand types for SUB: {:?} - {:?}", a, b))
@@ -482,7 +514,9 @@ impl VM {
                                 scale: res_dec.scale,
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av * bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_mul(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av * bv),
                         _ => {
                             return Err(format!("Invalid operand types for MUL: {:?} * {:?}", a, b))
@@ -521,10 +555,7 @@ impl VM {
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
-                            if *bv == 0 {
-                                return Err("Division by zero".to_string());
-                            }
-                            Value::Integer(av / bv)
+                            Value::Integer(checked_int_div(*av, *bv)?)
                         }
                         (Value::Float(av), Value::Float(bv)) => {
                             if *bv == 0.0 {
@@ -2774,7 +2805,7 @@ impl VM {
                 OP_NEG => {
                     let val = stack.pop().ok_or("Stack underflow during NEG")?;
                     let res = match val {
-                        Value::Integer(i) => Value::Integer(-i),
+                        Value::Integer(i) => Value::Integer(checked_int_neg(i)?),
                         Value::Float(f) => Value::Float(-f),
                         Value::Decimal { value, scale } => Value::Decimal {
                             value: -value,
@@ -4105,7 +4136,9 @@ fn eval_ast<'a>(
                                 Err(e) => Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av + bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_add(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
                         _ => Err(format!(
                             "Invalid operand types for ADD: {:?} + {:?}",
@@ -4133,7 +4166,9 @@ fn eval_ast<'a>(
                                 Err(e) => Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av - bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_sub(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
                         _ => Err(format!(
                             "Invalid operand types for SUB: {:?} - {:?}",
@@ -4159,7 +4194,9 @@ fn eval_ast<'a>(
                                 scale: res_dec.scale,
                             })
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av * bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_mul(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
                         _ => Err(format!(
                             "Invalid operand types for MUL: {:?} * {:?}",
@@ -4188,11 +4225,7 @@ fn eval_ast<'a>(
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
-                            if *bv == 0 {
-                                Err("Division by zero".to_string())
-                            } else {
-                                Ok(Value::Integer(av / bv))
-                            }
+                            Ok(Value::Integer(checked_int_div(*av, *bv)?))
                         }
                         (Value::Float(av), Value::Float(bv)) => {
                             if *bv == 0.0 {
@@ -4352,7 +4385,7 @@ fn eval_ast<'a>(
                         _ => Err(format!("Invalid operand type for NOT operator: {:?}", val)),
                     },
                     "-" => match val {
-                        Value::Integer(i) => Ok(Value::Integer(-i)),
+                        Value::Integer(i) => Ok(Value::Integer(checked_int_neg(i)?)),
                         Value::Float(f) => Ok(Value::Float(-f)),
                         Value::Decimal { value, scale } => Ok(Value::Decimal {
                             value: -value,
@@ -5907,7 +5940,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av + bv))
+                                    Ok(Value::Integer(checked_int_add(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
                                 _ => Err(format!(
@@ -5937,7 +5970,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av - bv))
+                                    Ok(Value::Integer(checked_int_sub(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
                                 _ => Err(format!(
@@ -5965,7 +5998,7 @@ fn eval_ast<'a>(
                                     })
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av * bv))
+                                    Ok(Value::Integer(checked_int_mul(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
                                 _ => Err(format!(
@@ -5995,11 +6028,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    if *bv == 0 {
-                                        Err("Division by zero".to_string())
-                                    } else {
-                                        Ok(Value::Integer(av / bv))
-                                    }
+                                    Ok(Value::Integer(checked_int_div(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => {
                                     if *bv == 0.0 {

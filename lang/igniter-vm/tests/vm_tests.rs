@@ -44,8 +44,111 @@ fn op_div() -> Instruction {
     Instruction::new(OP_DIV, vec![])
 }
 
+fn op_neg() -> Instruction {
+    Instruction::new(OP_NEG, vec![])
+}
+
 fn op_ret() -> Instruction {
     Instruction::new(OP_RET, vec![])
+}
+
+async fn run_bytecode(instructions: Vec<Instruction>) -> Result<Value, String> {
+    VM::new(None)
+        .execute(&instructions, &HashMap::new(), &HashMap::new())
+        .await
+}
+
+fn assert_err_contains(result: Result<Value, String>, expected: &str) {
+    match result {
+        Err(err) => assert!(
+            err.contains(expected),
+            "expected error containing '{expected}', got '{err}'"
+        ),
+        Ok(value) => panic!("expected error containing '{expected}', got value {value:?}"),
+    }
+}
+
+#[tokio::test]
+async fn checked_integer_arithmetic_errors_in_bytecode_path() {
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(i64::MAX)),
+            push_lit(Value::Integer(1)),
+            op_add(),
+            op_ret(),
+        ])
+        .await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(i64::MIN)),
+            push_lit(Value::Integer(1)),
+            op_sub(),
+            op_ret(),
+        ])
+        .await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(i64::MAX)),
+            push_lit(Value::Integer(2)),
+            op_mul(),
+            op_ret(),
+        ])
+        .await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(i64::MIN)),
+            push_lit(Value::Integer(-1)),
+            op_div(),
+            op_ret(),
+        ])
+        .await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(i64::MIN)),
+            op_neg(),
+            op_ret(),
+        ])
+        .await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_bytecode(vec![
+            push_lit(Value::Integer(1)),
+            push_lit(Value::Integer(0)),
+            op_div(),
+            op_ret(),
+        ])
+        .await,
+        "Division by zero",
+    );
+
+    assert_eq!(
+        run_bytecode(vec![
+            push_lit(Value::Integer(40)),
+            push_lit(Value::Integer(2)),
+            op_add(),
+            op_ret(),
+        ])
+        .await,
+        Ok(Value::Integer(42))
+    );
+    assert_eq!(
+        run_bytecode(vec![
+            push_lit(Value::Integer(-7)),
+            op_neg(),
+            op_ret(),
+        ])
+        .await,
+        Ok(Value::Integer(7))
+    );
 }
 
 #[tokio::test]
@@ -509,6 +612,82 @@ async fn test_map_reduce_aggregate_optimizations() {
         .execute(&bytecode_fold, &HashMap::new(), &HashMap::new())
         .await;
     assert_eq!(res_fold, Ok(Value::Integer(15)));
+
+    // Checked arithmetic also applies inside HOF lambda bodies, which use eval_ast.
+    let contract_checked_fold_json = serde_json::json!({
+        "contract_id": "MapReduceCheckedFoldTest",
+        "inputs": [],
+        "expression": {
+            "kind": "map_reduce_aggregate",
+            "source": {
+                "kind": "array_literal",
+                "items": [
+                    { "kind": "literal", "value": 1 }
+                ]
+            },
+            "pipeline": [
+                {
+                    "kind": "fold",
+                    "param_acc": "acc",
+                    "param_val": "y",
+                    "init": { "kind": "literal", "value": i64::MAX },
+                    "body": {
+                        "kind": "binary_op",
+                        "operator": "+",
+                        "left": { "kind": "ref", "name": "acc" },
+                        "right": { "kind": "ref", "name": "y" }
+                    }
+                }
+            ]
+        }
+    });
+    let bytecode_checked_fold = compiler
+        .compile(&contract_checked_fold_json)
+        .expect("Compilation failed");
+    assert_err_contains(
+        vm.execute(&bytecode_checked_fold, &HashMap::new(), &HashMap::new())
+            .await,
+        "Integer overflow",
+    );
+
+    // The eval_ast call/operator table is a separate dispatch surface from binary_op.
+    let contract_checked_call_json = serde_json::json!({
+        "contract_id": "MapReduceCheckedCallTest",
+        "inputs": [],
+        "expression": {
+            "kind": "map_reduce_aggregate",
+            "source": {
+                "kind": "array_literal",
+                "items": [
+                    { "kind": "literal", "value": 1 }
+                ]
+            },
+            "pipeline": [
+                {
+                    "kind": "fold",
+                    "param_acc": "acc",
+                    "param_val": "y",
+                    "init": { "kind": "literal", "value": i64::MAX },
+                    "body": {
+                        "kind": "call",
+                        "fn": "add",
+                        "args": [
+                            { "kind": "ref", "name": "acc" },
+                            { "kind": "ref", "name": "y" }
+                        ]
+                    }
+                }
+            ]
+        }
+    });
+    let bytecode_checked_call = compiler
+        .compile(&contract_checked_call_json)
+        .expect("Compilation failed");
+    assert_err_contains(
+        vm.execute(&bytecode_checked_call, &HashMap::new(), &HashMap::new())
+            .await,
+        "Integer overflow",
+    );
 
     // Test Case 3: first(map(filter(range(1, 10), x > 5), x * 2)) -> Expected: 12 (first matches 6, 6 * 2 = 12)
     let contract_first_json = serde_json::json!({
