@@ -34,9 +34,28 @@ pub enum Size {
     Flex(i64),
 }
 
-/// A node in the layout tree. Cross-axis sizing is "stretch": a child fills its parent's content
-/// extent on the cross axis (the v0 default — predictable and deterministic; per-child cross
-/// alignment is a later slice).
+/// A box's size along its parent's CROSS axis (perpendicular to the parent's main axis). `Stretch`
+/// (the default) fills the parent's cross content extent; `Fixed(n)` takes exactly `n` px and is then
+/// positioned by the parent's [`Align`]. (True size-to-content/intrinsic sizing needs text metrics —
+/// out of scope for the machine-free engine; author the cross size explicitly with `Fixed`.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrossSize {
+    Stretch,
+    Fixed(i64),
+}
+
+/// Where a container places a child that is NOT cross-stretched (`CrossSize::Fixed`) along the cross
+/// axis — the layout analogue of CSS `align-items`. Stretched children ignore this (they fill).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Start,
+    Center,
+    End,
+}
+
+/// A node in the layout tree. The MAIN axis (`dir`) uses fixed/flex sizing; the CROSS axis defaults
+/// to stretch but a child may take a fixed cross size (`cross`) and be positioned by its parent's
+/// `align` — a deterministic flexbox subset.
 #[derive(Clone, Debug)]
 pub struct LayoutBox {
     pub id: String,
@@ -44,6 +63,10 @@ pub struct LayoutBox {
     pub dir: Dir,
     /// This box's size along its parent's main axis.
     pub main: Size,
+    /// This box's size along its parent's cross axis (`Stretch` by default).
+    pub cross: CrossSize,
+    /// How THIS box positions its non-stretched children on the cross axis (`Start` by default).
+    pub align: Align,
     /// Uniform inner padding (insets the content box on all four sides).
     pub pad: i64,
     /// Gap inserted between adjacent children along the main axis.
@@ -58,6 +81,8 @@ impl LayoutBox {
             id: id.into(),
             dir: Dir::Col,
             main,
+            cross: CrossSize::Stretch,
+            align: Align::Start,
             pad: 0,
             gap: 0,
             children: Vec::new(),
@@ -70,6 +95,8 @@ impl LayoutBox {
             id: id.into(),
             dir: Dir::Col,
             main,
+            cross: CrossSize::Stretch,
+            align: Align::Start,
             pad: 0,
             gap: 0,
             children,
@@ -82,6 +109,8 @@ impl LayoutBox {
             id: id.into(),
             dir: Dir::Row,
             main,
+            cross: CrossSize::Stretch,
+            align: Align::Start,
             pad: 0,
             gap: 0,
             children,
@@ -97,6 +126,18 @@ impl LayoutBox {
     /// Builder: set the gap between children.
     pub fn gap(mut self, gap: i64) -> Self {
         self.gap = gap.max(0);
+        self
+    }
+
+    /// Builder: take a fixed cross-axis size (instead of stretching to fill the parent cross extent).
+    pub fn cross(mut self, n: i64) -> Self {
+        self.cross = CrossSize::Fixed(n.max(0));
+        self
+    }
+
+    /// Builder: set how this box positions its non-stretched children on the cross axis.
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
         self
     }
 }
@@ -149,10 +190,25 @@ fn place(b: &LayoutBox, x: i64, y: i64, w: i64, h: i64, out: &mut Vec<Rect>) {
 
     let mut offset = if b.dir == Dir::Col { cy } else { cx };
     for (child, main) in b.children.iter().zip(mains) {
+        // cross-axis size: stretch fills the parent cross content; fixed clamps into it
+        let child_cross = match child.cross {
+            CrossSize::Stretch => cross,
+            CrossSize::Fixed(n) => n.clamp(0, cross),
+        };
+        // cross-axis offset within the parent cross content (stretched children sit at the start)
+        let cross_off = match child.cross {
+            CrossSize::Stretch => 0,
+            CrossSize::Fixed(_) => match b.align {
+                Align::Start => 0,
+                Align::Center => (cross - child_cross) / 2,
+                Align::End => cross - child_cross,
+            }
+            .max(0),
+        };
         let (rx, ry, rw, rh) = if b.dir == Dir::Col {
-            (cx, offset, cross, main)
+            (cx + cross_off, offset, child_cross, main)
         } else {
-            (offset, cy, main, cross)
+            (offset, cy + cross_off, main, child_cross)
         };
         place(child, rx, ry, rw, rh, out);
         offset += main + b.gap;
@@ -264,7 +320,8 @@ pub struct ParseError {
 const MAX_PARSE_DEPTH: usize = 32;
 
 /// Parse a compact, indentation-based layout DSL into a `LayoutBox` tree. Each line is
-/// `<kind> <id> [fixed N | flex N] [pad N] [gap N]`, where `kind` is `col` / `row` / `leaf`;
+/// `<kind> <id> [fixed N | flex N] [pad N] [gap N] [cross N] [align start|center|end]`, where `kind`
+/// is `col` / `row` / `leaf`;
 /// two leading spaces nest a child under the line above. Blank lines and `#` / `--` comments are
 /// ignored. **Total**: any malformed line yields a `ParseError` with its 1-based number — never a
 /// panic — so it is safe to drive from a live text field.
@@ -332,16 +389,34 @@ fn parse_line(s: &str, lineno: usize) -> Result<LayoutBox, ParseError> {
         "row" => Dir::Row,
         other => return Err(err(format!("unknown node kind `{other}` (expected col/row/leaf)"))),
     };
-    let mut b = LayoutBox { id: id.to_string(), dir, main: Size::Flex(1), pad: 0, gap: 0, children: Vec::new() };
+    let mut b = LayoutBox {
+        id: id.to_string(),
+        dir,
+        main: Size::Flex(1),
+        cross: CrossSize::Stretch,
+        align: Align::Start,
+        pad: 0,
+        gap: 0,
+        children: Vec::new(),
+    };
     while let Some(key) = toks.next() {
         let val = toks.next().ok_or_else(|| err(format!("`{key}` needs a value")))?;
-        let n: i64 = val.parse().map_err(|_| err(format!("`{key}` value `{val}` is not an integer")))?;
+        let int = || val.parse::<i64>().map_err(|_| err(format!("`{key}` value `{val}` is not an integer")));
         match key {
-            "fixed" => b.main = Size::Fixed(n.max(0)),
-            "flex" => b.main = Size::Flex(n.max(1)),
-            "pad" => b.pad = n.max(0),
-            "gap" => b.gap = n.max(0),
-            other => return Err(err(format!("unknown attribute `{other}` (expected fixed/flex/pad/gap)"))),
+            "fixed" => b.main = Size::Fixed(int()?.max(0)),
+            "flex" => b.main = Size::Flex(int()?.max(1)),
+            "pad" => b.pad = int()?.max(0),
+            "gap" => b.gap = int()?.max(0),
+            "cross" => b.cross = CrossSize::Fixed(int()?.max(0)),
+            "align" => {
+                b.align = match val {
+                    "start" => Align::Start,
+                    "center" => Align::Center,
+                    "end" => Align::End,
+                    other => return Err(err(format!("unknown align `{other}` (expected start/center/end)"))),
+                }
+            }
+            other => return Err(err(format!("unknown attribute `{other}` (expected fixed/flex/pad/gap/cross/align)"))),
         }
     }
     Ok(b)
@@ -642,6 +717,46 @@ mod tests {
         assert!(!svg.contains("<script>") && svg.contains("&lt;script&gt;"));
         // a parse error renders a card, not a panic
         assert!(error_svg(&parse("nope").unwrap_err(), 200, 80).contains("parse error"));
+    }
+
+    #[test]
+    fn cross_align_positions_fixed_cross_children() {
+        // ROW: cross axis = vertical. A 40-tall child in a 100-tall row, centered → y = (100-40)/2.
+        let center = LayoutBox::row("r", Size::Fixed(0), vec![LayoutBox::leaf("a", Size::Flex(1)).cross(40)])
+            .align(Align::Center);
+        let a = rect(&solve(&center, 0, 0, 300, 100), "a").clone();
+        assert_eq!((a.y, a.h), (30, 40));
+        assert_eq!((a.x, a.w), (0, 300)); // main axis still flexes to fill
+
+        let end = LayoutBox::row("r", Size::Fixed(0), vec![LayoutBox::leaf("a", Size::Flex(1)).cross(40)])
+            .align(Align::End);
+        assert_eq!(rect(&solve(&end, 0, 0, 300, 100), "a").y, 60);
+
+        // COL: cross axis = horizontal. A 120-wide child in a 400-wide col, centered → x = (400-120)/2.
+        let col = LayoutBox::col("c", Size::Fixed(0), vec![LayoutBox::leaf("b", Size::Flex(1)).cross(120)])
+            .align(Align::Center);
+        let b = rect(&solve(&col, 0, 0, 400, 200), "b").clone();
+        assert_eq!((b.x, b.w), (140, 120));
+
+        // a stretched sibling still fills (ignores align), so the two models compose
+        let mixed = LayoutBox::col("c", Size::Fixed(0), vec![
+            LayoutBox::leaf("full", Size::Fixed(20)),
+            LayoutBox::leaf("chip", Size::Fixed(20)).cross(80),
+        ]).align(Align::Center);
+        let rs = solve(&mixed, 0, 0, 200, 100);
+        assert_eq!((rect(&rs, "full").x, rect(&rs, "full").w), (0, 200));
+        assert_eq!((rect(&rs, "chip").x, rect(&rs, "chip").w), (60, 80));
+    }
+
+    #[test]
+    fn dsl_parses_cross_and_align() {
+        let t = parse("row bar align center\n  leaf chip fixed 100 cross 24").unwrap();
+        assert!(matches!(t.align, Align::Center));
+        assert!(matches!(t.children[0].cross, CrossSize::Fixed(24)));
+        // a 24-tall chip centered in a 60-tall bar → y = 18
+        assert_eq!(rect(&solve(&t, 0, 0, 300, 60), "chip").y, 18);
+        // bad align word is a clean error
+        assert!(parse("row bar align middle").unwrap_err().msg.contains("unknown align"));
     }
 
     #[test]

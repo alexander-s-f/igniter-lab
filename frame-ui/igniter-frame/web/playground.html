@@ -30,7 +30,7 @@
 <body>
   <header>
     <h1>Layout playground — author a screen as text</h1>
-    <p class="sub">Type a layout in the box. Each line is <code>&lt;kind&gt; &lt;id&gt; [fixed N | flex N] [pad N] [gap N]</code>, where <code>kind</code> is <code>col</code> / <code>row</code> / <code>leaf</code>; two spaces of indent nest a child. The Rust <code>layout::parse</code> + <code>solve</code> run in your browser on every keystroke and draw the solved boxes — deterministic, machine-free. This is the text surface the layout vocabulary opens (the engine behind <a href="./list.html">list</a> / <a href="./table.html">table</a>).</p>
+    <p class="sub">Type a layout in the box. Each line is <code>&lt;kind&gt; &lt;id&gt; [fixed N | flex N] [pad N] [gap N] [cross N] [align start|center|end]</code>, where <code>kind</code> is <code>col</code> / <code>row</code> / <code>leaf</code>; two spaces of indent nest a child. <code>cross N</code> gives a fixed cross-axis size and <code>align</code> places such children on the cross axis. The Rust <code>layout::parse</code> + <code>solve</code> run in your browser on every keystroke and draw the solved boxes — deterministic, machine-free. This is the text surface the layout vocabulary opens (the engine behind <a href="./list.html">list</a> / <a href="./table.html">table</a> / <a href="./form.html">form</a>).</p>
   </header>
   <div id="app">
     <div class="col">
@@ -40,6 +40,7 @@
         <button data-ex="shell">app shell</button>
         <button data-ex="split">3-pane</button>
         <button data-ex="form">form</button>
+        <button data-ex="aligned">aligned</button>
         <button data-ex="holy">holy grail</button>
       </div>
     </div>
@@ -80,6 +81,14 @@
   row actions fixed 44 gap 10
     leaf cancel flex 1
     leaf submit flex 1`,
+      aligned: `col card pad 16 gap 14 align center
+  leaf banner fixed 40 cross 360
+  row toolbar fixed 40 align center
+    leaf spacer flex 1
+    leaf save fixed 90 cross 28
+    leaf cancel fixed 90 cross 28
+  leaf body flex 1
+  leaf status fixed 24 cross 200`,
       holy: `col page gap 8 pad 8
   leaf masthead fixed 44
   row body flex 1 gap 8
