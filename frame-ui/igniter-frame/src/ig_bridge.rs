@@ -108,23 +108,37 @@ fn node_for(rect: &Rect, i: &ElInfo) -> ProjectedNode {
     }
 }
 
-/// Render an `.ig` `Element` tree (as JSON) to an SVG via the frame-ui pipeline (layout → solve →
-/// canonical widgets → shared host). Total: malformed/missing fields degrade to empty/zero, no panic.
-pub fn render_ig_view(element_json: &str, w: i64, h: i64) -> String {
-    let host = WidgetRenderHost::new(w, h);
-    let el: Value = match serde_json::from_str(element_json) {
-        Ok(v) => v,
-        Err(e) => return error_svg(&format!("bad Element JSON: {e}"), w, h),
-    };
+fn frame_from_element(el: &Value, w: i64, h: i64) -> crate::Frame {
     let mut info: HashMap<String, ElInfo> = HashMap::new();
-    let tree = element_to_layout(&el, "0".to_string(), &mut info);
+    let tree = element_to_layout(el, "0".to_string(), &mut info);
     let rects = solve(&tree, 0, 0, w, h);
     let nodes: Vec<ProjectedNode> = rects
         .iter()
         .filter_map(|r| info.get(&r.id).map(|i| node_for(r, i)))
         .collect();
-    let frame = crate::Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes };
-    host.render(&frame)
+    crate::Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes }
+}
+
+/// Project an `.ig` `Element` tree (as JSON) into the SEMANTIC `Frame` the bridge renders — layout →
+/// solve → canonical widget nodes, with each `Element.intent` preserved on `ProjectedNode.intent` so
+/// the nodes are hit-testable and can drive the frame input loop. Total + fail-closed: malformed JSON
+/// yields an EMPTY frame (no panic). This is the same node set `render_ig_view` draws — so interaction
+/// uses the same semantics as rendering, never a re-parse of the SVG.
+pub fn project_ig_element(element_json: &str, w: i64, h: i64) -> crate::Frame {
+    match serde_json::from_str::<Value>(element_json) {
+        Ok(el) => frame_from_element(&el, w, h),
+        Err(_) => crate::Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes: Vec::new() },
+    }
+}
+
+/// Render an `.ig` `Element` tree (as JSON) to an SVG via the frame-ui pipeline (layout → solve →
+/// canonical widgets → shared host). Total: malformed JSON yields an error card, no panic.
+pub fn render_ig_view(element_json: &str, w: i64, h: i64) -> String {
+    let host = WidgetRenderHost::new(w, h);
+    match serde_json::from_str::<Value>(element_json) {
+        Ok(el) => host.render(&frame_from_element(&el, w, h)),
+        Err(e) => error_svg(&format!("bad Element JSON: {e}"), w, h),
+    }
 }
 
 fn error_svg(msg: &str, w: i64, h: i64) -> String {
