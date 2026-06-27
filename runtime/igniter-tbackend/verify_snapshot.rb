@@ -73,7 +73,7 @@ FileUtils.mkdir_p(DATA_DIR)
 
 # 1. Spawn the compiled TBackend standalone daemon on port 7409 pointing to compaction_data/
 puts "\n[TBackend Daemon] Spawning daemon in the background on port 7409..."
-daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --unsafe-compaction true", out: "/dev/null", err: "/dev/null")
+daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --enable-compaction true", out: "/dev/null", err: "/dev/null")
 sleep 1.0 # Allow socket to bind
 
 begin
@@ -183,7 +183,7 @@ begin
   Process.wait(daemon_pid)
 
   puts "\n[TBackend Daemon] Rebooting daemon on port 7409 using compacted storage..."
-  daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --unsafe-compaction true", out: "/dev/null", err: "/dev/null")
+  daemon_pid = spawn("./target/release/tbackend --host 127.0.0.1 --port 7409 --data-dir #{DATA_DIR} --pool-size 4 --enable-compaction true", out: "/dev/null", err: "/dev/null")
   sleep 1.0 # Allow bind
 
   client2 = SnapshotTestClient.new("127.0.0.1", 7409)

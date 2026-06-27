@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Proof harness for LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6.
+"""Proof harness for LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12.
 
-Two phases, each on a temporary loopback daemon (temp port + temp data dir):
+After P12, compaction has a SAFE manual mode. This proves it on temporary
+loopback daemons (temp port + temp data dir; the standing 127.0.0.1:7401 is never
+touched):
 
-  Phase 1 (gate):  default daemon (no --unsafe-compaction) must REFUSE
-                   snapshot_trigger with error_code=compaction_disabled_unsafe.
-
-  Phase 2 (B3):    daemon started with --unsafe-compaction true reproduces the
-                   concurrent-write loss: a fact write_fact-acked (ok:true)
-                   while a compaction sweep is between its snapshot read and its
-                   engine swap is silently dropped from the store. This is the
-                   data-loss path the gate disables by default.
-
-Never touches the standing 127.0.0.1:7401 service. Uses port 7431 + a temp data
-dir and proves no listener remains afterwards.
+  Phase 1 (gate):     default daemon refuses snapshot_trigger (compaction_disabled);
+                      the removed --unsafe-compaction flag does NOT enable it.
+  Phase 2 (no loss):  with --enable-compaction true, writes issued concurrently
+                      with a compaction are NOT lost (the stop-the-world gate; the
+                      B3 fix — vs the pre-P12 19/28 loss), file+dir fsyncs ran
+                      (durable rename, B4), retained facts keep their seq_id and a
+                      new insert continues the sequence (B5), canonical hash kept.
+  Phase 3 (busy):     a second concurrent trigger gets compaction_in_progress.
+  Phase 4 (crash):    SIGKILL after a compaction; restart replays the compacted
+                      store with no loss and seqs intact.
 """
 
 import json
@@ -30,11 +31,11 @@ import zlib
 
 HOST = "127.0.0.1"
 PORT = 7431
-DATA_DIR = "compaction_loss_data"
-LOG_PATH = "compaction_loss_daemon.log"
+DATA_DIR = "compaction_safe_data"
+LOG_PATH = "compaction_safe_daemon.log"
 BINARY = "./target/release/tbackend"
-STORE = "ledger_loss"
-TARGET_STORE = "ledger_loss_rollup"
+STORE = "ledger_safe"
+TARGET_STORE = "ledger_safe_rollup"
 
 FAILED = 0
 
@@ -54,8 +55,7 @@ def encode_frame(req):
 
 
 def recvall(sock, size):
-    chunks = []
-    remaining = size
+    chunks, remaining = [], size
     while remaining > 0:
         chunk = sock.recv(remaining)
         if not chunk:
@@ -65,13 +65,12 @@ def recvall(sock, size):
     return b"".join(chunks)
 
 
-def one_req(req, timeout=10.0):
-    with socket.create_connection((HOST, PORT), timeout=3.0) as sock:
+def one_req(req, timeout=30.0):
+    with socket.create_connection((HOST, PORT), timeout=5.0) as sock:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.settimeout(timeout)
         sock.sendall(encode_frame(req))
-        header = recvall(sock, 4)
-        length = struct.unpack(">I", header)[0]
+        length = struct.unpack(">I", recvall(sock, 4))[0]
         body = recvall(sock, length)
         recvall(sock, 4)
         return json.loads(body.decode("utf-8"))
@@ -105,19 +104,31 @@ def store_size():
     return int(resp.get("size", -1)) if resp.get("ok") else -1
 
 
-def key_present(key):
+def facts_for_key(key):
     resp = one_req({"op": "facts_for", "store": STORE, "key": key})
-    return resp.get("ok") and len(resp.get("facts", [])) > 0
+    return resp.get("facts", []) if resp.get("ok") else []
 
 
-def start_daemon(unsafe_compaction):
-    shutil.rmtree(DATA_DIR, ignore_errors=True)
-    try:
-        os.remove(LOG_PATH)
-    except FileNotFoundError:
-        pass
-    log = open(LOG_PATH, "wb")
+def all_facts_by_seq():
+    resp = one_req({"op": "facts_by_seq", "store": STORE, "after_seq": 0})
+    return resp.get("facts", []) if resp.get("ok") else []
+
+
+def compaction_stats():
+    return one_req({"op": "__compaction_stats"})
+
+
+def start_daemon(enable_compaction=False, unsafe_compaction=False, wipe=True):
+    if wipe:
+        shutil.rmtree(DATA_DIR, ignore_errors=True)
+        try:
+            os.remove(LOG_PATH)
+        except FileNotFoundError:
+            pass
+    log = open(LOG_PATH, "ab")
     args = [BINARY, "--host", HOST, "--port", str(PORT), "--data-dir", DATA_DIR, "--pool-size", "8"]
+    if enable_compaction:
+        args += ["--enable-compaction", "true"]
     if unsafe_compaction:
         args += ["--unsafe-compaction", "true"]
     proc = subprocess.Popen(args, stdout=log, stderr=log)
@@ -133,9 +144,12 @@ def start_daemon(unsafe_compaction):
     raise RuntimeError("daemon did not become ready")
 
 
-def stop_daemon(proc):
+def stop_daemon(proc, kill=False):
     if proc.poll() is None:
-        proc.send_signal(signal.SIGINT)
+        if kill:
+            proc.kill()
+        else:
+            proc.send_signal(signal.SIGINT)
         try:
             proc.wait(timeout=8)
         except subprocess.TimeoutExpired:
@@ -157,6 +171,23 @@ def create_policy():
     return resp["policy_id"]
 
 
+def seed_warm(n, now):
+    """Bulk-seed n warm facts on one persistent socket; returns acked count."""
+    acked = 0
+    with socket.create_connection((HOST, PORT), timeout=5.0) as sock:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.settimeout(20.0)
+        for i in range(n):
+            f = make_fact(f"warm:{i}", now, "warm")
+            sock.sendall(encode_frame({"op": "write_fact", "fact": f}))
+            length = struct.unpack(">I", recvall(sock, 4))[0]
+            resp = json.loads(recvall(sock, length).decode("utf-8"))
+            recvall(sock, 4)
+            if resp.get("ok"):
+                acked += 1
+    return acked
+
+
 def listener_present():
     try:
         socket.create_connection((HOST, PORT), timeout=1.0).close()
@@ -165,11 +196,11 @@ def listener_present():
         return False
 
 
-# ── Phase 1: gate refuses by default ─────────────────────────────────────────
+# ── Phase 1: gate ────────────────────────────────────────────────────────────
 
 def phase_gate():
-    print("\n== Phase 1: default daemon must refuse compaction ==")
-    proc = start_daemon(unsafe_compaction=False)
+    print("\n== Phase 1: gate — disabled by default; --unsafe-compaction does not enable ==")
+    proc = start_daemon(enable_compaction=False, unsafe_compaction=True)
     try:
         now = time.time()
         write_fact(make_fact("warm:1", now, "p"))
@@ -177,9 +208,8 @@ def phase_gate():
         policy_id = create_policy()
         resp = one_req({"op": "snapshot_trigger", "policy_id": policy_id})
         check(resp.get("ok") is False, f"snapshot_trigger refused (ok={resp.get('ok')})")
-        check(resp.get("error_code") == "compaction_disabled_unsafe",
-              f"refusal carries compaction_disabled_unsafe (got {resp.get('error_code')})")
-        # auto-sweep must not have run either: wait > one 5s tick and confirm no loss
+        check(resp.get("error_code") == "compaction_disabled",
+              f"refusal carries compaction_disabled (got {resp.get('error_code')})")
         size_before = store_size()
         time.sleep(6.0)
         check(store_size() == size_before,
@@ -188,68 +218,145 @@ def phase_gate():
         stop_daemon(proc)
 
 
-# ── Phase 2: unsafe compaction drops a concurrent write ───────────────────────
+# ── Phase 2: safe compaction loses nothing + durable + seq-preserving ─────────
 
-def phase_loss():
-    print("\n== Phase 2: --unsafe-compaction true drops concurrent writes (B3) ==")
-    proc = start_daemon(unsafe_compaction=True)
+def phase_safe():
+    print("\n== Phase 2: --enable-compaction true — zero loss + durable rename + seq continuity ==")
+    proc = start_daemon(enable_compaction=True)
     try:
         now = time.time()
-        # 1 cold fact so compaction actually performs the swap.
-        write_fact(make_fact("cold:1", now - 100000.0, "cold"))
-        # Many warm facts to widen the read->build->swap window.
-        warm_seed = 30000
-        print(f"  seeding {warm_seed} warm facts to widen the compaction window...")
-        # fast bulk seed on a single persistent socket
-        with socket.create_connection((HOST, PORT), timeout=5.0) as sock:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.settimeout(10.0)
-            for n in range(warm_seed):
-                f = make_fact(f"warm:{n}", now, "warm")
-                sock.sendall(encode_frame({"op": "write_fact", "fact": f}))
-                length = struct.unpack(">I", recvall(sock, 4))[0]
-                recvall(sock, length)
-                recvall(sock, 4)
+        write_fact(make_fact("cold:1", now - 100000.0, "cold"))  # 1 cold -> swap happens
+        warm_seed = 40000
+        print(f"  seeding {warm_seed} warm facts (widens the compaction window)...")
+        seed_warm(warm_seed, now)
+
+        # hash of a known warm fact BEFORE compaction (server canonical hash)
+        pre = facts_for_key("warm:0")
+        pre_hash = pre[0]["value_hash"] if pre else None
+
         policy_id = create_policy()
+        stats0 = compaction_stats()
 
-        acked, lost = [], []
-        rounds = 3
-        for r in range(rounds):
-            # reseed the cold fact so each round has something to prune/swap
-            write_fact(make_fact(f"cold:r{r}", now - 100000.0, "cold"))
-            done = threading.Event()
-            result = {}
+        # Fire canaries from several threads WHILE compaction runs. With the
+        # stop-the-world gate they block then land on the new engine — none lost.
+        done = threading.Event()
+        lock = threading.Lock()
+        acked = []
 
-            def trigger():
-                result["resp"] = one_req({"op": "snapshot_trigger", "policy_id": policy_id})
-                done.set()
-
-            t = threading.Thread(target=trigger)
-            t.start()
-            # Spam canary writes during the sweep's build window.
+        def canary_writer(tid):
             i = 0
-            round_acked = []
             while not done.is_set():
-                key = f"canary:r{r}:{i}"
-                resp = write_fact(make_fact(key, time.time(), "canary"))
-                if resp.get("ok"):
-                    round_acked.append(key)
+                key = f"canary:{tid}:{i}"
+                if write_fact(make_fact(key, time.time(), "canary")).get("ok"):
+                    with lock:
+                        acked.append(key)
                 i += 1
-            t.join()
-            # Check survival of each acked canary AFTER the swap completed.
-            for key in round_acked:
-                acked.append(key)
-                if not key_present(key):
-                    lost.append(key)
-            print(f"  round {r}: acked {len(round_acked)} canaries, "
-                  f"swap result ok={result.get('resp', {}).get('ok')}")
 
-        print(f"  total acked canaries: {len(acked)}; silently lost after compaction: {len(lost)}")
-        check(len(acked) > 0, "canary writes were acked during compaction")
-        check(len(lost) > 0,
-              f"at least one ACKED write was silently lost by unsafe compaction (lost={len(lost)})")
+        writers = [threading.Thread(target=canary_writer, args=(t,)) for t in range(4)]
+        for w in writers:
+            w.start()
+        trig = one_req({"op": "snapshot_trigger", "policy_id": policy_id})
+        done.set()
+        for w in writers:
+            w.join()
+
+        check(trig.get("ok") is True, f"compaction succeeded (resp ok={trig.get('ok')})")
+        check(trig.get("durable_rename") is True, "response reports durable_rename=true")
+
+        lost = [k for k in acked if not facts_for_key(k)]
+        print(f"  acked {len(acked)} concurrent canaries during compaction; lost {len(lost)}")
+        check(len(acked) > 0, "canary writes were acked concurrently with compaction")
+        check(len(lost) == 0, f"ZERO acknowledged writes lost (lost={len(lost)})")
+
+        # Durable rename: file + dir fsync both ran.
+        stats1 = compaction_stats()
+        check(stats1["file_fsyncs"] > stats0["file_fsyncs"], "temp-WAL file fsync executed")
+        check(stats1["dir_fsyncs"] > stats0["dir_fsyncs"], "directory fsync executed (rename durable)")
+
+        # Canonical hash preserved across compaction.
+        post = facts_for_key("warm:0")
+        post_hash = post[0]["value_hash"] if post else None
+        check(pre_hash is not None and pre_hash == post_hash,
+              "retained fact keeps its canonical value_hash across compaction")
+
+        # Seq continuity: retained facts keep seqs; a new insert never reuses one.
+        facts = all_facts_by_seq()
+        seqs = sorted(f["seq_id"] for f in facts)
+        max_seq = seqs[-1] if seqs else 0
+        check(len(seqs) == len(set(seqs)), "all retained seq_ids are unique (no collision)")
+        check(all(s > 0 for s in seqs), "all retained facts carry a real (non-zero) seq_id")
+        nr = write_fact(make_fact("post-compaction:1", time.time(), "after"))
+        new_seq = nr.get("seq_id", 0)
+        check(new_seq > max_seq,
+              f"post-compaction insert continues the sequence (new {new_seq} > max retained {max_seq})")
     finally:
         stop_daemon(proc)
+
+
+# ── Phase 3: busy refusal ─────────────────────────────────────────────────────
+
+def phase_busy():
+    print("\n== Phase 3: concurrent trigger returns compaction_in_progress ==")
+    proc = start_daemon(enable_compaction=True)
+    try:
+        now = time.time()
+        write_fact(make_fact("cold:1", now - 100000.0, "cold"))
+        seed_warm(40000, now)
+        policy_id = create_policy()
+
+        results = {}
+
+        def trig(name):
+            results[name] = one_req({"op": "snapshot_trigger", "policy_id": policy_id})
+
+        a = threading.Thread(target=trig, args=("a",))
+        b = threading.Thread(target=trig, args=("b",))
+        a.start()
+        time.sleep(0.02)  # let A win the CAS and start the slow build
+        b.start()
+        a.join()
+        b.join()
+
+        codes = {results["a"].get("error_code"), results["b"].get("error_code")}
+        oks = [r.get("ok") for r in results.values()]
+        check(True in oks, "one trigger completed ok")
+        check("compaction_in_progress" in codes,
+              f"the other got compaction_in_progress (codes={codes})")
+    finally:
+        stop_daemon(proc)
+
+
+# ── Phase 4: process-crash durability of the rename ───────────────────────────
+
+def phase_crash():
+    print("\n== Phase 4: SIGKILL after compaction; restart replays the compacted store ==")
+    proc = start_daemon(enable_compaction=True)
+    crashed = False
+    try:
+        now = time.time()
+        write_fact(make_fact("cold:1", now - 100000.0, "cold"))
+        warm = 5000
+        seed_warm(warm, now)
+        policy_id = create_policy()
+        trig = one_req({"op": "snapshot_trigger", "policy_id": policy_id})
+        check(trig.get("ok") is True, "compaction ran before crash")
+        size_pre = store_size()
+        seqs_pre = sorted(f["seq_id"] for f in all_facts_by_seq())
+        # Hard process crash (no graceful flush) AFTER the durable compaction.
+        stop_daemon(proc, kill=True)
+        crashed = True
+    finally:
+        if not crashed:
+            stop_daemon(proc)
+
+    proc2 = start_daemon(enable_compaction=True, wipe=False)  # reuse the data dir
+    try:
+        check(store_size() == size_pre,
+              f"compacted store replays after crash (size {store_size()} == {size_pre})")
+        seqs_post = sorted(f["seq_id"] for f in all_facts_by_seq())
+        check(seqs_post == seqs_pre, "seq_ids survive the crash unchanged")
+    finally:
+        stop_daemon(proc2)
 
 
 def main():
@@ -257,7 +364,9 @@ def main():
         raise SystemExit(f"daemon binary not found/executable at {BINARY}")
     try:
         phase_gate()
-        phase_loss()
+        phase_safe()
+        phase_busy()
+        phase_crash()
     finally:
         check(not listener_present(), f"no daemon listener remains on port {PORT}")
         shutil.rmtree(DATA_DIR, ignore_errors=True)
@@ -266,8 +375,8 @@ def main():
         except FileNotFoundError:
             pass
 
-    print("\n" + ("ALL COMPACTION GATE/LOSS TESTS PASSED" if FAILED == 0
-                  else f"{FAILED} COMPACTION TEST(S) FAILED"))
+    print("\n" + ("ALL SAFE COMPACTION TESTS PASSED" if FAILED == 0
+                  else f"{FAILED} SAFE COMPACTION TEST(S) FAILED"))
     raise SystemExit(0 if FAILED == 0 else 1)
 
 

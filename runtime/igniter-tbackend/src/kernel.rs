@@ -4,6 +4,7 @@
 use crate::pure_core::{FileBackend, ShardedFactLog};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 
 // ── StoreEngine Domain Model ──────────────────────────────────────────────────
@@ -11,6 +12,29 @@ use std::sync::Arc;
 pub struct StoreEngine {
     pub log: Arc<ShardedFactLog>,
     pub wal: Option<Arc<FileBackend>>,
+}
+
+// ── Per-store compaction guard ───────────────────────────────────────────────
+// LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12. The guard lives in the kernel,
+// keyed by store name, so it is STABLE across the engine swap that compaction
+// performs (the StoreEngine Arc in `engines` is replaced; this guard is not).
+//   * `gate`: write paths take `read()`; compaction takes `write()` to stop the
+//     world for that store while it reads→builds→fsyncs→renames→swaps, so no
+//     acknowledged write can land on the about-to-be-discarded old engine (B3).
+//   * `compacting`: a CAS flag so a second concurrent compaction of the same
+//     store is refused (`compaction_in_progress`) rather than silently doubled.
+pub struct StoreGuard {
+    pub gate: RwLock<()>,
+    pub compacting: AtomicBool,
+}
+
+impl StoreGuard {
+    fn new() -> Self {
+        Self {
+            gate: RwLock::new(()),
+            compacting: AtomicBool::new(false),
+        }
+    }
 }
 
 pub fn is_valid_store_name(s: &str) -> bool {
@@ -103,14 +127,21 @@ pub struct ServerKernel {
     // (`value_hash_mismatch`) instead of silently replaced. Default false for
     // compatibility with legacy SHA256/CRC32 clients; opt-in for audit mode.
     pub hash_strict: bool,
-    // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: when false (default), rollup/WAL
-    // compaction is DISABLED — the background CompactorService sweep is never
-    // spawned and `snapshot_trigger` refuses (`compaction_disabled_unsafe`).
-    // Compaction currently has no lock spanning read→build→swap (concurrent
-    // writes are silently dropped, P1/B3) and no fsync on the temp-WAL/rename
-    // (a crash can vanish history, P1/B4), so it is unsafe for a ledger/shadow.
-    // Set true (`--unsafe-compaction true`) only to opt into that risk.
-    pub compaction_unsafe: bool,
+    // LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12: when false (default),
+    // compaction is OFF — `snapshot_trigger` refuses (`compaction_disabled`) and
+    // no background sweep runs. When true (`--enable-compaction true`), MANUAL
+    // `snapshot_trigger` runs the SAFE path: a per-store stop-the-world lock
+    // (no acked-write loss, B3) + durable tmp-fsync/rename/dir-fsync (B4) +
+    // seq-preserving rebuild (B5). The background 5s sweep stays disabled in v0.
+    // (Supersedes the P6 `--unsafe-compaction` gate, which is now removed.)
+    pub compaction_enabled: bool,
+    // Proof seams for the durable-rename path (P12): counts of file/dir fsyncs
+    // actually issued by safe compaction.
+    pub compaction_file_fsyncs: AtomicU64,
+    pub compaction_dir_fsyncs: AtomicU64,
+    // Per-store compaction guards (stop-the-world gate + in-progress flag),
+    // stable across engine swaps. See `StoreGuard`.
+    pub store_guards: RwLock<HashMap<String, Arc<StoreGuard>>>,
     // LAB-TBACKEND-DURABLE-ACK-GROUP-COMMIT-P6: ack durability vocabulary.
     // `durability_default` is the server-wide mode ("accepted" = current
     // flush/page-cache ack, survives process crash not power loss; "durable" =
@@ -135,7 +166,7 @@ impl ServerKernel {
         pool_size: usize,
         auth_enabled: bool,
         hash_strict: bool,
-        compaction_unsafe: bool,
+        compaction_enabled: bool,
         durability_default: String,
         commit_interval_ms: u64,
         commit_max_batch: u64,
@@ -148,7 +179,10 @@ impl ServerKernel {
             pool_size,
             auth_enabled,
             hash_strict,
-            compaction_unsafe,
+            compaction_enabled,
+            compaction_file_fsyncs: AtomicU64::new(0),
+            compaction_dir_fsyncs: AtomicU64::new(0),
+            store_guards: RwLock::new(HashMap::new()),
             durability_default,
             commit_interval_ms,
             commit_max_batch,
@@ -203,6 +237,22 @@ impl ServerKernel {
         let engine = Arc::new(StoreEngine { log, wal });
         map.insert(store_name.to_string(), engine.clone());
         Some(engine)
+    }
+
+    /// Get-or-create the per-store compaction guard. Stable across engine swaps
+    /// (LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12). Write paths take
+    /// `gate.read()`; compaction takes `gate.write()`.
+    pub fn store_guard(&self, store_name: &str) -> Arc<StoreGuard> {
+        {
+            let map = self.store_guards.read();
+            if let Some(g) = map.get(store_name) {
+                return g.clone();
+            }
+        }
+        let mut map = self.store_guards.write();
+        map.entry(store_name.to_string())
+            .or_insert_with(|| Arc::new(StoreGuard::new()))
+            .clone()
     }
 }
 
