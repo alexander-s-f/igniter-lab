@@ -193,3 +193,51 @@ string does not inject (no raw `<img>`); no console errors. Run: `./web/run-list
 The layout vocabulary now spans: engine (P1) → composed list (P2) → data-bound table (P3) → text
 authoring + live playground (P4). Still open: a true `.igv` retarget in ui-kit (this DSL is the
 target shape it would lower to); optional `WorkbenchProjector`-onto-`solve` byte-identical refactor.
+
+---
+
+## P5 — breadth: cross-axis alignment + a settings-form widget vocabulary (CLOSED)
+
+Broadens 2D DX toward "pleasant DX across forms" — the layout half (alignment) + the render half
+(widgets), the gaps the P1 boundary flagged (cross-axis was stretch-only / start-only).
+
+**Layout engine (`layout.rs`):** `CrossSize::{Stretch, Fixed(n)}` (a child's cross-axis size; default
+stretch) and `Align::{Start, Center, End}` (a container positions its non-stretched children on the
+cross axis — the analogue of `align-items`), with builders `.cross(n)` / `.align(a)` and DSL
+attributes `cross N` / `align start|center|end`. Defaults (`Stretch`/`Start`) preserve every prior
+layout byte-for-byte (no regressions). True size-to-content is deferred (needs text metrics — out of
+scope for the machine-free engine; cross size is authored explicitly).
+
+**Widget vocabulary (`form_screen.rs`):** a settings form — each field a row of `label (flex) +
+control (fixed cross-size, cross-aligned center)` — exercising **toggle**, **checkbox**, **segmented
+control**, **stepper** (− value +, clamped 1..99), and **action buttons** (Reset / Save). All
+click-driven; state is world facts; `Save` summarizes the state into a status line. `WasmFormScreen`
++ `web/form.html`. (Keyboard text entry is the next slice — every control here is click-only.)
+
+Evidence:
+
+```text
+cargo test     # 51 pass / 0 fail (adds cross_align_positions_fixed_cross_children, dsl_parses_cross_and_align,
+               #   + 4 form_screen tests); existing list/table/layout suites unchanged (defaults preserved)
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean
+wasm: WasmFormScreen exported; ZERO kernel symbols.
+```
+
+Layout tests: a `Fixed` cross child is centered/end-positioned by the parent `align` (row → vertical,
+col → horizontal) while a stretched sibling still fills; the DSL round-trips `cross`/`align` and
+rejects a bad align word. Form tests: controls sit right of their label and are vertically centered
+by `align` (toggle `sy == row.sy + (42-28)/2`); segmented cells are equal-width; toggle/checkbox/
+segmented/stepper drive state and `Save` produces the summary; the stepper clamps and `Reset`
+restores defaults; replay is byte-identical.
+
+**Proven LIVE in the browser**: the form renders the full control set (two toggles — one on/green, one
+off; an empty checkbox; a Free|**Pro**|Team segmented control; a − **3** + stepper; Reset / green Save
+buttons), all cross-aligned without coordinate math; clicking toggle-dark → Team → +,+ → Save yields
+`Saved ✓ — notifications on, dark on, newsletter off, plan Team, 5 seats` (frame 0→5, lineage
+`input:4 → effect:4 → frame:5`, changing digest); no console errors. The playground gains `cross` /
+`align` in its grammar + an `aligned` example (a right-aligned, vertically-centered toolbar). Run:
+`./web/run-list-demo.sh` → `/form.html` (also `/list.html`, `/table.html`, `/playground.html`).
+
+Next breadth slices: keyboard/text-entry input path (type into a focused field — a runtime+wasm
+`key`/`text` method + a `__focus__` fact); a reusable generic widget render host shared across
+screens; then the 3D/gamedev frontier (Ceiling B).

@@ -25,6 +25,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+pub mod form_screen;
 pub mod host;
 pub mod layout;
 pub mod list_screen;
