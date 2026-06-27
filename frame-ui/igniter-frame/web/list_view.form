@@ -1,0 +1,17 @@
+# LAB-FRAME-VIEW-FORM-DESUGAR — the terse invocation-form (ASK2 ergonomics), authored by hand.
+# Desugars (src/igv_desugar.rs) to a pure-igniter `.ig` module that compiles on igc, runs on
+# igniter-vm, and renders through frame-ui — the same pipeline as every other view. No canon change.
+col pad=16 gap=12 {
+  row flex=1 gap=12 {
+    col fixed=248 pad=12 gap=8 {
+      leaf "Review Ada's lead" select fixed=40
+      leaf "Call Grace back" select fixed=40
+      leaf "Send Linus the quote" select fixed=40
+      button "+ add item" add fixed=40
+    }
+    col flex=1 pad=18 gap=14 {
+      leaf "Review Ada's lead" select fixed=30
+      button "mark done" toggle fixed=48
+    }
+  }
+}
