@@ -12,7 +12,8 @@
 use crate::host::Viewport;
 use crate::layout::{solve, Align, LayoutBox, Size};
 use crate::runtime::FrameRuntime;
-use crate::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
+use crate::widget_host::WidgetRenderHost;
+use crate::{Frame, IntentReducer, ProjectedNode, Projector};
 use serde_json::{json, Value};
 
 const CANVAS_W: i64 = 560;
@@ -92,11 +93,11 @@ impl Projector for ScrollListProjector {
 
         // chrome
         push(&mut nodes, &r("title"), None, json!({ "kind": "title", "label": "Scrollable list" }));
-        push(&mut nodes, &r("hint"), None, json!({ "kind": "hint", "label": "wheel · tab · hover" }));
+        push(&mut nodes, &r("hint"), None, json!({ "kind": "note", "tone": "dim", "align": "end", "label": "wheel · tab · hover" }));
         push(&mut nodes, &panel, None, json!({ "kind": "panel" }));
         let status = iget(world, "__status__").and_then(|v| v.as_str()).unwrap_or("");
         let foot = format!("{}   ·   showing {}–{} of {}", status, off + 1, (off + PANEL_ROWS).min(N_ITEMS), N_ITEMS);
-        push(&mut nodes, &r("footer"), None, json!({ "kind": "footer", "label": foot }));
+        push(&mut nodes, &r("footer"), None, json!({ "kind": "note", "tone": "ok", "label": foot }));
 
         // visible rows (row-snapped window)
         for idx in off..(off + PANEL_ROWS).min(N_ITEMS) {
@@ -104,7 +105,7 @@ impl Projector for ScrollListProjector {
             let label = iget(world, &id).and_then(|v| v.get("label")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let rect = crate::layout::Rect { id: id.clone(), x: panel.x, y: panel.y + (idx - off) * ITEM_H, w: row_w, h: ITEM_H };
             push(&mut nodes, &rect, Some(json!({ "action": "select", "item": id.clone() })),
-                json!({ "kind": "item", "label": label, "selected": id == sel, "hovered": id == hov, "focused": id == foc }));
+                json!({ "kind": "row", "lead": "dot", "label": label, "selected": id == sel, "hovered": id == hov, "focused": id == foc }));
         }
 
         // scrollbar (track + proportional thumb) — visual only
@@ -112,8 +113,8 @@ impl Projector for ScrollListProjector {
         let thumb_h = (panel.h * PANEL_ROWS / N_ITEMS).max(22);
         let thumb_y = panel.y + if maxoff() > 0 { (panel.h - thumb_h) * off / maxoff() } else { 0 };
         let thumb = crate::layout::Rect { id: "sb-thumb".into(), x: panel.x + panel.w - SB_W, y: thumb_y, w: SB_W, h: thumb_h };
-        push(&mut nodes, &track, None, json!({ "kind": "sbtrack" }));
-        push(&mut nodes, &thumb, None, json!({ "kind": "sbthumb" }));
+        push(&mut nodes, &track, None, json!({ "kind": "scrollbar", "variant": "track" }));
+        push(&mut nodes, &thumb, None, json!({ "kind": "scrollbar", "variant": "thumb" }));
 
         Frame { frame_index, world_digest: world_digest(world), source_receipt_id, nodes }
     }
@@ -171,45 +172,6 @@ pub fn scroll_list_reducer() -> IntentReducer {
     })
 }
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-pub struct ScrollListRenderHost;
-
-impl RenderHost for ScrollListRenderHost {
-    fn render(&self, frame: &Frame) -> String {
-        let mut body = String::new();
-        for n in &frame.nodes {
-            let (x, y, w, h) = (n.sx, n.sy, n.sw.unwrap_or(0), n.sh.unwrap_or(0));
-            let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            let lbl = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            match kind {
-                "title" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"15\" font-weight=\"bold\" fill=\"#e6edf3\">{}</text>\n", y + 18, esc(lbl))),
-                "hint" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#8b949e\" text-anchor=\"end\">{}</text>\n", x + w, y + h / 2 + 4, esc(lbl))),
-                "footer" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#3fb950\">{}</text>\n", y + h / 2 + 4, esc(lbl))),
-                "panel" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"8\" fill=\"#0d1117\" stroke=\"#30363d\"/>\n")),
-                "item" => {
-                    let sel = n.data.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let hov = n.data.get("hovered").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let foc = n.data.get("focused").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let fill = if sel { "#16304f" } else if hov { "#161b22" } else { "#0d1117" };
-                    body.push_str(&format!("  <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"5\" fill=\"{fill}\"/>\n", x + 2, y + 2, (w - 4).max(0), (h - 4).max(0)));
-                    if foc {
-                        body.push_str(&format!("  <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"5\" fill=\"none\" stroke=\"#1f6feb\" stroke-width=\"2\"/>\n", x + 2, y + 2, (w - 4).max(0), (h - 4).max(0)));
-                    }
-                    let dot = if sel { "#3fb950" } else { "#484f58" };
-                    body.push_str(&format!("  <circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"{dot}\"/>\n", x + 14, y + h / 2));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"13\" fill=\"#c9d1d9\">{}</text>\n", x + 28, y + h / 2 + 5, esc(lbl)));
-                }
-                "sbtrack" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"4\" fill=\"#0d1117\"/>\n")),
-                "sbthumb" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"4\" fill=\"#30363d\"/>\n")),
-                _ => {}
-            }
-        }
-        format!("<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#010409\"/>\n{body}</svg>\n")
-    }
-}
 
 pub struct ScrollListRuntime {
     inner: FrameRuntime,
@@ -229,7 +191,7 @@ impl ScrollListRuntime {
                 scroll_list_reducer(),
                 Box::new(ScrollListProjector),
                 Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
-                Box::new(ScrollListRenderHost),
+                Box::new(WidgetRenderHost::new(CANVAS_W, CANVAS_H)),
             ),
         }
     }
@@ -262,7 +224,7 @@ mod tests {
     use super::*;
 
     fn visible(rt: &ScrollListRuntime) -> Vec<String> {
-        rt.frame().nodes.iter().filter(|n| n.data.get("kind") == Some(&json!("item"))).map(|n| n.id.clone()).collect()
+        rt.frame().nodes.iter().filter(|n| n.data.get("kind") == Some(&json!("row"))).map(|n| n.id.clone()).collect()
     }
     fn item<'a>(f: &'a Frame, id: &str) -> Option<&'a ProjectedNode> {
         f.nodes.iter().find(|n| n.id == id)

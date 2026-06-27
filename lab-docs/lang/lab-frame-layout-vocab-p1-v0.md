@@ -331,3 +331,43 @@ The 2D DX surface now spans layout+alignment, text authoring/playground, list, t
 form, keyboard text entry, and scroll+nav+hover — with a clean view/domain state split. Next: a
 reusable generic widget render host (retire the per-screen hosts); then the 3D/gamedev frontier
 (Ceiling B).
+
+---
+
+## P8 — one generic widget render host (CLOSED)
+
+Every screen shipped its own `RenderHost` with an ad-hoc `kind` vocabulary (5 hosts, ~50 match arms,
+divergent names — two `item`s, two `toggle`s). This collapses them into a single
+`widget_host::WidgetRenderHost { width, height }` that renders a frame by dispatching on each node's
+**canonical** `data.kind` + a documented data contract. A new screen no longer writes a render host —
+it emits canonical widget nodes and gets a consistent look for free. **This canonical vocabulary is
+the surface a developer authors against — the seam toward `.igv`.**
+
+Canonical kinds: `title` · `label` · `note` (hint/status/footer, tone+align) · `panel`
+(surface/bar/group) · `row` (selected/hovered/focused/done/lead — the unified list & table row) ·
+`cell` · `header_cell` · `button` (go/warn/neutral/add) · `toggle` · `checkbox` · `segment` ·
+`stepper_btn` / `stepper_val` · `input` · `scrollbar` (track/thumb).
+
+Migration: all 5 projectors now emit canonical kinds (e.g. table `hbar`→`panel{variant:bar}`,
+`th`→`header_cell`, `rowbg`→`row`; form `seg`→`segment`, `seggroup`→`panel{variant:group}`,
+`stepbtn`→`stepper_btn`; list `item`→`row`, the detail `toggle` and `add` row →`button`; scroll
+`item`→`row{lead:dot}`, `sbthumb`→`scrollbar{variant:thumb}`). The 5 `*RenderHost` structs and their
+duplicated `esc` helpers are deleted; each runtime now constructs `WidgetRenderHost::new(W, H)`.
+
+Evidence:
+
+```text
+cargo test     # 60 pass / 0 fail — unchanged (tests assert node DATA + determinism, not golden bytes,
+               #   so unifying the host is behaviour-preserving). Only one test touched: scroll's
+               #   `visible()` filter item→row.
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean (no unused warnings)
+```
+
+**Proven LIVE**: all five demos (`/list /table /form /text /scroll`) render correctly under the single
+host with a consistent, normalized look (list rows + add/done as canonical buttons; table header as a
+`panel{bar}`; form controls; text inputs; scroll rows with `lead:dot` markers) — no console errors.
+Net: −5 render hosts, +1 shared host + a named widget vocabulary.
+
+Next: the DX investigation — what do we hand a developer? The canonical widget vocabulary + the layout
+DSL are the two halves of an authoring surface (`.ig` / `.igv`); then the 3D/gamedev frontier
+(Ceiling B).

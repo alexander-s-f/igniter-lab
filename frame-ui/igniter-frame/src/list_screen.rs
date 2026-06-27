@@ -10,7 +10,8 @@
 use crate::host::Viewport;
 use crate::layout::{solve, LayoutBox, Size};
 use crate::runtime::FrameRuntime;
-use crate::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
+use crate::widget_host::WidgetRenderHost;
+use crate::{Frame, IntentReducer, ProjectedNode, Projector};
 use serde_json::{json, Value};
 
 const CANVAS_W: i64 = 720;
@@ -105,23 +106,24 @@ impl Projector for ListProjector {
                         r,
                         Some(json!({ "action": "select" })),
                         json!({
-                            "kind": "item",
+                            "kind": "row",
                             "label": v.get("label").cloned().unwrap_or(json!("")),
                             "done": v.get("done").and_then(|b| b.as_bool()).unwrap_or(false),
                             "selected": id == sel,
                         }),
                     )
                 } else if id == "add" {
-                    ProjectedNode::from_rect(r, Some(json!({ "action": "add" })), json!({ "kind": "add" }))
+                    ProjectedNode::from_rect(r, Some(json!({ "action": "add" })), json!({ "kind": "button", "label": "＋ add item", "tone": "add" }))
                 } else if id == "toggle" {
                     let done = sel_item.as_ref().and_then(|v| v.get("done")).and_then(|b| b.as_bool()).unwrap_or(false);
-                    ProjectedNode::from_rect(r, Some(json!({ "action": "toggle" })), json!({ "kind": "toggle", "done": done }))
+                    let label = if done { "✓ done — mark not done" } else { "○ mark done" };
+                    ProjectedNode::from_rect(r, Some(json!({ "action": "toggle" })), json!({ "kind": "button", "label": label, "tone": if done { "go" } else { "neutral" } }))
                 } else if id == "detail:title" {
                     let label = sel_item.as_ref().and_then(|v| v.get("label")).and_then(|s| s.as_str()).unwrap_or("— select an item —").to_string();
                     ProjectedNode::from_rect(r, None, json!({ "kind": "title", "label": label }))
                 } else if id == "detail:hint" {
                     let n_done = items(world).iter().filter(|(_, v)| v.get("done").and_then(|b| b.as_bool()).unwrap_or(false)).count();
-                    ProjectedNode::from_rect(r, None, json!({ "kind": "hint", "label": format!("{} of {} done · click a row to select, ＋ to add", n_done, items(world).len()) }))
+                    ProjectedNode::from_rect(r, None, json!({ "kind": "note", "tone": "dim", "label": format!("{} of {} done · click a row to select, ＋ to add", n_done, items(world).len()) }))
                 } else {
                     let label = match id { "sidebar" => "Items", "detail" => "Detail", _ => "" };
                     ProjectedNode::from_rect(r, None, json!({ "kind": "panel", "label": label }))
@@ -174,58 +176,7 @@ pub fn list_reducer() -> IntentReducer {
     })
 }
 
-// ── Render host ─────────────────────────────────────────────────────────────────────────────────
-
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-pub struct ListRenderHost;
-
-impl RenderHost for ListRenderHost {
-    fn render(&self, frame: &Frame) -> String {
-        let mut body = String::new();
-        for n in &frame.nodes {
-            let (x, y, w, h) = (n.sx, n.sy, n.sw.unwrap_or(0), n.sh.unwrap_or(0));
-            let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            let lbl = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            match kind {
-                "panel" => {
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"10\" fill=\"#0d1117\" stroke=\"#30363d\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" font-weight=\"bold\" fill=\"#8b949e\">{}</text>\n", x + 14, y + 22, esc(lbl)));
-                }
-                "item" => {
-                    let sel = n.data.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let done = n.data.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let fill = if sel { "#1f6feb" } else { "#161b22" };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"{fill}\" stroke=\"#30363d\"/>\n"));
-                    let mark = if done { "✓" } else { "○" };
-                    let txt = if done { format!("{}  {}", mark, lbl) } else { format!("{}  {}", mark, lbl) };
-                    let col = if done { "#3fb950" } else { "#e6edf3" };
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"13\" fill=\"{}\">{}</text>\n", x + 12, y + h / 2 + 5, col, esc(&txt)));
-                }
-                "add" => {
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"#161b22\" stroke=\"#2ea043\" stroke-dasharray=\"4 3\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"14\" fill=\"#3fb950\" text-anchor=\"middle\">＋ add item</text>\n", x + w / 2, y + h / 2 + 5));
-                }
-                "title" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"16\" font-weight=\"bold\" fill=\"#e6edf3\">{}</text>\n", x, y + 20, esc(lbl))),
-                "toggle" => {
-                    let done = n.data.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let (fill, stroke, label) = if done { ("#238636", "#2ea043", "✓ done — mark not done") } else { ("#21262d", "#30363d", "○ mark done") };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"14\" fill=\"#fff\" text-anchor=\"middle\">{}</text>\n", x + w / 2, y + h / 2 + 5, label));
-                }
-                "hint" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#8b949e\">{}</text>\n", x, y + 16, esc(lbl))),
-                _ => {}
-            }
-        }
-        format!(
-            "<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#010409\"/>\n{body}</svg>\n"
-        )
-    }
-}
-
-// ── Runtime (wraps the shared FrameRuntime, like WorkbenchRuntime) ──────────────────────────────
+// ── Runtime (wraps the shared FrameRuntime; renders via the shared WidgetRenderHost) ────────────
 
 pub struct ListScreenRuntime {
     inner: FrameRuntime,
@@ -244,7 +195,7 @@ impl ListScreenRuntime {
             list_reducer(),
             Box::new(ListProjector),
             Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
-            Box::new(ListRenderHost),
+            Box::new(WidgetRenderHost::new(CANVAS_W, CANVAS_H)),
         );
         Self { inner }
     }

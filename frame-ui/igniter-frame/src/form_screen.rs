@@ -8,7 +8,8 @@
 use crate::host::Viewport;
 use crate::layout::{solve, Align, LayoutBox, Size};
 use crate::runtime::FrameRuntime;
-use crate::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
+use crate::widget_host::WidgetRenderHost;
+use crate::{Frame, IntentReducer, ProjectedNode, Projector};
 use serde_json::{json, Value};
 
 const CANVAS_W: i64 = 720;
@@ -129,7 +130,7 @@ impl Projector for FormProjector {
                     "title" => node(None, json!({ "kind": "title", "label": "Account settings" })),
                     "status" => {
                         let s = get(world, "__status__").and_then(|v| v.as_str()).unwrap_or("");
-                        node(None, json!({ "kind": "status", "label": s }))
+                        node(None, json!({ "kind": "note", "tone": "ok", "label": s }))
                     }
                     l if l.starts_with("lbl-") => node(None, json!({ "kind": "label", "label": label_for(l) })),
                     "tog-notif" => node(Some(json!({"action":"toggle","key":"notifications"})), json!({"kind":"toggle","on":flag(world,"notifications")})),
@@ -138,15 +139,15 @@ impl Projector for FormProjector {
                     s if s.starts_with("seg:") => {
                         let i: i64 = s[4..].parse().unwrap_or(-1);
                         node(Some(json!({"action":"set_plan","value":i})),
-                             json!({"kind":"seg","label":PLANS.get(i as usize).copied().unwrap_or(""),"selected":i==plan}))
+                             json!({"kind":"segment","label":PLANS.get(i as usize).copied().unwrap_or(""),"selected":i==plan}))
                     }
-                    "step:dec" => node(Some(json!({"action":"step","delta":-1})), json!({"kind":"stepbtn","glyph":"−"})),
-                    "step:inc" => node(Some(json!({"action":"step","delta":1})), json!({"kind":"stepbtn","glyph":"+"})),
-                    "step:val" => node(None, json!({"kind":"stepval","label":int(world,"seats").to_string()})),
-                    "seg-plan" => node(None, json!({"kind":"seggroup"})),
-                    "step-seats" => node(None, json!({"kind":"stepgroup"})),
-                    "reset" => node(Some(json!({"action":"reset"})), json!({"kind":"btn","label":"Reset","tone":"neutral"})),
-                    "submit" => node(Some(json!({"action":"submit"})), json!({"kind":"btn","label":"Save changes","tone":"go"})),
+                    "step:dec" => node(Some(json!({"action":"step","delta":-1})), json!({"kind":"stepper_btn","glyph":"−"})),
+                    "step:inc" => node(Some(json!({"action":"step","delta":1})), json!({"kind":"stepper_btn","glyph":"+"})),
+                    "step:val" => node(None, json!({"kind":"stepper_val","label":int(world,"seats").to_string()})),
+                    "seg-plan" => node(None, json!({"kind":"panel","variant":"group"})),
+                    "step-seats" => node(None, json!({"kind":"panel","variant":"group"})),
+                    "reset" => node(Some(json!({"action":"reset"})), json!({"kind":"button","label":"Reset","tone":"neutral"})),
+                    "submit" => node(Some(json!({"action":"submit"})), json!({"kind":"button","label":"Save changes","tone":"go"})),
                     _ => node(None, json!({ "kind": "none" })),
                 }
             })
@@ -194,66 +195,6 @@ pub fn form_reducer() -> IntentReducer {
     })
 }
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-pub struct FormRenderHost;
-
-impl RenderHost for FormRenderHost {
-    fn render(&self, frame: &Frame) -> String {
-        let mut body = String::new();
-        for n in &frame.nodes {
-            let (x, y, w, h) = (n.sx, n.sy, n.sw.unwrap_or(0), n.sh.unwrap_or(0));
-            let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            let lbl = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            let on = n.data.get("on").and_then(|v| v.as_bool()).unwrap_or(false);
-            let sel = n.data.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
-            let cy = y + h / 2;
-            match kind {
-                "title" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"17\" font-weight=\"bold\" fill=\"#e6edf3\">{}</text>\n", y + 20, esc(lbl))),
-                "label" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"14\" fill=\"#c9d1d9\">{}</text>\n", cy + 5, esc(lbl))),
-                "status" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#3fb950\">{}</text>\n", cy + 4, esc(lbl))),
-                "toggle" => {
-                    let track = if on { "#238636" } else { "#30363d" };
-                    let knob_x = if on { x + w - h } else { x };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{}\" fill=\"{track}\"/>\n", h / 2));
-                    body.push_str(&format!("  <circle cx=\"{}\" cy=\"{cy}\" r=\"{}\" fill=\"#f0f6fc\"/>\n", knob_x + h / 2, h / 2 - 3));
-                }
-                "checkbox" => {
-                    let fill = if on { "#238636" } else { "#0d1117" };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"5\" fill=\"{fill}\" stroke=\"#30363d\"/>\n"));
-                    if on {
-                        body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"15\" fill=\"#f0f6fc\" text-anchor=\"middle\">✓</text>\n", x + w / 2, cy + 5));
-                    }
-                }
-                "seggroup" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"#0d1117\" stroke=\"#30363d\"/>\n")),
-                "seg" => {
-                    if sel {
-                        body.push_str(&format!("  <rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"6\" fill=\"#1f6feb\"/>\n", x + 2, y + 2, (w - 4).max(0), (h - 4).max(0)));
-                    }
-                    let col = if sel { "#f0f6fc" } else { "#8b949e" };
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"13\" fill=\"{col}\" text-anchor=\"middle\">{}</text>\n", x + w / 2, cy + 5, esc(lbl)));
-                }
-                "stepgroup" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"#0d1117\" stroke=\"#30363d\"/>\n")),
-                "stepbtn" => {
-                    let g = n.data.get("glyph").and_then(|v| v.as_str()).unwrap_or("");
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"18\" fill=\"#58a6ff\" text-anchor=\"middle\">{}</text>\n", x + w / 2, cy + 6, esc(g)));
-                }
-                "stepval" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"15\" fill=\"#e6edf3\" text-anchor=\"middle\">{}</text>\n", x + w / 2, cy + 5, esc(lbl))),
-                "btn" => {
-                    let (fill, stroke) = if n.data.get("tone").and_then(|t| t.as_str()) == Some("go") { ("#238636", "#2ea043") } else { ("#21262d", "#30363d") };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"8\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"14\" fill=\"#f0f6fc\" text-anchor=\"middle\">{}</text>\n", x + w / 2, cy + 5, esc(lbl)));
-                }
-                _ => {}
-            }
-        }
-        format!(
-            "<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#010409\"/>\n{body}</svg>\n"
-        )
-    }
-}
 
 pub struct FormScreenRuntime {
     inner: FrameRuntime,
@@ -273,7 +214,7 @@ impl FormScreenRuntime {
                 form_reducer(),
                 Box::new(FormProjector),
                 Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
-                Box::new(FormRenderHost),
+                Box::new(WidgetRenderHost::new(CANVAS_W, CANVAS_H)),
             ),
         }
     }

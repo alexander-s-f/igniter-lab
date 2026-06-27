@@ -7,7 +7,8 @@
 use crate::host::Viewport;
 use crate::layout::{LayoutBox, Size, solve};
 use crate::runtime::FrameRuntime;
-use crate::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
+use crate::widget_host::WidgetRenderHost;
+use crate::{Frame, IntentReducer, ProjectedNode, Projector};
 use serde_json::{json, Value};
 
 const CANVAS_W: i64 = 720;
@@ -82,7 +83,7 @@ impl Projector for TextFormProjector {
                 if id == "title" {
                     node(None, json!({ "kind": "title", "label": "Contact us" }))
                 } else if id == "status" {
-                    node(None, json!({ "kind": "status", "label": s(world, "__status__") }))
+                    node(None, json!({ "kind": "note", "tone": "ok", "label": s(world, "__status__") }))
                 } else if let Some(key) = id.strip_prefix("lbl-") {
                     node(None, json!({ "kind": "label", "label": meta(key).map(|m| m.1).unwrap_or("") }))
                 } else if let Some(key) = id.strip_prefix("in-") {
@@ -94,9 +95,9 @@ impl Projector for TextFormProjector {
                                 "focused": focus == field, "multiline": key == "msg" }),
                     )
                 } else if id == "clear" {
-                    node(Some(json!({ "action": "clear" })), json!({ "kind": "btn", "label": "Clear", "tone": "neutral" }))
+                    node(Some(json!({ "action": "clear" })), json!({ "kind": "button", "label": "Clear", "tone": "neutral" }))
                 } else if id == "submit" {
-                    node(Some(json!({ "action": "submit" })), json!({ "kind": "btn", "label": "Send message", "tone": "go" }))
+                    node(Some(json!({ "action": "submit" })), json!({ "kind": "button", "label": "Send message", "tone": "go" }))
                 } else {
                     node(None, json!({ "kind": "none" }))
                 }
@@ -153,48 +154,6 @@ pub fn text_form_reducer() -> IntentReducer {
     })
 }
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-pub struct TextFormRenderHost;
-
-impl RenderHost for TextFormRenderHost {
-    fn render(&self, frame: &Frame) -> String {
-        let mut body = String::new();
-        for n in &frame.nodes {
-            let (x, y, w, h) = (n.sx, n.sy, n.sw.unwrap_or(0), n.sh.unwrap_or(0));
-            let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            let lbl = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            match kind {
-                "title" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"17\" font-weight=\"bold\" fill=\"#e6edf3\">{}</text>\n", y + 20, esc(lbl))),
-                "label" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#8b949e\">{}</text>\n", y + 12, esc(lbl))),
-                "status" => body.push_str(&format!("  <text x=\"{x}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" fill=\"#3fb950\">{}</text>\n", y + h / 2 + 4, esc(lbl))),
-                "input" => {
-                    let focused = n.data.get("focused").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let val = n.data.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    let stroke = if focused { "#1f6feb" } else { "#30363d" };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"6\" fill=\"#0d1117\" stroke=\"{stroke}\"/>\n"));
-                    let ty = y + 22; // text baseline near the top (so multiline message reads top-down)
-                    if val.is_empty() && !focused {
-                        let ph = n.data.get("placeholder").and_then(|v| v.as_str()).unwrap_or("");
-                        body.push_str(&format!("  <text x=\"{}\" y=\"{ty}\" font-family=\"monospace\" font-size=\"13\" fill=\"#484f58\">{}</text>\n", x + 10, esc(ph)));
-                    } else {
-                        let caret = if focused { "▏" } else { "" };
-                        body.push_str(&format!("  <text x=\"{}\" y=\"{ty}\" font-family=\"monospace\" font-size=\"13\" fill=\"#e6edf3\">{}{caret}</text>\n", x + 10, esc(val)));
-                    }
-                }
-                "btn" => {
-                    let (fill, st) = if n.data.get("tone").and_then(|t| t.as_str()) == Some("go") { ("#238636", "#2ea043") } else { ("#21262d", "#30363d") };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"8\" fill=\"{fill}\" stroke=\"{st}\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"14\" fill=\"#f0f6fc\" text-anchor=\"middle\">{}</text>\n", x + w / 2, y + h / 2 + 5, esc(lbl)));
-                }
-                _ => {}
-            }
-        }
-        format!("<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#010409\"/>\n{body}</svg>\n")
-    }
-}
 
 pub struct TextFormRuntime {
     inner: FrameRuntime,
@@ -214,7 +173,7 @@ impl TextFormRuntime {
                 text_form_reducer(),
                 Box::new(TextFormProjector),
                 Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
-                Box::new(TextFormRenderHost),
+                Box::new(WidgetRenderHost::new(CANVAS_W, CANVAS_H)),
             ),
         }
     }

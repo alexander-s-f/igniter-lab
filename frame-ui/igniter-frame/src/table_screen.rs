@@ -10,7 +10,8 @@
 use crate::host::Viewport;
 use crate::layout::{solve, table, LayoutBox, Size};
 use crate::runtime::FrameRuntime;
-use crate::{Frame, IntentReducer, ProjectedNode, Projector, RenderHost};
+use crate::widget_host::WidgetRenderHost;
+use crate::{Frame, IntentReducer, ProjectedNode, Projector};
 use serde_json::{json, Value};
 
 const CANVAS_W: i64 = 720;
@@ -106,7 +107,7 @@ impl Projector for TableProjector {
             .map(|r| {
                 let id = r.id.as_str();
                 if let Some(rest) = id.strip_prefix("th:") {
-                    ProjectedNode::from_rect(r, None, json!({ "kind": "th", "label": header_label(rest) }))
+                    ProjectedNode::from_rect(r, None, json!({ "kind": "header_cell", "label": header_label(rest) }))
                 } else if let Some(rest) = id.strip_prefix("cell:") {
                     // rest = "<n>:<col>"
                     let mut it = rest.splitn(2, ':');
@@ -128,19 +129,19 @@ impl Projector for TableProjector {
                     )
                 } else if let Some(n) = id.strip_prefix("trow:") {
                     let lead_id = format!("lead:{n}");
-                    ProjectedNode::from_rect(r, None, json!({ "kind": "rowbg", "selected": lead_id == sel }))
+                    ProjectedNode::from_rect(r, None, json!({ "kind": "row", "selected": lead_id == sel }))
                 } else if id == "leads:header" {
-                    ProjectedNode::from_rect(r, None, json!({ "kind": "hbar" }))
+                    ProjectedNode::from_rect(r, None, json!({ "kind": "panel", "variant": "bar" }))
                 } else if id == "title" {
                     let cnt = its.len();
                     let hot = its.iter().filter(|(_, v)| v.get("hot").and_then(|b| b.as_bool()).unwrap_or(false)).count();
                     ProjectedNode::from_rect(r, None, json!({ "kind": "title", "label": format!("Leads · {cnt} rows · {hot} hot") }))
                 } else if id == "cycle" {
-                    ProjectedNode::from_rect(r, Some(json!({ "action": "cycle" })), json!({ "kind": "btn", "label": "↻ cycle stage", "tone": "neutral" }))
+                    ProjectedNode::from_rect(r, Some(json!({ "action": "cycle" })), json!({ "kind": "button", "label": "↻ cycle stage", "tone": "neutral" }))
                 } else if id == "toggle" {
-                    ProjectedNode::from_rect(r, Some(json!({ "action": "toggle" })), json!({ "kind": "btn", "label": "★ toggle hot", "tone": "warn" }))
+                    ProjectedNode::from_rect(r, Some(json!({ "action": "toggle" })), json!({ "kind": "button", "label": "★ toggle hot", "tone": "warn" }))
                 } else if id == "add" {
-                    ProjectedNode::from_rect(r, Some(json!({ "action": "add" })), json!({ "kind": "btn", "label": "＋ add lead", "tone": "go" }))
+                    ProjectedNode::from_rect(r, Some(json!({ "action": "add" })), json!({ "kind": "button", "label": "＋ add lead", "tone": "go" }))
                 } else {
                     ProjectedNode::from_rect(r, None, json!({ "kind": "panel" }))
                 }
@@ -191,51 +192,6 @@ pub fn table_reducer() -> IntentReducer {
     })
 }
 
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-pub struct TableRenderHost;
-
-impl RenderHost for TableRenderHost {
-    fn render(&self, frame: &Frame) -> String {
-        let mut body = String::new();
-        for n in &frame.nodes {
-            let (x, y, w, h) = (n.sx, n.sy, n.sw.unwrap_or(0), n.sh.unwrap_or(0));
-            let kind = n.data.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-            let lbl = n.data.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            match kind {
-                "title" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"15\" font-weight=\"bold\" fill=\"#e6edf3\">{}</text>\n", x, y + 20, esc(lbl))),
-                "hbar" => body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"#161b22\" stroke=\"#30363d\" rx=\"6\"/>\n")),
-                "th" => body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"12\" font-weight=\"bold\" fill=\"#8b949e\">{}</text>\n", x + 10, y + h / 2 + 4, esc(lbl))),
-                "rowbg" => {
-                    let sel = n.data.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let fill = if sel { "#16304f" } else { "#0d1117" };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" stroke=\"#21262d\"/>\n"));
-                }
-                "cell" => {
-                    let hot = n.data.get("hot").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let col = if hot { "#3fb950" } else { "#c9d1d9" };
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"13\" fill=\"{}\">{}</text>\n", x + 10, y + h / 2 + 5, col, esc(lbl)));
-                }
-                "btn" => {
-                    let (fill, stroke) = match n.data.get("tone").and_then(|t| t.as_str()).unwrap_or("neutral") {
-                        "go" => ("#161b22", "#2ea043"),
-                        "warn" => ("#161b22", "#d29922"),
-                        _ => ("#21262d", "#30363d"),
-                    };
-                    body.push_str(&format!("  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"7\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n"));
-                    body.push_str(&format!("  <text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"13\" fill=\"#e6edf3\" text-anchor=\"middle\">{}</text>\n", x + w / 2, y + h / 2 + 5, esc(lbl)));
-                }
-                _ => {}
-            }
-        }
-        format!(
-            "<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#010409\"/>\n{body}</svg>\n"
-        )
-    }
-}
-
 pub struct TableScreenRuntime {
     inner: FrameRuntime,
 }
@@ -254,7 +210,7 @@ impl TableScreenRuntime {
                 table_reducer(),
                 Box::new(TableProjector),
                 Viewport { css_w: CANVAS_W as f64, css_h: CANVAS_H as f64, frame_w: CANVAS_W, frame_h: CANVAS_H },
-                Box::new(TableRenderHost),
+                Box::new(WidgetRenderHost::new(CANVAS_W, CANVAS_H)),
             ),
         }
     }
