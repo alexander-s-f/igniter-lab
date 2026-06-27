@@ -241,3 +241,46 @@ buttons), all cross-aligned without coordinate math; clicking toggle-dark → Te
 Next breadth slices: keyboard/text-entry input path (type into a focused field — a runtime+wasm
 `key`/`text` method + a `__focus__` fact); a reusable generic widget render host shared across
 screens; then the 3D/gamedev frontier (Ceiling B).
+
+---
+
+## P6 — keyboard text entry (CLOSED)
+
+Completes the form story: fields you click to focus and then TYPE into. Notably this needed **no
+runtime change** — the existing `FrameRuntime::send(action, params)` system-intent path (already
+documented for `send("type", {"char":"a"})`) carries keystrokes, and `__focus__` is just another
+world fact. A pointer derives a `focus` intent (hit-test); a keystroke is a system intent (no
+hit-test); the reducer edits whichever field `__focus__` names.
+
+`igniter-frame/src/text_form_screen.rs` — a contact form (`field:{name,email,msg}` facts):
+`TextFormRuntime::key(k)` maps a browser key — printable char → `send("type", {char})`, `Backspace`
+→ delete, `Enter` → submit, modifier/nav keys ignored. Input is length-capped (40) and the focused
+input shows an accent border + caret. `WasmTextForm` (with a `key` method) + `web/text.html` (forwards
+`keydown` → `key`, pointer → `click`).
+
+Evidence:
+
+```text
+cargo test     # 55 pass / 0 fail (adds 4 text_form tests: focus-then-type, backspace/clear/submit,
+               #   length-cap + modifier-key ignore, deterministic replay of a focus+typing log)
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean
+wasm: WasmTextForm exported (with key); ZERO kernel symbols.
+```
+
+Tests: typing with nothing focused is a no-op; click focuses and subsequent keys land only in that
+field; refocusing routes to another field; backspace pops; `Enter` submits a summary; `Clear` wipes
+all fields; input caps at 40 chars and ignores `Shift`/`ArrowLeft`/`Tab`; replaying a focus+typing
+log is byte-identical.
+
+**Proven LIVE in the browser** (stepping per event-loop tick, as a real user does): click Name → type
+`Ada`, click Email → type `ada@x.io`, `Enter` → `Sent ✓ — name "Ada", email "ada@x.io", 0 chars of
+message`, focused field shows the blue border + caret, lineage `submit:13 → effect:13 → frame:14`, no
+console errors. (Note: dispatching a synthetic pointer click in the *same synchronous JS batch*
+immediately after synthetic `keydown`s — which call `draw()`/`innerHTML` — does not register the
+click; this is a test-harness batching artifact only, not reachable by a real user, and the Rust unit
+tests + multi-tick browser flow confirm the logic.) Run: `./web/run-list-demo.sh` → `/text.html`.
+
+The 2D DX surface now covers: layout engine + alignment, text authoring/playground, list, table,
+click-controls form, and keyboard text entry. Next breadth options: a reusable generic widget render
+host shared across the screens (retire the per-screen hosts); scroll/overflow; then the 3D/gamedev
+frontier (Ceiling B).

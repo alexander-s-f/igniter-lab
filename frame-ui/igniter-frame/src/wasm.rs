@@ -208,6 +208,59 @@ impl Default for WasmFormScreen {
     }
 }
 
+/// LAB-FRAME-LAYOUT-VOCAB-P6 — the keyboard TEXT-ENTRY contact form exposed to the browser. Click an
+/// input to focus it, then type; `Backspace` deletes, `Enter` submits. The page forwards `keydown`
+/// to `key`; pointer to `click`. Deterministic, machine-free.
+#[wasm_bindgen]
+pub struct WasmTextForm {
+    inner: crate::text_form_screen::TextFormRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmTextForm {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmTextForm {
+        WasmTextForm {
+            inner: crate::text_form_screen::TextFormRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    /// Route a browser key (e.g. `e.key`) into the focused field. Returns `true` iff state changed.
+    pub fn key(&mut self, k: &str) -> bool {
+        self.inner.key(k)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmTextForm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// LAB-FRAME-LAYOUT-VOCAB-P4 — author a layout as TEXT, see it solved live. Parses the layout DSL and
 /// returns an inspection SVG of the solved boxes; on a parse error returns an SVG card naming the
 /// 1-based line and message. Pure + total — safe to call on every keystroke from a text field.

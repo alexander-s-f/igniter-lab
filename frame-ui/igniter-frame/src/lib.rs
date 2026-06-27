@@ -31,6 +31,7 @@ pub mod layout;
 pub mod list_screen;
 pub mod runtime;
 pub mod table_screen;
+pub mod text_form_screen;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
