@@ -112,3 +112,41 @@ demo entries there have STALE `--directory` paths (`igniter-lab/igniter-frame/we
 
 Next: P3 data-bound `table` node (a `Col` of `Row`s over the layout) + retarget `.igv` to emit the
 composed layout; optionally refactor `WorkbenchProjector` onto `solve` (prove byte-identical).
+
+---
+
+## P3 — data-bound table node + live demo (CLOSED)
+
+The vocabulary ceiling the audit named for real apps. `layout::table(id, header_ids, col_weights,
+header_h, row_h, rows)` composes a `Col` of a header `Row` + one data `Row` per entry, all sharing
+`col_weights` — so the engine resolves IDENTICAL column x-positions for the header and every data row
+(columns ALIGN for free, no per-cell coordinate math). A table is "just" a `Col` of `Row`s.
+
+`igniter-frame/src/table_screen.rs` — an interactive leads table (`lead:<n>` facts → `{name, stage,
+hot}`): clicking any cell selects its row (cells carry the row's `select` intent; the row container
+sits behind them as the selection background), and bottom controls `cycle`/`toggle`/`add` edit the
+selected lead (and `add` flows a new row into the table). `WasmTableScreen` + `web/table.html`
+(served by the same `run-list-demo.sh`; opens `/table.html`).
+
+Evidence:
+
+```text
+cargo test     # 41 pass / 0 fail (adds layout::table_columns_align_across_rows + 3 table_screen tests)
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean
+wasm: WasmTableScreen exported; ZERO kernel symbols.
+```
+
+`table_columns_align_across_rows` asserts the header and every data row share each column's x AND
+width (weights 3:2:1 over 600 → 300/200/100 at x 0/300/500). `table_screen` tests:
+`columns_align_and_cell_click_selects_the_row`, `select_cycle_toggle_add_drive_state` (cycle 1→won,
+toggle hot, add → a 4th "New lead 4" flows in), `deterministic_replay`.
+
+**Proven LIVE in the browser**: the table renders with aligned `Name | Stage | Hot` columns, rows
+data-bound from facts (`Ada/new/○`, `Grace/won/✓`, `Linus/qualified/○`); synthetic select → cycle →
+toggle → add advance the frame 0→4, flow "New lead 4" into the grid, and update the title to
+`Leads · 4 rows · 2 hot` with chained lineage `input:3 → effect:3 → frame:4` and a changing digest;
+no console errors.
+
+Remaining of the "three moves": retarget `.igv` to emit the composed layout (beyond the one
+workbench template); optionally refactor `WorkbenchProjector` onto `solve` (prove byte-identical,
+retire its constants).

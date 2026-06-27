@@ -111,3 +111,51 @@ impl Default for WasmListScreen {
         Self::new()
     }
 }
+
+/// LAB-FRAME-LAYOUT-VOCAB-P3 — the data-bound TABLE screen exposed to the browser. Composed on the
+/// `layout::table` primitive: columns auto-align across rows. Click a cell to select its row; the
+/// controls cycle the selected lead's stage, toggle its hot flag, or add a row (the table flows).
+#[wasm_bindgen]
+pub struct WasmTableScreen {
+    inner: crate::table_screen::TableScreenRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmTableScreen {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmTableScreen {
+        WasmTableScreen {
+            inner: crate::table_screen::TableScreenRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmTableScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}

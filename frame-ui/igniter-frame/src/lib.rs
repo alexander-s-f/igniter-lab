@@ -29,6 +29,7 @@ pub mod host;
 pub mod layout;
 pub mod list_screen;
 pub mod runtime;
+pub mod table_screen;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;

@@ -226,6 +226,32 @@ pub fn layout_digest(rects: &[Rect]) -> String {
     format!("sha256:{}", blake3::hash(s.as_bytes()).to_hex())
 }
 
+/// Compose a TABLE: a header row + one data row per entry, all sharing `col_weights` so the columns
+/// ALIGN across every row — the layout engine resolves identical column x-positions for the header
+/// and every data row, so a table is "just" a `Col` of `Row`s with no per-cell coordinate math. Each
+/// row is a `Row` of `Flex` cells; `header_ids[c]` / `rows[r].1[c]` name the cell at column `c`, and
+/// `rows[r].0` names the data-row container (a hit-test / selection target behind its cells).
+pub fn table(
+    id: &str,
+    header_ids: &[String],
+    col_weights: &[i64],
+    header_h: i64,
+    row_h: i64,
+    rows: &[(String, Vec<String>)],
+) -> LayoutBox {
+    let cells = |ids: &[String]| -> Vec<LayoutBox> {
+        ids.iter()
+            .zip(col_weights)
+            .map(|(cid, w)| LayoutBox::leaf(cid.clone(), Size::Flex(*w)))
+            .collect()
+    };
+    let mut children = vec![LayoutBox::row(format!("{id}:header"), Size::Fixed(header_h), cells(header_ids))];
+    for (rid, cids) in rows {
+        children.push(LayoutBox::row(rid.clone(), Size::Fixed(row_h), cells(cids)));
+    }
+    LayoutBox::col(id, Size::Flex(1), children)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +411,39 @@ mod tests {
         let rs = solve(&tree, 0, 0, 40, 40);
         let c = rect(&rs, "c");
         assert_eq!((c.w, c.h), (0, 0));
+    }
+
+    #[test]
+    fn table_columns_align_across_rows() {
+        let cols = [3, 2, 1];
+        let t = table(
+            "t",
+            &["h0".into(), "h1".into(), "h2".into()],
+            &cols,
+            30,
+            24,
+            &[
+                ("r0".into(), vec!["r0c0".into(), "r0c1".into(), "r0c2".into()]),
+                ("r1".into(), vec!["r1c0".into(), "r1c1".into(), "r1c2".into()]),
+            ],
+        );
+        let rs = solve(&t, 0, 0, 600, 400);
+        // every column's x AND width are identical for the header and every data row → aligned columns
+        for c in 0..3 {
+            let h = rect(&rs, &format!("h{c}"));
+            for r in ["r0", "r1"] {
+                let cell = rect(&rs, &format!("{r}c{c}"));
+                assert_eq!(cell.x, h.x, "col {c} x aligns across header/{r}");
+                assert_eq!(cell.w, h.w, "col {c} width aligns across header/{r}");
+            }
+        }
+        // weights 3:2:1 over width 600 → 300/200/100 at x 0/300/500
+        assert_eq!((rect(&rs, "h0").x, rect(&rs, "h0").w), (0, 300));
+        assert_eq!((rect(&rs, "h1").x, rect(&rs, "h1").w), (300, 200));
+        assert_eq!((rect(&rs, "h2").x, rect(&rs, "h2").w), (500, 100));
+        // rows stack: header h=30 at y0, r0 at 30, r1 at 54
+        assert_eq!(rect(&rs, "r0").y, 30);
+        assert_eq!(rect(&rs, "r1").y, 54);
     }
 
     #[test]
