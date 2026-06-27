@@ -284,3 +284,50 @@ The 2D DX surface now covers: layout engine + alignment, text authoring/playgrou
 click-controls form, and keyboard text entry. Next breadth options: a reusable generic widget render
 host shared across the screens (retire the per-screen hosts); scroll/overflow; then the 3D/gamedev
 frontier (Ceiling B).
+
+---
+
+## P7 — scroll/overflow + keyboard nav + hover (CLOSED)
+
+Three interaction-breadth features on one scrollable list, and a **two-tier state model** the stack
+was missing: ephemeral PRESENTATION state vs. semantic DOMAIN effects.
+
+**Runtime (`runtime.rs`, generic + reusable):** `view_send(action, params)` runs the reducer and
+applies deltas (so view facts update and the next render reflects them) but does NOT advance the step
+counter or lineage. `hover(css_x, css_y)` hit-tests and routes the hovered id as a view-only `hover`
+intent; `scroll(css_x, css_y, dy)` routes the wheel delta as a view-only `scroll` intent (the reducer
+owns clamping). So hover/scroll re-render without inflating the frame index; nav/select stay semantic.
+
+**Screen (`scroll_list_screen.rs`):** a 24-row list in a fixed 10-row viewport (row-snapped — the
+window is `items[off..off+10]`, so no partial-row clipping and hit-test stays exact). Wheel scrolls
+(`__scroll__`, clamped); pointer-move highlights the hovered row (`__hover__`); Tab / Shift-Tab /
+Arrows move a focus ring (`__focus__`) and AUTO-SCROLL to keep it visible; Enter/Space/click select.
+A proportional scrollbar thumb shows the window position. `WasmScrollList` (click/hover/scroll/key)
++ `web/scroll.html` (forwards `wheel`/`pointermove`/`keydown`).
+
+Evidence:
+
+```text
+cargo test     # 60 pass / 0 fail (adds 5: wheel-scroll+clamp+view-only, hover+view-only+no-op-dedup,
+               #   tab-focus+autoscroll+enter-select, click-select, deterministic replay)
+cargo build --no-default-features  +  wasm32 release --features wasm   → clean
+wasm: WasmScrollList exported; ZERO kernel symbols.
+```
+
+Tests assert the **view-only property explicitly**: scrolling 5 notches and hovering a row leave
+`frame_index` unchanged, yet the window/highlight update; scroll clamps at both ends; re-hovering the
+same row returns no redraw; 12 Tabs move focus 0→12 and the list auto-scrolls so item:12 stays
+visible while item:0 leaves; Enter selects the focused row; replaying a scroll+hover+nav log is
+byte-identical.
+
+**Proven LIVE in the browser**: wheel scrolls the window (`showing 1–10` → `6–15 of 24`) with
+`frame_index` staying 0 (view-only); pointer-move highlights the row under the cursor (also frame 0);
+12 Tabs advance the frame 0→12 and auto-scroll to `showing 4–13` with the focus ring on the focused
+row; Enter → `Selected 13 Esme`, lineage `activate:12 → effect:12 → frame:13`; no console errors. The
+screenshot shows all three at once (focus ring on row 1, hover on row 5, scrollbar thumb). Run:
+`./web/run-list-demo.sh` → `/scroll.html`.
+
+The 2D DX surface now spans layout+alignment, text authoring/playground, list, table, click-controls
+form, keyboard text entry, and scroll+nav+hover — with a clean view/domain state split. Next: a
+reusable generic widget render host (retire the per-screen hosts); then the 3D/gamedev frontier
+(Ceiling B).

@@ -261,6 +261,66 @@ impl Default for WasmTextForm {
     }
 }
 
+/// LAB-FRAME-LAYOUT-VOCAB-P7 — the scrollable list (scroll/overflow + keyboard nav + hover) exposed
+/// to the browser. The page forwards `wheel` → `scroll`, `pointermove` → `hover`, `keydown` → `key`,
+/// pointer → `click`. Hover/scroll are view-only (no frame-index bump); nav/select advance the frame.
+#[wasm_bindgen]
+pub struct WasmScrollList {
+    inner: crate::scroll_list_screen::ScrollListRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmScrollList {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmScrollList {
+        WasmScrollList {
+            inner: crate::scroll_list_screen::ScrollListRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn hover(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.hover(css_x, css_y)
+    }
+
+    pub fn scroll(&mut self, css_x: f64, css_y: f64, dy: f64) -> bool {
+        self.inner.scroll(css_x, css_y, dy)
+    }
+
+    pub fn key(&mut self, k: &str, shift: bool) -> bool {
+        self.inner.key(k, shift)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmScrollList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// LAB-FRAME-LAYOUT-VOCAB-P4 — author a layout as TEXT, see it solved live. Parses the layout DSL and
 /// returns an inspection SVG of the solved boxes; on a parse error returns an SVG card naming the
 /// 1-based line and message. Pure + total — safe to call on every keystroke from a text field.

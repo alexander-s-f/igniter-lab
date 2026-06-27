@@ -10,8 +10,8 @@
 
 use crate::host::Viewport;
 use crate::{
-    derive_intent, Camera, CameraProjector, Frame, InputEvent, Intent, IntentReducer, Projector,
-    RenderHost, SvgRenderHost,
+    derive_intent, hit_test, Camera, CameraProjector, Frame, InputEvent, Intent, IntentReducer,
+    Projector, RenderHost, SvgRenderHost,
 };
 use serde_json::{json, Value};
 
@@ -200,6 +200,47 @@ impl FrameRuntime {
         self.last_effect = Some(format!("effect:{}", self.step));
         self.step += 1;
         true
+    }
+
+    /// Apply a VIEW-only intent: run the reducer and apply its deltas so ephemeral PRESENTATION facts
+    /// (e.g. `__hover__`, `__scroll__`) update and the next render reflects them — but do NOT advance
+    /// the semantic step counter or lineage. Hover and scroll position are presentation state, not
+    /// domain effects, so they don't inflate the frame index. Returns `true` iff state changed (the
+    /// host should redraw). The reducer should return no deltas when the view is unchanged.
+    pub fn view_send(&mut self, action: &str, params: Value) -> bool {
+        let intent = Intent {
+            action: action.to_string(),
+            target: None,
+            params,
+        };
+        let deltas = (self.reducer)(&intent, &self.world);
+        if deltas.is_empty() {
+            return false;
+        }
+        for (id, val) in deltas {
+            if let Some(slot) = self.world.iter_mut().find(|(k, _)| *k == id) {
+                slot.1 = val;
+            } else {
+                self.world.push((id, val));
+            }
+        }
+        true
+    }
+
+    /// Pointer MOVE (hover): hit-test the current frame and route the hovered node id (or `null`) as a
+    /// VIEW-only `hover` intent. Returns `true` iff the hovered target changed (redraw needed).
+    pub fn hover(&mut self, css_x: f64, css_y: f64) -> bool {
+        let (fx, fy) = self.viewport.pointer_to_frame(css_x, css_y);
+        let frame = self.current_frame();
+        let id = hit_test(&frame, fx, fy).map(|n| n.id.clone());
+        self.view_send("hover", json!({ "id": id }))
+    }
+
+    /// Mouse WHEEL: route the wheel delta + frame position as a VIEW-only `scroll` intent (the reducer
+    /// owns clamping with its domain knowledge of content extent). Returns `true` iff scroll changed.
+    pub fn scroll(&mut self, css_x: f64, css_y: f64, dy: f64) -> bool {
+        let (fx, fy) = self.viewport.pointer_to_frame(css_x, css_y);
+        self.view_send("scroll", json!({ "x": fx, "y": fy, "dy": dy as i64 }))
     }
 }
 

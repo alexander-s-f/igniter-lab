@@ -30,6 +30,7 @@ pub mod host;
 pub mod layout;
 pub mod list_screen;
 pub mod runtime;
+pub mod scroll_list_screen;
 pub mod table_screen;
 pub mod text_form_screen;
 
