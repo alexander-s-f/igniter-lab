@@ -849,6 +849,76 @@ fn render_input_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(para, area);
 }
 
+// ─── One-shot run (P2) ────────────────────────────────────────────────────────
+
+/// Run a single `.ig` source file, dispatch one contract, print ONLY the JSON result to stdout.
+/// Input JSON may be an inline JSON string or `@<path>` to read from a file.
+/// Exits 0 on success; prints a diagnostic to stderr and exits non-zero on any error.
+fn run_oneshot(source_path: &Path, contract_name: &str, json_input: &str) -> i32 {
+    // Resolve JSON input — inline or @file.
+    let json_str: String = if let Some(file_path) = json_input.strip_prefix('@') {
+        match std::fs::read_to_string(file_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: cannot read input file '{}': {}", file_path, e);
+                return 2;
+            }
+        }
+    } else {
+        json_input.to_string()
+    };
+
+    let inputs: serde_json::Value = match serde_json::from_str(&json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: input JSON is invalid: {}", e);
+            return 2;
+        }
+    };
+
+    let source = match std::fs::read_to_string(source_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "error: cannot read source '{}': {}",
+                source_path.display(),
+                e
+            );
+            return 1;
+        }
+    };
+
+    let machine = match IgniterMachine::new(None, "in_memory") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("error: machine init failed: {}", e);
+            return 1;
+        }
+    };
+
+    if let Err(e) = machine.load_contract_source(&source, contract_name) {
+        eprintln!(
+            "error: compile/classify failed for '{}': {}",
+            contract_name, e
+        );
+        return 1;
+    }
+
+    match futures::executor::block_on(machine.dispatch(contract_name, inputs)) {
+        Ok(result) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string())
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("error: dispatch '{}' failed: {}", contract_name, e);
+            1
+        }
+    }
+}
+
 // ─── Headless script runner (P20) ─────────────────────────────────────────────
 
 /// Run a file of REPL commands through the same dispatch path the TUI uses.
@@ -908,10 +978,25 @@ fn main() {
     let mut data_dir: Option<PathBuf> = None;
     let mut resume_path: Option<PathBuf> = None;
     let mut script_path: Option<PathBuf> = None;
+    // --run <source.ig> <ContractName> <json|@file>
+    let mut run_args: Option<(PathBuf, String, String)> = None;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--run" => {
+                if i + 3 < args.len() {
+                    run_args = Some((
+                        PathBuf::from(&args[i + 1]),
+                        args[i + 2].clone(),
+                        args[i + 3].clone(),
+                    ));
+                    i += 4;
+                } else {
+                    eprintln!("usage: igniter-repl --run <source.ig> <ContractName> <json|@file>");
+                    std::process::exit(1);
+                }
+            }
             "--script" => {
                 if i + 1 < args.len() {
                     script_path = Some(PathBuf::from(&args[i + 1]));
@@ -979,6 +1064,11 @@ fn main() {
     } else {
         backend_type.clone()
     };
+
+    // One-shot run mode: no TUI, no App; exits before terminal setup.
+    if let Some((ref source_path, ref contract_name, ref json_input)) = run_args {
+        std::process::exit(run_oneshot(source_path, contract_name, json_input));
+    }
 
     // Script mode exits before terminal setup, so no raw mode or alternate screen is entered.
     if let Some(ref spath) = script_path {

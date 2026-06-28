@@ -6300,7 +6300,7 @@ impl TypeChecker {
     /// The caller upgrades the compute node type to the named type IFF no errors
     /// are emitted by this method.
     ///
-    /// Field types are checked via `infer_field_expr_type` — only Ref and Literal
+    /// Field types are checked via `infer_field_expr_type_ir` — only Ref and Literal
     /// expressions are resolved; complex expressions return None (Unknown-compat:
     /// field type check is skipped, which is intentionally permissive in v0).
     /// LAB-TC-NESTED-RECORD-CONTEXT-P1: added `type_shapes` parameter to enable
@@ -6422,8 +6422,9 @@ impl TypeChecker {
     /// element type. Each element must conform to the element type T:
     ///   - RecordLiteral element → `check_record_literal_shape` against T's shape
     ///     (missing/extra/wrong-typed fields fail closed via that method).
-    ///   - Ref / Literal element → element type name must equal T (fail closed on
-    ///     mismatch; Unknown is permissive and skipped, as in record fields).
+    ///   - Ref / Literal element → infer full type IR and compare structurally
+    ///     against T (fail closed on mismatch; Unknown is permissive and skipped,
+    ///     as in record fields).
     ///   - record literal where T is not a known record shape (e.g. T = String) →
     ///     fail closed (record literal cannot satisfy a scalar element type).
     ///   - other element expressions → skipped (Unknown-compat, permissive v0).
@@ -6476,13 +6477,20 @@ impl TypeChecker {
                     }
                 }
                 _ => {
-                    if let Some(actual_type) = self.infer_field_expr_type(item, symbol_types) {
-                        if actual_type != elem_type_name && actual_type != "Unknown" {
+                    if let Some(actual_type_ir) = self.infer_field_expr_type_ir(item, symbol_types)
+                    {
+                        if !self.unknown_or_unknown_bearing(&actual_type_ir)
+                            && !self.unknown_or_unknown_bearing(elem_type_ir)
+                            && !self.structurally_assignable(&actual_type_ir, elem_type_ir)
+                        {
                             type_errors.push(ClassifierDiagnostic {
                                 rule: "OOF-TY0".to_string(),
                                 message: format!(
                                     "Collection element {} at node '{}': expected {}, got {}",
-                                    idx, node_name, elem_type_name, actual_type
+                                    idx,
+                                    node_name,
+                                    self.type_display(elem_type_ir),
+                                    self.type_display(&actual_type_ir)
                                 ),
                                 node: node_name.to_string(),
                                 line: None,
@@ -6494,15 +6502,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infer the type name of a simple field expression (Ref or Literal).
-    /// Returns None for complex expressions — the caller treats None as Unknown-compat
-    /// and skips the field type check rather than emitting a spurious error.
-    ///
-    /// This is intentionally limited to the two common cases in v0 record literals:
-    ///   - `field: some_var`   → look up `some_var` in symbol_types
-    ///   - `field: 200`        → derive from Literal type_tag (Integer / String / Bool)
-    ///
-    /// More complex field expressions (arithmetic, function calls, etc.) return None.
     // LAB-MAP-RUST-P1: Map[String,V] type IR builder helpers ----------------------
 
     fn make_map_type_ir(
@@ -6591,25 +6590,13 @@ impl TypeChecker {
         }
     }
 
-    fn infer_field_expr_type(
-        &self,
-        expr: &Expr,
-        symbol_types: &HashMap<String, serde_json::Value>,
-    ) -> Option<String> {
-        match expr {
-            Expr::Ref { name } => symbol_types.get(name).map(|t| self.type_name(t)),
-            Expr::Literal { type_tag, .. } => Some(type_tag.clone()),
-            _ => None,
-        }
-    }
-
     /// LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7: like
-    /// `infer_field_expr_type`, but returns the FULL type IR (`{name, params}`) instead of the
-    /// outer name only. A `Ref`'s symbol type is carried verbatim — preserving generic parameters
-    /// (`Collection[Integer]`) that the name-only path erased — so record-field validation can
-    /// compare structurally through the P5 `IgType` boundary. Same v0 scope as its sibling: only
-    /// `Ref` (symbol lookup) and `Literal` (scalar tag) are inferred; anything else is `None`
-    /// (Unknown-compat, skipped by the caller).
+    /// the former name-only helper, but returns the FULL type IR (`{name, params}`) instead of
+    /// the outer name only. A `Ref`'s symbol type is carried verbatim — preserving generic
+    /// parameters (`Collection[Integer]`) that the name-only path erased — so record-field and
+    /// array-element validation can compare structurally through the P5 `IgType` boundary.
+    /// Same v0 scope as before: only `Ref` (symbol lookup) and `Literal` (scalar tag) are
+    /// inferred; anything else is `None` (Unknown-compat, skipped by the caller).
     fn infer_field_expr_type_ir(
         &self,
         expr: &Expr,

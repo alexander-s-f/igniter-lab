@@ -45,7 +45,9 @@ async fn latest_receipts(receipts: &Arc<dyn TBackend>) -> Result<Vec<Value>, Eng
         let e = latest
             .entry(f.key.clone())
             .or_insert((f64::NEG_INFINITY, Value::Null));
-        if f.transaction_time >= e.0 {
+        // P4: latest by (transaction_time, receipt_seq) — deterministic at equal timestamps,
+        // replacing the prior wall-clock-only `>=` (which left equal-tx ties to HashMap order).
+        if crate::capability::receipt_is_newer_or_equal(f.transaction_time, &f.value, e.0, &e.1) {
             *e = (f.transaction_time, f.value);
         }
     }

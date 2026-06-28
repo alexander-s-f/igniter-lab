@@ -1,6 +1,6 @@
 # LAB-IGNITER-COMPILER-ARRAY-LITERAL-ELEMENT-TYPING-P9
 
-Status: TODO
+Status: DONE
 Route: standard / igniter-lab / lang / igniter-compiler / type soundness
 Skill: idd-agent-protocol
 
@@ -46,14 +46,14 @@ Known live facts:
 
 ## Acceptance
 
-- [ ] `Collection[Integer] = [1, 2]` type-checks.
-- [ ] Mixed scalar literal elements fail closed, e.g. `Collection[Integer] = [1, "x"]`.
-- [ ] `String`/`Text` scalar aliasing works through `IgType`, not a local string exception.
-- [ ] Record element collections still check every record literal against the same element shape.
-- [ ] A wrong record field type inside an array literal still emits `OOF-TY0`.
-- [ ] Unknown-bearing complex elements remain deferred/permissive, matching existing v0 policy.
-- [ ] Existing P6/P7/P8 regression tests remain green.
-- [ ] `git diff --check` clean.
+- [x] `Collection[Integer] = [1, 2]` type-checks.
+- [x] Mixed scalar literal elements fail closed, e.g. `Collection[Integer] = [1, "x"]`.
+- [x] `String`/`Text` scalar aliasing works through `IgType`, not a local string exception.
+- [x] Record element collections still check every record literal against the same element shape.
+- [x] A wrong record field type inside an array literal still emits `OOF-TY0`.
+- [x] Unknown-bearing complex elements remain deferred/permissive, matching existing v0 policy.
+- [x] Existing P6/P7/P8 regression tests remain green.
+- [x] `git diff --check` clean.
 
 ## Suggested Verification
 
@@ -83,3 +83,11 @@ Packet must include:
 - before/after typing examples,
 - regression matrix,
 - explicit deferrals: inference for arbitrary complex elements and stdlib arg typing.
+
+## Closing Packet
+
+Implemented and verified in:
+
+```text
+lab-docs/lang/lab-igniter-compiler-array-literal-element-typing-p9-v0.md
+```

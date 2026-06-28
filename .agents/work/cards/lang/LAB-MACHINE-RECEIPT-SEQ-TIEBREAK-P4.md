@@ -1,6 +1,6 @@
 # LAB-MACHINE-RECEIPT-SEQ-TIEBREAK-P4
 
-Status: TODO
+Status: CLOSED (2026-06-28)
 Route: standard / igniter-lab / runtime / igniter-machine / receipt ordering
 Skill: idd-agent-protocol
 
@@ -51,17 +51,39 @@ Known live facts from the P3 readiness pass:
 
 ## Acceptance
 
-- [ ] Equal-timestamp receipt facts resolve deterministically: a later terminal receipt wins over an
-      earlier prepared/unknown receipt when `receipt_seq` is higher.
-- [ ] Non-monotonic wall-clock test documents the boundary: transaction time remains audit time;
-      `receipt_seq` only tie-breaks equal timestamps.
-- [ ] Replay with the same idempotency key returns the recorded outcome and does not write a new
-      receipt or increment the sequence.
-- [ ] Recovery / observability latest-state helpers use the same ordering helper rather than
-      duplicating wall-clock-only logic.
-- [ ] Existing capability IO, Postgres write/reconcile, and clock tests remain green.
-- [ ] No changes to TBackend daemon, Postgres CAS DDL, or external wire protocol are required.
-- [ ] `git diff --check` clean.
+- [x] Equal-timestamp receipts resolve deterministically: terminal beats earlier prepared/unknown via
+      higher `receipt_seq` (`equal_timestamp_terminal_outranks_prepared_via_receipt_seq` +
+      adversarial-push-order `recovery_equal_tx_higher_seq_terminal_is_latest_not_dangling`).
+- [x] Non-monotonic boundary documented: tx is primary, seq only breaks equal tx
+      (`transaction_time_is_primary_seq_only_breaks_equal_tx`).
+- [x] Replay returns the recorded outcome and writes no new receipt / no seq increment
+      (`replay_writes_no_new_receipt_and_does_not_increment_seq`).
+- [x] Recovery + observability use the SAME `receipt_is_newer_or_equal` helper as write-resolution
+      (no duplicated wall-clock-only logic).
+- [x] Existing capability IO / Postgres write+reconcile / clock tests green (clock 5, host 9,
+      recovery 7, write 12, reconcile 7, capability_io 13; fleet 13/13).
+- [x] No TBackend daemon / Postgres CAS-DDL / wire-protocol change; no new dependency.
+- [x] `git diff --check` clean.
+
+## Report (2026-06-28)
+
+Implemented P3's Option A. Added a per-process `receipt_seq` (`static AtomicU64`, starts at 1; 0 =
+legacy) stamped into every receipt value (capability + write `write_receipt`), and one shared helper
+`receipt_is_newer_or_equal` applying `(transaction_time, receipt_seq)` lexicographic — tx primary,
+seq tie-break. Wired it into all three fold sites: `run_write_effect` resolution (now reads
+`facts_for` + `reduce` instead of `read_as_of` max-by-tx), `recovery::latest_receipts`, and
+`observability::latest_by_key`. `receipt_seq` lives in the receipt VALUE only (no `Fact`-schema/hash
+break). Replay returns before `write_receipt`, so it neither appends a fact nor increments the seq.
+tx stays the audit primary; seq never reorders different-tx receipts (backwards-clock case self-heals
+via P7 reconcile — documented boundary).
+
+Files: `runtime/igniter-machine/src/{capability.rs (helper + stamp + 4 unit tests), write.rs (stamp +
+fold resolution), recovery.rs, observability.rs}`, `runtime/igniter-machine/tests/receipt_seq_tiebreak_tests.rs`
+(4 integration), board A21, packet `lab-docs/lang/lab-machine-receipt-seq-tiebreak-p4-v0.md`.
+
+Verification: P4 unit 4/4 + integration 4/4; clock/host/recovery/write/reconcile/capability_io all
+green; fleet 13/13; `git diff --check` PASS. (Card's `-p igniter-machine` ⇒ live equivalent
+`--manifest-path runtime/igniter-machine/Cargo.toml`, recorded in packet.)
 
 ## Suggested Verification
 

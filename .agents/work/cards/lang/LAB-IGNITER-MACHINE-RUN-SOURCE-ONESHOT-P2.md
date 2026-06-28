@@ -1,6 +1,6 @@
 # LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2
 
-Status: TODO
+Status: CLOSED (2026-06-28)
 Route: standard / igniter-lab / runtime / igniter-machine / source-run DX
 Skill: idd-agent-protocol
 
@@ -49,15 +49,27 @@ Known live facts:
 
 ## Acceptance
 
-- [ ] One-shot command runs a simple `.ig` contract and prints JSON output.
-- [ ] One-shot command runs a contract from a multi-contract source file by name.
-- [ ] Input JSON object crosses into contract inputs with current machine semantics.
-- [ ] Bad JSON fails non-zero and names the input problem.
-- [ ] Bad source/classification fails non-zero and names the compiler/classifier problem.
-- [ ] Unknown entry/contract fails non-zero.
-- [ ] Existing `--script` REPL tests remain green.
-- [ ] Default/no-feature behavior remains consistent with the current binary feature gate.
-- [ ] `git diff --check` clean.
+- [x] One-shot command runs a simple `.ig` contract and prints JSON output.
+- [x] One-shot command runs a contract from a multi-contract source file by name.
+- [x] Input JSON object crosses into contract inputs with current machine semantics.
+- [x] Bad JSON fails non-zero and names the input problem.
+- [x] Bad source/classification fails non-zero and names the compiler/classifier problem.
+- [x] Unknown entry/contract fails non-zero.
+- [x] Existing `--script` REPL tests remain green.
+- [x] Default/no-feature behavior remains consistent with the current binary feature gate.
+- [x] `git diff --check` clean.
+
+## Report (2026-06-28)
+
+Implemented the smallest coherent CLI home: `igniter-repl --run <source.ig> <ContractName>
+<json|@file>`, behind the existing `repl` feature and binary gate. The path is pure in-memory machine
+dispatch: read source, `IgniterMachine::new(None, "in_memory")`, `load_contract_source`, parse JSON,
+`dispatch`, print only result JSON to stdout. No capability host, Postgres, passport shortcut,
+`.igapp` artifact, dynamic dispatch, or `igc run` unification.
+
+Tests added to `repl_headless_smoke_tests.rs`: simple success, multi-contract contract selection,
+`@file` input, bad JSON, bad source, unknown contract. Existing `--script` headless tests remained
+green. Proof packet: `lab-docs/lang/lab-igniter-machine-run-source-oneshot-p2-v0.md`.
 
 ## Suggested Verification
 
