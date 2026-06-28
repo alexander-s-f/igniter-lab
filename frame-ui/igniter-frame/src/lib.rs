@@ -26,6 +26,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 pub mod form_screen;
+pub mod game_loop;
 pub mod host;
 pub mod ig_bridge;
 pub mod igv_desugar;

@@ -12,7 +12,7 @@
 //! screen coordinates, rendered as a painter-sorted wireframe SVG. A fixed-timestep `tick` advances
 //! rotation, so the scene animates deterministically.
 
-const FP: i64 = 4096; // fixed-point unit (1.0)
+pub const FP: i64 = 4096; // fixed-point unit (1.0)
 
 /// sin(i/256 * 2π) * 4096, precomputed (machine-free, no runtime f64). cos(a)=SIN256[(a+64)&255].
 pub const SIN256: [i64; 256] = [
@@ -82,13 +82,15 @@ impl Camera {
 }
 
 // Unit cube: 8 vertices at ±FP, 12 edges.
-const CUBE: [V3; 8] = [
+/// Unit-cube vertices (±FP) — shared with the game-loop demo.
+pub const CUBE: [V3; 8] = [
     V3 { x: -FP, y: -FP, z: -FP }, V3 { x: FP, y: -FP, z: -FP },
     V3 { x: FP, y: FP, z: -FP },   V3 { x: -FP, y: FP, z: -FP },
     V3 { x: -FP, y: -FP, z: FP },  V3 { x: FP, y: -FP, z: FP },
     V3 { x: FP, y: FP, z: FP },    V3 { x: -FP, y: FP, z: FP },
 ];
-const EDGES: [(usize, usize); 12] = [
+/// Cube edge topology (index pairs into [`CUBE`]).
+pub const EDGES: [(usize, usize); 12] = [
     (0, 1), (1, 2), (2, 3), (3, 0), // back face
     (4, 5), (5, 6), (6, 7), (7, 4), // front face
     (0, 4), (1, 5), (2, 6), (3, 7), // connectors

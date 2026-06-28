@@ -321,6 +321,58 @@ impl Default for WasmScrollList {
     }
 }
 
+/// LAB-FRAME-3D-GAME-P1 — a deterministic game loop with replay + time-travel. `advance()` plays a
+/// fixed timestep; `boom()` records an input; `seek(t)` time-travels to any tick (pure re-simulation).
+/// Integer-only, so replay is bit-identical.
+#[wasm_bindgen]
+pub struct WasmGame {
+    inner: crate::game_loop::Game,
+}
+
+#[wasm_bindgen]
+impl WasmGame {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmGame {
+        WasmGame {
+            inner: crate::game_loop::Game::new(),
+        }
+    }
+
+    pub fn advance(&mut self) {
+        self.inner.advance();
+    }
+    pub fn boom(&mut self) {
+        self.inner.boom();
+    }
+    pub fn seek(&mut self, t: u32) {
+        self.inner.seek(t as u64);
+    }
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+    pub fn frame_index(&self) -> u32 {
+        self.inner.tick() as u32
+    }
+    pub fn max_tick(&self) -> u32 {
+        self.inner.max_tick() as u32
+    }
+    pub fn boom_count(&self) -> u32 {
+        self.inner.boom_count()
+    }
+    pub fn render_digest(&self) -> String {
+        self.inner.digest()
+    }
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// LAB-FRAME-3D-P1 — a deterministic, machine-free 3D scene (Ceiling B/C). The browser drives a
 /// fixed timestep: `tick()` once per animation frame, then `render_svg()`. Pure integer math (no f64),
 /// so replay is bit-identical.
