@@ -2189,6 +2189,23 @@ impl VM {
                             };
                             Value::Bool(r)
                         }
+                        // LAB-FRAME-3D-GAME-EQ-WORKAROUND-REMOVAL-P6: equality on the OP_CALL path.
+                        // The Ruby igc lowers `==` / `!=` to OP_CALL builtins `stdlib.primitive.{eq,ne}`,
+                        // which were missing on this path (so `==` failed at runtime even though OP_EQ and
+                        // the binary-op evaluator support it) — the same builtin-name gap the arithmetic
+                        // ops had. Reuse the shared exact-equality helper (Decimal-aware).
+                        "stdlib.primitive.eq" => {
+                            if args.len() != 2 {
+                                return Err(format!("eq expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            Value::Bool(value_eq_exact(&args[0], &args[1])?)
+                        }
+                        "stdlib.primitive.ne" => {
+                            if args.len() != 2 {
+                                return Err(format!("ne expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            Value::Bool(!value_eq_exact(&args[0], &args[1])?)
+                        }
                         "stdlib.collection.append" | "append" => {
                             if args.len() != 2 {
                                 return Err(format!(

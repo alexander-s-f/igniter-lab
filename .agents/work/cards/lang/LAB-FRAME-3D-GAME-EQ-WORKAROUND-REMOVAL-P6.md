@@ -1,6 +1,27 @@
 # LAB-FRAME-3D-GAME-EQ-WORKAROUND-REMOVAL-P6
 
-Status: OPEN
+Status: CLOSED (2026-06-27)
+
+## Closing Report
+
+- **Result:** GREEN. Workaround removed — `KickBody` uses direct `if target == b.id { … }`. But live
+  re-verify found a REGRESSION contradicting P1: `==` lowered to the OP_CALL path failed everywhere with
+  `OP_CALL: Unknown/unimplemented function 'stdlib.primitive.eq'` — including `vm_loop_app.ig`'s `View`
+  (P7's "real `==`" case). The card sanctions a VM edit on a regression contradicting P1; made the
+  minimal one: added `stdlib.primitive.{eq,ne}` to the VM OP_CALL dispatch (`vm.rs`, after the
+  `stdlib.integer.{lt,gt}` arm), reusing the existing `value_eq_exact` — same pattern as the arithmetic
+  fix. Packet: `lab-docs/lang/lab-frame-3d-game-eq-workaround-removal-p6-v0.md`.
+- **Q1** direct `==` runs? YES (after the fix). **Q2** behavior unchanged? YES — byte-identical kick
+  result, tests/harness green. **Q3** stale or real gap? REAL (`stdlib.primitive.eq` absent on OP_CALL
+  path) — contradicts P1, now fixed. **Q4** next card → `LAB-VM-OPCALL-BUILTIN-NAME-AUDIT-P1`.
+- **Files:** `lang/igniter-vm/src/vm.rs` (+ eq/ne OP_CALL arms — VM owners, reconcile w/ P1),
+  `specimens/dx-view-d/vm_game_app.ig` (KickBody direct `==`, comment corrected),
+  `lab-docs/lang/lab-frame-3d-game-eq-workaround-removal-p6-v0.md` (packet).
+- **Verify:** probe `ViaMap`→`[false,true,false]`; vm_loop `View(lead:1)`→success selected=lead:1; game
+  `Reduce(target=1)`→b1 vy 1400, others 0; kick == committed fixture (no fixture change); `cargo test`
+  99/0; `git diff --check` clean. No Cargo.lock change; GPU-host assets untouched.
+- **Next:** `LAB-VM-OPCALL-BUILTIN-NAME-AUDIT-P1` — sweep OP_CALL builtin names vs igc emission so no
+  `stdlib.*` op is unimplemented at runtime while the binary-op/OP_* paths support it.
 Route: standard / igniter-lab / frame-ui / 3D game / language-pressure cleanup
 Skill: idd-agent-protocol
 Depends-On:

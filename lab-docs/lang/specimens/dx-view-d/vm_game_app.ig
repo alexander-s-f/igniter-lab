@@ -78,19 +78,16 @@ contract View {
 
 -- ── INTERACTION, also `.ig`: a click on a body's marker → kick THAT body, on the VM ────────────────
 -- The host hit-tests the clicked marker → its `id`, and runs `Reduce(world, target)`; the matched body
--- gets a strong up + radial-out impulse. NB: `id == target` is expressed with `<`/`>` only —
--- `hit = (NOT id<target) * (NOT id>target)` — because the VM's OP_CALL path does not yet dispatch
--- `stdlib.primitive.eq` (works for `<`/`>`); routed to the VM owners (see the P5 packet).
+-- (real `==` equality, even inside a `map`-called contract) gets a strong up + radial-out impulse.
+-- (Written `target == b.id` — RHS a field access, not a bare ident — so the comparand before `{` does
+-- not mis-parse as a record construct.)
 
 contract KickBody {
   input b      : Body
   input target : Integer
-  compute ge = if target > b.id { 0 } else { 1 }   -- 1 iff id >= target (RHS is a field, not a bare ident)
-  compute le = if target < b.id { 0 } else { 1 }   -- 1 iff id <= target
-  compute hit = ge * le                             -- 1 iff id == target
-  compute kx = if hit > 0 { if b.px > 0 { 700 } else { if b.px < 0 { 0 - 700 } else { 0 } } } else { 0 }
-  compute kz = if hit > 0 { if b.pz > 0 { 700 } else { if b.pz < 0 { 0 - 700 } else { 0 } } } else { 0 }
-  compute ky = if hit > 0 { 1400 } else { 0 }
+  compute kx = if target == b.id { if b.px > 0 { 700 } else { if b.px < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute kz = if target == b.id { if b.pz > 0 { 700 } else { if b.pz < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute ky = if target == b.id { 1400 } else { 0 }
   compute b2 = { px: b.px, py: b.py, pz: b.pz, vx: b.vx + kx, vy: b.vy + ky, vz: b.vz + kz, id: b.id }
   output b2 : Body
 }
