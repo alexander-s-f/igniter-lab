@@ -1,6 +1,49 @@
 # LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
+
+## Closure Report
+
+Shipped a report-only `igweb-serve live-bind-check --host-config PATH [--addr
+HOST:PORT]` that converts the parsed `[host.live_bind]` checklist (P34) into the
+server `LiveBindChecklist` and asks the **pure** `authorize_bind` gate what it
+WOULD decide — **never opening a listener**. Public-bind HOLD (P35) preserved.
+Packet: `lab-docs/lang/lab-igniter-web-live-bind-dry-run-verdict-p36-v0.md`.
+
+New code (igniter-web only): `src/live_bind_check.rs` (`config_to_checklist`,
+`LiveBindVerdict`, `evaluate`, `render` — pure, no I/O, not feature-gated);
+`src/lib.rs` runner CLI (`LiveBindCheck` command, default addr
+`0.0.0.0:8080` = the public-bind question); `src/bin/igweb-serve.rs` match arm
+(parse → evaluate → print verdict; exit 0 authorize / 5 `BIND_REFUSED` refuse / 2
+`CONFIG_PARSE` on bad config). Real `Run`/`Check` bind paths untouched.
+
+Verdict line: `[LIVE_BIND_DRY_RUN] addr=… class=loopback|non_loopback
+verdict=would_authorize|would_refuse [checklist_digest=…|code=… missing_field=…]
+socket_opened=false public_bind=closed`.
+
+No-socket proof: path calls only pure `authorize_bind`/`load_host_config` (no
+`TcpListener::bind`); every line states `socket_opened=false`; subprocess tests
+assert stdout never contains `listening http`.
+
+Acceptance:
+- [x] Live P34/P35/server-gate surfaces characterized before editing.
+- [x] Dry-run verdict exists and never binds sockets (3-layer proof).
+- [x] Complete checklist → accept-shaped verdict, still no bind authority.
+- [x] Missing/incomplete/invalid → actionable refusal / `CONFIG_PARSE`.
+- [x] Existing loopback serve behavior unchanged (diagnostics 8/8, machine-mode 12/12).
+- [x] Non-loopback serve path still refused outside dry-run (`Run` unchanged).
+- [x] Packet states public bind remains closed.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Tests: live_bind_check unit 7/7, dry-run subprocess 6/6, full `--features
+machine` suite ~269 passed / 0 failed. `git diff --check` clean.
+Next: P37 (durable inbound signed-passport key) + P38 (terminated-upstream TLS
+runbook) → P39 (human-gated bind proof). Board A10 → next slice P37/P38.
+
+---
+
+Status: CLOSED — original card below.
 Route: standard / main-audit / igniter-web / live-bind gate
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35`

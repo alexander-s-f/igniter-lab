@@ -1,6 +1,6 @@
 # LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / compiler / type soundness
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5`,
@@ -102,3 +102,49 @@ Packet must include:
 - diagnostic behavior;
 - tests/proofs run;
 - remaining record-literal tails.
+
+## Closing Report (2026-06-28)
+
+Outcome: **implemented** (lab compiler only). The last A19/IgType Rust-lab tail
+(B-U3) is closed.
+
+Before: `check_record_literal_shape` step 3 compared a non-inline field value
+(`Ref`/`Literal`) to the declared field type by **outer name only** (`type_name`
+vs `infer_field_expr_type` → `String`), so `Collection[Integer]` into a
+`Collection[Text]` field passed silently (both names "Collection").
+
+Change: added `infer_field_expr_type_ir` (full-IR sibling that preserves a `Ref`'s
+generic params) and rewrote the `_` arm to compare via the P5
+`structurally_assignable` boundary, gated on both sides being concrete
+(Unknown-permissive, as P5/P6). Scalar verdicts are byte-for-byte preserved; the
+message gains generic params via `type_display`. `OOF-TY0`, no SIR/syntax change.
+
+Deliverable:
+`lab-docs/lang/lab-igniter-compiler-record-literal-noninline-field-typing-p7-v0.md`.
+
+Acceptance:
+
+- [x] Live record-literal field-typing path characterized (`check_record_literal_shape`
+      `_` arm name-only).
+- [x] A previously-accepted generic field mismatch now fails closed
+      (`Collection[Integer]`↛`Collection[Text]` → `OOF-TY0`).
+- [x] Matching generic field values still compile.
+- [x] Record-spread/punning tests remain green (9 + 8).
+- [x] Full compiler suite passes — 37 suites ok, 368 passed, 0 failed.
+- [x] Proof packet states covered vs deferred record surfaces.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Side update: audit-board A19 → "CLOSED (three slices; tails active)"; B-U3 closed.
+Named remaining tails: Collection-element typing (`check_array_literal_shape`
+identical name-only `_` arm) and `call_contract`/stdlib arg-typing.
+
+Verification:
+
+```text
+cargo test … --test record_literal_generic_field_tests   → 4 passed; 0 failed
+cargo test … --test record_field_punning_tests           → 8 passed; 0 failed
+cargo test … --test record_spread_tests                  → 9 passed; 0 failed
+cargo test … (full igniter-compiler suite)               → 37 suites ok, 368 passed, 0 failed
+git diff --check                                          → PASS
+```

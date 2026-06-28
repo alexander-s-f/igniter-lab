@@ -59,6 +59,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             return Ok(());
         }
+        RunnerCliCommand::LiveBindCheck(opts) => {
+            // LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36: report-only. Parse the
+            // host config, ask the pure server gate what it WOULD decide for the
+            // intended address, print the verdict — and never open a socket. Public
+            // bind stays closed; a `would_authorize` here grants no bind authority.
+            use igniter_web::host_config::load_host_config;
+            use igniter_web::live_bind_check::evaluate;
+            use igniter_web::runner_diag::classify_host_config_error;
+            let host_cfg = match load_host_config(&opts.host_config_path) {
+                Ok(c) => c,
+                Err(e) => fail(classify_host_config_error(&e)),
+            };
+            let verdict = evaluate(opts.addr, host_cfg.live_bind.as_ref());
+            println!("{}", verdict.render(opts.addr));
+            if verdict.would_authorize() {
+                return Ok(());
+            }
+            // Scriptable refusal: stable non-zero exit, verdict already on stdout.
+            std::process::exit(DiagCode::BindRefused.exit_code());
+        }
         RunnerCliCommand::Run(cli) => cli,
     };
 

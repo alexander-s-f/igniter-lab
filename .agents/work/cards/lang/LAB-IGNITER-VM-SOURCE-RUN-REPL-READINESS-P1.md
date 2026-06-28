@@ -1,6 +1,6 @@
 # LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / VM-DX / source-run
 Skill: idd-agent-protocol
 
@@ -66,14 +66,45 @@ Closed:
 
 ## Acceptance
 
-- [ ] Live compile/load/dispatch paths characterized.
-- [ ] At least three UX/ownership options compared.
-- [ ] Dynamic dispatch and capability authority boundaries are explicit.
-- [ ] One first implementation card named.
-- [ ] No code changes unless explicitly justified as readiness helper.
-- [ ] Proof/readiness packet created.
-- [ ] `git diff --check` passes.
-- [ ] Card is closed with a concise report.
+- [x] Live compile/load/dispatch paths characterized.
+- [x] At least three UX/ownership options compared (A `igc run`, B machine one-shot, C REPL, D unified).
+- [x] Dynamic dispatch and capability authority boundaries are explicit.
+- [x] One first implementation card named (`LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2`).
+- [x] No code changes unless explicitly justified (one incidental P8 regression fix — see report).
+- [x] Proof/readiness packet created.
+- [x] `git diff --check` passes.
+- [x] Card is closed with a concise report.
+
+## Report (2026-06-28)
+
+**Verify-first overturned the premise.** A23 / the VM surface doc claimed "source-run / REPL
+missing" — stale. `igniter-machine`'s `igniter-repl` (feat `repl`) already compiles `.ig`
+**source** in-memory via `load_contract_source` (full front-end) and `dispatch`es, with a
+headless `--script` mode proven by `repl_headless_smoke_tests`. The only genuine gap is a
+**non-interactive one-shot single command** (`source → result` JSON for CI/scripting).
+
+Decision: A23 LARGELY MET; ship only the thin one-shot. Options compared (full table in packet
+§2): A `igc run` (compiler has no runtime → coupling), **B machine-owned `--run`/`run-source`
+one-shot (chosen — reuses proven path, pure-dispatch, no deps)**, C REPL (already shipped),
+D unified `igniter` (defer). First impl card: `LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2`.
+
+Authority boundaries (packet §3): literal/static contract name only (no dynamic dispatch);
+no capability/effect auto-grant (REPL machine wires no executor registry → pure dispatch); full
+front-end gates preserved (classify/typecheck/OOF run — no bypass).
+
+**Incidental fix (P8 regression, found by this card's own verification).** The card's
+`test_machine_fleet_sweep` step ran 12/13: my prior P8 `call_contract` arg-typing rejected
+`erp_logistics` because `IgType::structurally_assignable` treated `String`≠`Text`. Fixed
+generally with `canonical_scalar_name` (`String`≡`Text`) in `type_ir.rs` (also strengthens
+P6/P7). Re-verified 13/13 + full green. Recorded in the P8 packet "P8a follow-up", P8 card, and
+board A19.
+
+Doc corrections (verify-first hygiene): `lang/igniter-vm/IMPLEMENTED_SURFACE.md` stale
+"REPL missing" rows corrected; board A23 updated; packet
+`lab-docs/lang/lab-igniter-vm-source-run-repl-readiness-p1-v0.md` created.
+
+Verification: fleet 13/13; `project_mode_tests` 9/9; compiler suite 0 failures; VM 167/0;
+machine 362/0; `git diff --check` PASS.
 
 ## Suggested Verification
 

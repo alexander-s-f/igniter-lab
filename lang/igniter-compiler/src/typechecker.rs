@@ -6377,18 +6377,35 @@ impl TypeChecker {
                         // skip — Unknown-compatible, no false positive.
                     }
                     _ => {
-                        if let Some(actual_field_type) =
-                            self.infer_field_expr_type(field_expr, symbol_types)
+                        // LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7: a
+                        // non-inline field value (a `Ref` or `Literal`) is compared to the
+                        // declared field type STRUCTURALLY through the P5 `IgType` boundary, not by
+                        // outer name only. The old name-only compare accepted `Collection[Integer]`
+                        // into a `Collection[Text]` field (both names "Collection"); the structural
+                        // compare distinguishes the element parameter. Scalars are unaffected (their
+                        // names already differ structurally). A fault is raised only when both the
+                        // actual and expected types are concrete (not Unknown-bearing) — mirroring
+                        // the variant-field (P5) and user-fn-arg (P6) paths so an inference gap
+                        // never over-tightens.
+                        if let Some(actual_field_ir) =
+                            self.infer_field_expr_type_ir(field_expr, symbol_types)
                         {
-                            if actual_field_type != expected_field_type
-                                && actual_field_type != "Unknown"
+                            if !self.unknown_or_unknown_bearing(&actual_field_ir)
+                                && !self.unknown_or_unknown_bearing(expected_field_type_ir)
+                                && !self.structurally_assignable(
+                                    &actual_field_ir,
+                                    expected_field_type_ir,
+                                )
                             {
                                 type_errors.push(ClassifierDiagnostic {
                                     rule: "OOF-TY0".to_string(),
                                     message: format!(
                                         "Record type '{}': field '{}' expects {}, got {} at node '{}'",
-                                        expected_type_name, field_name,
-                                        expected_field_type, actual_field_type, node_name
+                                        expected_type_name,
+                                        field_name,
+                                        self.type_display(expected_field_type_ir),
+                                        self.type_display(&actual_field_ir),
+                                        node_name
                                     ),
                                     node: node_name.to_string(),
                                     line: None,
@@ -6582,6 +6599,27 @@ impl TypeChecker {
         match expr {
             Expr::Ref { name } => symbol_types.get(name).map(|t| self.type_name(t)),
             Expr::Literal { type_tag, .. } => Some(type_tag.clone()),
+            _ => None,
+        }
+    }
+
+    /// LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7: like
+    /// `infer_field_expr_type`, but returns the FULL type IR (`{name, params}`) instead of the
+    /// outer name only. A `Ref`'s symbol type is carried verbatim — preserving generic parameters
+    /// (`Collection[Integer]`) that the name-only path erased — so record-field validation can
+    /// compare structurally through the P5 `IgType` boundary. Same v0 scope as its sibling: only
+    /// `Ref` (symbol lookup) and `Literal` (scalar tag) are inferred; anything else is `None`
+    /// (Unknown-compat, skipped by the caller).
+    fn infer_field_expr_type_ir(
+        &self,
+        expr: &Expr,
+        symbol_types: &HashMap<String, serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        match expr {
+            Expr::Ref { name } => symbol_types.get(name).cloned(),
+            Expr::Literal { type_tag, .. } => {
+                Some(self.type_ir(&serde_json::Value::String(type_tag.clone())))
+            }
             _ => None,
         }
     }

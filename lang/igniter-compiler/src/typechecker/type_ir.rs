@@ -164,7 +164,7 @@ impl IgType {
         if actual.is_unknown() {
             return false; // D2: actual Unknown always rejected
         }
-        if actual.name() != expected.name() {
+        if canonical_scalar_name(actual.name()) != canonical_scalar_name(expected.name()) {
             return false;
         }
         let actual_params = actual.params();
@@ -176,6 +176,20 @@ impl IgType {
             .iter()
             .zip(expected_params.iter())
             .all(|(a, e)| IgType::structurally_assignable(a, e))
+    }
+}
+
+/// Canonical scalar name for assignability. `String` and `Text` are the SAME scalar in Igniter —
+/// string literals infer the tag `String`, while declarations (`input id : Text`) use `Text`, and
+/// the typechecker already treats the two literal tags interchangeably. So a string-literal argument
+/// (`String`) is assignable to a `Text` input. Without this, the per-argument structural checks
+/// (`call_contract` P8, user-`def` P6, record-literal field P7) would falsely reject every literal
+/// passed to a `Text` parameter. Only this one alias pair is canonicalized; other scalar names
+/// (`Integer`, `Bool`, `Float`, …) match literal tags exactly and need no aliasing.
+fn canonical_scalar_name(name: &str) -> &str {
+    match name {
+        "String" => "Text",
+        other => other,
     }
 }
 

@@ -60,7 +60,8 @@ SemanticIR `.igapp`; `igniter-vm` runs it. Proof: `Add(a=2,b=3)` →
 | bytecode source-map | ✅ | `igniter-vm bytecode-map <app>` |
 | compiled example apps | ✅ | `igniter-compiler/out/*.igapp` (add, decimal_contract, availability_projection, tenant_availability_projection, vendor_lead_pipeline, …) |
 | recursive self-call / TCO | ⛔ v0 hold | `call_contract` dispatches with depth-guard; self-recursion/cycles closed in v0 (ledger D-007) |
-| single `source → run` command / REPL | ❌ missing | two-step (compile then run); the main DX gap for "live" |
+| source-compiling REPL (interactive + headless) | ✅ (machine-owned) | `igniter-machine` binary `igniter-repl` (feature `repl`): `load <path.ig>` → `IgniterMachine::load_contract_source` (full front-end in-process) → `dispatch <Name> [json]`; plus headless `--script <file>` (P20) → `tests/repl_headless_smoke_tests.rs`. Corrects the prior "REPL missing" claim (`LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1`). |
+| non-interactive one-shot `source → result` (single command) | ❌ missing (only remaining gap) | the `.ig`+contract+JSON → stdout-result-JSON ergonomic for CI/scripting; today expressible as a 2-line `igniter-repl --script`. First impl card `LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2` (machine-owned, reuses `load_contract_source`+`dispatch`, pure-dispatch, no dynamic dispatch). `igniter-vm` still runs only compiled `.igapp`. |
 
 ## Stdlib / Package Proofs
 
@@ -153,7 +154,9 @@ function SIR materialization plus VM static app-local function runtime.
   public language completeness, recursive self-call/TCO, or every nested HOF shape.
 - Recursive self-call / TCO stays on v0 hold; `call_contract` is depth-guarded and self-recursion/cycles
   are closed.
-- Single `source -> run` / REPL remains missing; current live path is compile to `.igapp`, then VM run.
+- A source-compiling REPL EXISTS (machine `igniter-repl`: interactive + headless `--script`); the
+  only remaining source-run gap is a non-interactive **one-shot single command** (`…-RUN-SOURCE-ONESHOT-P2`).
+  `igniter-vm` itself still runs only a compiled `.igapp`. (Corrected by `…-VM-SOURCE-RUN-REPL-READINESS-P1`.)
 - Generic matrix libraries, arbitrary nested HOF coverage, `filter_map`/`reduce` eval_ast parity, and
   package execution/admission are not proven by the Vec3/Mat3 or stdlib math rows.
 - Package/admission evidence in this file is a pointer to compiler-owned surfaces, not VM authority.

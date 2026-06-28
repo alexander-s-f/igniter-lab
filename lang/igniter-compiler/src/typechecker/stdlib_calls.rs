@@ -2578,6 +2578,53 @@ impl TypeChecker {
                                                     resolved_type = self.type_ir(out_type);
                                                 }
                                                 // Multi-output → resolved_type stays Unknown (deferred).
+
+                                                // P8 (LAB-IGNITER-COMPILER-CALL-CONTRACT-ARG-TYPING):
+                                                // structurally validate each supplied argument type against the
+                                                // callee's declared input type — the SAME IgType boundary as the
+                                                // P6 user-`def` signature check (`check_user_fn_call_signature`).
+                                                // Arity already matched above, so `input_types` lines up with the
+                                                // positional args (which start at typed_args[1]; [0] is the name).
+                                                // Unknown / Unknown-bearing on either side is skipped (deferred,
+                                                // never a false reject) exactly as P6 does.
+                                                for (i, expected_raw) in
+                                                    entry.input_types.iter().enumerate()
+                                                {
+                                                    let Some(actual_arg) = typed_args.get(i + 1)
+                                                    else {
+                                                        break;
+                                                    };
+                                                    let expected = self.type_ir(expected_raw);
+                                                    let actual = &actual_arg.resolved_type;
+                                                    if self.unknown_or_unknown_bearing(&expected)
+                                                        || self.unknown_or_unknown_bearing(actual)
+                                                    {
+                                                        continue;
+                                                    }
+                                                    if !self
+                                                        .structurally_assignable(actual, &expected)
+                                                    {
+                                                        let pname = entry
+                                                            .input_names
+                                                            .get(i)
+                                                            .cloned()
+                                                            .unwrap_or_else(|| {
+                                                                format!("#{}", i + 1)
+                                                            });
+                                                        type_errors.push(ClassifierDiagnostic {
+                                                            rule: "OOF-TY0".to_string(),
+                                                            message: format!(
+                                                                "call_contract: callee '{}' parameter '{}' expects {}, got {}",
+                                                                callee_name,
+                                                                pname,
+                                                                self.type_display(&expected),
+                                                                self.type_display(actual)
+                                                            ),
+                                                            node: node_name.to_string(),
+                                                            line: None,
+                                                        });
+                                                    }
+                                                }
                                             }
                                         }
                                     } // end if let Some(callee_name)
