@@ -1,6 +1,6 @@
 # LAB-FRAME-VIEW-SURFACE-REFRESH-P9
 
-Status: TODO
+Status: DONE
 Route: standard / igniter-lab / frame-ui / docs / implemented-surface / hygiene
 Skill: idd-agent-protocol
 
@@ -65,13 +65,13 @@ Closed:
 
 ## Acceptance
 
-- [ ] Docs state equality is live in VM and not a current frame-ui blocker.
-- [ ] Docs state selected-state is authored in `.ig` and rendered structurally by `ig_bridge`.
-- [ ] Docs state the current VM loop proof still uses subprocess/command-produced fixtures.
-- [ ] Docs name the remaining DX follow-up: in-process VM-loop projector readiness/implementation.
-- [ ] Docs do not claim `.igv`, `.ig.html`, cross-module forms, or public frame API stability beyond evidence.
-- [ ] Relevant tests are not rerun broadly unless the doc change needs proof; at minimum `git diff --check`.
-- [ ] No production code changes.
+- [x] Docs state equality is live in VM and not a current frame-ui blocker.
+- [x] Docs state selected-state is authored in `.ig` and rendered structurally by `ig_bridge`.
+- [x] Docs state the current VM loop proof still uses subprocess/command-produced fixtures.
+- [x] Docs name the remaining DX follow-up: in-process VM-loop projector readiness/implementation.
+- [x] Docs do not claim `.igv`, `.ig.html`, cross-module forms, or public frame API stability beyond evidence.
+- [x] Relevant tests are not rerun broadly unless the doc change needs proof; at minimum `git diff --check`.
+- [x] No production code changes.
 
 ## Suggested Verification
 
@@ -97,3 +97,44 @@ Packet must include:
 - current-true surface summary,
 - remaining follow-up link to P8/P10 as appropriate.
 
+## Closing Report - 2026-06-28
+
+Result: DONE. Refreshed the frame-view/front-door documentation after the P1/P7 equality wave.
+
+Files edited:
+
+- `frame-ui/igniter-frame/README.md`
+- `lab-docs/lang/lab-frame-app-authoring-checkpoint-p14-v0.md`
+- `lab-docs/lang/lab-frame-view-surface-refresh-p9-v0.md`
+- this card
+
+Current-true summary now discoverable:
+
+- VM equality `==` / `OP_EQ` is live and is not a current frame-ui blocker.
+- Selected-state is authored in `.ig` as `selected = row_key == state.sel`.
+- `ig_bridge` renders the authored `selected` field; it does not decide selection with host-side equality.
+- The VM-loop payoff is proven through command-produced runtime fixtures / subprocess boundary.
+- Remaining DX follow-up: `LAB-FRAME-VIEW-VM-LOOP-PROJECTOR-READINESS-P10`.
+
+Cargo.lock status:
+
+- `frame-ui/igniter-frame/Cargo.lock` exists locally but is ignored by
+  `frame-ui/igniter-frame/.gitignore`; it is not a tracked deliverable today.
+
+Verification:
+
+```text
+git diff --check
+```
+
+Result: PASS.
+
+```text
+rg -n "eq|equality|selected|VM loop|fixture|subprocess" frame-ui/igniter-frame/README.md lab-docs/lang
+```
+
+Result: refreshed front-door wording is present. Historical P6 stale wording is still found as expected
+historical evidence, superseded by P1/P7/current README entries.
+
+No source, fixture, or production code changes were made. Broad tests were not rerun because this was a
+doc-only hygiene slice.

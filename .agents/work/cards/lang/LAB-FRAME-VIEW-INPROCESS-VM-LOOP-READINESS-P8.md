@@ -1,6 +1,6 @@
 # LAB-FRAME-VIEW-INPROCESS-VM-LOOP-READINESS-P8
 
-Status: TODO
+Status: CLOSED (2026-06-28) — readiness/design, no production code
 Route: standard / igniter-lab / frame-ui / igniter-frame / VM-loop / readiness
 Skill: idd-agent-protocol
 
@@ -73,15 +73,38 @@ Known live facts:
 
 ## Acceptance
 
-- [ ] Packet identifies the exact current subprocess/fixture boundary and what it buys us.
-- [ ] Packet compares at least three options:
-      `subprocess stays`, `optional igniter_vm adapter`, `optional igniter_machine adapter`.
-- [ ] Packet names the recommended feature boundary (`machine`, `vm-loop`, or other) with dependency proof.
-- [ ] Packet lists a minimal API shape and failure taxonomy.
-- [ ] Packet states whether wasm/no-default builds remain unchanged.
-- [ ] Packet gives one named implementation card if proceeding.
-- [ ] No production code changes.
-- [ ] `git diff --check` is clean.
+- [x] Packet identifies the exact current subprocess/fixture boundary and what it buys us.
+- [x] Packet compares three options: subprocess stays / optional `igniter_vm` adapter / optional
+      `igniter_machine` adapter.
+- [x] Packet names the recommended feature boundary (new `vm-loop` → `igniter_vm`, native-only,
+      off-by-default, not under `machine`/`wasm`) with dependency proof.
+- [x] Packet lists a minimal API (`ViewReduceLoop::load/render/reduce`) and `VmLoopError` taxonomy.
+- [x] Packet states wasm/no-default build status (lib core unchanged; documents the pre-existing
+      un-gated-test caveat + the real `--lib` commands).
+- [x] Packet names one implementation card (`LAB-FRAME-VIEW-INPROCESS-VM-LOOP-ADAPTER-P9`) + matrix.
+- [x] No production code changes.
+- [x] `git diff --check` clean.
+
+## Report (2026-06-28)
+
+Doc-only readiness. **Recommend Option B: an optional `igniter_vm` adapter behind a new `vm-loop`
+feature** (native-only, off by default, NOT under `machine` or `wasm`). Dependency proof:
+`vm-loop → igniter_vm` pulls the run engine only (no compiler, no backend/IO), vs Option C
+(`igniter_machine`) which re-imports the compiler + tokio-full + host IO the machine-free core was
+built to exclude. Option A (subprocess) stays as the fixture/CI/demo boundary regardless.
+
+Verify-first surfaced two load-bearing facts: (1) the `.igapp` load+run lives in `igniter-vm`'s
+**binary**, not its library — so P9's first step is lifting it into the `igniter_vm` lib; (2) both
+`igniter_vm` and `igniter_machine` pull `tokio = full`, so any in-process adapter is **native-only**
+today (wasm in-the-loop needs igniter_vm to gate tokio — a noted future enabler). The frame-ui
+**library** core builds clean `--no-default-features` and `--features wasm` (invariant holds); only
+two un-gated *test* targets break the `--no-default-features` *test* command (pre-existing, flagged
+as a tiny separate hygiene fix).
+
+API: `ViewReduceLoop::load(igapp, view_entry, reduce_entry).render(state)/reduce(state,key)`, pure-ish
+(IO only at load), no `igc run`/passport. Failure taxonomy: `VmLoopError::{Load, EntryNotFound,
+BadInput, VmRuntime}`. Next card: `LAB-FRAME-VIEW-INPROCESS-VM-LOOP-ADAPTER-P9` (+ acceptance matrix
+in packet). Packet: `lab-docs/lang/lab-frame-view-inprocess-vm-loop-readiness-p8-v0.md`.
 
 ## Suggested Verification
 

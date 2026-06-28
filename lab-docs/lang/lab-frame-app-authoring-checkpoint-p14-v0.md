@@ -71,6 +71,12 @@ igniter-frame FrameRuntime                                  ← platform authori
 thin browser/WASM host   ──inspected by──►  igniter-console (replay / diff / lineage)
 ```
 
+2026-06-28 frame-view refresh: the `.ig` view/reducer equality payoff is live as lab evidence, not
+canon. `LAB-VM-PRIMITIVE-EQ-PARITY-P1` proves VM `==` / `OP_EQ`; `LAB-FRAME-VIEW-EQ-WORKAROUND-REMOVAL-P7`
+proves authored `selected = row_key == state.sel` survives through command-produced VM fixtures,
+`ig_bridge`, and frame runtime re-projection. This does not open `.igv`, `.ig.html`, cross-module
+forms, or stable public frame APIs; the in-process VM-loop projector remains a later DX slice.
+
 ## How to build an Igniter UI app
 
 Three honest ways, smallest first:
