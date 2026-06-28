@@ -122,9 +122,9 @@ impl PostgresWritePolicy {
 
 /// What the adapter's transaction returned. Maps to the documented write taxonomy:
 /// `Committed`/`DuplicateKey` → succeeded → `WriteState::Committed` (duplicate = no 2nd mutation),
-/// `Denied` → denied, `ConstraintViolation` → permanent, `SerializationFailure` → retryable
-/// (rolled back, KNOWN no mutation), `Unknown` → unknown_external_state (no blind retry; P4
-/// reconciles).
+/// `Denied` → denied, `ConstraintViolation`/`PermanentConfig` → permanent, `SerializationFailure`
+/// → retryable (rolled back, KNOWN no mutation), `Unknown` → unknown_external_state (no blind
+/// retry; P4 reconciles).
 pub enum PostgresWriteResult {
     Committed,
     /// The PG-side `effect_receipts(idempotency_key)` already had this key → the business mutation
@@ -132,6 +132,12 @@ pub enum PostgresWriteResult {
     DuplicateKey,
     Denied(String),
     ConstraintViolation(String),
+    /// A permanent OPERATOR config / schema-DDL error (P2): the `effect_receipts` durable-CAS table
+    /// is missing, lacks the UNIQUE/PRIMARY KEY on `idempotency_key` (so `ON CONFLICT` cannot match
+    /// → SQLSTATE 42P10), or a target table/column is undefined. Distinct from a per-write
+    /// `ConstraintViolation` so the operator sees "fix the schema", not "your data conflicted".
+    /// Still permanent (no blind retry).
+    PermanentConfig(String),
     SerializationFailure(String),
     Unknown(String),
 }
@@ -226,6 +232,9 @@ impl<A: PostgresWriteAdapter + 'static> CapabilityExecutor for PostgresWriteExec
             PostgresWriteResult::ConstraintViolation(m) => {
                 EffectOutcome::permanent(&format!("constraint violation: {m}"))
             }
+            PostgresWriteResult::PermanentConfig(m) => {
+                EffectOutcome::permanent(&format!("permanent config/DDL error: {m}"))
+            }
             PostgresWriteResult::SerializationFailure(m) => {
                 EffectOutcome::retryable(&format!("serialization failure (rolled back): {m}"))
             }
@@ -247,6 +256,10 @@ pub enum FakeWriteBehavior {
     /// (P4) resolves to `committed` via the effect-receipt read-back.
     CommitButLost,
     ConstraintViolation,
+    /// A permanent schema/config-DDL error (P2): models the real adapter mapping DDL-drift
+    /// SQLSTATEs (missing `effect_receipts` CAS table / unique key, undefined target column) to
+    /// `PostgresWriteResult::PermanentConfig`. Rolls back — no mutation, nothing recorded.
+    PermanentConfig,
     SerializationFailure,
     Unknown,
     Denied,
@@ -376,6 +389,10 @@ impl PostgresWriteAdapter for FakePostgresWriteAdapter {
             // The remaining behaviours roll back — no mutation, nothing recorded.
             FakeWriteBehavior::ConstraintViolation => PostgresWriteResult::ConstraintViolation(
                 "duplicate value violates unique constraint".to_string(),
+            ),
+            FakeWriteBehavior::PermanentConfig => PostgresWriteResult::PermanentConfig(
+                "42P10: no unique/exclusion constraint matching the ON CONFLICT specification"
+                    .to_string(),
             ),
             FakeWriteBehavior::SerializationFailure => PostgresWriteResult::SerializationFailure(
                 "could not serialize access due to concurrent update".to_string(),

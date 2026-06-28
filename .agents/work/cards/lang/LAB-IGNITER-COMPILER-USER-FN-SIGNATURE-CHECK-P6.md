@@ -1,6 +1,6 @@
 # LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / compiler / type soundness
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5`
@@ -102,3 +102,48 @@ Packet must include:
 - exact diagnostics added;
 - tests proving before/after behavior;
 - intentionally deferred call surfaces.
+
+## Closing Report (2026-06-28)
+
+Outcome: **implemented.** App-local user `def` calls are now signature-checked at
+`Expr::Call` (`typechecker.rs` `infer_expr`). Previously the call was resolved by
+name alone and `f.return_type` was trusted without checking argument arity or
+types — a `def` could be called with the wrong arity/types and still compile.
+
+Change (lab compiler only): one new private method
+`check_user_fn_call_signature`, invoked at the user-fn resolution site. It emits
+`OOF-TY0` for (a) arity mismatch and (b) parameter-type mismatch, the latter via
+the P5 `IgType::structurally_assignable` boundary (so generics like
+`Collection[Integer]` ≠ `Collection[Text]` are caught). Parameter checks fire
+only when both declared and inferred types are concrete (no Unknown-bearing
+false positives), mirroring P5's variant-field path and the typed-binding path.
+
+Deliverable: `lab-docs/lang/lab-igniter-compiler-user-fn-signature-check-p6-v0.md`
+(before-state, diagnostics table, tests, deferred surfaces, all 5 questions).
+
+Acceptance:
+
+- [x] Live call/signature path characterized before editing (`infer_expr` user-fn
+      loop at the `f.return_type`-by-name site).
+- [x] Wrong arity → `OOF-TY0` (`expected N arguments, got M`).
+- [x] Wrong parameter type → `OOF-TY0` (named + generic, structural).
+- [x] Valid calls still compile (named + generic controls, 0 `OOF-TY0`).
+- [x] P5 `variant_field_generic_param_tests` (2) and P6
+      `effect_summary_interprocedural_tests` (7) remain green.
+- [x] Full compiler suite passes — all suites ok, 0 failed.
+- [x] Proof packet states covered vs deferred call surfaces.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Side update: audit-board A19 → "CLOSED (two slices)", B-U1 closed; remaining =
+record-literal non-inline field (B-U3) + `call_contract`/stdlib arg-typing.
+
+Verification:
+
+```text
+cargo test … --test user_fn_signature_check_tests          → 6 passed; 0 failed
+cargo test … --test variant_field_generic_param_tests      → 2 passed; 0 failed
+cargo test … --test effect_summary_interprocedural_tests   → 7 passed; 0 failed
+cargo test … (full igniter-compiler suite)                 → all suites ok, 0 failed
+git diff --check                                            → PASS
+```

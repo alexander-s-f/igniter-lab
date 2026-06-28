@@ -44,7 +44,7 @@ live source, package-local `IMPLEMENTED_SURFACE.md`, proof packets, and commits.
 | A07 | Machine forgeable passport on data-plane | Security / authority | Use signed data-plane entrypoints; legacy unsigned surfaces are compatibility only. | CLOSED for signed entrypoints | `LAB-MACHINE-SIGNED-PASSPORT-DATAPLANE-P26`; signed paths and forged-passport negatives exist. | Choose signed entrypoints in new wiring; future removal of unsigned compat is policy work. |
 | A08 | IgWeb forgeable effect passport | Security / authority | Sign IgWeb effect-host passports before machine write bridge. | CLOSED | `LAB-IGNITER-WEB-SIGNED-EFFECT-PASSPORT-P27`. | Durable/operator-provided signing key config remains future work. |
 | A09 | Inbound unbounded reads / slowloris / auth composition | Security / transport | Shared hardened read policy: header/body caps, timeouts, middleware ordering. | CLOSED | `lab-igniter-server-inbound-hardened-read-p28`; current waves mark inbound read caps/timeouts implemented. | Public bind still closed until TLS/checklist operator config. |
-| A10 | Loopback-to-live gate missing | Security / production gate | Keep non-loopback bind behind explicit server authorization/checklist. | PARTLY CLOSED | Server gate API `LAB-IGNITER-SERVER-LIVE-BIND-GATE-P31`; IgWeb pre-bind wiring `P32`; live-bind TLS checklist readiness `P33`; parse-only operator checklist + fail-closed diagnostics `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34` (`[host.live_bind]`, NOT wired to `authorize_bind` — public bind still closed). | Gate decision: verify operator assertions → mint server `LiveBindChecklist`, wire signed passport at inbound seam, TLS transport, then human-gated non-loopback proof. |
+| A10 | Loopback-to-live gate missing | Security / production gate | Keep non-loopback bind behind explicit server authorization/checklist. | PARTLY CLOSED | Server gate API `LAB-IGNITER-SERVER-LIVE-BIND-GATE-P31`; IgWeb pre-bind wiring `P32`; live-bind TLS checklist readiness `P33`; parse-only operator checklist + fail-closed diagnostics `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34` (`[host.live_bind]`, NOT wired to `authorize_bind` — public bind still closed); gate-decision packet `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35` = HOLD enablement, authority chain + cards named. | Per P35 chain: `…DRY-RUN-VERDICT-P36` (report-only, no bind) → `…INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37` + `…TLS-TERMINATED-UPSTREAM-RUNBOOK-P38` → human-gated `…LIVE-BIND-HUMAN-GATED-PROOF-P39`. |
 | A11 | MCP unauthenticated local tools and checkpoint path escape | Security / local tool authority | Local env-token gate for `tools/call`; checkpoint paths root-confined; reserved stores refused. | CLOSED | `lab-machine-mcp-auth-checkpoint-sandbox-p30`. | Network auth / signed passport MCP is future, not current local-stdio claim. |
 | A12 | Compiler lock computed but not enforced on build | Supply chain | Support locked/frozen project compile before emit. | PARTLY CLOSED (default policy decided) | `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`; `compile --project-root ... --locked` / `--frozen`; `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P3` for local deps; default-policy readiness `lab-igniter-compiler-lock-default-policy-readiness-p4-v0.md` (decision: keep explicit `--locked`, defer default-on). | Default-on enforcement deferred to `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5` (gated on registry/signing/remote-source readiness). |
 | A13 | Local dependency path escape | Supply chain | Refuse absolute, lexical `..`, and symlink escapes outside workspace trust root. | CLOSED | Commit `7fca309`; proof packet `lab-igniter-compiler-dep-path-containment-p3-v0.md`; diagnostic `OOF-IMP10`. | None unless new dep resolver surface is added. |
@@ -53,9 +53,9 @@ live source, package-local `IMPLEMENTED_SURFACE.md`, proof packets, and commits.
 | A16 | Host config could not express typed Bool/Decimal read kinds | Product blocker / Todo API | Add typed read field kinds to host config. | CLOSED | Commit `7c46b98`; `lab-igniter-web-host-config-typed-field-kinds-p33-v0.md`. | Route-specific typed Bool/Decimal adoption after row-shape review. |
 | A17 | Multi-source read config missing | Stale product claim | `extra_sources` / `[postgres.read.<source>]` supports multiple allowed sources. | STALE / NOT CONFIRMED | Current waves and `host_config.rs` mark multi-source read config implemented. | Only multi-DSN/cross-DB joins remain readiness-only. |
 | A18 | VM map-lambda `call_contract`, `variant_construct`, machine fleet blockers | Correctness / VM parity | Add eval-ast parity and variant construction support for covered specimens. | CLOSED | `lab-vm-map-lambda-callcontract-parity-p1-v0.md`; `LAB-VM-EVALAST-VARIANT-CONSTRUCT-IMPL-P5`; fleet recheck 13/13 in status refresh. | Dynamic dispatch remains governance-gated; recursive self-call/TCO separate. |
-| A19 | Type IR is stringly / name-only soundness holes | Correctness / compiler soundness | Replace stringly type surfaces with an `IgType` enum model. | CLOSED (first slice) | `lab-igniter-compiler-type-ir-enum-p5-v0.md`; `enum IgType` at the helper boundary, variant-field generic check fails closed (`OOF-KIND2`), SIR byte-identical, 308 tests. | Next `LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6` (B-U1); record-literal non-inline field = remaining B-U3 half. |
-| A20 | Pure contract can launder effects through `def` | Correctness / effect system | Interprocedural effect summary over call graph/SCC. | CLOSED (first slice) | `lab-igniter-compiler-effect-summary-p6-v0.md`; diagnostic `OOF-M1` (transitive); typechecker `compute_ambient_io_summary` over reused Tarjan SCC; 7/7 tests + full suite green. | `call_contract` callee propagation, richer flag set + SIR metadata deferred to next slice. |
-| A21 | Durable exactly-once / replay ordering / fsync foundation | Durability / machine-TBackend substrate | Server-assigned `seq_id`, durable CAS/prepared, fsync group commit. | OWNER-SPLIT DONE | `lab-machine-durable-cas-seqid-fsync-owner-split-p1-v0.md`. Verify-first: TBackend daemon (`pure_core`) ALREADY owns seq_id/CAS/group-commit (P9/P6/P12 closed); machine gap = multi-process exactly-once + WAL fsync + clock-ordered receipts. | First: `LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2` (machine PG CAS); parallel `LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2`; deferred cross-project `LAB-MACHINE-TBACKEND-RECEIPT-ADOPTION-READINESS-P2`. |
+| A19 | Type IR is stringly / name-only soundness holes | Correctness / compiler soundness | Replace stringly type surfaces with an `IgType` enum model. | CLOSED (two slices) | `lab-igniter-compiler-type-ir-enum-p5-v0.md` (`enum IgType` helper boundary, variant-field generic check fails closed `OOF-KIND2`, SIR byte-identical); `lab-igniter-compiler-user-fn-signature-check-p6-v0.md` (B-U1: user-`def` call arity + parameter-type check at `Expr::Call`, `OOF-TY0`, structural via `IgType`). | Record-literal non-inline field = remaining B-U3 half; `call_contract`/stdlib arg-typing later. |
+| A20 | Pure contract can launder effects through `def` | Correctness / effect system | Interprocedural effect summary over call graph/SCC. | CLOSED (def + call_contract) | P6 `lab-igniter-compiler-effect-summary-p6-v0.md` (`OOF-M1` transitive-via-def, Tarjan SCC, 7/7). P7 `lab-igniter-compiler-effect-summary-call-contract-p7-v0.md`: `call_contract` laundering **closed by construction** — v0 allows only `pure` literal callees (`OOF-TY0`), pure callees provably I/O-free; 3 regression-lock tests (no propagation needed). | Contract-level effect propagation `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CONTRACT-GRAPH-P8` only if v0 relaxes the pure-only callee rule; dynamic dispatch + SIR metadata still deferred. |
+| A21 | Durable exactly-once / replay ordering / fsync foundation | Durability / machine-TBackend substrate | Server-assigned `seq_id`, durable CAS/prepared, fsync group commit. | PG-CAS + WAL DONE; seq remain | `lab-machine-durable-cas-seqid-fsync-owner-split-p1-v0.md` (owner split); **`LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2` CLOSED** — DB-native `effect_receipts(idempotency_key)` UNIQUE CAS proven for multi-process exactly-once (2 concurrent writers/2 processes → 1 mutation/receipt), canonical `EFFECT_RECEIPTS_DDL`, DDL-drift→`PermanentConfig` (`lab-machine-durable-cas-pg-exactly-once-p2-v0.md`). **`LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2` CLOSED** — WAL `append` per-record `fdatasync` (default `WalDurability::Sync`); `replay_reported()` flags benign torn tail vs mid-stream `CrcMismatch`/`Deserialize` corruption (byte offsets); boot `replay()` fails closed on corruption (`EngineError::Corruption`), tolerates tail; fsync-to-OS, NO power-loss claim (`lab-machine-wal-fsync-nonsilent-recovery-p2-v0.md`). Verify-first: TBackend daemon (`pure_core`) owns fact-log seq_id/CAS/group-commit (P9/P6/P12). | Clock-ordered receipts / machine seq_id; WAL group-commit (perf); deferred cross-project `LAB-MACHINE-TBACKEND-RECEIPT-ADOPTION-READINESS-P2`. |
 | A22 | det_* cross-arch claim needs evidence | Science / determinism | Keep claims tiered; use qemu/hardware golden-bit proof before stronger cross-arch language. | QUEUED / external parallel | Current waves point to det-math evidence lanes; public science work stays repo-local. | T1/T2 det-math qemu/hardware cards in emergence/science lane. |
 | A23 | VM direct source-run / REPL missing | DX | Build source-to-run/REPL as a product DX surface, not as audit safety. | QUEUED | Current waves mark `.igapp` runtime implemented but source-run missing. | `LAB-IGNITER-VM-SOURCE-RUN-REPL-P*`. |
 | A24 | Frame-ui IDE preview still tied to legacy view engine / product unpause | Product / UI DX | Rehome preview onto Rust projector and continue form/view-engine bridge work. | QUEUED / parallel | Frame-ui P2/P3/P5/P6 proofs exist; current waves track frame-ui separately. | Let active frame-ui agent continue; do not mix into foundation audit batch. |
@@ -111,39 +111,20 @@ tier:
 - Todo API DB-free/fake proofs do not imply production DB ownership or schema
   migration policy.
 
-## Active Next Audit Wave
+## Latest Audit Wave Closure
 
-Dispatched on 2026-06-28 after the first foundation-hardening wave closed.
-Run these as separate cards, not one blended task:
+Dispatched and closed on 2026-06-28 after the first foundation-hardening wave.
 
-1. `LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6`
-   - Why: A19 first slice moved one comparison path to `IgType`; user-`def`
-     signature validation is the named B-U1 follow-up.
-   - Boundary: compiler type/signature diagnostics only; no effect summary,
-     VM, web, or canon changes.
+| Card | Outcome |
+|---|---|
+| `LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6` | Implemented user-`def` arity and parameter-type checking at `Expr::Call` via the `IgType` structural boundary. |
+| `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CALL-CONTRACT-P7` | Characterized + regression-locked: `call_contract` laundering is closed by construction because v0 allows only literal `pure` callees. |
+| `LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2` | Hardened/proved DB-native durable CAS: `effect_receipts(idempotency_key)` UNIQUE/PK, concurrent real-PG proof, DDL drift maps to `PermanentConfig`. |
+| `LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2` | Implemented explicit WAL durability policy and non-silent recovery report; boot fails closed on mid-stream corruption. |
+| `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35` | Gate decision only: public bind still HOLD; authority chain and P36-P39 future cards named. |
 
-2. `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CALL-CONTRACT-P7`
-   - Why: A20 first slice closes `def` laundering; literal
-     `call_contract("Name", ...)` propagation is the next static edge to verify.
-   - Boundary: static/literal compiler effect summary only; no dynamic dispatch
-     semantics.
-
-3. `LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2`
-   - Why: A21 owner split showed machine still needs multi-process
-     exactly-once for Postgres write effects.
-   - Boundary: machine Postgres receipt/CAS only; no TBackend/home-lab/SparkCRM.
-
-4. `LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2`
-   - Why: A21 owner split showed machine WAL durability/recovery hygiene is
-     orthogonal to Postgres CAS.
-   - Boundary: machine WAL/recovery only; no power-loss claim beyond evidence.
-
-5. `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35`
-   - Why: A10 parse-only checklist exists; the next safe step is a gate
-     decision for signed authority/TLS/human proof.
-   - Boundary: readiness/gate decision only; public bind remains closed.
-
-Do not dispatch `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5` until
+Remaining natural follow-ups are named in the row-level `Next safe slice`
+cells. Do not dispatch `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5` until
 registry/signing/remote-source readiness creates enough pressure to flip the
 default policy. Do not mix frame-ui into this foundation audit batch while its
 separate agent is active.

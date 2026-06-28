@@ -1,6 +1,6 @@
 # LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / machine / durability
 Skill: idd-agent-protocol
 Depends-On: `LAB-MACHINE-DURABLE-CAS-SEQID-FSYNC-OWNER-SPLIT-P1`
@@ -101,3 +101,55 @@ Packet must include:
 - recovery failure taxonomy;
 - tests/proofs run;
 - explicit non-claims.
+
+## Closing Report (2026-06-28)
+
+Outcome: **implemented** in `runtime/igniter-machine/src/wal.rs` (machine-only).
+
+Before: `append` did `flush()` only (no fsync); `replay()` silently `break`/
+`continue`d on every truncation/corruption. The `.mpk` store already had the
+explicit-fsync + corruption-report posture — the WAL is brought to match.
+
+Changes (all additive to the public API; `replay()` signature unchanged):
+- **Durability explicit:** `WalDurability { Flush, Sync }`; `append` flushes then
+  (default `Sync`) `File::sync_data` (fdatasync); `with_durability` / `durability`
+  accessors. Group-commit deliberately deferred (named in packet).
+- **Non-silent recovery:** `replay_reported() -> WalReplay { facts, recovered,
+  truncated_tail, corrupt: Vec<WalCorruption{offset,kind,detail}> }` with
+  `WalCorruptionKind { CrcMismatch (stop), Deserialize (continue) }`. A torn tail
+  is flagged + tolerated; mid-stream corruption is reported. Boot-facing
+  `replay()` recovers the healthy prefix, tolerates a torn tail, and **fails
+  closed** with `EngineError::Corruption` on mid-stream corruption — used at
+  `machine.rs:77` with zero call-site change. Pre-alloc huge-length guard added.
+
+Deliverable: `lab-docs/lang/lab-machine-wal-fsync-nonsilent-recovery-p2-v0.md`
+(before-state, fsync policy, recovery taxonomy table, tests, durability level +
+non-claims, remaining gaps).
+
+Acceptance:
+
+- [x] Live WAL/recovery behavior characterized before editing.
+- [x] WAL durability policy explicit in code (`WalDurability`, per-record
+      `sync_data`) and docs.
+- [x] Recovery no longer silently ignores corruption/truncation — `WalReplay`
+      report + fail-closed boot.
+- [x] Tests cover clean replay + truncated tail + CRC mismatch + deserialize
+      (5 tests, tempdirs, deliberately corrupted WAL files).
+- [x] No power-loss guarantee claimed beyond test evidence (explicit non-claim;
+      on-disk truncation/byte-flip = torn-write stand-in).
+- [x] Machine tests pass — full suite 58 ok / 362 passed / 0 failed.
+- [x] Proof packet states durability level + remaining gaps.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Side updates: `IMPLEMENTED_SURFACE.md` gained a WAL durability row; audit-board
+A21 → "PG-CAS + WAL DONE; seq remain".
+
+Verification:
+
+```text
+cargo test … --test wal_fsync_recovery_tests        → 5 passed; 0 failed
+cargo test … --test storage_durability_proof_tests  → 3 passed; 0 failed
+cargo test … (full igniter-machine suite)           → 58 suites ok, 362 passed, 0 failed
+git diff --check                                     → PASS
+```

@@ -4539,6 +4539,18 @@ impl TypeChecker {
                             is_resolved = true;
                             resolved_type =
                                 self.type_ir(&serde_json::to_value(&f.return_type).unwrap());
+                            // LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6: validate the call
+                            // signature before trusting `return_type`. Previously an app-local
+                            // `def` call was accepted by name alone, so a wrong arity or a wrong
+                            // argument type was laundered into the (trusted) return type. The
+                            // argument expressions were already inferred into `typed_args` above.
+                            self.check_user_fn_call_signature(
+                                f,
+                                args,
+                                &typed_args,
+                                node_name,
+                                type_errors,
+                            );
                             break;
                         }
                     }
@@ -5510,6 +5522,69 @@ impl TypeChecker {
             }
         }
         unknown
+    }
+
+    /// LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6: validate an `Expr::Call` to an
+    /// app-local user `def` against its declared signature.
+    ///
+    /// Two faults are caught, both emitted as `OOF-TY0` (the established type-soundness
+    /// code, consistent with the binding/output boundaries):
+    /// - **arity**: `args.len()` ≠ `params.len()`. Positional param-type checks are then
+    ///   skipped because they would be meaningless.
+    /// - **parameter type**: each argument's inferred type must be `structurally_assignable`
+    ///   to the parameter's declared type. This runs through the P5 `IgType` boundary, so
+    ///   generic parameters are compared structurally (`Collection[Integer]` ≠
+    ///   `Collection[Text]`) for free.
+    ///
+    /// A parameter is checked only when *both* the declared and inferred types are concrete
+    /// (not Unknown-bearing). This mirrors the P5 variant-field path and the typed-binding
+    /// path: the checker never faults on an inference gap, only on a real concrete mismatch.
+    fn check_user_fn_call_signature(
+        &self,
+        f: &crate::parser::FunctionDecl,
+        args: &[Expr],
+        typed_args: &[TypedExpression],
+        node_name: &str,
+        type_errors: &mut Vec<ClassifierDiagnostic>,
+    ) {
+        if args.len() != f.params.len() {
+            type_errors.push(ClassifierDiagnostic {
+                rule: "OOF-TY0".to_string(),
+                message: format!(
+                    "Call to '{}': expected {} argument{}, got {}",
+                    f.name,
+                    f.params.len(),
+                    if f.params.len() == 1 { "" } else { "s" },
+                    args.len()
+                ),
+                node: node_name.to_string(),
+                line: None,
+            });
+            return;
+        }
+
+        for (i, param) in f.params.iter().enumerate() {
+            let expected = self.type_ir(&serde_json::to_value(&param.type_annotation).unwrap());
+            let actual = &typed_args[i].resolved_type;
+            if self.unknown_or_unknown_bearing(&expected) || self.unknown_or_unknown_bearing(actual)
+            {
+                continue;
+            }
+            if !self.structurally_assignable(actual, &expected) {
+                type_errors.push(ClassifierDiagnostic {
+                    rule: "OOF-TY0".to_string(),
+                    message: format!(
+                        "Call to '{}': parameter '{}' expects {}, got {}",
+                        f.name,
+                        param.name,
+                        self.type_display(&expected),
+                        self.type_display(actual)
+                    ),
+                    node: node_name.to_string(),
+                    line: None,
+                });
+            }
+        }
     }
 
     /// LANG-SUMTYPE-CONSTRUCT-MATCH-P3: lower some/none/ok/err to a sealed

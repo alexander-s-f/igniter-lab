@@ -1,6 +1,49 @@
 # LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CALL-CONTRACT-P7
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — characterization + regression-lock; no propagation needed
+
+## Closure Report
+
+Verify-first finding: the inter-contract laundering vector is **already closed by
+construction**, so no `call_contract` effect propagation is built (it would be
+dead code). Packet:
+`lab-docs/lang/lab-igniter-compiler-effect-summary-call-contract-p7-v0.md`.
+
+**Why closed by construction:** `call_contract` (special form in
+`infer_stdlib_call`, `stdlib_calls.rs:2488`) in v0 accepts only a **literal-String,
+`pure`** callee — a non-pure callee is refused with `OOF-TY0`
+(`stdlib_calls.rs:2536`). And a `pure` callee cannot do ambient I/O (classifier
+`E-IO-AMBIENT-BLOCKED` for direct, P6 `OOF-M1` for transitive-via-def), checked
+per pure contract. By induction the pure sub-language is closed under
+`call_contract`; no contract-level `OOF-M1` propagation can find a laundering
+path the purity gate does not reject first. Non-literal/dynamic callees resolve
+`Unknown` + VM fail-closed (no constructible `.ig` case; out of scope).
+
+**Deliverable:** 3 regression-lock tests
+(`tests/effect_summary_call_contract_tests.rs`) that pin the invariant from both
+sides, so the moment it could break (a future relaxation of the pure-only rule)
+is caught.
+
+Acceptance:
+- [x] Live representation of `call_contract` characterized before editing.
+- [x] Outcome documented: laundering closed by construction (purity gate), so
+      propagation is not needed (stronger than "propagate" / "not-yet-safe").
+- [x] Dynamic/non-literal targets explicitly deferred + fail-closed (`Unknown` +
+      VM fail-closed); no dynamic-dispatch semantics introduced.
+- [x] P6 direct/transitive `def` tests remain green (7/7).
+- [x] Relevant compiler tests pass (full suite 318, 0 failed).
+- [x] Packet names covered + deferred edges, static vs dynamic policy, tests.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Tests: P7 3/3, P6 7/7, full suite 318/0-failed, `git diff --check` clean.
+Follow-up (conditional): `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CONTRACT-GRAPH-P8`
+— only if v0 later allows effectful `call_contract` callees. Board row A20 → CLOSED
+(def + call_contract).
+
+---
+
+Status: CLOSED — original card below.
 Route: standard / main-audit / compiler / effect system
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-P6`

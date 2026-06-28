@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / igniter-web / live-bind gate
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34`
@@ -68,16 +68,49 @@ Closed:
 
 ## Acceptance
 
-- [ ] Live P34/P33/server-gate surfaces are characterized.
-- [ ] Gate decision states whether to proceed, hold, or require another
+- [x] Live P34/P33/server-gate surfaces are characterized.
+- [x] Gate decision states whether to proceed, hold, or require another
       prerequisite.
-- [ ] Required authority artifacts are listed: checklist, signed passport,
+- [x] Required authority artifacts are listed: checklist, signed passport,
       TLS/operator proof, human approval.
-- [ ] No public/non-loopback listener is opened.
-- [ ] Future implementation cards are named with closed surfaces.
-- [ ] Proof/readiness packet is created.
-- [ ] `git diff --check` passes.
-- [ ] Card is closed with a concise report.
+- [x] No public/non-loopback listener is opened.
+- [x] Future implementation cards are named with closed surfaces.
+- [x] Proof/readiness packet is created.
+- [x] `git diff --check` passes.
+- [x] Card is closed with a concise report.
+
+## Report (2026-06-28)
+
+Doc-only gate-decision packet. **No source changed.** Decision: **HOLD** public-bind
+enablement, **PROCEED** with a defined authority chain, **require two prerequisites**
+(durable signed passport + inbound verification; TLS in force) before any non-loopback
+proof.
+
+Verify-first re-characterized the live surface (§1 of the packet). Load-bearing facts:
+`authorize_bind` is **pure** (so passport verification cannot live inside it); inbound auth
+is a **static shared-bearer-token map** (`ingress.rs`), not cryptographic; the effect
+signing key is **ephemeral pid+nanos** (`host_binding.rs`); `igweb-serve` still calls
+`authorize_bind(addr, None)` and nothing converts a parsed `LiveBindConfig` into a server
+`LiveBindChecklist`.
+
+Answers (full detail in §4):
+1. Evidence = host-verified runtime state set into `LiveBindChecklist` (not raw operator
+   booleans) + TLS proof + human approval. Operator=intent, host=capability, human=authority.
+2. Signed-passport verification is **before/outside** `authorize_bind` (pure); it lives at
+   the inbound request seam via a durable `PassportVerifier`. The boolean is an attestation.
+3. First proof TLS = `terminated_upstream` only; `native_tls` blocked (no transport).
+4. Log: bind class, opaque `checklist_digest`, refusal code + missing field, signoff/approval
+   id, TLS enum. Never: passport/file/DSN/token material. Reuse P29 redaction + P34 diags.
+5. Smallest next card = **dry-run verdict** (P36): config→checklist→`authorize_bind` verdict
+   REPORTED, never binds non-loopback. Fails closed; high operator value.
+
+Named cards (closed surfaces in packet §5): `…DRY-RUN-VERDICT-P36` (now) → parallel
+`…INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37` + `…TLS-TERMINATED-UPSTREAM-RUNBOOK-P38` →
+human-gated `…LIVE-BIND-HUMAN-GATED-PROOF-P39` (last; only this may open a non-loopback
+socket, under human approval). Public bind stays closed through P36–P38.
+
+Artifacts: packet `lab-docs/lang/lab-igniter-web-live-bind-gate-decision-readiness-p35-v0.md`;
+audit board A10 next-slice updated to the P35 chain. `git diff --check` PASS.
 
 ## Suggested Verification
 

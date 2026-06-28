@@ -161,13 +161,22 @@ fn delete_op_removes_business_row_idempotently() {
             .allow_target("leads")
             .allow_ops(&["insert", "upsert", "delete"]);
         let mut reg = CapabilityExecutorRegistry::new();
-        reg.register(Arc::new(PostgresWriteExecutor::new(CAP, adapter.clone(), pol)));
+        reg.register(Arc::new(PostgresWriteExecutor::new(
+            CAP,
+            adapter.clone(),
+            pol,
+        )));
         let store = receipts();
 
         // insert a row, then delete it by the same business key under a different idempotency key.
         run_write_effect(
-            &reg, &store, &clock(), &passport(), "write",
-            &write_req("k-ins", intent("c1")), RunMode::Live,
+            &reg,
+            &store,
+            &clock(),
+            &passport(),
+            "write",
+            &write_req("k-ins", intent("c1")),
+            RunMode::Live,
         )
         .await
         .unwrap();
@@ -180,22 +189,45 @@ fn delete_op_removes_business_row_idempotently() {
         let mut del_req = write_req("k-del", del_payload);
         del_req.operation = "delete".to_string();
         let out = run_write_effect(
-            &reg, &store, &clock(), &passport(), "write", &del_req, RunMode::Live,
+            &reg,
+            &store,
+            &clock(),
+            &passport(),
+            "write",
+            &del_req,
+            RunMode::Live,
         )
         .await
         .unwrap();
         assert_eq!(out.state, WriteState::Committed);
-        assert_eq!(adapter.business_row_count(), 0, "delete removed the business row");
-        assert!(adapter.has_effect_receipt("k-del"), "delete recorded its PG effect receipt");
+        assert_eq!(
+            adapter.business_row_count(),
+            0,
+            "delete removed the business row"
+        );
+        assert!(
+            adapter.has_effect_receipt("k-del"),
+            "delete recorded its PG effect receipt"
+        );
 
         // replay the same delete key → no second mutation (machine receipt short-circuits).
         let again = run_write_effect(
-            &reg, &store, &clock(), &passport(), "write", &del_req, RunMode::Live,
+            &reg,
+            &store,
+            &clock(),
+            &passport(),
+            "write",
+            &del_req,
+            RunMode::Live,
         )
         .await
         .unwrap();
         assert_eq!(again.state, WriteState::Committed, "replay still committed");
-        assert_eq!(adapter.attempts(), 2, "one insert + one delete; the replay did not reach the adapter");
+        assert_eq!(
+            adapter.attempts(),
+            2,
+            "one insert + one delete; the replay did not reach the adapter"
+        );
     });
 }
 
@@ -471,6 +503,54 @@ fn constraint_violation_is_permanent() {
         assert_eq!(out.state, WriteState::PermanentFailure);
         assert!(out.detail.unwrap().contains("constraint violation"));
         assert_eq!(adapter.business_row_count(), 0);
+    });
+}
+
+// ── P2: schema/config-DDL drift → permanent CONFIG error (distinct from a data constraint) ────
+
+#[test]
+fn permanent_config_ddl_drift_is_permanent_config_error() {
+    // Models the real adapter mapping a DDL-drift SQLSTATE (e.g. 42P10: the durable-CAS UNIQUE key
+    // is missing → ON CONFLICT cannot match) to a permanent CONFIG error: fail loud, no mutation,
+    // and a message that points at the schema rather than at a per-write data conflict.
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresWriteAdapter::new(
+            FakeWriteBehavior::PermanentConfig,
+        ));
+        let reg = registry(adapter.clone());
+        let store = receipts();
+
+        let out = run_write_effect(
+            &reg,
+            &store,
+            &clock(),
+            &passport(),
+            "write",
+            &write_req("k-cfg", intent("c1")),
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.state, WriteState::PermanentFailure);
+        let detail = out.detail.unwrap();
+        assert!(
+            detail.contains("config/DDL"),
+            "must name a config/DDL error, not a data constraint: {detail}"
+        );
+        assert!(
+            !detail.contains("constraint violation"),
+            "config drift must NOT be mislabeled a constraint violation: {detail}"
+        );
+        assert_eq!(
+            adapter.business_row_count(),
+            0,
+            "no mutation on config error"
+        );
+        assert_eq!(
+            adapter.effect_receipt_count(),
+            0,
+            "no receipt on config error"
+        );
     });
 }
 
