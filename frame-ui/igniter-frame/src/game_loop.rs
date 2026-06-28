@@ -77,8 +77,10 @@ fn step(world: &[Body; N], boom: bool) -> [Body; N] {
 //    `.ig` `Step` contract consumes — for cross-checking that the Rust and `.ig` reducers agree, and
 //    for rendering a world produced by the VM. ────────────────────────────────────────────────────
 
-fn body_to_json(b: &Body) -> serde_json::Value {
-    serde_json::json!({ "px": b.p.x, "py": b.p.y, "pz": b.p.z, "vx": b.v.x, "vy": b.v.y, "vz": b.v.z })
+/// A body's integer `id` carries through the JSON (it identifies a body for the `.ig` reducer); the
+/// idless `Body` struct stays `Copy`, so the id is threaded at the JSON layer.
+fn body_to_json(b: &Body, id: i64) -> serde_json::Value {
+    serde_json::json!({ "px": b.p.x, "py": b.p.y, "pz": b.p.z, "vx": b.v.x, "vy": b.v.y, "vz": b.v.z, "id": id })
 }
 
 fn body_from_json(v: &serde_json::Value) -> Body {
@@ -86,23 +88,72 @@ fn body_from_json(v: &serde_json::Value) -> Body {
     Body { p: V3 { x: g("px"), y: g("py"), z: g("pz") }, v: V3 { x: g("vx"), y: g("vy"), z: g("vz") } }
 }
 
-/// The initial world as the `.ig` `World` JSON (`{bodies:[{px,…}]}`) — the single source of truth fed
-/// to both the Rust loop and the `.ig` `Step` contract.
+fn body_id(v: &serde_json::Value) -> i64 {
+    v.get("id").and_then(|k| k.as_i64()).unwrap_or(0)
+}
+
+/// The initial world as the `.ig` `World` JSON (`{bodies:[{px,…,id}]}`) — the single source of truth
+/// fed to both the Rust loop and the `.ig` `Step`/`View`/`Reduce` contracts. Each body gets `id = i`.
 pub fn initial_world_json() -> String {
-    let bodies: Vec<serde_json::Value> = initial().iter().map(body_to_json).collect();
+    let bodies: Vec<serde_json::Value> =
+        initial().iter().enumerate().map(|(i, b)| body_to_json(b, i as i64)).collect();
     serde_json::json!({ "bodies": bodies }).to_string()
 }
 
-/// One Rust timestep over an `.ig` `World` JSON — the cross-check mirror of the `.ig` `Step` contract.
-/// Total/fail-closed: malformed input yields `{bodies:[]}`.
+/// One Rust timestep over an `.ig` `World` JSON — the cross-check mirror of the `.ig` `Step` contract
+/// (preserves each body's `id`). Total/fail-closed: malformed input yields `{bodies:[]}`.
 pub fn step_world_json(world_json: &str, boom: bool) -> String {
     let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
     let bodies: Vec<serde_json::Value> = parsed
         .get("bodies")
         .and_then(|b| b.as_array())
-        .map(|arr| arr.iter().map(|b| body_to_json(&step_body(body_from_json(b), boom))).collect())
+        .map(|arr| arr.iter().map(|b| body_to_json(&step_body(body_from_json(b), boom), body_id(b))).collect())
         .unwrap_or_default();
     serde_json::json!({ "bodies": bodies }).to_string()
+}
+
+/// One Rust KICK over an `.ig` `World` JSON — the mirror of the `.ig` `Reduce(world, target)` contract:
+/// the body whose `id` matches gets a strong up + radial-out impulse. Total/fail-closed.
+pub fn kick_world_json(world_json: &str, target: i64) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
+    let bodies: Vec<serde_json::Value> = parsed
+        .get("bodies")
+        .and_then(|b| b.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|bj| {
+                    let mut b = body_from_json(bj);
+                    if body_id(bj) == target {
+                        b.v.x += sign(b.p.x) * 700;
+                        b.v.z += sign(b.p.z) * 700;
+                        b.v.y += 1400;
+                    }
+                    body_to_json(&b, body_id(bj))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::json!({ "bodies": bodies }).to_string()
+}
+
+/// Host hit-test over a projected `.ig` `Scene` (`{markers:[{x,y,w,h,id}]}`): the `id` of the topmost
+/// (largest = nearest) marker whose rect contains `(x, y)`, or `None` on a miss.
+pub fn scene_hit(scene_json: &str, x: i64, y: i64) -> Option<i64> {
+    let parsed: serde_json::Value = serde_json::from_str(scene_json).ok()?;
+    let markers = parsed.get("markers")?.as_array()?;
+    markers
+        .iter()
+        .filter_map(|m| {
+            let g = |k: &str| m.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+            let (mx, my, mw, mh) = (g("x"), g("y"), g("w"), g("h"));
+            if x >= mx && x <= mx + mw && y >= my && y <= my + mh {
+                Some((mw, g("id")))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(w, _)| *w) // nearest (largest) marker wins on overlap
+        .map(|(_, id)| id)
 }
 
 /// Project one body's centre to a depth-sized screen marker `(x, y, w, h)` — the Rust MIRROR of the
@@ -126,7 +177,7 @@ pub fn scene_json_of_world(world_json: &str) -> String {
             arr.iter()
                 .map(|b| {
                     let (x, y, w, h) = project_marker(&body_from_json(b));
-                    serde_json::json!({ "x": x, "y": y, "w": w, "h": h })
+                    serde_json::json!({ "x": x, "y": y, "w": w, "h": h, "id": body_id(b) })
                 })
                 .collect()
         })

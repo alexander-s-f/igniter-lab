@@ -14,13 +14,15 @@
 //! where `<initial>` is `game_loop::initial_world_json()`.
 
 use igniter_frame::game_loop::{
-    initial_world_json, render_scene_json, render_world_json, scene_json_of_world, step_world_json,
+    initial_world_json, kick_world_json, render_scene_json, render_world_json, scene_hit,
+    scene_json_of_world, step_world_json,
 };
 use serde_json::Value;
 
 const NOBOOM: &str = include_str!("fixtures/vm_game_step_noboom.runtime.json");
 const BOOM: &str = include_str!("fixtures/vm_game_step_boom.runtime.json");
 const SCENE0: &str = include_str!("fixtures/vm_game_scene0.runtime.json");
+const KICK: &str = include_str!("fixtures/vm_game_kick.runtime.json"); // .ig Reduce(initial, target=1)
 
 fn result(envelope: &str) -> Value {
     let env: Value = serde_json::from_str(envelope).unwrap();
@@ -71,4 +73,30 @@ fn the_ig_scene_renders_to_svg() {
     assert!(svg.starts_with("<svg"));
     // background + one marker per body (6)
     assert_eq!(svg.matches("<rect").count(), 1 + 6);
+}
+
+#[test]
+fn click_hit_tests_a_body_and_the_ig_reducer_kicks_only_it() {
+    // a click at the centre of body 1's marker hit-tests to its id
+    let scene = result(SCENE0);
+    let m1 = &scene["markers"][1];
+    let (cx, cy) = (
+        m1["x"].as_i64().unwrap() + m1["w"].as_i64().unwrap() / 2,
+        m1["y"].as_i64().unwrap() + m1["h"].as_i64().unwrap() / 2,
+    );
+    assert_eq!(scene_hit(&scene.to_string(), cx, cy), Some(1), "hit-test → body id 1");
+
+    // the `.ig` Reduce(world, target=1) (run on the VM) == the Rust kick mirror …
+    let init = initial_world_json();
+    assert_eq!(json(&kick_world_json(&init, 1)), result(KICK), ".ig Reduce(kick) == Rust mirror");
+    // … and it kicked ONLY body 1
+    let bodies = &result(KICK)["bodies"];
+    assert_eq!(bodies[1]["vy"], 1400, "the clicked body is kicked up");
+    assert_eq!(bodies[0]["vy"], 0, "an unclicked body is untouched");
+    assert_eq!(bodies[2]["vy"], 0, "an unclicked body is untouched");
+}
+
+#[test]
+fn scene_hit_misses_empty_space() {
+    assert_eq!(scene_hit(&result(SCENE0).to_string(), 5, 5), None);
 }

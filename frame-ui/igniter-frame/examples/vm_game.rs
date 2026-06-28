@@ -11,7 +11,8 @@
 //! Self-checks (panics on mismatch), so running it IS the live proof.
 
 use igniter_frame::game_loop::{
-    initial_world_json, render_scene_json, scene_json_of_world, step_world_json,
+    initial_world_json, kick_world_json, render_scene_json, scene_hit, scene_json_of_world,
+    step_world_json,
 };
 use serde_json::{json, Value};
 use std::io::Write;
@@ -116,5 +117,23 @@ fn main() {
     assert!(svg.contains("<rect"));
     println!("render       ·  the host draws the .ig-projected scene (logic + view both .ig)  ✓");
 
-    println!("\nOK — a FULL Igniter game on igniter-vm: logic (.ig Step) AND view (.ig View) — deterministic,\n     replayable, time-travellable; the host only ticks, renders, and hit-tests.");
+    // ---- INTERACTION: a click hit-tests a body's marker → the .ig REDUCER kicks that body (VM) ------
+    let world0 = initial_world_json();
+    let scene0 = ig_run(&vm, &igapp, "View", &json!({ "world": serde_json::from_str::<Value>(&world0).unwrap() }));
+    // a click at the centre of body 1's marker
+    let m1 = &serde_json::from_str::<Value>(&scene0).unwrap()["markers"][1];
+    let (cx, cy) = (m1["x"].as_i64().unwrap() + m1["w"].as_i64().unwrap() / 2, m1["y"].as_i64().unwrap() + m1["h"].as_i64().unwrap() / 2);
+    let target = scene_hit(&scene0, cx, cy).expect("a marker under the click");
+    let kicked_ig = ig_run(&vm, &igapp, "Reduce", &json!({ "world": serde_json::from_str::<Value>(&world0).unwrap(), "target": target }));
+    assert_eq!(
+        serde_json::from_str::<Value>(&kicked_ig).unwrap(),
+        serde_json::from_str::<Value>(&kick_world_json(&world0, target)).unwrap(),
+        ".ig Reduce(kick) diverged from the Rust mirror"
+    );
+    let bodies = serde_json::from_str::<Value>(&kicked_ig).unwrap()["bodies"].clone();
+    assert_eq!(bodies[target as usize]["vy"], 1400, "the clicked body was kicked up");
+    assert_eq!(bodies[0]["vy"], 0, "a non-clicked body is untouched");
+    println!("click→kick   ·  hit-test marker {target} → .ig Reduce kicks ONLY that body (vy 0→1400)  ✓");
+
+    println!("\nOK — a FULL, INTERACTIVE Igniter game on igniter-vm: logic (.ig Step), view (.ig View),\n     and interaction (.ig Reduce) — deterministic, replayable; the host only ticks, renders, hit-tests.");
 }

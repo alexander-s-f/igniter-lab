@@ -7,7 +7,7 @@ module VmGameApp
 -- THROUGH the language. Constants match the Rust demo (FP=4096): grav=FP/220=18, impulse_xz=FP/14=292,
 -- impulse_up=FP/7=585, bound=3*FP=12288, 2*bound=24576, damp=244/256.
 
-type Body { px : Integer  py : Integer  pz : Integer  vx : Integer  vy : Integer  vz : Integer }
+type Body { px : Integer  py : Integer  pz : Integer  vx : Integer  vy : Integer  vz : Integer  id : Integer }
 type World { bodies : Collection[Body] }
 
 -- One body, one timestep.
@@ -36,7 +36,7 @@ contract StepBody {
   compute pzr = if pz1 > 12288 { 24576 - pz1 } else { if pz1 < 0 - 12288 { 0 - 24576 - pz1 } else { pz1 } }
   compute vzr = if pz1 > 12288 { (0 - vz1) * 244 / 256 } else { if pz1 < 0 - 12288 { (0 - vz1) * 244 / 256 } else { vz1 } }
 
-  compute b2 = { px: pxr, py: pyr, pz: pzr, vx: vxr, vy: vyr, vz: vzr }
+  compute b2 = { px: pxr, py: pyr, pz: pzr, vx: vxr, vy: vyr, vz: vzr, id: b.id }
   output b2 : Body
 }
 
@@ -53,17 +53,18 @@ contract Step {
 -- Perspective projection matches the Rust `game_loop` camera: cx=320, cy=240, focal=600, dist=FP*11=45056,
 -- body half-size BODY=FP*55/100=2252 → projected half-size = 2252*600/d = 1351200/d.
 
-type Marker { x : Integer  y : Integer  w : Integer  h : Integer }
+type Marker { x : Integer  y : Integer  w : Integer  h : Integer  id : Integer }
 type Scene  { markers : Collection[Marker] }
 
--- Project one body's centre to a depth-sized screen marker.
+-- Project one body's centre to a depth-sized screen marker (carrying its domain `key` so a click maps
+-- back to a body for the reducer).
 contract ProjectBody {
   input b : Body
   compute d  = b.pz + 45056
   compute sx = 320 + b.px * 600 / d
   compute sy = 240 - b.py * 600 / d
   compute sz = 1351200 / d
-  compute m = { x: sx - sz, y: sy - sz, w: sz + sz, h: sz + sz }
+  compute m = { x: sx - sz, y: sy - sz, w: sz + sz, h: sz + sz, id: b.id }
   output m : Marker
 }
 
@@ -73,4 +74,32 @@ contract View {
   compute markers = map(world.bodies, b -> call_contract("ProjectBody", b))
   compute scene = { markers: markers }
   output scene : Scene
+}
+
+-- ── INTERACTION, also `.ig`: a click on a body's marker → kick THAT body, on the VM ────────────────
+-- The host hit-tests the clicked marker → its `id`, and runs `Reduce(world, target)`; the matched body
+-- gets a strong up + radial-out impulse. NB: `id == target` is expressed with `<`/`>` only —
+-- `hit = (NOT id<target) * (NOT id>target)` — because the VM's OP_CALL path does not yet dispatch
+-- `stdlib.primitive.eq` (works for `<`/`>`); routed to the VM owners (see the P5 packet).
+
+contract KickBody {
+  input b      : Body
+  input target : Integer
+  compute ge = if target > b.id { 0 } else { 1 }   -- 1 iff id >= target (RHS is a field, not a bare ident)
+  compute le = if target < b.id { 0 } else { 1 }   -- 1 iff id <= target
+  compute hit = ge * le                             -- 1 iff id == target
+  compute kx = if hit > 0 { if b.px > 0 { 700 } else { if b.px < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute kz = if hit > 0 { if b.pz > 0 { 700 } else { if b.pz < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute ky = if hit > 0 { 1400 } else { 0 }
+  compute b2 = { px: b.px, py: b.py, pz: b.pz, vx: b.vx + kx, vy: b.vy + ky, vz: b.vz + kz, id: b.id }
+  output b2 : Body
+}
+
+-- REDUCER: (World, target) -> World. Kicks the clicked body (by id). Runs on igniter-vm.
+contract Reduce {
+  input world  : World
+  input target : Integer
+  compute next_bodies = map(world.bodies, b -> call_contract("KickBody", b, target))
+  compute w2 = { bodies: next_bodies }
+  output w2 : World
 }

@@ -380,6 +380,56 @@ pub fn render_scene_json(scene_json: &str) -> String {
     crate::game_loop::render_scene_json(scene_json)
 }
 
+/// LAB-FRAME-3D-GAME-IG-P5 — a LIVE, clickable scene game in the browser. Step / project / hit-test /
+/// kick are the Rust MIRRORS of the `.ig` `Step` / `View` / `Reduce` contracts — proven bit-identical
+/// to them (`ig_vm_game_tests`), so this is the same game the VM runs in `examples/vm_game.rs`, just
+/// fast enough for live rAF. Click a body → it gets kicked (the `.ig` `Reduce` logic).
+#[wasm_bindgen]
+pub struct WasmSceneGame {
+    world: String,
+}
+
+#[wasm_bindgen]
+impl WasmSceneGame {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmSceneGame {
+        WasmSceneGame { world: crate::game_loop::initial_world_json() }
+    }
+
+    /// One fixed timestep (the play driver) — the `.ig` `Step` mirror.
+    pub fn advance(&mut self) {
+        self.world = crate::game_loop::step_world_json(&self.world, false);
+    }
+
+    /// A click in frame coords: hit-test the projected scene; if it hits a body, KICK it (the `.ig`
+    /// `Reduce` mirror). Returns true iff a body was hit.
+    pub fn kick(&mut self, x: f64, y: f64) -> bool {
+        let scene = crate::game_loop::scene_json_of_world(&self.world);
+        match crate::game_loop::scene_hit(&scene, x as i64, y as i64) {
+            Some(id) => {
+                self.world = crate::game_loop::kick_world_json(&self.world, id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Render the current world as the projected 2D scene (the `.ig` `View` mirror → host render).
+    pub fn render_svg(&self) -> String {
+        crate::game_loop::render_scene_json(&crate::game_loop::scene_json_of_world(&self.world))
+    }
+
+    pub fn reset(&mut self) {
+        self.world = crate::game_loop::initial_world_json();
+    }
+}
+
+impl Default for WasmSceneGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// LAB-FRAME-3D-P1 — a deterministic, machine-free 3D scene (Ceiling B/C). The browser drives a
 /// fixed timestep: `tick()` once per animation frame, then `render_svg()`. Pure integer math (no f64),
 /// so replay is bit-identical.
