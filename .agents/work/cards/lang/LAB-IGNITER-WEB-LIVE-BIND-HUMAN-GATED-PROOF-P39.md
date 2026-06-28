@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39
 
-Status: OPEN
+Status: DONE
 Route: standard / main-audit / igniter-web / live-bind gate / lab proof
 Skill: idd-agent-protocol
 Depends-On:
@@ -93,20 +93,20 @@ Closed:
 
 ## Acceptance
 
-- [ ] Live P36/P37/P38/server-gate surfaces characterized before editing.
-- [ ] Normal `igweb-serve run` non-loopback behavior remains refused.
-- [ ] Any actual non-loopback bind path is lab-only, human-gated, and bounded.
-- [ ] Missing acknowledgement refuses before bind.
-- [ ] Missing/malformed signed-passport verifier refuses before bind.
-- [ ] `native_tls` refuses for the proof path.
-- [ ] `terminated_upstream` is treated as operator topology assertion, not
+- [x] Live P36/P37/P38/server-gate surfaces characterized before editing.
+- [x] Normal `igweb-serve run` non-loopback behavior remains refused.
+- [x] Any actual non-loopback bind path is lab-only, human-gated, and bounded.
+- [x] Missing acknowledgement refuses before bind.
+- [x] Missing/malformed signed-passport verifier refuses before bind.
+- [x] `native_tls` refuses for the proof path.
+- [x] `terminated_upstream` is treated as operator topology assertion, not
       transport proof.
-- [ ] Tests prove fail-closed behavior without depending on public/LAN sockets.
-- [ ] Proof packet created under `lab-docs/lang/`.
-- [ ] `IMPLEMENTED_SURFACE.md` and `lab-audit-control-board-v1.md` updated only
+- [x] Tests prove fail-closed behavior without depending on public/LAN sockets.
+- [x] Proof packet created under `lab-docs/lang/`.
+- [x] `IMPLEMENTED_SURFACE.md` and `lab-audit-control-board-v1.md` updated only
       to the exact live truth.
-- [ ] `git diff --check` passes.
-- [ ] Card closed with concise report.
+- [x] `git diff --check` passes.
+- [x] Card closed with concise report.
 
 ## Suggested Verification
 
@@ -146,3 +146,43 @@ Packet must include:
 - refusal taxonomy;
 - proof that normal public bind remains closed;
 - whether A10 can be marked closed for lab proof or remains production-deferred.
+
+## Closing Report
+
+Closed in:
+
+- `server/igniter-web/src/live_bind_proof.rs`
+- `server/igniter-web/src/lib.rs`
+- `server/igniter-web/src/bin/igweb-serve.rs`
+- `server/igniter-web/tests/igweb_live_bind_human_gated_proof_tests.rs`
+- `server/igniter-web/tests/runner_tests.rs`
+- `lab-docs/lang/lab-igniter-web-live-bind-human-gated-proof-p39-v0.md`
+- `server/igniter-web/IMPLEMENTED_SURFACE.md`
+- `lab-docs/lang/lab-audit-control-board-v1.md`
+
+Result:
+
+- Added `igweb-serve live-bind-proof --host-config PATH [--addr HOST:PORT]`.
+- Human gate:
+  `IGNITER_LIVE_BIND_HUMAN_ACK=I_UNDERSTAND_IGNITER_LAB_LIVE_BIND_P39`.
+- The proof path requires non-loopback, `terminated_upstream`,
+  `trusted_proxy_only`, and the P37 verifier-backed checklist.
+- The proof path rejects `native_tls`.
+- The proof path calls pure `authorize_bind(addr, Some(checklist))` and prints
+  `bind_attempted=false socket_opened=false public_bind=closed`.
+- Normal `igweb-serve run` remains closed for non-loopback.
+- A10 is marked closed for lab authorization proof; production public bind
+  remains closed/deferred.
+
+Verification:
+
+```text
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine live_bind_proof
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test igweb_live_bind_human_gated_proof_tests
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test runner_tests cli_live_bind_proof_parses_as_human_gated_command
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test igweb_live_bind_dry_run_tests
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine live_bind_check
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test igweb_serve_diagnostics_tests
+cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test signed_passport_dataplane_tests
+git diff --check
+```

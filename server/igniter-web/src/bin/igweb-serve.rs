@@ -79,6 +79,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Scriptable refusal: stable non-zero exit, verdict already on stdout.
             std::process::exit(DiagCode::BindRefused.exit_code());
         }
+        RunnerCliCommand::LiveBindProof(opts) => {
+            // LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39: human-gated lab
+            // proof. Reuses the P37 host-verified checklist conversion and asks
+            // the pure gate for authorization, but never opens a listener.
+            use igniter_web::host_config::load_host_config;
+            use igniter_web::live_bind_proof::{evaluate, LIVE_BIND_PROOF_ACK_ENV};
+            use igniter_web::runner_diag::classify_host_config_error;
+            let host_cfg = match load_host_config(&opts.host_config_path) {
+                Ok(c) => c,
+                Err(e) => fail(classify_host_config_error(&e)),
+            };
+            let ack = std::env::var(LIVE_BIND_PROOF_ACK_ENV).ok();
+            let verdict = evaluate(opts.addr, host_cfg.live_bind.as_ref(), ack.as_deref());
+            println!("{}", verdict.render(opts.addr));
+            if verdict.would_authorize() {
+                return Ok(());
+            }
+            std::process::exit(DiagCode::BindRefused.exit_code());
+        }
         RunnerCliCommand::Run(cli) => cli,
     };
 

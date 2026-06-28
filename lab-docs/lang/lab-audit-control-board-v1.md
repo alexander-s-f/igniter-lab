@@ -44,7 +44,7 @@ live source, package-local `IMPLEMENTED_SURFACE.md`, proof packets, and commits.
 | A07 | Machine forgeable passport on data-plane | Security / authority | Use signed data-plane entrypoints; legacy unsigned surfaces are compatibility only. | CLOSED for signed entrypoints | `LAB-MACHINE-SIGNED-PASSPORT-DATAPLANE-P26`; signed paths and forged-passport negatives exist. | Choose signed entrypoints in new wiring; future removal of unsigned compat is policy work. |
 | A08 | IgWeb forgeable effect passport | Security / authority | Sign IgWeb effect-host passports before machine write bridge. | CLOSED | `LAB-IGNITER-WEB-SIGNED-EFFECT-PASSPORT-P27`. | Durable/operator-provided signing key config remains future work. |
 | A09 | Inbound unbounded reads / slowloris / auth composition | Security / transport | Shared hardened read policy: header/body caps, timeouts, middleware ordering. | CLOSED | `lab-igniter-server-inbound-hardened-read-p28`; current waves mark inbound read caps/timeouts implemented. | Public bind still closed until TLS/checklist operator config. |
-| A10 | Loopback-to-live gate missing | Security / production gate | Keep non-loopback bind behind explicit server authorization/checklist. | PARTLY CLOSED | Server gate API `LAB-IGNITER-SERVER-LIVE-BIND-GATE-P31`; IgWeb pre-bind wiring `P32`; live-bind TLS checklist readiness `P33`; parse-only operator checklist + fail-closed diagnostics `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34` (`[host.live_bind]`, NOT wired to real `Run` `authorize_bind` — public bind still closed); gate-decision packet `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35` = HOLD enablement, authority chain + cards named; report-only dry-run `LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36` DONE (`igweb-serve live-bind-check`; `socket_opened=false`, never binds); inbound durable signed-passport backing `LAB-IGNITER-WEB-INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37` DONE for the dry-run/check path (`signed_passport_path_wired=true` only after host loads/validates a v0 64-hex trusted issuer key file into `PassportVerifier`; missing/malformed material refuses secret-safely); terminated-upstream TLS runbook `LAB-IGNITER-WEB-TLS-TERMINATED-UPSTREAM-RUNBOOK-P38` DONE (operator contract only; headers are hints without trusted upstream boundary; `native_tls` blocked for actual proof; no listener opened). | Next: P39 lab-only/human-gated bind proof with P36+P37+P38 checklist; public bind remains closed until then. |
+| A10 | Loopback-to-live gate missing | Security / production gate | Keep non-loopback bind behind explicit server authorization/checklist. | CLOSED FOR LAB PROOF | Server gate API `LAB-IGNITER-SERVER-LIVE-BIND-GATE-P31`; IgWeb pre-bind wiring `P32`; live-bind TLS checklist readiness `P33`; parse-only operator checklist + fail-closed diagnostics `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34` (`[host.live_bind]`, NOT wired to real `Run` `authorize_bind` — public bind still closed); gate-decision packet `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35` = HOLD enablement, authority chain + cards named; report-only dry-run `LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36` DONE (`igweb-serve live-bind-check`; `socket_opened=false`, never binds); inbound durable signed-passport backing `LAB-IGNITER-WEB-INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37` DONE for the dry-run/check path (`signed_passport_path_wired=true` only after host loads/validates a v0 64-hex trusted issuer key file into `PassportVerifier`; missing/malformed material refuses secret-safely); terminated-upstream TLS runbook `LAB-IGNITER-WEB-TLS-TERMINATED-UPSTREAM-RUNBOOK-P38` DONE (operator contract only; headers are hints without trusted upstream boundary; `native_tls` blocked for actual proof; no listener opened); human-gated lab authorization proof `LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39` DONE (`igweb-serve live-bind-proof`, exact ack env, P37 verifier-backed checklist, `terminated_upstream`/`trusted_proxy_only`, pure `authorize_bind(addr, Some(checklist))`, `bind_attempted=false socket_opened=false public_bind=closed`). | Production public listener remains closed/deferred; P40 refresh can mark the audit wave exit. |
 | A11 | MCP unauthenticated local tools and checkpoint path escape | Security / local tool authority | Local env-token gate for `tools/call`; checkpoint paths root-confined; reserved stores refused. | CLOSED | `lab-machine-mcp-auth-checkpoint-sandbox-p30`. | Network auth / signed passport MCP is future, not current local-stdio claim. |
 | A12 | Compiler lock computed but not enforced on build | Supply chain | Support locked/frozen project compile before emit. | PARTLY CLOSED (default policy decided) | `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`; `compile --project-root ... --locked` / `--frozen`; `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P3` for local deps; default-policy readiness `lab-igniter-compiler-lock-default-policy-readiness-p4-v0.md` (decision: keep explicit `--locked`, defer default-on). | Default-on enforcement deferred to `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5` (gated on registry/signing/remote-source readiness). |
 | A13 | Local dependency path escape | Supply chain | Refuse absolute, lexical `..`, and symlink escapes outside workspace trust root. | CLOSED | Commit `7fca309`; proof packet `lab-igniter-compiler-dep-path-containment-p3-v0.md`; diagnostic `OOF-IMP10`. | None unless new dep resolver surface is added. |
@@ -87,9 +87,11 @@ We can exit the current foundation-audit digestion when:
   board and the current `IMPLEMENTED_SURFACE.md`;
 - the next wave contains only named, narrow implementation/readiness cards.
 
-Current state: **audit digestion is controlled, not finished**. Severe now-live
-crash/XSS/sandbox findings are closed. Remaining work is primarily compiler
-soundness, effect summaries, live-bind checklist, durability, and DX.
+Current state: **audit digestion can exit the active audit lane**. Severe
+now-live crash/XSS/sandbox/security-gate findings are closed or explicitly
+bounded. Remaining rows are intentionally deferred or owned by parallel lanes:
+compiler lock default-on (A12), det-math cross-arch science evidence (A22), and
+frame-ui product/preview work (A24).
 
 ### Gate 2: Public / Non-Loopback Bind
 
@@ -141,6 +143,7 @@ widening into new foundation themes:
 | `LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36` | A10 | Closed report-only dry-run; public bind remains closed. |
 | `LAB-IGNITER-WEB-INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37` | A10 | Closed dry-run host-verified signed-passport verifier backing; public bind remains closed. |
 | `LAB-IGNITER-WEB-TLS-TERMINATED-UPSTREAM-RUNBOOK-P38` | A10 | Closed terminated-upstream operator contract; native TLS and public bind remain closed. |
+| `LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39` | A10 | Closed lab authorization proof; normal public bind remains closed and production-deferred. |
 | `LAB-MACHINE-RECEIPT-SEQID-ORDERING-READINESS-P3` | A21 | Closed readiness: adopt local `receipt_seq` tie-break; no TBackend adoption implementation. |
 | `LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1` | A23 | Closed readiness: REPL/source-run mostly exists; one-shot source-run remains. |
 
@@ -154,14 +157,14 @@ Dispatched and closed on 2026-06-28 after the tail-closure wave:
 | `LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2` | A23 | Machine-owned one-shot source-run DX over `load_contract_source` + `dispatch`; no `igc run` unification. |
 | `LAB-IGNITER-COMPILER-ARRAY-LITERAL-ELEMENT-TYPING-P9` | A19 | Compiler collection-element typing via `IgType`; no parser/SIR/VM/canon changes. |
 
-## Active Audit Wave
+## Audit Exit Wave
 
-Dispatched on 2026-06-28 to close the last live-bind audit gate and then
+Dispatched and closed on 2026-06-28 to close the last live-bind audit gate and
 refresh the board:
 
 | Card | Row | Boundary |
 |---|---|---|
-| `LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39` | A10 | Lab-only/human-gated proof path; normal public bind must remain closed. |
+| `LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39` | A10 | Closed lab authorization proof; normal public bind remains closed and production-deferred. |
 | `LAB-AUDIT-CONTROL-BOARD-EXIT-REFRESH-P40` | Board | Doc-only post-P39 exit refresh; do not run before P39 closes. |
 
 ## Maintenance Rule

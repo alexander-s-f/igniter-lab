@@ -94,6 +94,8 @@ fn cli_help_is_available_without_app_dir() {
             assert!(text.contains("igweb-serve"));
             assert!(text.contains("run [--addr"));
             assert!(text.contains("check <app_dir>"));
+            assert!(text.contains("live-bind-proof"));
+            assert!(text.contains("IGNITER_LIVE_BIND_HUMAN_ACK"));
             assert!(text.contains("Commands:"));
             assert!(text.contains("--addr"));
             assert!(text.contains("--max-requests"));
@@ -167,6 +169,42 @@ fn cli_check_rejects_missing_and_extra_app_dir() {
             Err(RunnerError::Cli(_))
         ),
         "extra check argument rejected"
+    );
+}
+
+#[test]
+fn cli_live_bind_proof_parses_as_human_gated_command() {
+    let parsed = parse_cli_args([
+        "live-bind-proof",
+        "--host-config",
+        "/tmp/host.toml",
+        "--addr",
+        "0.0.0.0:8443",
+    ])
+    .unwrap();
+    match parsed {
+        RunnerCliCommand::LiveBindProof(opts) => {
+            assert_eq!(opts.host_config_path, PathBuf::from("/tmp/host.toml"));
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8443");
+        }
+        other => panic!("expected live-bind-proof, got {other:?}"),
+    }
+
+    let parsed_default =
+        parse_cli_args(["live-bind-proof", "--host-config", "/tmp/host.toml"]).unwrap();
+    match parsed_default {
+        RunnerCliCommand::LiveBindProof(opts) => {
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8080");
+        }
+        other => panic!("expected live-bind-proof, got {other:?}"),
+    }
+
+    assert!(
+        matches!(
+            parse_cli_args(["live-bind-proof", "--addr", "0.0.0.0:8080"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "missing proof host config rejected"
     );
 }
 

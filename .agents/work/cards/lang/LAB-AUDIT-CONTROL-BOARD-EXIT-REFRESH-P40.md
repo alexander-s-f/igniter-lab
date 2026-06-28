@@ -1,6 +1,6 @@
 # LAB-AUDIT-CONTROL-BOARD-EXIT-REFRESH-P40
 
-Status: OPEN
+Status: DONE
 Route: standard / main-audit / control-board / exit-readiness
 Skill: idd-agent-protocol
 Depends-On:
@@ -61,14 +61,14 @@ Closed:
 
 ## Acceptance
 
-- [ ] P39 result is read and reflected accurately.
-- [ ] `lab-audit-control-board-v1.md` is updated only where live truth changed.
-- [ ] Any changed `IMPLEMENTED_SURFACE.md` file is verified against source.
-- [ ] Remaining deferred/parallel rows have clear owner lanes and are not
+- [x] P39 result is read and reflected accurately.
+- [x] `lab-audit-control-board-v1.md` is updated only where live truth changed.
+- [x] Any changed `IMPLEMENTED_SURFACE.md` file is verified against source.
+- [x] Remaining deferred/parallel rows have clear owner lanes and are not
       blocking audit exit.
-- [ ] No production code changes.
-- [ ] `git diff --check` passes.
-- [ ] Card closed with concise report.
+- [x] No production code changes.
+- [x] `git diff --check` passes.
+- [x] Card closed with concise report.
 
 ## Suggested Verification
 
@@ -90,3 +90,28 @@ lab-docs/lang/lab-audit-exit-refresh-p40-v0.md
 
 The packet should be short: exit status, remaining deferred lanes, stale-card
 warnings, and recommended next wave.
+
+## Closing Report
+
+Closed in:
+
+- `lab-docs/lang/lab-audit-control-board-v1.md`
+- `lab-docs/lang/lab-audit-exit-refresh-p40-v0.md`
+
+Result:
+
+- P39 was read and reflected as **A10 CLOSED FOR LAB PROOF**.
+- The board now states that the foundation-audit digestion can exit the active
+  audit lane: severe blocker/safety findings are closed, and remaining rows are
+  intentionally deferred/parallel (`A12`, `A22`, `A24`) with owner lanes.
+- Production public bind remains closed/deferred; P39 is an authorization proof,
+  not a hosting feature.
+- The next recommended work is non-audit product/science/DX work unless new
+  live regression evidence appears.
+
+Verification:
+
+```text
+git status --short
+git diff --check
+```
