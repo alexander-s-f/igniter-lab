@@ -144,15 +144,25 @@ widening into new foundation themes:
 | `LAB-MACHINE-RECEIPT-SEQID-ORDERING-READINESS-P3` | A21 | Closed readiness: adopt local `receipt_seq` tie-break; no TBackend adoption implementation. |
 | `LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1` | A23 | Closed readiness: REPL/source-run mostly exists; one-shot source-run remains. |
 
-## Active Audit Wave
+## Previous Audit Wave
 
-Dispatched on 2026-06-28 after the tail-closure wave:
+Dispatched and closed on 2026-06-28 after the tail-closure wave:
 
 | Card | Row | Boundary |
 |---|---|---|
 | `LAB-MACHINE-RECEIPT-SEQ-TIEBREAK-P4` | A21 | DB-free local receipt ordering repair: `(transaction_time, receipt_seq)`; not TBackend seq_id and not PG CAS. |
 | `LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2` | A23 | Machine-owned one-shot source-run DX over `load_contract_source` + `dispatch`; no `igc run` unification. |
 | `LAB-IGNITER-COMPILER-ARRAY-LITERAL-ELEMENT-TYPING-P9` | A19 | Compiler collection-element typing via `IgType`; no parser/SIR/VM/canon changes. |
+
+## Active Audit Wave
+
+Dispatched on 2026-06-28 to close the last live-bind audit gate and then
+refresh the board:
+
+| Card | Row | Boundary |
+|---|---|---|
+| `LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39` | A10 | Lab-only/human-gated proof path; normal public bind must remain closed. |
+| `LAB-AUDIT-CONTROL-BOARD-EXIT-REFRESH-P40` | Board | Doc-only post-P39 exit refresh; do not run before P39 closes. |
 
 ## Maintenance Rule
 
