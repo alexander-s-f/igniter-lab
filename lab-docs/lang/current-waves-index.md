@@ -16,6 +16,8 @@ merge DB, web, science, package trust, VM, and public-science work into one task
   Postgres read/write, receipts, host policy.
 - `lang/igniter-vm/IMPLEMENTED_SURFACE.md` — VM/runtime surface, stdlib/package proof pointers.
 - `lab-docs/STATUS.md` — repo boundary, active lanes, and targeted status-board checks.
+- `lab-docs/lang/lab-audit-control-board-v1.md` — foundation-audit decision board:
+  closed / stale / queued findings, evidence handles, and next audit slices.
 - `lab-docs/lang/lab-igniter-package-remote-trust-p23-v0.md` and
   `lab-docs/lang/lab-igniter-package-emergence-pack-p24-v0.md` — package admission and
   emergence package trust front doors.
