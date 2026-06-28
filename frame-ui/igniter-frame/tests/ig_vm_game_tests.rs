@@ -13,11 +13,14 @@
 //! ```
 //! where `<initial>` is `game_loop::initial_world_json()`.
 
-use igniter_frame::game_loop::{initial_world_json, render_world_json, step_world_json};
+use igniter_frame::game_loop::{
+    initial_world_json, render_scene_json, render_world_json, scene_json_of_world, step_world_json,
+};
 use serde_json::Value;
 
 const NOBOOM: &str = include_str!("fixtures/vm_game_step_noboom.runtime.json");
 const BOOM: &str = include_str!("fixtures/vm_game_step_boom.runtime.json");
+const SCENE0: &str = include_str!("fixtures/vm_game_scene0.runtime.json");
 
 fn result(envelope: &str) -> Value {
     let env: Value = serde_json::from_str(envelope).unwrap();
@@ -53,4 +56,19 @@ fn the_vm_produced_world_renders_as_3d_wireframe() {
 #[test]
 fn step_world_json_is_total_on_garbage() {
     assert_eq!(json(&step_world_json("not json", false)), json(r#"{"bodies":[]}"#));
+}
+
+#[test]
+fn ig_view_projection_is_bit_identical_to_the_rust_projection() {
+    // the `.ig` `View(world)` (3D→2D projection, run on igniter-vm) == the Rust mirror
+    let init = initial_world_json();
+    assert_eq!(json(&scene_json_of_world(&init)), result(SCENE0), ".ig View == Rust projection");
+}
+
+#[test]
+fn the_ig_scene_renders_to_svg() {
+    let svg = render_scene_json(&result(SCENE0).to_string());
+    assert!(svg.starts_with("<svg"));
+    // background + one marker per body (6)
+    assert_eq!(svg.matches("<rect").count(), 1 + 6);
 }

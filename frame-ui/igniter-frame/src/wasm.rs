@@ -373,6 +373,13 @@ impl Default for WasmGame {
     }
 }
 
+/// LAB-FRAME-3D-GAME-IG-P4 — render an `.ig` `Scene` (the VM's `View(world)` output, already projected
+/// 3D→2D) to SVG. The host's ONLY rendering job when both the game logic AND the view are `.ig`.
+#[wasm_bindgen]
+pub fn render_scene_json(scene_json: &str) -> String {
+    crate::game_loop::render_scene_json(scene_json)
+}
+
 /// LAB-FRAME-3D-P1 — a deterministic, machine-free 3D scene (Ceiling B/C). The browser drives a
 /// fixed timestep: `tick()` once per animation frame, then `render_svg()`. Pure integer math (no f64),
 /// so replay is bit-identical.

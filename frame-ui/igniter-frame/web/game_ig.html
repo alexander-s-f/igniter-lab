@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · a fully Igniter-authored game (logic + view on the VM)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:640px; max-width:96vw; aspect-ratio:640/480; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#070510; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 16px; font-size:12px; }
+  .row { display:flex; gap:10px; padding:4px 0; }
+  .k { color:var(--dim); min-width:120px; }
+  .v.frm { color:var(--acc); }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  .strip { display:flex; gap:8px; margin-top:10px; align-items:center; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  #time { width:100%; margin-top:10px; accent-color:var(--acc); }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.7; }
+  code { color:var(--acc); } a { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene">loading…</div>
+      <div class="strip">
+        <button id="pp">⏸ pause</button>
+        <button id="restart">⟲ restart</button>
+      </div>
+      <label style="color:var(--dim);font-size:12px">scrub the .ig frames</label>
+      <input id="time" type="range" min="0" max="0" value="0" />
+    </div>
+    <div id="panel">
+      <h1>A fully Igniter-authored game — logic + view on the VM</h1>
+      <p class="sub">Every frame here was produced by <b>two <code>.ig</code> contracts run on <code>igniter-vm</code></b>: <code>Step(world, boom) → world</code> (the integer physics) and <code>View(world) → Scene</code> (the 3D→2D projection). The host (frame-ui, in wasm) does the ONLY non-<code>.ig</code> work: it renders the projected scene. Both contracts are bit-identical to a Rust reference (cross-checked); replay + time-travel are free from determinism.</p>
+      <div class="card">
+        <div class="row"><span class="k">.ig frame</span><span class="v frm" id="fi">0</span><span class="k" style="min-width:50px">/</span><span id="mx">0</span></div>
+        <div class="row"><span class="k">authored in</span><span>.ig Step + .ig View (igniter-vm)</span></div>
+        <div class="row"><span class="k">host renders via</span><span>frame-ui <code>render_scene_json</code> (wasm)</span></div>
+      </div>
+      <p class="hint">
+        This closes the arc: a complete app — <b>logic AND view</b> — authored as pure Igniter and run
+        machine-free, with frame-ui only as the render/host shell. (Frames are pre-computed on the VM and
+        replayed here, since the VM is native; the rendering is live wasm.) See also the live Rust
+        <a href="./game.html">game loop</a> and the <a href="./ig.html">.ig view bridge</a>.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { render_scene_json } from "./igniter_frame.js";
+    const scene = document.getElementById("scene");
+    const fi = document.getElementById("fi"), mx = document.getElementById("mx"), time = document.getElementById("time");
+    await init();
+    const frames = await (await fetch("./game_ig.frames.json")).json();
+    let i = 0, playing = true;
+    mx.textContent = frames.length - 1;
+    time.max = frames.length - 1;
+    function draw() {
+      scene.innerHTML = render_scene_json(JSON.stringify(frames[i]));
+      fi.textContent = i;
+      if (playing) time.value = i;
+    }
+    let last = 0;
+    function loop(t) {
+      if (playing && t - last > 90) { i = (i + 1) % frames.length; last = t; draw(); }
+      requestAnimationFrame(loop);
+    }
+    draw();
+    requestAnimationFrame(loop);
+    document.getElementById("pp").addEventListener("click", (e) => { playing = !playing; e.target.textContent = playing ? "⏸ pause" : "▶ play"; });
+    document.getElementById("restart").addEventListener("click", () => { i = 0; playing = true; document.getElementById("pp").textContent = "⏸ pause"; draw(); });
+    time.addEventListener("input", () => { playing = false; document.getElementById("pp").textContent = "▶ play"; i = +time.value; draw(); });
+  </script>
+</body>
+</html>

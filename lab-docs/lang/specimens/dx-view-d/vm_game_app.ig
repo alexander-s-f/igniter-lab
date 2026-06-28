@@ -48,3 +48,29 @@ contract Step {
   compute w2 = { bodies: next_bodies }
   output w2 : World
 }
+
+-- ── The VIEW, also authored in Igniter: project the 3D bodies → a 2D scene on the VM ───────────────
+-- Perspective projection matches the Rust `game_loop` camera: cx=320, cy=240, focal=600, dist=FP*11=45056,
+-- body half-size BODY=FP*55/100=2252 → projected half-size = 2252*600/d = 1351200/d.
+
+type Marker { x : Integer  y : Integer  w : Integer  h : Integer }
+type Scene  { markers : Collection[Marker] }
+
+-- Project one body's centre to a depth-sized screen marker.
+contract ProjectBody {
+  input b : Body
+  compute d  = b.pz + 45056
+  compute sx = 320 + b.px * 600 / d
+  compute sy = 240 - b.py * 600 / d
+  compute sz = 1351200 / d
+  compute m = { x: sx - sz, y: sy - sz, w: sz + sz, h: sz + sz }
+  output m : Marker
+}
+
+-- VIEW: (World) -> Scene. The whole projection is `.ig`, run on the VM.
+contract View {
+  input world : World
+  compute markers = map(world.bodies, b -> call_contract("ProjectBody", b))
+  compute scene = { markers: markers }
+  output scene : Scene
+}

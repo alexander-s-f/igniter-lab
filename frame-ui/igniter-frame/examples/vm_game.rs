@@ -10,10 +10,31 @@
 //! Usage: `cargo run --no-default-features --example vm_game -- <vm_game_app.igapp> <path/to/igniter-vm>`
 //! Self-checks (panics on mismatch), so running it IS the live proof.
 
-use igniter_frame::game_loop::{initial_world_json, render_world_json, step_world_json};
+use igniter_frame::game_loop::{
+    initial_world_json, render_scene_json, scene_json_of_world, step_world_json,
+};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{exit, Command};
+
+/// Run one `.ig` contract on the VM, returning its `.result` as a JSON string. `entry` selects it.
+fn ig_run(vm: &str, igapp: &str, entry: &str, input: &Value) -> String {
+    let mut tmp = std::env::temp_dir();
+    tmp.push(format!("vm_game_{entry}.json"));
+    std::fs::File::create(&tmp).unwrap().write_all(input.to_string().as_bytes()).unwrap();
+    let out = Command::new(vm)
+        .args(["run", "--contract", igapp, "--entry", entry, "--inputs", tmp.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap_or_else(|e| { eprintln!("spawn {vm}: {e}"); exit(2); });
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.lines().find(|l| l.trim_start().starts_with("{\"latency")).unwrap_or_else(|| {
+        eprintln!("no envelope from {entry}:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        exit(1);
+    });
+    let env: Value = serde_json::from_str(line.trim()).unwrap();
+    if env["status"] != "success" { eprintln!("{entry} failed: {env}"); exit(1); }
+    env["result"].to_string()
+}
 
 /// One `.ig` `Step` on the VM: `world` (a `World` JSON) + `boom` (0/1) → the new `World` JSON.
 fn ig_step(vm: &str, igapp: &str, world: &str, boom: bool) -> String {
@@ -80,10 +101,20 @@ fn main() {
     assert_eq!(serde_json::from_str::<Value>(&at_k_again).unwrap(), serde_json::from_str::<Value>(&at_k).unwrap());
     println!("time-travel  ·  world_at(t) re-runs the .ig sim purely  ✓");
 
-    // ---- the .ig-produced world renders through the frame-ui 3D path --------------------------------
-    let svg = render_world_json(&wi);
-    assert!(svg.contains("<line"));
-    println!("render       ·  the VM-produced world draws as 3D wireframe  ✓");
+    // ---- the VIEW is ALSO .ig: View(world) on the VM projects 3D→2D, cross-checked vs Rust ----------
+    let scene_ig = ig_run(&vm, &igapp, "View", &json!({ "world": serde_json::from_str::<Value>(&wi).unwrap() }));
+    let scene_rust = scene_json_of_world(&wi);
+    assert_eq!(
+        serde_json::from_str::<Value>(&scene_ig).unwrap(),
+        serde_json::from_str::<Value>(&scene_rust).unwrap(),
+        ".ig View projection diverged from the Rust mirror"
+    );
+    println!("view         ·  .ig View(world) == Rust projection — the projection is on the VM  ✓");
 
-    println!("\nOK — the game LOGIC is .ig on igniter-vm: deterministic, replayable, time-travellable through the language.");
+    // ---- the host's ONLY job: render the VM-projected scene -----------------------------------------
+    let svg = render_scene_json(&scene_ig);
+    assert!(svg.contains("<rect"));
+    println!("render       ·  the host draws the .ig-projected scene (logic + view both .ig)  ✓");
+
+    println!("\nOK — a FULL Igniter game on igniter-vm: logic (.ig Step) AND view (.ig View) — deterministic,\n     replayable, time-travellable; the host only ticks, renders, and hit-tests.");
 }

@@ -105,6 +105,66 @@ pub fn step_world_json(world_json: &str, boom: bool) -> String {
     serde_json::json!({ "bodies": bodies }).to_string()
 }
 
+/// Project one body's centre to a depth-sized screen marker `(x, y, w, h)` — the Rust MIRROR of the
+/// `.ig` `ProjectBody` contract (same camera: cx=320, cy=240, focal=600, dist=FP*11, half-size=BODY).
+fn project_marker(b: &Body) -> (i64, i64, i64, i64) {
+    let d = b.p.z + FP * 11;
+    let sx = 320 + b.p.x * 600 / d;
+    let sy = 240 - b.p.y * 600 / d;
+    let sz = BODY * 600 / d;
+    (sx - sz, sy - sz, sz + sz, sz + sz)
+}
+
+/// A Rust `Scene` (`{markers:[{x,y,w,h}]}`) for an `.ig` `World` JSON — the cross-check mirror of the
+/// `.ig` `View` contract. Total/fail-closed.
+pub fn scene_json_of_world(world_json: &str) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
+    let markers: Vec<serde_json::Value> = parsed
+        .get("bodies")
+        .and_then(|b| b.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|b| {
+                    let (x, y, w, h) = project_marker(&body_from_json(b));
+                    serde_json::json!({ "x": x, "y": y, "w": w, "h": h })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::json!({ "markers": markers }).to_string()
+}
+
+/// Render an `.ig` `Scene` JSON (the VM's `View` output — already projected to 2D) as depth-shaded
+/// squares. This is the host's ONLY job when both the logic AND the view are `.ig`: draw what the VM
+/// projected. Total/fail-closed.
+pub fn render_scene_json(scene_json: &str) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(scene_json).unwrap_or(serde_json::Value::Null);
+    let mut ms: Vec<(i64, i64, i64, i64)> = parsed
+        .get("markers")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|m| {
+                    let g = |k: &str| m.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+                    (g("x"), g("y"), g("w"), g("h"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ms.sort_by_key(|m| m.2); // far (smaller) first
+    let mut body = String::new();
+    for (x, y, w, h) in ms {
+        let c = (w * 4).clamp(80, 255);
+        body.push_str(&format!(
+            "  <rect x=\"{x}\" y=\"{y}\" width=\"{}\" height=\"{}\" rx=\"3\" fill=\"none\" stroke=\"rgb({},{},{})\" stroke-width=\"1.6\"/>\n",
+            w.max(0), h.max(0), c * 7 / 10, c / 3, c
+        ));
+    }
+    format!(
+        "<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#070510\"/>\n{body}</svg>\n"
+    )
+}
+
 /// Render an `.ig` `World` JSON (the VM's `Step` output) as the 3D wireframe — so a world produced by
 /// the `.ig` reducer on the VM draws through the same path as the Rust demo.
 pub fn render_world_json(world_json: &str) -> String {
