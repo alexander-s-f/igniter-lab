@@ -111,40 +111,42 @@ tier:
 - Todo API DB-free/fake proofs do not imply production DB ownership or schema
   migration policy.
 
-## Recommended Next Audit Wave
+## Active Next Audit Wave
 
-Dispatch these as separate cards, not one blended task:
+Dispatched on 2026-06-28 after the first foundation-hardening wave closed.
+Run these as separate cards, not one blended task:
 
-1. `LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5`
-   - Why: highest remaining compiler soundness item with readiness complete.
-   - Boundary: compiler IR/type model only; no language surface promise beyond
-     existing semantics.
+1. `LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6`
+   - Why: A19 first slice moved one comparison path to `IgType`; user-`def`
+     signature validation is the named B-U1 follow-up.
+   - Boundary: compiler type/signature diagnostics only; no effect summary,
+     VM, web, or canon changes.
 
-2. `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-P6`
-   - Why: closes pure/effect laundering over existing call graph.
-   - Boundary: compiler summary and diagnostics; no runtime IO changes.
+2. `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-CALL-CONTRACT-P7`
+   - Why: A20 first slice closes `def` laundering; literal
+     `call_contract("Name", ...)` propagation is the next static edge to verify.
+   - Boundary: static/literal compiler effect summary only; no dynamic dispatch
+     semantics.
 
-3. `LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34`
-   - Why: turns live-bind readiness into operator-checkable config without
-     opening public bind.
-   - Boundary: parse/diagnose/checklist only; no non-loopback demo.
+3. `LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2`
+   - Why: A21 owner split showed machine still needs multi-process
+     exactly-once for Postgres write effects.
+   - Boundary: machine Postgres receipt/CAS only; no TBackend/home-lab/SparkCRM.
 
-4. Compile-lock default policy readiness
-   - Why: P2/P3 made locked compile possible and contained deps; policy is the
-     remaining ambiguity.
-   - Boundary: readiness/policy first; do not flip defaults without explicit
-     acceptance matrix.
+4. `LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2`
+   - Why: A21 owner split showed machine WAL durability/recovery hygiene is
+     orthogonal to Postgres CAS.
+   - Boundary: machine WAL/recovery only; no power-loss claim beyond evidence.
 
-5. Durable CAS / seq_id / fsync owner split
-   - Why: real substrate gap, but needs owner decision between machine and
-     TBackend lanes.
-   - Boundary: readiness/split first unless the active TBackend wave already
-     owns the implementation.
+5. `LAB-IGNITER-WEB-LIVE-BIND-GATE-DECISION-READINESS-P35`
+   - Why: A10 parse-only checklist exists; the next safe step is a gate
+     decision for signed authority/TLS/human proof.
+   - Boundary: readiness/gate decision only; public bind remains closed.
 
-6. `LAB-IGNITER-VM-SOURCE-RUN-REPL-P*`
-   - Why: DX payoff after safety pass.
-   - Boundary: direct source execution surface only; no dynamic contract
-     dispatch governance shortcut.
+Do not dispatch `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5` until
+registry/signing/remote-source readiness creates enough pressure to flip the
+default policy. Do not mix frame-ui into this foundation audit batch while its
+separate agent is active.
 
 ## Maintenance Rule
 
