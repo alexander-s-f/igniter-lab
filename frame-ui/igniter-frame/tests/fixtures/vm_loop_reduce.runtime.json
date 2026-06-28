@@ -1,5 +1,5 @@
 {
-    "latency_us": 7,
+    "latency_us": 0,
     "observations": [],
     "result": {
         "sel": "lead:1"

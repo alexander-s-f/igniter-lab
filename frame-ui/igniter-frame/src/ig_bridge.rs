@@ -30,21 +30,36 @@ struct ElInfo {
     text: String,
     intent: String,
     key: String,
+    /// Authored selected-state (LAB-FRAME-VIEW-EQ-WORKAROUND-REMOVAL-P7). The `.ig` view computes
+    /// this per row via real equality (`row_key == state.sel`); the bridge only RENDERS it — it never
+    /// decides selection itself. Absent ⇒ `false` (back-compat for views that omit the field).
+    selected: bool,
     pad: i64,
 }
 
 fn attr_i(el: &Value, key: &str) -> i64 {
-    el.get("attrs").and_then(|a| a.get(key)).and_then(|v| v.as_i64()).unwrap_or(0)
+    el.get("attrs")
+        .and_then(|a| a.get(key))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
 }
 
 /// Recursively turn an `Element` JSON node into a `LayoutBox`, assigning each node a stable path id
 /// (`"0"`, `"0/1"`, …) and recording its render info in `info`. Structure comes from `attrs`:
 /// `flex == 1` ⇒ `Flex(main)`, else `Fixed(main)`; `dir` ⇒ Row/Col (a leaf is a childless Col).
 fn element_to_layout(el: &Value, path: String, info: &mut HashMap<String, ElInfo>) -> LayoutBox {
-    let tag = el.get("tag").and_then(|v| v.as_str()).unwrap_or("leaf").to_string();
+    let tag = el
+        .get("tag")
+        .and_then(|v| v.as_str())
+        .unwrap_or("leaf")
+        .to_string();
     let dir = if tag == "row" { Dir::Row } else { Dir::Col };
     let main_n = attr_i(el, "main");
-    let main = if attr_i(el, "flex") == 1 { Size::Flex(main_n.max(1)) } else { Size::Fixed(main_n.max(0)) };
+    let main = if attr_i(el, "flex") == 1 {
+        Size::Flex(main_n.max(1))
+    } else {
+        Size::Fixed(main_n.max(0))
+    };
     let pad = attr_i(el, "pad");
     let gap = attr_i(el, "gap");
 
@@ -52,9 +67,25 @@ fn element_to_layout(el: &Value, path: String, info: &mut HashMap<String, ElInfo
         path.clone(),
         ElInfo {
             tag: tag.clone(),
-            text: el.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            intent: el.get("intent").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            key: el.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            text: el
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            intent: el
+                .get("intent")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            key: el
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            selected: el
+                .get("selected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             pad,
         },
     );
@@ -94,21 +125,33 @@ fn node_for(rect: &Rect, i: &ElInfo) -> ProjectedNode {
     match i.tag.as_str() {
         "button" => {
             let tone = if i.intent == "add" { "add" } else { "go" };
-            ProjectedNode::from_rect(rect, Some(json!({ "action": i.intent, "key": i.key })), json!({ "kind": "button", "label": i.text, "tone": tone }))
+            ProjectedNode::from_rect(
+                rect,
+                Some(json!({ "action": i.intent, "key": i.key })),
+                json!({ "kind": "button", "label": i.text, "tone": tone }),
+            )
         }
         "leaf" if !i.intent.is_empty() => ProjectedNode::from_rect(
             rect,
             // the authored intent carries the DOMAIN key (e.g. "lead:1") so the host can route it to
             // the `.ig` reducer — see ig_vm_loop / LAB-FRAME-VIEW-IG-VM-IN-THE-LOOP-P6.
             Some(json!({ "action": i.intent, "key": i.key })),
-            json!({ "kind": "row", "label": i.text, "selected": false }),
+            // `selected` is the AUTHORED value the `.ig` view computed by equality (P7); the bridge
+            // renders it but never decides selection itself.
+            json!({ "kind": "row", "label": i.text, "selected": i.selected }),
         ),
         "leaf" => ProjectedNode::from_rect(rect, None, json!({ "kind": "label", "label": i.text })),
         // a padded container draws a panel; an unpadded one is purely structural (shapes layout only)
-        "col" | "row" if i.pad > 0 => ProjectedNode::from_rect(rect, None, json!({ "kind": "panel" })),
+        "col" | "row" if i.pad > 0 => {
+            ProjectedNode::from_rect(rect, None, json!({ "kind": "panel" }))
+        }
         "col" | "row" => ProjectedNode::from_rect(rect, None, json!({ "kind": "none" })),
         // UNKNOWN tag — fail closed VISIBLY (a warn marker), never silently drop it
-        other => ProjectedNode::from_rect(rect, None, json!({ "kind": "note", "tone": "warn", "label": format!("?unknown tag: {other}") })),
+        other => ProjectedNode::from_rect(
+            rect,
+            None,
+            json!({ "kind": "note", "tone": "warn", "label": format!("?unknown tag: {other}") }),
+        ),
     }
 }
 
@@ -120,7 +163,12 @@ fn frame_from_element(el: &Value, w: i64, h: i64) -> crate::Frame {
         .iter()
         .filter_map(|r| info.get(&r.id).map(|i| node_for(r, i)))
         .collect();
-    crate::Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes }
+    crate::Frame {
+        frame_index: 0,
+        world_digest: String::new(),
+        source_receipt_id: None,
+        nodes,
+    }
 }
 
 /// Project an `.ig` `Element` tree (as JSON) into the SEMANTIC `Frame` the bridge renders — layout →
@@ -131,7 +179,12 @@ fn frame_from_element(el: &Value, w: i64, h: i64) -> crate::Frame {
 pub fn project_ig_element(element_json: &str, w: i64, h: i64) -> crate::Frame {
     match serde_json::from_str::<Value>(element_json) {
         Ok(el) => frame_from_element(&el, w, h),
-        Err(_) => crate::Frame { frame_index: 0, world_digest: String::new(), source_receipt_id: None, nodes: Vec::new() },
+        Err(_) => crate::Frame {
+            frame_index: 0,
+            world_digest: String::new(),
+            source_receipt_id: None,
+            nodes: Vec::new(),
+        },
     }
 }
 
@@ -146,7 +199,10 @@ pub fn render_ig_view(element_json: &str, w: i64, h: i64) -> String {
 }
 
 fn error_svg(msg: &str, w: i64, h: i64) -> String {
-    let safe = msg.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let safe = msg
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     format!(
         "<svg viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{w}\" height=\"{h}\" fill=\"#010409\"/>\n  <text x=\"16\" y=\"28\" font-family=\"monospace\" font-size=\"13\" fill=\"#f85149\">{safe}</text>\n</svg>\n"
     )
@@ -229,7 +285,10 @@ mod tests {
         let tree = json!({ "tag": "blink", "attrs": { "dir": "leaf", "main": 40, "flex": 0, "pad": 0, "gap": 0 },
                            "text": "x", "intent": "", "children": [] });
         let svg = render_ig_view(&tree.to_string(), 300, 80);
-        assert!(svg.contains("unknown tag: blink"), "unknown tag should surface a marker: {svg}");
+        assert!(
+            svg.contains("unknown tag: blink"),
+            "unknown tag should surface a marker: {svg}"
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-    "latency_us": 65,
+    "latency_us": 0,
     "observations": [],
     "result": {
         "attrs": {
@@ -21,6 +21,7 @@
                 "children": [],
                 "intent": "select",
                 "key": "lead:0",
+                "selected": false,
                 "tag": "leaf",
                 "text": "Review Ada's lead"
             },
@@ -35,6 +36,7 @@
                 "children": [],
                 "intent": "select",
                 "key": "lead:1",
+                "selected": false,
                 "tag": "leaf",
                 "text": "Call Grace back"
             },
@@ -49,26 +51,14 @@
                 "children": [],
                 "intent": "select",
                 "key": "lead:2",
+                "selected": false,
                 "tag": "leaf",
                 "text": "Send Linus the quote"
-            },
-            {
-                "attrs": {
-                    "dir": "leaf",
-                    "flex": 0,
-                    "gap": 0,
-                    "main": 24,
-                    "pad": 0
-                },
-                "children": [],
-                "intent": "",
-                "key": "status",
-                "tag": "leaf",
-                "text": ""
             }
         ],
         "intent": "",
         "key": "",
+        "selected": false,
         "tag": "col",
         "text": ""
     },

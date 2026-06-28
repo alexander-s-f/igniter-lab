@@ -22,20 +22,20 @@ fn tree_of(envelope: &str) -> String {
     serde_json::from_str::<Value>(envelope).unwrap()["result"].to_string()
 }
 
-/// A projector over a FIXED `.ig` `Element` tree plus a `__sel__` selection fact: it builds the
-/// bridge's semantic nodes and marks the selected node — so the NEXT frame reflects new state.
+/// A projector over a FIXED `.ig` `Element` tree. It re-projects the bridge's semantic nodes each
+/// frame; this test proves the INPUT→EFFECT→NEXT-FRAME loop mechanics (intent survives, hit-test +
+/// `derive_intent` lift the authored action, a click advances the step with lineage).
+///
+/// P7: it no longer marks selection in Rust (`n.id == sel`). Authored selected-state — computed by
+/// real `.ig` equality (`row_key == state.sel`) and rendered by the bridge — is proven by
+/// `ig_vm_loop_tests`, which re-runs the `.ig` view on the VM with the new state. There is no
+/// host-side equality or row-id special casing left in frame-ui.
 struct IgViewProjector {
     tree: String,
 }
 impl Projector for IgViewProjector {
-    fn project(&self, world: &[(String, Value)], frame_index: u64, src: Option<String>) -> Frame {
-        let sel = world.iter().find(|(k, _)| k == "__sel__").and_then(|(_, v)| v.as_str()).unwrap_or("").to_string();
+    fn project(&self, _world: &[(String, Value)], frame_index: u64, src: Option<String>) -> Frame {
         let mut f = project_ig_element(&self.tree, W, H);
-        for n in &mut f.nodes {
-            if n.id == sel {
-                n.data["selected"] = json!(true);
-            }
-        }
         f.frame_index = frame_index;
         f.source_receipt_id = src;
         f
@@ -54,7 +54,11 @@ impl igniter_frame::RenderHost for NoRender {
 /// Pure `(intent, state) -> deltas`, machine-free.
 fn reducer() -> IntentReducer {
     Box::new(|intent, _world| match intent.action.as_str() {
-        "select" => intent.target.clone().map(|t| vec![("__sel__".to_string(), json!(t))]).unwrap_or_default(),
+        "select" => intent
+            .target
+            .clone()
+            .map(|t| vec![("__sel__".to_string(), json!(t))])
+            .unwrap_or_default(),
         _ => vec![],
     })
 }
@@ -64,7 +68,12 @@ fn runtime_over(tree: String) -> FrameRuntime {
         vec![("__sel__".to_string(), json!(""))],
         reducer(),
         Box::new(IgViewProjector { tree }),
-        Viewport { css_w: W as f64, css_h: H as f64, frame_w: W, frame_h: H },
+        Viewport {
+            css_w: W as f64,
+            css_h: H as f64,
+            frame_w: W,
+            frame_h: H,
+        },
         Box::new(NoRender),
     )
 }
@@ -80,30 +89,61 @@ fn proof(envelope: &str) {
     let node = f0
         .nodes
         .iter()
-        .find(|n| n.intent.as_ref().and_then(|i| i.get("action")).and_then(|a| a.as_str()) == Some("select"))
+        .find(|n| {
+            n.intent
+                .as_ref()
+                .and_then(|i| i.get("action"))
+                .and_then(|a| a.as_str())
+                == Some("select")
+        })
         .expect("a node carrying the authored `select` intent")
         .clone();
     let (cx, cy) = (node.sx + 4, node.sy + 4);
     let id = node.id.clone();
-    assert!(!f0.nodes.iter().find(|n| n.id == id).unwrap().data.get("selected").and_then(|v| v.as_bool()).unwrap_or(false));
 
     // Q2: hit-test + derive_intent yields the AUTHORED action with the node id as target — not host-invented.
-    let intent = derive_intent(&f0, &InputEvent { kind: "click".into(), x: cx, y: cy, payload: json!(null) })
-        .expect("click derives an intent");
+    let intent = derive_intent(
+        &f0,
+        &InputEvent {
+            kind: "click".into(),
+            x: cx,
+            y: cy,
+            payload: json!(null),
+        },
+    )
+    .expect("click derives an intent");
     assert_eq!(intent.action, "select");
     assert_eq!(intent.target.as_deref(), Some(id.as_str()));
 
     // Q3 + Q4: a real click drives reducer → effect → next frame (lineage), not a frame mutation.
     let f_before = rt.frame_index();
-    assert!(rt.click(cx as f64, cy as f64), "click on an intent node produces an effect");
+    assert!(
+        rt.click(cx as f64, cy as f64),
+        "click on an intent node produces an effect"
+    );
     assert_eq!(rt.frame_index(), f_before + 1, "the step advanced");
     let lineage: Value = serde_json::from_str(&rt.lineage_json()).unwrap();
-    assert_eq!(lineage["input_receipt_id"], json!(format!("input:{f_before}")));
-    assert_eq!(lineage["effect_receipt_id"], json!(format!("effect:{f_before}")));
+    assert_eq!(
+        lineage["input_receipt_id"],
+        json!(format!("input:{f_before}"))
+    );
+    assert_eq!(
+        lineage["effect_receipt_id"],
+        json!(format!("effect:{f_before}"))
+    );
     assert_eq!(lineage["frame_index"], json!(f_before + 1));
-    // the NEXT frame is re-projected from the new `__sel__` state (selection now marks the node).
+    // the NEXT frame is a re-projection (new frame index + source receipt), never a frame mutation.
+    // Authored selected-state via real `.ig` equality is proven in `ig_vm_loop_tests` (VM-in-the-loop).
     let f1 = rt.frame();
-    assert_eq!(f1.nodes.iter().find(|n| n.id == id).unwrap().data.get("selected"), Some(&json!(true)));
+    assert_eq!(
+        f1.frame_index,
+        f_before + 1,
+        "next frame is a fresh re-projection"
+    );
+    assert!(
+        f1.nodes.iter().any(|n| n.id == id),
+        "the re-projected frame still carries the node"
+    );
 }
 
 #[test]
@@ -120,10 +160,17 @@ fn desugared_form_view_click_drives_reducer() {
 fn a_miss_produces_no_effect_and_no_state_change() {
     let mut rt = runtime_over(tree_of(DYNAMIC));
     // a click well outside any node
-    assert!(!rt.click(10_000.0, 10_000.0), "a miss must not produce an effect");
+    assert!(
+        !rt.click(10_000.0, 10_000.0),
+        "a miss must not produce an effect"
+    );
     assert_eq!(rt.frame_index(), 0);
     let lineage: Value = serde_json::from_str(&rt.lineage_json()).unwrap();
-    assert_eq!(lineage["effect_receipt_id"], json!(null), "no effect on a miss");
+    assert_eq!(
+        lineage["effect_receipt_id"],
+        json!(null),
+        "no effect on a miss"
+    );
 }
 
 #[test]

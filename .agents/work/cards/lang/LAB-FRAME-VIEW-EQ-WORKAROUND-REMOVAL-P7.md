@@ -1,6 +1,6 @@
 # LAB-FRAME-VIEW-EQ-WORKAROUND-REMOVAL-P7
 
-Status: TODO
+Status: CLOSED (2026-06-28)
 Route: standard / igniter-lab / frame-ui / igniter-frame / interaction / payoff
 Skill: idd-agent-protocol
 
@@ -60,17 +60,44 @@ Known context:
 
 ## Acceptance
 
-- [ ] Workaround location is named in the proof packet.
-- [ ] Workaround removed or replaced by authored `.ig` equality.
-- [ ] Runtime/generated fixture, if present, is command-produced and the command is documented.
-- [ ] Frame-ui test proves selected row changes through reducer interaction.
-- [ ] Test output includes enough evidence to distinguish selected vs unselected rows.
-- [ ] No host-side equality or row-ID special casing remains in frame-ui.
-- [ ] `LAB-VM-PRIMITIVE-EQ-PARITY-P1` verification remains green.
-- [ ] `cargo test` for `frame-ui/igniter-frame` relevant tests is green.
-- [ ] Do not stage `frame-ui/igniter-frame/Cargo.lock` unless live investigation proves it belongs to this
-      card and the proof packet says why.
-- [ ] `git diff --check` is clean.
+- [x] Workaround location named in the packet: (1) `vm_loop_app.ig` status-text-echo stand-in (NOTE
+      avoiding `==`); (2) Rust `IgViewProjector` `n.id == sel` in `ig_reducer_interaction_tests`.
+- [x] Workaround removed + replaced by authored `.ig` equality (`row_key == state.sel` in `View`).
+- [x] Fixtures command-produced; the regen command is documented (packet + `ig_vm_loop_tests` header),
+      with `latency_us` normalized to 0 for byte-reproducibility.
+- [x] Frame-ui test proves the selected row changes through reducer interaction (`ig_vm_loop_tests`).
+- [x] Evidence distinguishes selected vs unselected: `sel=""`→(f,f,f); `sel="lead:1"`→(f,**t**,f).
+- [x] No host-side equality / row-ID special casing remains in the `.ig` view path (only hand-written
+      Rust demo screens keep their own `== sel` — not the view path; noted in packet).
+- [x] P1 verification remains green (`primitive_eq_parity_tests` 6/6, fleet 13/13).
+- [x] `frame-ui/igniter-frame` tests green (full suite 79/0).
+- [x] `Cargo.lock` not staged (no dependency change).
+- [x] `git diff --check` is clean.
+
+## Report (2026-06-28)
+
+The payoff after P1. The selected-state workaround existed in two spots because `==` was assumed
+VM-unavailable: (1) `vm_loop_app.ig` carried a NOTE and used a status-text echo instead of per-row
+selection; (2) the P5 Rust test projector marked `n.id == sel` in host code. Both removed.
+
+`vm_loop_app.ig` now authors selection with real equality: `Element` gained `selected : Bool`, and
+`View` computes each row `selected = "lead:i" == state.sel` via `==` (run on the VM). The bridge
+(`ig_bridge.rs`) was extended to RENDER the authored `selected` (read from the Element, default
+false) — structural only, never deciding selection. `widget_host` already styles selected rows, so
+it shows in the SVG. Fixtures regenerated from the specimen; `ig_vm_loop_tests` now asserts per-row
+authored selection (click "Call Grace back" → `Reduce` sets `sel="lead:1"` → re-run `View` marks
+exactly that row); `ig_reducer_interaction_tests` lost its host-eq marking and now proves loop
+mechanics only; `examples/vm_loop.rs` self-check updated to assert authored selection.
+
+Files: `frame-ui/igniter-frame/src/ig_bridge.rs`, `…/examples/vm_loop.rs`,
+`…/tests/ig_vm_loop_tests.rs`, `…/tests/ig_reducer_interaction_tests.rs`,
+`…/tests/fixtures/vm_loop_{view0,view1,reduce}.runtime.json`,
+`lab-docs/lang/specimens/dx-view-d/vm_loop_app.ig`, packet
+`lab-docs/lang/lab-frame-view-eq-workaround-removal-p7-v0.md`.
+
+Remaining: none for authored selected-state. A first-class in-process VM-loop projector behind the
+optional `machine` feature is a possible future DX slice (library stays machine-free today via the
+subprocess-`igniter-vm` + command-produced-fixtures shape).
 
 ## Suggested Verification
 

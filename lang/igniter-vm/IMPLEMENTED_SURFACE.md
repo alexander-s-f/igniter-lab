@@ -35,7 +35,8 @@ and the compiler match-arm record-literal fix. Do not cite the old 11/13 note as
 
 | Surface | Status | Code anchor | Opcode | Notes |
 |---|---|---|---|---|
-| comparison `< <= >= !=` | ✅ implemented | `compiler.rs:296-299` | `OP_LT/LE/GE/NE 0x16-0x19` | also in call form `:336-339` |
+| equality `== !=` | ✅ implemented | `compiler.rs:340,355,412,427` | `OP_EQ 0x09` / `OP_NE 0x19` | compiler emits `a == b` as SIR `binary_op op:"=="` (NOT `stdlib.primitive.eq` — that is the typechecker's internal type name only); `vm.rs OP_EQ`/`eval_ast "=="` both route to `value_eq_exact` (String/Text, Integer, Bool, scale-normalized Decimal). Mismatched scalars rejected at COMPILE time (`OOF-TY0`). Proof: `tests/primitive_eq_parity_tests.rs` (`LAB-VM-PRIMITIVE-EQ-PARITY-P1`). |
+| comparison `< <= >= >` | ✅ implemented | `compiler.rs:296-299,343-352` | `OP_LT/LE/GE/GT 0x16-0x18,0x10` | also in call form `:415-424`; Integer/Float/Decimal (+ String for `< <= >=`) |
 | logic `&& ||` | ✅ implemented | `compiler.rs:300-301` | `OP_AND/OR 0x1A-0x1B` | |
 | named call `fn(args)` | ✅ implemented | `compiler.rs:343-345` | `OP_CALL 0x20` | fallback when not a builtin op |
 | HOF `map/filter/fold/reduce` | ✅ implemented | `compiler.rs:307-346` | (lambda + op dispatch) | consumes lambda literal |

@@ -1,6 +1,6 @@
 # LAB-VM-PRIMITIVE-EQ-PARITY-P1
 
-Status: TODO
+Status: CLOSED (2026-06-28) — characterization + regression-lock (no VM code change)
 Route: standard / igniter-lab / lang / igniter-vm / parity / frame-view-pressure
 Skill: idd-agent-protocol
 
@@ -67,18 +67,39 @@ Work verify-first:
 
 ## Acceptance
 
-- [ ] Root cause assigned with evidence: compiler emits a valid equality shape, or compiler lowering is the
-      owner and is fixed narrowly.
-- [ ] Focused VM test covers true/false `String` or `Text` equality through compile → VM run.
-- [ ] Focused VM test covers true/false `Integer` equality through compile → VM run.
-- [ ] Bool equality is either covered or explicitly documented as out-of-scope because live compiler support
-      does not claim it.
-- [ ] Mismatched type behavior matches live compiler/typechecker policy.
-- [ ] Existing `igniter-vm` suite remains green.
-- [ ] Machine fleet sweep remains green if the VM change can affect machine dispatch.
-- [ ] No frame-ui workaround removal in this card; leave that for P7.
-- [ ] No parser, form vocabulary, `.igv`, `.ig.html`, or host-render changes.
-- [ ] `git diff --check` is clean.
+- [x] Root cause assigned with evidence: compiler emits a **valid** equality shape (`binary_op op:"=="`)
+      and the VM already executes it on both bytecode (`OP_EQ`) and `eval_ast` paths via `value_eq_exact`.
+      No lowering/dispatch bug — runtime already present.
+- [x] Focused VM test covers true/false `Text` equality through compile → VM run.
+- [x] Focused VM test covers true/false `Integer` equality through compile → VM run.
+- [x] Bool equality covered (it is a compiler-supported `==` pair).
+- [x] Mismatched type behavior matches live policy: COMPILE-time `OOF-TY0` ("cannot compare …"); locked.
+- [x] Existing `igniter-vm` suite remains green (173/0).
+- [x] Machine fleet sweep remains green (13/13).
+- [x] No frame-ui workaround removal (handed off to P7).
+- [x] No parser/form/`.igv`/`.ig.html`/host-render changes (no VM code change at all).
+- [x] `git diff --check` is clean.
+
+## Report (2026-06-28)
+
+**Verify-first overturned the premise.** The compiler emits `a == b` as SIR
+`{kind:"binary_op", op:"=="}` (confirmed by compiling a real fixture) — NOT `stdlib.primitive.eq`
+(that string is only the typechecker's internal type-resolution, never in the SIR). Both VM paths
+already handle it: bytecode `op "=="` → `OP_EQ` → `value_eq_exact`; `eval_ast "=="` → `value_eq_exact`.
+`value_eq_exact` compares String/Text, Integer, Bool, and scale-normalized Decimal. So no VM code was
+needed — the frame-ui Rust workaround was written without verifying the VM was ready.
+
+Proven through real compile → VM run (manual + new tests): `Text`/`Integer`/`Bool` true+false, the
+exact `rec.sel == rid` record-field shape, the `eval_ast` `filter(ids, x -> x == sel)` path, and
+mismatch `Integer == Text` → compile-time `OOF-TY0`. Domains = live typechecker `==` pairs
+(`String|Text`, `Integer`, `Bool`, `Unknown`).
+
+Files: `lang/igniter-vm/tests/primitive_eq_parity_tests.rs` (6 regression-lock tests, the only
+change beyond docs); `lang/igniter-vm/IMPLEMENTED_SURFACE.md` (added the omitted `==`/`OP_EQ` row);
+packet `lab-docs/lang/lab-vm-primitive-eq-parity-p1-v0.md`.
+
+Handoff: `LAB-FRAME-VIEW-EQ-WORKAROUND-REMOVAL-P7` — replace the Rust host-side `n.id == sel` with
+authored `.ig` `result.sel == row_id` (wiring only; equality runtime proven done here).
 
 ## Suggested Verification
 
