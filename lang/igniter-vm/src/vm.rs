@@ -1016,6 +1016,11 @@ impl VM {
                         "stdlib.collection.all" => "all",
                         "stdlib.collection.find" => "find",
                         "stdlib.collection.filter_map" => "filter_map",
+                        // LAB-STDLIB-COLLECTION-FLATMAP-OR-CONCAT-P1: wire the qualified name to the
+                        // already-implemented flat_map handler (Array: per-element lambda, Array results
+                        // flattened). VM half is ready; the compiler-side registration is PROP-gated
+                        // (COLLECTION_HOF_FNS) and named as the canon follow-up card.
+                        "stdlib.collection.flat_map" => "flat_map",
                         // concat -> lenient bare handler (Array+Array merge, else string
                         // concat); the front-end sometimes types a string concat as
                         // collection.concat.

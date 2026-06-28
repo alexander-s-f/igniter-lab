@@ -1,7 +1,30 @@
 # LAB-STDLIB-COLLECTION-FLATMAP-OR-CONCAT-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — readiness stop, VM half wired + proven
 Lane: igniter-lab / stdlib / collection / app-pressure / descriptor assembly
+
+## Closing Report
+
+- **Live surface (verified):** `map/filter/count/fold/concat/append/filter_map/first/last/sum/range/zip`
+  all work end-to-end (Ruby `igc` + VM). `concat(Coll,Coll)` → `[1,2]++[3,4]=[1,2,3,4]`; text concat still
+  routes (`"foo"++"bar"`). **`flat_map` is VM-implemented** (`vm.rs:2660`, Array→lambda→flatten) but
+  compiler-UNregistered; **`flatten` absent everywhere.**
+- **Two precise blockers to nest→flat:** (1) `flat_map` not in the compiler; (2) `fold` with empty seed
+  `[]` erases element type (result = seed type = `Collection[Unknown]`) → `fold+concat` won't typecheck.
+- **Recommendation:** `flat_map` — smallest primitive that directly models `map`-then-flatten; **VM half
+  already done.** `concat`/`append` already unblock multi-list (header+body) assembly TODAY.
+- **In-bounds work done:** wired `"stdlib.collection.flat_map" => "flat_map"` alias in the lab VM and
+  PROVED it flattens (same SIR, `map`→`flat_map` rename, `[1,2,3]`: `[[1,1],[2,2],[3,3]]` → `[1,1,2,2,3,3]`).
+  VM suite 174/0; primitive_eq 6/6; ig_vm_game 9/9; `git diff --check` clean.
+- **Why readiness stop:** `COLLECTION_HOF_FNS` (`typechecker.rb:91`) is gated — "Adding entries requires
+  PROP amendment + P4+ authorization" — and needs both compilers (canon Ruby + lab Rust), like the concat
+  series. Not a lab-card patch.
+- **P7 answer:** multi-list assembly UNBLOCKED (concat); full vertex/triangle soup STILL BLOCKED pending
+  the compiler registration (VM ready). `BoxInstance` descriptor remains correct meanwhile.
+- **Named next cards:** `LANG-STDLIB-COLLECTION-FLATMAP-PROP-P1` (PROP amendment; result type = lambda
+  body's collection DIRECTLY, the one-level unwrap vs `map`) → `-P3` (Ruby igc) → `-P4` (Rust parity) ▶
+  secondary `LANG-STDLIB-COLLECTION-FOLD-EMPTY-SEED-INFERENCE-P1`.
+- **Packet:** `lab-docs/lang/lab-stdlib-collection-flatmap-or-concat-p1-v0.md`.
 Mode: focus card
 Skill: idd-agent-protocol
 
