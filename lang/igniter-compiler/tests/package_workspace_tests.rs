@@ -8,6 +8,7 @@ use igniter_compiler::project::{
     self, LockDrift, LockedDependency, ProjectError, Toolchain, WorkspaceLock,
 };
 use serde_json::Value;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,6 +25,63 @@ fn module_files(paths: &[PathBuf]) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+fn toml_quote(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn write_file(path: &Path, text: &str) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn dep_containment_workspace(tag: &str, dep_path: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let base = std::env::temp_dir().join(format!("igc_dep_path_{tag}_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let workspace = base.join("workspace");
+    let app = workspace.join("app");
+    let outside = base.join("outside");
+
+    write_file(
+        &app.join("igniter.toml"),
+        &format!(
+            "source_roots = [\"src\"]\n\n[dependencies]\nescape = {{ path = \"{}\" }}\n",
+            toml_quote(dep_path)
+        ),
+    );
+    write_file(
+        &app.join("src/main.ig"),
+        "module App.Main\nimport Escape.Mod.{ Escaped }\n\npure contract Main {\n  input e : Escaped\n  compute n : Integer = e.value\n  output n : Integer\n}\n",
+    );
+    write_file(&outside.join("igniter.toml"), "source_roots = [\"src\"]\n");
+    write_file(
+        &outside.join("src/mod.ig"),
+        "module Escape.Mod\n\ntype Escaped {\n  value : Integer\n}\n",
+    );
+    (base, workspace, app, outside)
+}
+
+fn assert_unsafe_dep_path(err: ProjectError, reason: &str) {
+    match err {
+        ProjectError::Diagnostic(d) => {
+            assert_eq!(d.rule, "OOF-IMP10", "{d:?}");
+            assert_eq!(
+                d.details
+                    .as_ref()
+                    .and_then(|v| v.get("reason"))
+                    .and_then(|v| v.as_str()),
+                Some(reason),
+                "structured reason is stable: {d:?}"
+            );
+            assert!(
+                d.message.contains("unsafe dependency path"),
+                "message names unsafe dependency path: {}",
+                d.message
+            );
+        }
+        other => panic!("expected OOF-IMP10 diagnostic, got {other:?}"),
+    }
 }
 
 /// Cross-package: `App.Main` imports `Lib.Util` from a declared local path dependency. The resolved
@@ -95,6 +153,43 @@ fn bare_string_dependency_path_resolves() {
         names.contains(&"util.ig".to_string()),
         "bare-string dependency path pulled into the closure: {names:?}"
     );
+}
+
+/// `../lib` sibling dependencies remain the supported local-workspace shape, but climbing above the
+/// workspace trust root is refused before module scanning.
+#[test]
+fn dependency_path_parent_escape_is_oof_imp10() {
+    let (_base, _workspace, app, _outside) =
+        dep_containment_workspace("parent_escape", "../../outside");
+    let err = project::resolve_entry(&app, "App.Main").unwrap_err();
+    assert_unsafe_dep_path(err, "lexical path escapes");
+}
+
+/// Absolute local paths are not normalized into package identities; v0 local deps stay workspace-relative.
+#[test]
+fn dependency_path_absolute_is_oof_imp10() {
+    let (_base, _workspace, app, outside) = dep_containment_workspace("absolute", "../placeholder");
+    fs::write(
+        app.join("igniter.toml"),
+        format!(
+            "source_roots = [\"src\"]\n\n[dependencies]\nescape = {{ path = \"{}\" }}\n",
+            toml_quote(&outside.to_string_lossy())
+        ),
+    )
+    .unwrap();
+    let err = project::resolve_entry(&app, "App.Main").unwrap_err();
+    assert_unsafe_dep_path(err, "absolute paths are not allowed");
+}
+
+/// A symlink that appears to live inside the workspace but canonicalizes outside is refused.
+#[cfg(unix)]
+#[test]
+fn dependency_path_symlink_escape_is_oof_imp10() {
+    let (_base, workspace, app, outside) =
+        dep_containment_workspace("symlink_escape", "../link_out");
+    std::os::unix::fs::symlink(&outside, workspace.join("link_out")).unwrap();
+    let err = project::resolve_entry(&app, "App.Main").unwrap_err();
+    assert_unsafe_dep_path(err, "canonical path escapes");
 }
 
 /// Duplicate module ownership ACROSS packages (app and dependency both declare `App.Main`) is caught by

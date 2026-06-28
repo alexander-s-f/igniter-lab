@@ -28,8 +28,8 @@ refresh table, the package-local `IMPLEMENTED_SURFACE.md` files, and
 
 | Finding family | Current status | Route now |
 |---|---|---|
-| Compiler parser depth + float literal crash-safety | CLOSED by `LAB-IGNITER-COMPILER-INPUT-ROBUSTNESS-P1`: parser depth is budgeted and non-finite/overflowing float literals return diagnostics. | Do not route new work to parser-depth/float-panic blockers. Remaining compiler foundation gaps are type-IR soundness, interprocedural effects, resolver containment/default policy, and deeper emitter/assembler hardening. |
-| Compiler lock-on-build | PARTLY CLOSED by `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`: `compile --project-root ... --locked` / `--frozen` fails missing, stale, or integrity-bad locks before emit. | Remaining supply-chain work is policy/default-on choice and dependency-path canonicalize/containment, not "lock is computed but never build-enforced." |
+| Compiler parser depth + float literal crash-safety | CLOSED by `LAB-IGNITER-COMPILER-INPUT-ROBUSTNESS-P1`: parser depth is budgeted and non-finite/overflowing float literals return diagnostics. | Do not route new work to parser-depth/float-panic blockers. Remaining compiler foundation gaps are type-IR soundness, interprocedural effects, default lock policy, and deeper emitter/assembler hardening. |
+| Compiler lock-on-build + dep-path containment | PARTLY CLOSED by `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2` and `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P3`: `compile --project-root ... --locked` / `--frozen` fails missing, stale, or integrity-bad locks before emit, and local dependency paths are contained under the workspace trust root. | Remaining supply-chain work is policy/default-on choice plus registry/signing/remote-source readiness, not "lock is computed but never build-enforced" or uncontained local dep paths. |
 | VM checked arithmetic, eval depth, collection budget, and step budget | CLOSED by `LAB-IGNITER-VM-EVAL-DEPTH-AND-COLLECTION-BUDGET-P2` plus the checked arithmetic sweep. | Do not cite old VM overflow, `eval_ast` native-stack, huge-range allocation, or non-progress bytecode-loop blockers as open. |
 | Decimal money arithmetic + comparison | CLOSED by `LAB-STDLIB-DECIMAL-MONEY-CONTRACT-READINESS-P1` and `LAB-STDLIB-DECIMAL-MONEY-SAFE-P2`: checked i128 arithmetic, exact-only division, bounded scale, and scale-normalized comparison are implemented. | Remaining Decimal adoption blocker is host-config typed field-kind syntax for product routes, not arithmetic safety. |
 | stdlib IO sandbox, render-html `safe_url`, frame-ui empty leads | CLOSED locally by `lab-stdlib-io-sandbox-hardening-p1`, `lab-igniter-web-render-html-output-safety-p1`, and `LAB-FRAME-UI-EMPTY-LEADS-PANIC-P1`. | Later IO work can focus on host-routed capability readiness. Do not re-open symlink escape, C0-control URL bypass, or empty-leads panic from the audit snapshot alone. |
@@ -44,7 +44,7 @@ refresh table, the package-local `IMPLEMENTED_SURFACE.md` files, and
 - `LAB-IGNITER-WEB-HOST-CONFIG-TYPED-FIELD-KINDS` — shared operator-config blocker for typed `Bool` Todo `done` and Decimal money routes.
 - `LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P*` — replace stringly/type-name IR surfaces with an enum type model.
 - `LAB-IGNITER-COMPILER-EFFECT-SUMMARY-P*` — interprocedural purity/effect summary over the existing call graph.
-- `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P*` and/or compile-lock default policy — canonicalize/contain dependency paths and decide default-on build locking.
+- Compile-lock default policy — decide whether project compile should require a current lock by default.
 - `LAB-IGNITER-SERVER-LIVE-BIND-TLS-CHECKLIST-P*` — TLS/checklist/operator config before any public bind.
 - `LAB-MACHINE-DURABLE-CAS-SEQID-FSYNC-P*` — multi-process/durable exactly-once and replay ordering foundation.
 - `LAB-IGNITER-VM-SOURCE-RUN-REPL-P*` — DX surface for direct source execution; distinct from current `.igapp` VM runtime.
@@ -84,7 +84,7 @@ This is the synthesis: most findings collapse into ~10 shared levers.
 | **L7 Global step budget + termination** | VM, compiler | one `steps_executed` counter in the bytecode loop → termination becomes a real runtime property (closes compiler's "FuelBounded runtime-trusted") | small |
 | **L8 det_* + qemu golden-bit PROOF** | VM, stdlib, frame-ui, emergence | route trig through `det_*`; canonicalize f64 before any digest; run the golden-bit suite under qemu aarch64/riscv64 → claim becomes proof | small-med |
 | **L9 enum IgType** | compiler | replace the stringly-typed `serde_json::Value` type-IR with a real `enum IgType` → name-only soundness holes become unrepresentable | large |
-| **L10 Output safety + supply chain** | web/render-html, compiler | `safe_url` C0-strip + `esc()` `"`/`'`+attribute-context; lock-on-build + canonicalize/containment in the dep resolver | tiny / small |
+| **L10 Output safety + supply chain** | web/render-html, compiler | `safe_url` C0-strip + `esc()` `"`/`'`+attribute-context; lock-on-build + dep resolver containment | tiny / small |
 
 ## TIER 0 — Now-live correctness & safety (do first; not gated by any decision)
 
@@ -141,8 +141,10 @@ This is what turns "#7 human-gated-live" from a cliff into a controlled decision
   added explicit project-build enforcement:
   `igc compile --project-root ROOT --entry MODULE --out OUT --locked` (alias
   `--frozen`) checks committed `igniter.lock` drift/toolchain plus strict
-  workspace integrity before emit. Remaining: default-on policy and
-  canonicalize/containment in the dep resolver (symlink/`..` escape).
+  workspace integrity before emit. `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P3`
+  closes local dep resolver escape by refusing absolute paths, lexical `..`
+  escapes, and symlink escapes outside the workspace trust root. Remaining:
+  default-on policy plus registry/signing/remote-source readiness.
 
 ## TIER 2 — Durability & determinism foundation (the shared substrate)
 

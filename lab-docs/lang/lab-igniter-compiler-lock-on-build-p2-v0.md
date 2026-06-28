@@ -79,7 +79,10 @@ New P2 tests:
 ## Remaining Gaps
 
 - Compile locking is explicit, not default-on.
-- The dependency resolver still needs canonicalize/containment hardening for
-  symlink / `..` escape risk.
 - Registry, semver solver, signing, remote execution, and package execution
   from admission remain outside this slice.
+
+Follow-up status on 2026-06-27: `LAB-IGNITER-COMPILER-DEP-PATH-CONTAINMENT-P3`
+closed the dependency resolver canonicalize/containment gap by refusing absolute
+local dep paths, lexical `..` escapes, and symlink escapes outside the workspace
+trust root with structured `OOF-IMP10`.
