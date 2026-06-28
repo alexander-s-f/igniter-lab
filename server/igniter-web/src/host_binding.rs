@@ -15,8 +15,9 @@
 //! - `MachineEffectHost` target→route bindings derived from `[effects.<target>].route`.
 
 use crate::host_config::{HostConfig, PostgresReadConfig, PostgresWriteConfig};
-use igniter_machine::postgres_read::PostgresReadPolicy;
+use igniter_machine::postgres_read::{PostgresReadPolicy, PostgresReadValueKind};
 use igniter_machine::postgres_write::PostgresWritePolicy;
+use std::collections::BTreeMap;
 
 // ── Write binding ─────────────────────────────────────────────────────────────────────────────────
 
@@ -89,17 +90,16 @@ pub struct ReadPolicyBinding {
 pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
     let mut policy = PostgresReadPolicy::new(cfg.row_limit as i64);
     if let Some(source) = &cfg.source {
-        policy = policy.allow_source(
+        policy = allow_configured_source(
+            policy,
             source,
-            &cfg.fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &cfg.fields,
+            cfg.field_kinds.get(source),
         );
     }
     // Additional `[postgres.read.<name>]` sources (P38) — a two-stage read needs >1 allowlisted table.
     for (source, fields) in &cfg.extra_sources {
-        policy = policy.allow_source(
-            source,
-            &fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-        );
+        policy = allow_configured_source(policy, source, fields, cfg.field_kinds.get(source));
     }
     let capability_id = cfg
         .capability_id
@@ -110,6 +110,28 @@ pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
         policy,
         capability_id,
     }
+}
+
+fn allow_configured_source(
+    mut policy: PostgresReadPolicy,
+    source: &str,
+    fields: &[String],
+    kinds: Option<&BTreeMap<String, PostgresReadValueKind>>,
+) -> PostgresReadPolicy {
+    policy = policy.allow_source(
+        source,
+        &fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+    );
+    if let Some(kinds) = kinds {
+        policy.field_kinds.insert(
+            source.to_string(),
+            kinds
+                .iter()
+                .map(|(field, kind)| (field.clone(), *kind))
+                .collect(),
+        );
+    }
+    policy
 }
 
 // ── StagedReadHost factory (machine feature) ──────────────────────────────────────────────────────
@@ -590,6 +612,51 @@ mod tests {
                 "field {f} must be allowed"
             );
         }
+    }
+
+    #[test]
+    fn read_policy_binding_maps_configured_field_kinds() {
+        let cfg = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\n\
+             fields = \"id,title,done,amount\"\nrow_limit = \"10\"\n\
+             [postgres.read.todos.fields]\ndone = \"bool\"\namount = \"decimal:2\"\n",
+        )
+        .unwrap();
+        let rc = cfg.postgres_read.as_ref().unwrap();
+        let binding = read_policy_binding(rc);
+        assert_eq!(
+            binding.policy.field_kind("todos", "done"),
+            PostgresReadValueKind::Boolean
+        );
+        assert_eq!(
+            binding.policy.field_kind("todos", "amount"),
+            PostgresReadValueKind::Decimal { scale: 2 }
+        );
+        assert_eq!(
+            binding.policy.field_kind("todos", "title"),
+            PostgresReadValueKind::Text,
+            "missing kind stays backwards-compatible Text"
+        );
+    }
+
+    #[test]
+    fn read_policy_binding_maps_extra_source_field_kinds() {
+        let cfg = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"id\"\n\
+             [postgres.read.accounts]\nfields = \"id,active\"\n\
+             [postgres.read.accounts.fields]\nactive = \"bool\"\n",
+        )
+        .unwrap();
+        let rc = cfg.postgres_read.as_ref().unwrap();
+        let binding = read_policy_binding(rc);
+        assert_eq!(
+            binding.policy.field_kind("accounts", "active"),
+            PostgresReadValueKind::Boolean
+        );
+        assert_eq!(
+            binding.policy.field_kind("accounts", "id"),
+            PostgresReadValueKind::Text
+        );
     }
 
     #[test]

@@ -28,8 +28,10 @@
 //!
 //! P24 adds policy fields (not secrets — no `*_env` wrapping required):
 //! - `[postgres.read]`:  `source`, `fields` (comma-list), `row_limit`, `capability`
+//! - `[postgres.read.<source>.fields]`: per-field decode kinds (`bool`, `decimal:<scale>`, etc.)
 //! - `[postgres.write]`: `targets` (comma-list), `ops` (comma-list), `capability`
 
+use igniter_machine::postgres_read::PostgresReadValueKind;
 use std::collections::BTreeMap;
 
 // ── parsed config (env-var names; no secret values) ──────────────────────────────────────────────
@@ -86,6 +88,9 @@ pub struct PostgresReadConfig {
     /// `todos`) needs more than one allowlisted table. The read adapter is already source-generic; only
     /// the policy must allow each table.
     pub extra_sources: Vec<(String, Vec<String>)>,
+    /// Per-source typed field decode kinds from `[postgres.read.<source>.fields]`.
+    /// Fields absent from this map decode as `Text` for backwards compatibility.
+    pub field_kinds: BTreeMap<String, BTreeMap<String, PostgresReadValueKind>>,
     /// Max-row clamp. Default 100.
     pub row_limit: u32,
     /// Host capability id for the read executor (e.g. `"IO.PostgresRead"`). Optional.
@@ -99,6 +104,7 @@ impl Default for PostgresReadConfig {
             source: None,
             fields: Vec::new(),
             extra_sources: Vec::new(),
+            field_kinds: BTreeMap::new(),
             row_limit: 100,
             capability_id: None,
         }
@@ -234,12 +240,15 @@ enum Section {
     PostgresRead,
     /// `[postgres.read.<name>]` — an additional allowlisted read source (P38).
     PostgresReadSource(String),
+    /// `[postgres.read.<source>.fields]` — per-field decode kind map (P33).
+    PostgresReadSourceFields(String),
 }
 
 fn section_label(s: &Section) -> String {
     match s {
         Section::None => String::new(),
         Section::PostgresReadSource(name) => format!("postgres.read.{name}"),
+        Section::PostgresReadSourceFields(name) => format!("postgres.read.{name}.fields"),
         Section::Host => "host".to_string(),
         Section::Effect(t) => format!("effects.{t}"),
         Section::PostgresWrite => "postgres.write".to_string(),
@@ -284,6 +293,69 @@ fn parse_u32(val: &str, key: &str) -> Result<u32, HostConfigError> {
     })
 }
 
+fn parse_read_field_kind(
+    section: &str,
+    key: &str,
+    val: &str,
+) -> Result<PostgresReadValueKind, HostConfigError> {
+    match val {
+        "text" => Ok(PostgresReadValueKind::Text),
+        "integer" => Ok(PostgresReadValueKind::Integer),
+        "bool" => Ok(PostgresReadValueKind::Boolean),
+        _ => {
+            if let Some(scale) = val.strip_prefix("decimal:") {
+                if scale.is_empty() {
+                    return Err(HostConfigError::Parse(format!(
+                        "`[{section}].{key}` decimal kind requires an explicit scale (`decimal:<scale>`)"
+                    )));
+                }
+                return scale
+                    .parse::<u32>()
+                    .map(|scale| PostgresReadValueKind::Decimal { scale })
+                    .map_err(|_| {
+                        HostConfigError::Parse(format!(
+                            "`[{section}].{key}` has invalid decimal scale in `{val}`"
+                        ))
+                    });
+            }
+            Err(HostConfigError::Parse(format!(
+                "`[{section}].{key}` has unsupported field kind `{val}` (supported: text, integer, bool, decimal:<scale>)"
+            )))
+        }
+    }
+}
+
+fn validate_read_field_kinds(
+    primary_source: Option<&String>,
+    primary_fields: &[String],
+    extra_sources: &[(String, Vec<String>)],
+    field_kinds: &BTreeMap<String, BTreeMap<String, PostgresReadValueKind>>,
+) -> Result<(), HostConfigError> {
+    for (source, kinds) in field_kinds {
+        let allowed_fields: Option<&[String]> = if primary_source == Some(source) {
+            Some(primary_fields)
+        } else {
+            extra_sources
+                .iter()
+                .find(|(name, _)| name == source)
+                .map(|(_, fields)| fields.as_slice())
+        };
+        let Some(allowed_fields) = allowed_fields else {
+            return Err(HostConfigError::Parse(format!(
+                "`[postgres.read.{source}.fields]` has no matching `[postgres.read]` source or `[postgres.read.{source}]` section"
+            )));
+        };
+        for field in kinds.keys() {
+            if !allowed_fields.contains(field) {
+                return Err(HostConfigError::Parse(format!(
+                    "`[postgres.read.{source}.fields]` declares kind for non-allowlisted field `{field}`"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse `host.toml` text. Pure; no IO, no env-var access.
 pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut config = HostConfig::default();
@@ -308,6 +380,8 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut pg_read_seen = false;
     // Extra `[postgres.read.<name>]` sources → fields (P38). Ordered, insertion-preserving.
     let mut pg_read_extra: Vec<(String, Vec<String>)> = Vec::new();
+    let mut pg_read_field_kinds: BTreeMap<String, BTreeMap<String, PostgresReadValueKind>> =
+        BTreeMap::new();
 
     for raw in text.lines() {
         let line = raw.trim();
@@ -329,12 +403,24 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             } else if s == "postgres.write" {
                 pg_write_seen = true;
                 Section::PostgresWrite
+            } else if let Some(src) = s
+                .strip_prefix("postgres.read.")
+                .and_then(|rest| rest.strip_suffix(".fields"))
+            {
+                let src = src.trim();
+                if src.is_empty() || src.contains('.') {
+                    return Err(HostConfigError::UnknownSection(s.to_string()));
+                }
+                pg_read_seen = true;
+                Section::PostgresReadSourceFields(src.to_string())
             } else if let Some(src) = s.strip_prefix("postgres.read.") {
                 // Additional read source `[postgres.read.<name>]` (P38). The trailing dot means the exact
                 // `postgres.read` header below never matches here.
                 let src = src.trim();
                 if src.is_empty() {
-                    return Err(HostConfigError::UnknownSection("postgres.read.".to_string()));
+                    return Err(HostConfigError::UnknownSection(
+                        "postgres.read.".to_string(),
+                    ));
                 }
                 pg_read_seen = true;
                 Section::PostgresReadSource(src.to_string())
@@ -492,6 +578,13 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                     })
                 }
             },
+            Section::PostgresReadSourceFields(source) => {
+                let kind = parse_read_field_kind(&label, key, &val)?;
+                pg_read_field_kinds
+                    .entry(source.clone())
+                    .or_default()
+                    .insert(key.to_string(), kind);
+            }
         }
     }
 
@@ -530,11 +623,18 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
         let dsn_env = pg_read_dsn_env.ok_or_else(|| HostConfigError::MissingDsnEnv {
             section: "postgres.read".to_string(),
         })?;
+        validate_read_field_kinds(
+            pg_read_source.as_ref(),
+            &pg_read_fields,
+            &pg_read_extra,
+            &pg_read_field_kinds,
+        )?;
         config.postgres_read = Some(PostgresReadConfig {
             dsn_env,
             source: pg_read_source,
             fields: pg_read_fields,
             extra_sources: pg_read_extra,
+            field_kinds: pg_read_field_kinds,
             row_limit: pg_read_row_limit.unwrap_or(100),
             capability_id: pg_read_capability,
         });
@@ -956,8 +1056,85 @@ fields = "id,name"
         assert_eq!(rc.source.as_deref(), Some("todos"));
         assert_eq!(
             rc.extra_sources,
-            vec![("accounts".to_string(), vec!["id".to_string(), "name".to_string()])]
+            vec![(
+                "accounts".to_string(),
+                vec!["id".to_string(), "name".to_string()]
+            )]
         );
+    }
+
+    #[test]
+    fn postgres_read_field_kinds_parse_for_primary_and_extra_sources() {
+        let text = r#"
+[postgres.read]
+dsn_env = "PG_READ"
+source = "todos"
+fields = "id,title,done,amount"
+
+[postgres.read.todos.fields]
+done = "bool"
+amount = "decimal:2"
+
+[postgres.read.accounts]
+fields = "id,rank"
+
+[postgres.read.accounts.fields]
+rank = "integer"
+"#;
+        let cfg = parse_host_config(text).expect("valid typed read config");
+        let rc = cfg.postgres_read.unwrap();
+        assert_eq!(
+            rc.field_kinds["todos"]["done"],
+            PostgresReadValueKind::Boolean
+        );
+        assert_eq!(
+            rc.field_kinds["todos"]["amount"],
+            PostgresReadValueKind::Decimal { scale: 2 }
+        );
+        assert_eq!(
+            rc.field_kinds["accounts"]["rank"],
+            PostgresReadValueKind::Integer
+        );
+    }
+
+    #[test]
+    fn postgres_read_field_kind_missing_scale_fails_closed() {
+        let err = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"amount\"\n\
+             [postgres.read.todos.fields]\namount = \"decimal\"\n",
+        )
+        .unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn postgres_read_unknown_field_kind_fails_closed() {
+        let err = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"done\"\n\
+             [postgres.read.todos.fields]\ndone = \"timestamp\"\n",
+        )
+        .unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn postgres_read_field_kind_for_unallowlisted_field_fails_closed() {
+        let err = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"id\"\n\
+             [postgres.read.todos.fields]\ndone = \"bool\"\n",
+        )
+        .unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn postgres_read_field_kind_for_unknown_source_fails_closed() {
+        let err = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"id\"\n\
+             [postgres.read.accounts.fields]\nid = \"text\"\n",
+        )
+        .unwrap_err();
+        assert!(matches!(err, HostConfigError::Parse(_)));
     }
 
     #[test]

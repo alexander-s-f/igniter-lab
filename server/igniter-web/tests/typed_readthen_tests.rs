@@ -15,9 +15,11 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::CapabilityExecutorRegistry;
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::postgres_read::{
-    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy, PostgresReadValueKind,
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
 };
 use igniter_server::protocol::{ResponseBody, ServerDecision, ServerRequest, PROTOCOL_VERSION};
+use igniter_web::host_binding::read_policy_binding;
+use igniter_web::host_config::parse_host_config;
 use igniter_web::read_continuation::{app_row_shape, classify_continuation, ReadContinuationShape};
 use igniter_web::read_dispatch::StagedReadHost;
 use igniter_web::read_materialize::AppFieldType;
@@ -82,36 +84,24 @@ fn typed_rows() -> Vec<Value> {
 
 /// Host policy whose field kinds MATCH `TodoRow` (done : Bool, rank : Integer, rest Text).
 fn matched_policy(cap: i64) -> PostgresReadPolicy {
-    use PostgresReadValueKind::*;
-    PostgresReadPolicy::new(cap)
-        .allow_ops(&["select"])
-        .allow_source_typed(
-            "todos",
-            &[
-                ("id", Text),
-                ("account_id", Text),
-                ("title", Text),
-                ("done", Boolean),
-                ("rank", Integer),
-            ],
-        )
+    let cfg = parse_host_config(&format!(
+        "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\n\
+         fields = \"id,account_id,title,done,rank\"\nrow_limit = \"{cap}\"\n\
+         [postgres.read.todos.fields]\ndone = \"bool\"\nrank = \"integer\"\n"
+    ))
+    .expect("typed ReadThen host config");
+    read_policy_binding(cfg.postgres_read.as_ref().unwrap()).policy
 }
 
 /// Host policy that DRIFTS from `TodoRow`: `done` decoded as Text, but the app declares `done : Bool`.
 fn drift_policy(cap: i64) -> PostgresReadPolicy {
-    use PostgresReadValueKind::*;
-    PostgresReadPolicy::new(cap)
-        .allow_ops(&["select"])
-        .allow_source_typed(
-            "todos",
-            &[
-                ("id", Text),
-                ("account_id", Text),
-                ("title", Text),
-                ("done", Text), // ← drift
-                ("rank", Integer),
-            ],
-        )
+    let cfg = parse_host_config(&format!(
+        "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\n\
+         fields = \"id,account_id,title,done,rank\"\nrow_limit = \"{cap}\"\n\
+         [postgres.read.todos.fields]\ndone = \"text\"\nrank = \"integer\"\n"
+    ))
+    .expect("drift ReadThen host config");
+    read_policy_binding(cfg.postgres_read.as_ref().unwrap()).policy
 }
 
 fn make_read_host(adapter: Arc<FakePostgresAdapter>, policy: PostgresReadPolicy) -> StagedReadHost {

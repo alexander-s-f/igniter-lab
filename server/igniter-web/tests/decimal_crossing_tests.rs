@@ -11,9 +11,11 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::CapabilityExecutorRegistry;
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::postgres_read::{
-    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy, PostgresReadValueKind,
+    FakePostgresAdapter, PostgresReadExecutor, PostgresReadPolicy,
 };
 use igniter_server::protocol::{ServerRequest, PROTOCOL_VERSION};
+use igniter_web::host_binding::read_policy_binding;
+use igniter_web::host_config::parse_host_config;
 use igniter_web::read_continuation::app_row_shape;
 use igniter_web::read_dispatch::{StagedReadHost, TypedReadResult};
 use igniter_web::read_materialize::{reconcile_projection, AppFieldType, ProjectionSpec};
@@ -24,7 +26,10 @@ const FIXTURE: &str = include_str!("fixtures/decimal_crossing/decimal_crossing.i
 const READ_CAP: &str = "IO.PostgresRead";
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 fn load_machine() -> IgniterMachine {
@@ -40,7 +45,10 @@ fn load_machine() -> IgniterMachine {
     std::fs::write(&fx, FIXTURE).unwrap();
     let m = IgniterMachine::new(None, "in_memory").unwrap();
     m.load_program(
-        &[pl.to_string_lossy().to_string(), fx.to_string_lossy().to_string()],
+        &[
+            pl.to_string_lossy().to_string(),
+            fx.to_string_lossy().to_string(),
+        ],
         "DecimalProbe",
     )
     .expect("load decimal_crossing fixture");
@@ -49,11 +57,13 @@ fn load_machine() -> IgniterMachine {
 
 /// SELECT-only policy on `lines`: `label` as Text, `amount` as a typed `Decimal{scale}`.
 fn decimal_policy(scale: u32) -> PostgresReadPolicy {
-    use PostgresReadValueKind::*;
-    PostgresReadPolicy::new(100).allow_ops(&["select"]).allow_source_typed(
-        "lines",
-        &[("label", Text), ("amount", Decimal { scale })],
-    )
+    let cfg = parse_host_config(&format!(
+        "[postgres.read]\ndsn_env = \"R\"\nsource = \"lines\"\n\
+         fields = \"label,amount\"\nrow_limit = \"100\"\n\
+         [postgres.read.lines.fields]\namount = \"decimal:{scale}\"\n"
+    ))
+    .expect("decimal host config");
+    read_policy_binding(cfg.postgres_read.as_ref().unwrap()).policy
 }
 
 fn projection() -> Vec<String> {
@@ -118,21 +128,43 @@ fn numeric_strings_cross_as_exact_decimal_and_sum() {
 
         // The host reshaped "12.50" into the {value,scale} Decimal shape (NOT a passed-through string).
         let arr = rows.as_array().unwrap();
-        assert_eq!(arr[0]["amount"], json!({"value": 1250, "scale": 2}), "12.50 → 1250@2");
-        assert_eq!(arr[1]["amount"], json!({"value": 5, "scale": 2}), "0.05 → 5@2");
-        assert_eq!(arr[2]["amount"], json!({"value": 120000, "scale": 2}), "1200.00 → 120000@2");
+        assert_eq!(
+            arr[0]["amount"],
+            json!({"value": 1250, "scale": 2}),
+            "12.50 → 1250@2"
+        );
+        assert_eq!(
+            arr[1]["amount"],
+            json!({"value": 5, "scale": 2}),
+            "0.05 → 5@2"
+        );
+        assert_eq!(
+            arr[2]["amount"],
+            json!({"value": 120000, "scale": 2}),
+            "1200.00 → 120000@2"
+        );
 
         // The continuation does REAL Decimal work over the crossed rows.
         let proof = m
-            .dispatch("DecimalProbe", json!({"req": min_req(), "rows": rows, "meta": _meta}))
+            .dispatch(
+                "DecimalProbe",
+                json!({"req": min_req(), "rows": rows, "meta": _meta}),
+            )
             .await
             .unwrap();
         assert_eq!(proof["n"], json!(3));
         // exact sum 12.50 + 0.05 + 1200.00 = 1212.55 (proves real Decimal arithmetic, not String concat).
-        assert_eq!(proof["total_text"], json!("1212.55"), "fold-sum is exact Decimal");
+        assert_eq!(
+            proof["total_text"],
+            json!("1212.55"),
+            "fold-sum is exact Decimal"
+        );
         // per-row to_text is exact with trailing zeroes preserved.
         let joined = proof["joined"].as_str().unwrap();
-        assert!(joined.contains("12.50") && joined.contains("0.05") && joined.contains("1200.00"), "{joined}");
+        assert!(
+            joined.contains("12.50") && joined.contains("0.05") && joined.contains("1200.00"),
+            "{joined}"
+        );
     });
 }
 
@@ -144,7 +176,9 @@ fn scale_drift_is_rejected_by_reconciler() {
     let approw = app_row_shape(&m, "LineRow").expect("recover LineRow shape");
     // The app declares amount : Decimal[2].
     assert!(
-        approw.iter().any(|(f, t)| f == "amount" && *t == AppFieldType::Decimal(2)),
+        approw
+            .iter()
+            .any(|(f, t)| f == "amount" && *t == AppFieldType::Decimal(2)),
         "LineRow.amount recovered as Decimal(2): {approw:?}"
     );
 
@@ -200,9 +234,15 @@ fn bad_decimal_strings_fail_closed() {
             let r = host.execute_typed(&plan(), &get_req(), &spec).await;
             if amount == "12." {
                 // "12." → int "12", frac "" → 1200@2 — a valid canonical form (no fractional digits).
-                assert!(matches!(r, TypedReadResult::Rows { .. }), "`12.` is valid: {r:?}");
+                assert!(
+                    matches!(r, TypedReadResult::Rows { .. }),
+                    "`12.` is valid: {r:?}"
+                );
             } else {
-                assert!(matches!(r, TypedReadResult::SchemaMismatch(_)), "`{amount}` must fail: {r:?}");
+                assert!(
+                    matches!(r, TypedReadResult::SchemaMismatch(_)),
+                    "`{amount}` must fail: {r:?}"
+                );
             }
         }
     });
