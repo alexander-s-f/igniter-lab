@@ -100,3 +100,33 @@ contract Reduce {
   compute w2 = { bodies: next_bodies }
   output w2 : World
 }
+
+-- ── The 3D MESH DESCRIPTOR, authored in Igniter (LAB-FRAME-3D-GAME-IG-MESH-DESCRIPTOR-P7) ──────────
+-- `ViewMesh(world) -> Mesh` is the geometry the WebGL host renders. The `.ig` authors the SCENE — one
+-- coloured box per body (position FP, half-extents FP, colour 0-255) + a floor box. The host expands
+-- each box's fixed cube topology (12 triangles) and rasterizes. So even the render DESCRIPTOR is a
+-- deterministic, replayable Igniter artifact; only the projection/raster/light stay on the GPU.
+-- (Full triangle-soup emission is blocked today: no flat_map/concat to flatten `Collection[Collection
+-- [Vertex]]`, and per-vertex record emission is very verbose — staged to box instances; see the packet.)
+
+type BoxInstance { x : Integer  y : Integer  z : Integer  hx : Integer  hy : Integer  hz : Integer  cr : Integer  cg : Integer  cb : Integer }
+type Mesh { floor : BoxInstance  boxes : Collection[BoxInstance] }
+
+-- One body → one coloured cube instance. Colour is a palette over the body id (authored in `.ig`).
+contract BodyBox {
+  input b : Body
+  compute cr = if b.id == 0 { 92 } else { if b.id == 1 { 56 } else { if b.id == 2 { 217 } else { if b.id == 3 { 178 } else { if b.id == 4 { 51 } else { 235 } } } } }
+  compute cg = if b.id == 0 { 140 } else { if b.id == 1 { 199 } else { if b.id == 2 { 115 } else { if b.id == 3 { 115 } else { if b.id == 4 { 191 } else { 140 } } } } }
+  compute cb = if b.id == 0 { 247 } else { if b.id == 1 { 117 } else { if b.id == 2 { 77 } else { if b.id == 3 { 235 } else { if b.id == 4 { 209 } else { 178 } } } } }
+  compute box = { x: b.px, y: b.py, z: b.pz, hx: 2252, hy: 2252, hz: 2252, cr: cr, cg: cg, cb: cb }
+  output box : BoxInstance
+}
+
+-- VIEW-MESH: (World) -> Mesh. The render geometry, entirely `.ig`. floor: a wide thin box at y=-bound.
+contract ViewMesh {
+  input world : World
+  compute floor = { x: 0, y: 0 - 12288, z: 0, hx: 19660, hy: 80, hz: 19660, cr: 30, cg: 30, cb: 46 }
+  compute boxes = map(world.bodies, b -> call_contract("BodyBox", b))
+  compute mesh = { floor: floor, boxes: boxes }
+  output mesh : Mesh
+}

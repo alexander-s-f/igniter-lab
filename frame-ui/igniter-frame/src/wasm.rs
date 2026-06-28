@@ -380,6 +380,15 @@ pub fn render_scene_json(scene_json: &str) -> String {
     crate::game_loop::render_scene_json(scene_json)
 }
 
+/// LAB-FRAME-3D-GAME-IG-MESH-DESCRIPTOR-P7 — expand an `.ig`-authored `Mesh` descriptor (the VM's
+/// `ViewMesh(world)` output) into the GPU vertex buffer `[x,y,z, nx,ny,nz, r,g,b]`. The geometry is
+/// Igniter-authored (deterministic, replayable); the host only expands the fixed cube topology + the
+/// GPU rasterizes. Byte-identical to the Rust `game_mesh_f32` mirror (proven in `ig_vm_game_tests`).
+#[wasm_bindgen]
+pub fn mesh_from_ig_descriptor(descriptor_json: &str) -> Vec<f32> {
+    crate::game_loop::mesh_from_ig_descriptor(descriptor_json)
+}
+
 /// LAB-FRAME-3D-GAME-IG-P5 — a LIVE, clickable scene game in the browser. Step / project / hit-test /
 /// kick are the Rust MIRRORS of the `.ig` `Step` / `View` / `Reduce` contracts — proven bit-identical
 /// to them (`ig_vm_game_tests`), so this is the same game the VM runs in `examples/vm_game.rs`, just

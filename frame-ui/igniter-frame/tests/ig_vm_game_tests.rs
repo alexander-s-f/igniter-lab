@@ -14,8 +14,8 @@
 //! where `<initial>` is `game_loop::initial_world_json()`.
 
 use igniter_frame::game_loop::{
-    initial_world_json, kick_world_json, render_scene_json, render_world_json, scene_hit,
-    scene_json_of_world, step_world_json,
+    game_mesh_f32, initial_world_json, kick_world_json, mesh_from_ig_descriptor, render_scene_json,
+    render_world_json, scene_hit, scene_json_of_world, step_world_json,
 };
 use serde_json::Value;
 
@@ -23,6 +23,7 @@ const NOBOOM: &str = include_str!("fixtures/vm_game_step_noboom.runtime.json");
 const BOOM: &str = include_str!("fixtures/vm_game_step_boom.runtime.json");
 const SCENE0: &str = include_str!("fixtures/vm_game_scene0.runtime.json");
 const KICK: &str = include_str!("fixtures/vm_game_kick.runtime.json"); // .ig Reduce(initial, target=1)
+const MESH: &str = include_str!("fixtures/vm_game_mesh.runtime.json"); // .ig ViewMesh(initial) descriptor
 
 fn result(envelope: &str) -> Value {
     let env: Value = serde_json::from_str(envelope).unwrap();
@@ -99,4 +100,20 @@ fn click_hit_tests_a_body_and_the_ig_reducer_kicks_only_it() {
 #[test]
 fn scene_hit_misses_empty_space() {
     assert_eq!(scene_hit(&result(SCENE0).to_string(), 5, 5), None);
+}
+
+#[test]
+fn ig_mesh_descriptor_expands_to_the_same_gpu_buffer_as_rust() {
+    // the GEOMETRY is now `.ig`-authored: ViewMesh(world) -> Mesh{floor, boxes}. The host expands the
+    // fixed cube topology. The `.ig` descriptor must expand BYTE-IDENTICAL to the Rust mesh mirror.
+    let descr = result(MESH); // the real .ig ViewMesh runtime output
+    assert_eq!(descr["boxes"].as_array().unwrap().len(), 6, "one box per body");
+    assert!(descr.get("floor").is_some(), "a floor box");
+
+    let from_ig = mesh_from_ig_descriptor(&descr.to_string());
+    let rust = game_mesh_f32(&initial_world_json());
+    assert_eq!(from_ig.len(), rust.len(), "same vertex-buffer length");
+    assert_eq!(from_ig.len(), 252 * 9, "floor box + 6 body boxes × 36 verts × 9 floats");
+    assert_eq!(from_ig, rust, ".ig-authored geometry expands byte-identical to the Rust mesh");
+    assert!(from_ig.iter().all(|f| f.is_finite()), "all coords finite");
 }

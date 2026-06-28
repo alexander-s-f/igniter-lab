@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · WebGL renders Igniter-authored geometry</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #gl { width:640px; max-width:96vw; aspect-ratio:640/480; border:1px solid var(--line); border-radius:12px; background:#05030c; display:block; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 16px; font-size:12px; }
+  .strip { display:flex; gap:8px; margin-top:10px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  .row { display:flex; gap:10px; padding:4px 0; } .k { color:var(--dim); min-width:130px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.7; } code { color:var(--acc); } a { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <canvas id="gl" width="640" height="480">WebGL</canvas>
+      <div class="strip"><button id="pp">⏸ pause</button><span class="k" style="align-self:center">frame <span id="fi">0</span> / 60</span></div>
+    </div>
+    <div id="panel">
+      <h1>WebGL renders Igniter-authored geometry</h1>
+      <p class="sub">Every frame here is an <b>Igniter <code>Mesh</code> descriptor</b> — the output of the <code>.ig</code> <code>ViewMesh(world)</code> contract run on <code>igniter-vm</code> (one coloured box per body + a floor, authored entirely in <code>.ig</code>). 60 precomputed frames; the host expands each box's cube topology and the GPU rasterizes with z-buffer + lighting.</p>
+      <div class="card">
+        <div class="row"><span class="k">geometry</span><span><code>.ig ViewMesh → Mesh</code> (igniter-vm)</span></div>
+        <div class="row"><span class="k">host expand</span><span><code>mesh_from_ig_descriptor</code> (== Rust mirror)</span></div>
+        <div class="row"><span class="k">rasterizer</span><span>WebGL — z-buffer + lighting</span></div>
+        <div class="row"><span class="k">triangles</span><span id="tris">—</span></div>
+      </div>
+      <p class="hint">
+        This closes the pattern <code>domain state → descriptor → host renderer</code> for 3D: the
+        <b>geometry descriptor is a replayable Igniter artifact</b> (deterministic, bit-identical), and
+        the GPU only does projection / raster / shading. The exact same WebGL host that renders the Rust
+        mesh (<a href="./game_gpu.html">game_gpu</a>) renders this Igniter-authored mesh, byte-for-byte.<br>
+        Frames produced by <code>igniter-vm run … --entry ViewMesh</code>; expanded by the Rust/wasm host.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { mesh_from_ig_descriptor } from "./igniter_frame.js";
+    const cv = document.getElementById("gl");
+    const gl = cv.getContext("webgl", { antialias: true, depth: true });
+    const mul = (a, b) => { const o = new Float32Array(16); for (let r=0;r<4;r++) for (let c=0;c<4;c++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;} return o; };
+    const perspective = (fy,asp,n,f) => { const t=1/Math.tan(fy/2); return new Float32Array([t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,(2*f*n)/(n-f),0]); };
+    function lookAt(ex,ey,ez){ let zx=ex,zy=ey,zz=ez; const zl=Math.hypot(zx,zy,zz); zx/=zl;zy/=zl;zz/=zl;
+      let xx=1*zz-0*zy, xy=0*zx-0*zz, xz=0*zy-1*zx; const xl=Math.hypot(xx,xy,xz)||1; xx/=xl;xy/=xl;xz/=xl;
+      const yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+      return new Float32Array([xx,yx,zx,0, xy,yy,zy,0, xz,yz,zz,0, -(xx*ex+xy*ey+xz*ez), -(yx*ex+yy*ey+yz*ez), -(zx*ex+zy*ey+zz*ez), 1]); }
+    const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;};
+    const prog=gl.createProgram();
+    gl.attachShader(prog,sh(gl.VERTEX_SHADER,`attribute vec3 p;attribute vec3 n;attribute vec3 c;uniform mat4 mvp;varying vec3 vn;varying vec3 vc;void main(){gl_Position=mvp*vec4(p,1.0);vn=n;vc=c;}`));
+    gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,`precision mediump float;varying vec3 vn;varying vec3 vc;void main(){vec3 L=normalize(vec3(0.4,0.9,0.5));float d=abs(dot(normalize(vn),L));gl_FragColor=vec4(vc*(0.35+0.65*d),1.0);}`));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf=gl.createBuffer();
+    const aP=gl.getAttribLocation(prog,"p"),aN=gl.getAttribLocation(prog,"n"),aC=gl.getAttribLocation(prog,"c"),uMVP=gl.getUniformLocation(prog,"mvp");
+    gl.enable(gl.DEPTH_TEST); gl.clearColor(0.02,0.01,0.05,1);
+
+    await init();
+    const frames = await (await fetch("./game_ig.mesh_frames.json")).json();
+    let i = 0, playing = true, yaw = 0;
+    function draw() {
+      const mesh = mesh_from_ig_descriptor(JSON.stringify(frames[i]));   // .ig descriptor → GPU buffer
+      const verts = mesh.length/9;
+      document.getElementById("tris").textContent = (verts/3)+" (from .ig ViewMesh)";
+      document.getElementById("fi").textContent = i;
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, mesh, gl.DYNAMIC_DRAW);
+      const F=4, st=9*F;
+      gl.enableVertexAttribArray(aP); gl.vertexAttribPointer(aP,3,gl.FLOAT,false,st,0);
+      gl.enableVertexAttribArray(aN); gl.vertexAttribPointer(aN,3,gl.FLOAT,false,st,3*F);
+      gl.enableVertexAttribArray(aC); gl.vertexAttribPointer(aC,3,gl.FLOAT,false,st,6*F);
+      gl.uniformMatrix4fv(uMVP, false, mul(perspective(0.9,640/480,0.1,100), lookAt(Math.sin(yaw)*13,4.5,Math.cos(yaw)*13)));
+      gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,verts);
+    }
+    let last=0;
+    function loop(t){ if(playing && t-last>33){ i=(i+1)%frames.length; yaw+=0.01; last=t; } draw(); requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+    document.getElementById("pp").addEventListener("click",(e)=>{playing=!playing;e.target.textContent=playing?"⏸ pause":"▶ play";});
+  </script>
+</body>
+</html>

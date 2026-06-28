@@ -1,6 +1,28 @@
 # LAB-FRAME-3D-GAME-IG-MESH-DESCRIPTOR-P7
 
-Status: OPEN
+Status: CLOSED (2026-06-27)
+
+## Closing Report
+
+- **Result:** GREEN. `ViewMesh(world) -> Mesh{floor, boxes}` is authored in `.ig`, runs on `igniter-vm`,
+  and the WebGL host renders the descriptor BYTE-IDENTICAL to the Rust mirror. The render geometry is now
+  a deterministic, replayable Igniter artifact. Packet:
+  `lab-docs/lang/lab-frame-3d-game-ig-mesh-descriptor-p7-v0.md`.
+- **P0 gate:** P6 verified closed; `vm_game_app.ig` compiles + Step/View/Reduce run (direct `==`).
+- **Phase 1 (descriptor):** chose `BoxInstance` instances (host expands cube topology) — full
+  triangle-soup blocked by missing `flat_map`/`concat` + per-vertex verbosity; compromise made explicit.
+- **Phases 2-4:** `.ig` `BodyBox`/`ViewMesh` contracts; host `expand_box` + `mesh_from_ig_descriptor`
+  (Rust mirror `game_mesh_f32` shares it); wasm `mesh_from_ig_descriptor`; `/game_gpu_ig` WebGL playback
+  of 60 `.ig` `ViewMesh` frames.
+- **Parity:** `ig_mesh_descriptor_expands_to_the_same_gpu_buffer_as_rust` — real `.ig` `ViewMesh`
+  fixture → `mesh_from_ig_descriptor` == `game_mesh_f32` (252 verts × 9; floor + 6 boxes). Existing
+  Step/View/Reduce/interaction tests green; **101 frame-ui tests / 0**; live `/game_gpu_ig`
+  `gl.getError()==0`, 84 tris, no console errors. `git diff --check` clean. No compiler/VM change.
+- **Pressure found:** (1) no `flat_map`/`concat` (top blocker), (2) no record defaults/builders/lookup
+  (palette = 18-branch `if`), (3) parser bare-ident-before-`{` mis-parse, (4) VM throughput fine.
+- **Next cards (ranked):** `LAB-STDLIB-COLLECTION-FLATMAP-OR-CONCAT-P1` ▶ `LAB-LANG-RECORD-DEFAULTS-OR-
+  BUILDERS-P1` ▶ `LAB-FRAME-DESCRIPTOR-PATTERN-READINESS-P1` ▶ `LAB-LANG-PARSE-BARE-IDENT-BEFORE-BRACE-P1`
+  ▶ `LAB-FRAME-3D-GAME-WEBGPU-HOST-P1`.
 Route: focus / igniter-lab / frame-ui / 3D game / language-pressure / multi-step
 Skill: idd-agent-protocol
 Depends-On:

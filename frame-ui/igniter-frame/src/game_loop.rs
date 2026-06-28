@@ -230,61 +230,71 @@ const FACES: [([(i8, i8, i8); 4], (i8, i8, i8)); 6] = [
     ([(-1, -1, -1), (-1, 1, -1), (1, 1, -1), (1, -1, -1)], (0, 0, -1)),
 ];
 
-const PALETTE: [(f32, f32, f32); 6] = [
-    (0.36, 0.55, 0.97), // blue
-    (0.22, 0.78, 0.46), // green
-    (0.85, 0.45, 0.30), // orange
-    (0.70, 0.45, 0.92), // purple
-    (0.20, 0.75, 0.82), // teal
-    (0.92, 0.55, 0.70), // pink
-];
+/// Body colour palette as 0-255 channels — the single source of truth shared with the `.ig` `BodyBox`
+/// contract (its `cr`/`cg`/`cb` palette-by-id), so the `.ig` descriptor and the Rust mesh agree exactly.
+const PALETTE_U8: [(u8, u8, u8); 6] =
+    [(92, 140, 247), (56, 199, 117), (217, 115, 77), (178, 115, 235), (51, 191, 209), (235, 140, 178)];
 
-fn push_box_mesh(out: &mut Vec<f32>, c: V3, half: i64, color: (f32, f32, f32)) {
+fn palette_u8(id: i64) -> (u8, u8, u8) {
+    PALETTE_U8[id.rem_euclid(6) as usize]
+}
+
+/// Expand ONE box (centre + per-axis half-extents in FP units, colour 0-255) into its 12 triangles —
+/// 36 interleaved `[x,y,z, nx,ny,nz, r,g,b]` vertices in world units (`/FP`), colour `/255`. This is the
+/// fixed cube TOPOLOGY the host owns; the SCENE (which boxes, where, sized, coloured) is the descriptor.
+fn expand_box(out: &mut Vec<f32>, c: [i64; 3], half: [i64; 3], col: (u8, u8, u8)) {
     let f = FP as f32;
+    let (r, g, b) = (col.0 as f32 / 255.0, col.1 as f32 / 255.0, col.2 as f32 / 255.0);
     for (corners, n) in FACES.iter() {
         let v = |k: usize| {
-            let (cx, cy, cz) = corners[k];
+            let (sx, sy, sz) = corners[k];
             [
-                (c.x + cx as i64 * half) as f32 / f,
-                (c.y + cy as i64 * half) as f32 / f,
-                (c.z + cz as i64 * half) as f32 / f,
+                (c[0] + sx as i64 * half[0]) as f32 / f,
+                (c[1] + sy as i64 * half[1]) as f32 / f,
+                (c[2] + sz as i64 * half[2]) as f32 / f,
             ]
         };
         let nrm = [n.0 as f32, n.1 as f32, n.2 as f32];
         for &k in &[0usize, 1, 2, 0, 2, 3] {
             let p = v(k);
-            out.extend_from_slice(&[p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], color.0, color.1, color.2]);
+            out.extend_from_slice(&[p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], r, g, b]);
         }
     }
 }
 
-/// Build the filled-face mesh for an `.ig` `World` JSON: one coloured cube per body (by id) + a floor.
-/// Interleaved `[x,y,z, nx,ny,nz, r,g,b]` per vertex, in world units (`/FP`); a JS WebGL host projects,
-/// z-tests, and shades it on the GPU. Total/fail-closed: malformed input → just the floor.
+/// The filled-face mesh for an `.ig` `World` JSON — the RUST MIRROR of the `.ig` `ViewMesh` descriptor +
+/// host expansion: a floor box + one coloured cube per body, expanded to interleaved
+/// `[x,y,z, nx,ny,nz, r,g,b]` triangles. Total/fail-closed (malformed world → just the floor).
 pub fn game_mesh_f32(world_json: &str) -> Vec<f32> {
     let mut out: Vec<f32> = Vec::new();
-    // floor quad at y = -BOUND (a wide dim plane for depth + ground reference)
-    let fy = -BOUND;
     let s = BOUND * 16 / 10;
-    let floor = [
-        (-s, fy, -s),
-        (-s, fy, s),
-        (s, fy, s),
-        (s, fy, -s),
-    ];
-    let fcol = (0.12f32, 0.12, 0.18);
-    let f = FP as f32;
-    for &k in &[0usize, 1, 2, 0, 2, 3] {
-        let (x, y, z) = floor[k];
-        out.extend_from_slice(&[x as f32 / f, y as f32 / f, z as f32 / f, 0.0, 1.0, 0.0, fcol.0, fcol.1, fcol.2]);
-    }
-    // a coloured cube per body
+    expand_box(&mut out, [0, -BOUND, 0], [s, 80, s], (30, 30, 46)); // floor box
     let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
     if let Some(arr) = parsed.get("bodies").and_then(|b| b.as_array()) {
         for bj in arr {
             let b = body_from_json(bj);
-            let color = PALETTE[(body_id(bj).rem_euclid(6)) as usize];
-            push_box_mesh(&mut out, b.p, BODY, color);
+            expand_box(&mut out, [b.p.x, b.p.y, b.p.z], [BODY, BODY, BODY], palette_u8(body_id(bj)));
+        }
+    }
+    out
+}
+
+/// Expand an `.ig`-authored `Mesh` descriptor (the VM's `ViewMesh` output, `{floor, boxes:[{x,y,z,hx,hy,
+/// hz,cr,cg,cb}]}`) into the SAME GPU vertex buffer the WebGL host already draws. The geometry was
+/// authored in Igniter; the host only expands the fixed cube topology. Total/fail-closed.
+pub fn mesh_from_ig_descriptor(mesh_json: &str) -> Vec<f32> {
+    let parsed: serde_json::Value = serde_json::from_str(mesh_json).unwrap_or(serde_json::Value::Null);
+    let one = |out: &mut Vec<f32>, bx: &serde_json::Value| {
+        let g = |k: &str| bx.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+        expand_box(out, [g("x"), g("y"), g("z")], [g("hx"), g("hy"), g("hz")], (g("cr") as u8, g("cg") as u8, g("cb") as u8));
+    };
+    let mut out: Vec<f32> = Vec::new();
+    if let Some(floor) = parsed.get("floor") {
+        one(&mut out, floor);
+    }
+    if let Some(boxes) = parsed.get("boxes").and_then(|b| b.as_array()) {
+        for bx in boxes {
+            one(&mut out, bx);
         }
     }
     out
@@ -526,12 +536,26 @@ mod tests {
     fn game_mesh_is_filled_triangles_and_deterministic() {
         let w = initial_world_json();
         let m = game_mesh_f32(&w);
-        // floor (6 verts) + 6 bodies × 6 faces × 2 tris × 3 verts (36 each) = 6 + 216 = 222 verts × 9 floats
-        assert_eq!(m.len(), 222 * 9);
+        // floor box + 6 body boxes, each 6 faces × 2 tris × 3 verts = 36 → 7 × 36 = 252 verts × 9 floats
+        assert_eq!(m.len(), 252 * 9);
         assert_eq!(game_mesh_f32(&w), game_mesh_f32(&w), "mesh is deterministic");
         assert!(m.iter().all(|f| f.is_finite()), "all coords finite");
-        // a malformed world still yields the floor (fail-closed)
-        assert_eq!(game_mesh_f32("{ not json").len(), 6 * 9);
+        // a malformed world still yields the floor box (fail-closed)
+        assert_eq!(game_mesh_f32("{ not json").len(), 36 * 9);
+    }
+
+    #[test]
+    fn rust_mesh_equals_its_own_ig_shaped_descriptor() {
+        // game_mesh_f32 and mesh_from_ig_descriptor share `expand_box`, so a hand-built descriptor of the
+        // initial world expands to the same buffer the world-mesh does (proves the host expansion path).
+        let descr = serde_json::json!({
+            "floor": { "x": 0, "y": -3*FP, "z": 0, "hx": 3*FP*16/10, "hy": 80, "hz": 3*FP*16/10, "cr": 30, "cg": 30, "cb": 46 },
+            "boxes": (0..6).map(|i| {
+                let b = initial()[i]; let (r,g,b8) = palette_u8(i as i64);
+                serde_json::json!({ "x": b.p.x, "y": b.p.y, "z": b.p.z, "hx": BODY, "hy": BODY, "hz": BODY, "cr": r, "cg": g, "cb": b8 })
+            }).collect::<Vec<_>>()
+        });
+        assert_eq!(mesh_from_ig_descriptor(&descr.to_string()), game_mesh_f32(&initial_world_json()));
     }
 
     #[test]
