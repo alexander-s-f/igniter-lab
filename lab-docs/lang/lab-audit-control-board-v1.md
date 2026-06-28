@@ -129,18 +129,28 @@ registry/signing/remote-source readiness creates enough pressure to flip the
 default policy. Do not mix frame-ui into this foundation audit batch while its
 separate agent is active.
 
-## Active Tail-Closure Wave
+## Latest Tail-Closure Wave
 
-Dispatched on 2026-06-28 to close the remaining audit tails before widening into
-new foundation themes:
+Dispatched and closed on 2026-06-28 to close the remaining audit tails before
+widening into new foundation themes:
 
 | Card | Row | Boundary |
 |---|---|---|
-| `LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7` | A19 | Rust-lab compiler record field typing only; no Ruby/canon changes. |
-| `LAB-IGNITER-COMPILER-CALL-CONTRACT-ARG-TYPING-P8` | A19 | Literal `call_contract` argument typing only; no dynamic dispatch/effect changes. |
-| `LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36` | A10 | Report-only dry-run; public bind remains closed. |
-| `LAB-MACHINE-RECEIPT-SEQID-ORDERING-READINESS-P3` | A21 | Machine receipt ordering decision; no TBackend adoption implementation. |
-| `LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1` | A23 | DX readiness; no dynamic dispatch shortcut. |
+| `LAB-IGNITER-COMPILER-RECORD-LITERAL-NONINLINE-FIELD-TYPING-P7` | A19 | Closed B-U3: non-inline record literal field typing via `IgType`; no Ruby/canon changes. |
+| `LAB-IGNITER-COMPILER-CALL-CONTRACT-ARG-TYPING-P8` | A19 | Closed B-U2: literal `call_contract` argument typing via `IgType`; no dynamic dispatch/effect changes. P8a scalar alias fix (`String` = `Text`) also landed. |
+| `LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36` | A10 | Closed report-only dry-run; public bind remains closed. |
+| `LAB-MACHINE-RECEIPT-SEQID-ORDERING-READINESS-P3` | A21 | Closed readiness: adopt local `receipt_seq` tie-break; no TBackend adoption implementation. |
+| `LAB-IGNITER-VM-SOURCE-RUN-REPL-READINESS-P1` | A23 | Closed readiness: REPL/source-run mostly exists; one-shot source-run remains. |
+
+## Active Audit Wave
+
+Dispatched on 2026-06-28 after the tail-closure wave:
+
+| Card | Row | Boundary |
+|---|---|---|
+| `LAB-MACHINE-RECEIPT-SEQ-TIEBREAK-P4` | A21 | DB-free local receipt ordering repair: `(transaction_time, receipt_seq)`; not TBackend seq_id and not PG CAS. |
+| `LAB-IGNITER-MACHINE-RUN-SOURCE-ONESHOT-P2` | A23 | Machine-owned one-shot source-run DX over `load_contract_source` + `dispatch`; no `igc run` unification. |
+| `LAB-IGNITER-COMPILER-ARRAY-LITERAL-ELEMENT-TYPING-P9` | A19 | Compiler collection-element typing via `IgType`; no parser/SIR/VM/canon changes. |
 
 ## Maintenance Rule
 
