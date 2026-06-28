@@ -1,6 +1,6 @@
 # LAB-VM-INTEGER-ARITHMETIC-OPCALL-PARITY-P2
 
-Status: TODO
+Status: DONE
 Route: standard / igniter-lab / VM / OP_CALL parity / frame-ui blocker
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-VM-CHECKED-ARITH-P1`
@@ -86,15 +86,15 @@ lab-docs/lang/specimens/dx-view-d/vm_game_app.ig
 
 ## Acceptance
 
-- [ ] Minimal `IncDirect(n) = n + 1` runs through the VM and returns the expected integer.
-- [ ] `stdlib.integer.add/sub/mul/div` all execute through `OP_CALL`.
-- [ ] `i64::MAX + 1`, `i64::MIN - 1`, `i64::MAX * 2`, `i64::MIN / -1`, and division by zero fail
+- [x] Minimal `IncDirect(n) = n + 1` runs through the VM and returns the expected integer.
+- [x] `stdlib.integer.add/sub/mul/div` all execute through `OP_CALL`.
+- [x] `i64::MAX + 1`, `i64::MIN - 1`, `i64::MAX * 2`, `i64::MIN / -1`, and division by zero fail
       closed through the `OP_CALL` path.
-- [ ] Existing checked-arith bytecode/eval_ast tests from P1 remain green.
-- [ ] `vm_game_app.ig` `StepBody` executes on VM.
-- [ ] `vm_game_app.ig` `Step` executes through `map + call_contract("StepBody", ...)` on VM.
-- [ ] No compiler/parser/canon changes unless explicitly justified in the proof packet.
-- [ ] `git diff --check` clean.
+- [x] Existing checked-arith bytecode/eval_ast tests from P1 remain green.
+- [x] `vm_game_app.ig` `StepBody` executes on VM.
+- [x] `vm_game_app.ig` `Step` executes through `map + call_contract("StepBody", ...)` on VM.
+- [x] No compiler/parser/canon changes unless explicitly justified in the proof packet.
+- [x] `git diff --check` clean.
 
 ## Suggested Verification
 
@@ -124,3 +124,11 @@ Packet must include:
 - before/after minimal reproducer,
 - `vm_game_app.ig` `StepBody` / `Step` evidence,
 - explicit note that P1 checked-arith guarantees were preserved.
+
+## Closing Packet
+
+Implemented and verified in:
+
+```text
+lab-docs/lang/lab-vm-integer-arithmetic-opcall-parity-p2-v0.md
+```

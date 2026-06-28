@@ -165,6 +165,62 @@ async fn checked_integer_arithmetic_errors_in_bytecode_path() {
 }
 
 #[tokio::test]
+async fn integer_arithmetic_opcall_names_use_checked_helpers() {
+    async fn run_opcall(name: &str, a: i64, b: i64) -> Result<Value, String> {
+        run_bytecode(vec![
+            push_lit(Value::Integer(a)),
+            push_lit(Value::Integer(b)),
+            op_call(name),
+            op_ret(),
+        ])
+        .await
+    }
+
+    assert_eq!(
+        run_opcall("stdlib.integer.add", 40, 2).await,
+        Ok(Value::Integer(42))
+    );
+    assert_eq!(
+        run_opcall("stdlib.integer.sub", 45, 3).await,
+        Ok(Value::Integer(42))
+    );
+    assert_eq!(
+        run_opcall("stdlib.integer.mul", 6, 7).await,
+        Ok(Value::Integer(42))
+    );
+    assert_eq!(
+        run_opcall("stdlib.integer.div", 84, 2).await,
+        Ok(Value::Integer(42))
+    );
+
+    assert_err_contains(
+        run_opcall("stdlib.integer.add", i64::MAX, 1).await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_opcall("stdlib.integer.sub", i64::MIN, 1).await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_opcall("stdlib.integer.mul", i64::MAX, 2).await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_opcall("stdlib.integer.div", i64::MIN, -1).await,
+        "Integer overflow",
+    );
+    assert_err_contains(
+        run_opcall("stdlib.integer.div", 1, 0).await,
+        "Division by zero",
+    );
+
+    assert_err_contains(
+        run_opcall("stdlib.numeric.add", i64::MAX, 1).await,
+        "Integer overflow",
+    );
+}
+
+#[tokio::test]
 async fn test_decimal_addition_success() {
     let vm = VM::new(None);
     let instructions = vec![

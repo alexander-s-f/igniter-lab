@@ -2160,42 +2160,16 @@ impl VM {
                                 _ => val.clone(),
                             }
                         }
-                        "stdlib.numeric.add" | "add" => {
-                            if args.len() != 2 {
-                                return Err(format!(
-                                    "add expects exactly 2 arguments, got {}",
-                                    args.len()
-                                ));
-                            }
-                            match (&args[0], &args[1]) {
-                                (
-                                    Value::Decimal {
-                                        value: av,
-                                        scale: as_,
-                                    },
-                                    Value::Decimal {
-                                        value: bv,
-                                        scale: bs,
-                                    },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    let res_dec = da.add(&db)?;
-                                    Value::Decimal {
-                                        value: res_dec.value,
-                                        scale: res_dec.scale,
-                                    }
-                                }
-                                (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
-                                (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
-                                _ => {
-                                    return Err(format!(
-                                        "Invalid operand types for add: {:?} + {:?}",
-                                        args[0], args[1]
-                                    ))
-                                }
-                            }
-                        }
+                        // LAB-VM-INTEGER-ARITHMETIC-OPCALL-PARITY-P2: compiler-emitted
+                        // stdlib.integer.{add,sub,mul,div} names share the same checked
+                        // arithmetic helper as eval_ast call/operator dispatch. The legacy
+                        // stdlib.numeric.add/add aliases remain supported, now checked too.
+                        "stdlib.numeric.add" | "add" | "stdlib.integer.add"
+                        | "stdlib.integer.sub" | "sub" | "stdlib.integer.mul" | "mul"
+                        | "stdlib.integer.div" | "div" => match eval_arithmetic_call(fn_name, &args) {
+                            Some(r) => r?,
+                            None => unreachable!("OP_CALL arithmetic arm names mirror eval_arithmetic_call"),
+                        },
                         "stdlib.integer.lt" | "stdlib.integer.gt" | "stdlib.integer.lte"
                         | "stdlib.integer.gte" => {
                             if args.len() != 2 {
@@ -3638,6 +3612,156 @@ fn float_to_text(x: f64, decimals: i64, mode: &str) -> Result<String, String> {
     }
 }
 
+fn eval_arithmetic_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    enum ArithmeticOp {
+        Add,
+        Sub,
+        Mul,
+        Div,
+    }
+
+    let op = match fn_name {
+        "+" | "add" | "stdlib.numeric.add" | "stdlib.integer.add" => ArithmeticOp::Add,
+        "-" | "sub" | "stdlib.integer.sub" => ArithmeticOp::Sub,
+        "*" | "mul" | "stdlib.integer.mul" => ArithmeticOp::Mul,
+        "/" | "div" | "stdlib.integer.div" => ArithmeticOp::Div,
+        _ => return None,
+    };
+
+    Some((|| {
+        if args.len() != 2 {
+            return Err(format!(
+                "{} expects exactly 2 arguments, got {}",
+                fn_name,
+                args.len()
+            ));
+        }
+
+        let left_val = &args[0];
+        let right_val = &args[1];
+        match op {
+            ArithmeticOp::Add => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.add(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_add(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
+                _ => Err(format!(
+                    "Invalid operand types for ADD: {:?} + {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Sub => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.sub(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_sub(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
+                _ => Err(format!(
+                    "Invalid operand types for SUB: {:?} - {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Mul => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.mul(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_mul(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
+                _ => Err(format!(
+                    "Invalid operand types for MUL: {:?} * {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Div => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.div(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_div(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => {
+                    if *bv == 0.0 {
+                        Err("Division by zero".to_string())
+                    } else {
+                        Ok(Value::Float(av / bv))
+                    }
+                }
+                _ => Err(format!(
+                    "Invalid operand types for DIV: {:?} / {:?}",
+                    left_val, right_val
+                )),
+            },
+        }
+    })())
+}
+
 pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
     // Arity + Float-type check, message-identical to the original bytecode arms.
     fn unary(
@@ -4251,6 +4375,11 @@ fn eval_ast<'a>(
                     .ok_or_else(|| "Missing operator".to_string())?
                     .as_str()
                     .ok_or_else(|| "operator must be string".to_string())?;
+                if let Some(arithmetic) =
+                    eval_arithmetic_call(op, &[left_val.clone(), right_val.clone()])
+                {
+                    return arithmetic;
+                }
                 match op {
                     "+" => match (&left_val, &right_val) {
                         (
@@ -6048,6 +6177,9 @@ fn eval_ast<'a>(
                         // HOF/lambda bodies, dispatched BEFORE the binary-operator assumption — otherwise a
                         // 1-arg `sin` here would wrongly error "expects exactly 2 operands" (the P9 blocker).
                         // Same `eval_math_call` source as the bytecode OP_CALL path → identical semantics.
+                        if let Some(arithmetic) = eval_arithmetic_call(op, &evaluated_operands) {
+                            return arithmetic;
+                        }
                         if let Some(math) = eval_math_call(op, &evaluated_operands) {
                             return math;
                         }
