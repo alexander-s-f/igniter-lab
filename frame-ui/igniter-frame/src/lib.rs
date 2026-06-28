@@ -32,6 +32,7 @@ pub mod igv_desugar;
 pub mod layout;
 pub mod list_screen;
 pub mod runtime;
+pub mod scene3d;
 pub mod scroll_list_screen;
 pub mod table_screen;
 pub mod text_form_screen;

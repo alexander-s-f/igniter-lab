@@ -321,6 +321,50 @@ impl Default for WasmScrollList {
     }
 }
 
+/// LAB-FRAME-3D-P1 — a deterministic, machine-free 3D scene (Ceiling B/C). The browser drives a
+/// fixed timestep: `tick()` once per animation frame, then `render_svg()`. Pure integer math (no f64),
+/// so replay is bit-identical.
+#[wasm_bindgen]
+pub struct WasmScene3 {
+    inner: crate::scene3d::SceneRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmScene3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmScene3 {
+        WasmScene3 {
+            inner: crate::scene3d::SceneRuntime::new(),
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.inner.tick();
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmScene3 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// LAB-FRAME-DX-VIEW-D host bridge — render an `.ig`-authored `Element` tree (JSON) through the
 /// frame-ui pipeline (layout → solve → canonical widgets → shared host). Closes the loop: a view
 /// authored as pure igniter element-contracts renders live, machine-free, in the browser.
