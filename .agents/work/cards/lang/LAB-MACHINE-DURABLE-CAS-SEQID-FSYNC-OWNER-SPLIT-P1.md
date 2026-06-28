@@ -1,6 +1,63 @@
 # LAB-MACHINE-DURABLE-CAS-SEQID-FSYNC-OWNER-SPLIT-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — readiness/owner-split, doc-only
+
+## Closure Report
+
+Verify-first owner split for the durable exactly-once substrate (A21 / lever
+L6). Packet: `lab-docs/lang/lab-machine-durable-cas-seqid-fsync-owner-split-p1-v0.md`.
+
+**Headline (overturned the A21 framing):** L6 was scoped as a *shared* gap, but
+live source shows TBackend **already built** the substrate in its daemon core
+(`runtime/igniter-tbackend/src/pure_core.rs`): per-store `seq_id` (P9),
+group-commit `fdatasync` (P6), durable write-once CAS `push_once` (P15/P3), safe
+compaction (P12) — all CLOSED PASS with home-lab proofs. Machine still has the
+gap AND consumes only the *legacy* `ShardedFactLog`/`FactData` from the tbackend
+crate (`backend.rs:4-5`), not the hardened daemon. So the split is "TBackend owns
+it; machine closes its own gaps without forking the daemon," not "two agents
+build seq_id."
+
+**Owner matrix (full in packet):** TBackend-owned (DONE) = fact-log seq_id,
+durable-ack+group-commit, push_once CAS, canonical hash, compaction, mesh
+watermark. Machine-owned (GAP) = multi-process exactly-once for *effects*
+(`single_flight.rs:11-15` in-process only), receipt ordering (clock last-wins
+`recovery.rs:48`), WAL fsync (`wal.rs:39` flush-only), non-silent WAL recovery
+(`wal.rs:69`). Shared = the *concept* (seq token), *vocabulary*
+(accepted/durable), and *proof shape* — NOT shared code (different number-spaces,
+different mechanisms). Cross-project/deferred = daemon adoption + seq number-space
+reconciliation.
+
+**Cards named (non-overlapping):**
+- **A (recommended first)** `LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2` — real
+  PG `effect_receipts(idempotency_key)` UNIQUE + `ON CONFLICT` durable CAS +
+  concurrent-double-execute proof vs real local PG. Machine-only.
+- **B (parallel, orthogonal)** `LAB-MACHINE-WAL-FSYNC-NONSILENT-RECOVERY-P2` —
+  WAL fsync/group-commit + non-silent replay (T2.4).
+- **C (deferred, cross-project design)**
+  `LAB-MACHINE-TBACKEND-RECEIPT-ADOPTION-READINESS-P2` — adopt the tbackend
+  daemon as machine's receipt backend, delete single_flight.
+
+**Recommendation:** Card A first — closes the most dangerous machine durability
+finding (multi-process double-execute), fully machine-scoped, DB-native CAS (no
+parallel power-loss mechanism to reconcile), provable vs real local PG without
+touching TBackend or home-lab.
+
+Acceptance:
+- [x] Live machine durability/receipt surfaces characterized (file:line).
+- [x] TBackend lane treated as external evidence (not edited); home-lab untouched.
+- [x] Owner matrix produced (machine / TBackend / shared concept / deferred).
+- [x] ≥2 non-overlapping implementation cards named (A, B, + design C).
+- [x] Recommendation chooses the next first card (A).
+- [x] No code / production / home-lab mutation (doc-only).
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Grounding (current behavior): `postgres_write_tests` 11/11,
+`postgres_reconcile_tests` 7/7, `storage_durability_proof_tests` 3/3.
+
+---
+
+Status: CLOSED — original card below.
 Route: standard / main-audit / durability / owner split
 Skill: idd-agent-protocol
 

@@ -1,6 +1,54 @@
 # LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
+
+## Closure Report
+
+Implemented Alternative A from the P4 readiness packet: a narrow internal
+`IgType` enum for the typechecker helper boundary, JSON only at the edges, plus
+one converted comparison path proving the model fails closed.
+
+- Added `lang/igniter-compiler/src/typechecker/type_ir.rs`
+  (`enum IgType { Unknown, Named, Generic }` + `from_json_lossy`/`to_json`/
+  `name`/`params`/`decimal_scale`/`display`/`is_unknown_bearing`/
+  `structurally_assignable`). Invalid states (non-string `name`, non-array
+  `params`, nameless object) are unrepresentable / fail closed to `Unknown`.
+- Reimplemented the 7 helper methods (`type_ir`, `get_param`, `type_name`,
+  `decimal_scale`, `structurally_assignable`, `unknown_or_unknown_bearing`,
+  `type_display`) to delegate to `IgType`. ~270 call sites untouched. Public
+  `{name, params}` SIR JSON shape preserved.
+- Converted the variant-field construction comparison (was outer-name-only) to a
+  structural param check via the typed model, additively — existing outer-name
+  `OOF-KIND2` diagnostic left byte-identical.
+
+Proof (before/after, genuine): the `Collection[Integer]` → `Collection[Text]`
+variant field compiled `"status": "ok"` at HEAD; now raises
+`OOF-KIND2 "Bag::Hold field 'items': expected Collection[Text], got
+Collection[Integer]"`.
+
+Acceptance:
+- [x] Live type surfaces characterized before editing (verify-first).
+- [x] Real typed IR introduced for the variant-field / `structurally_assignable`
+      soundness path.
+- [x] A test that previously passed by name-only now fails with a clear
+      diagnostic (`variant_field_generic_param_tests` + before/after capture).
+- [x] Package/workspace, IgWeb lowering (byte-identical), stdlib tests green.
+- [x] Proof packet names what moved to typed IR and what stays old-shape.
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Tests: full suite 308 passed / 0 failed (296 baseline + 10 unit + 2
+integration). Packet:
+`lab-docs/lang/lab-igniter-compiler-type-ir-enum-p5-v0.md`.
+
+Follow-up: `LAB-IGNITER-COMPILER-USER-FN-SIGNATURE-CHECK-P6` (validate
+user-`def` call arity/params at `Expr::Call` — readiness risk #1); optional
+second slice converts the record-literal non-inline field comparison the same
+way (readiness risk #2 remaining half).
+
+---
+
+Status: CLOSED — original card below.
 Route: standard / main-audit / compiler / type soundness
 Skill: idd-agent-protocol
 Depends-On: `lab-docs/lang/lab-igniter-compiler-type-ir-enum-readiness-p4-v0.md`

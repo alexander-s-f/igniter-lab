@@ -168,6 +168,141 @@ fn non_loopback_addr_fails_closed() {
     );
 }
 
+// ── P34: live-bind checklist parse-only readiness ─────────────────────────────────────────────────
+
+/// A complete `[host.live_bind]` checklist with `mode = "loopback"` used by the live-bind tests.
+/// It is PARSE-ONLY: a successful parse never authorizes a non-loopback bind.
+const FULL_LIVE_BIND_TOML: &str = "[host]\nmode = \"loopback\"\n\
+     [host.live_bind]\nsigned_passport_path = \"/etc/igniter/passports/inbound.passport\"\n\
+     body_cap_enabled = \"true\"\nread_timeout_enabled = \"true\"\n\
+     fail_closed_auth_enabled = \"true\"\noperator_signoff = \"present\"\n\
+     [host.live_bind.inbound_tls]\nmode = \"terminated_upstream\"\n\
+     upstream_header_policy = \"trusted_proxy_only\"\n";
+
+// ── P34-a: incomplete live-bind checklist → CONFIG_PARSE, before any socket ────────────────────────
+
+#[test]
+fn live_bind_incomplete_checklist_fails_config_parse_before_bind() {
+    // Missing `signed_passport_path` (and the rest) — present-but-incomplete must fail closed.
+    let host = write_host_toml(
+        "lbincomplete",
+        "[host]\nmode = \"loopback\"\n[host.live_bind]\nbody_cap_enabled = \"true\"\n",
+    );
+
+    let r = run_serve(&["--host-config", host.to_str().unwrap(), &app_dir()]);
+
+    assert_ne!(r.code, 0, "incomplete checklist must exit non-zero");
+    assert!(
+        r.stderr.contains("[CONFIG_PARSE]"),
+        "stderr must carry CONFIG_PARSE; stderr={}",
+        r.stderr
+    );
+    assert!(
+        r.stderr.contains("signed_passport_path"),
+        "diag must name the missing checklist field; stderr={}",
+        r.stderr
+    );
+    assert!(
+        !r.stdout.contains("listening http"),
+        "must fail before socket bind; stdout={}",
+        r.stdout
+    );
+}
+
+// ── P34-b: complete checklist STILL refuses a non-loopback bind (parse-only, no public listener) ───
+
+#[test]
+fn complete_live_bind_still_refuses_non_loopback_bind() {
+    // The checklist parses fine, but the runner passes NO checklist to the server gate, so a
+    // non-loopback addr is still refused before any public listener opens.
+    let host = write_host_toml("lbpublic", FULL_LIVE_BIND_TOML);
+
+    let r = run_serve(&[
+        "--host-config",
+        host.to_str().unwrap(),
+        "--addr",
+        "0.0.0.0:0",
+        &app_dir(),
+    ]);
+
+    assert_ne!(
+        r.code, 0,
+        "non-loopback must fail closed even with a full checklist"
+    );
+    assert!(
+        r.stderr.contains("[BIND_REFUSED]") && r.stderr.contains("non_loopback_without_checklist"),
+        "a complete checklist must NOT relax the live-bind gate; stderr={}",
+        r.stderr
+    );
+    assert!(
+        !r.stdout.contains("listening http://0.0.0.0"),
+        "must never open a public socket; stdout={}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("listening http"),
+        "must never reach any listening line; stdout={}",
+        r.stdout
+    );
+}
+
+// ── P34-c: complete checklist on a loopback addr serves unchanged (loopback DX preserved) ──────────
+
+#[test]
+fn complete_live_bind_loopback_still_serves_and_exits_zero() {
+    let host = write_host_toml("lbloopback", FULL_LIVE_BIND_TOML);
+
+    let mut child = Command::new(BIN)
+        .args([
+            "--host-config",
+            host.to_str().unwrap(),
+            "--max-requests",
+            "1",
+            "--addr",
+            "127.0.0.1:0",
+            &app_dir(),
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn igweb-serve");
+
+    use std::io::{BufRead, BufReader, Read, Write};
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut addr = String::new();
+    let mut listening_line = String::new();
+    for _ in 0..10 {
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+            break;
+        }
+        if let Some(idx) = line.find("http://") {
+            listening_line = line.clone();
+            let rest = &line[idx + "http://".len()..];
+            addr = rest.split_whitespace().next().unwrap_or("").to_string();
+            break;
+        }
+    }
+    assert!(
+        listening_line.contains("listening http") && addr.starts_with("127.0.0.1"),
+        "loopback bind with a full checklist must still reach the loopback listening line; got `{listening_line}`"
+    );
+
+    if let Ok(mut sock) = std::net::TcpStream::connect(&addr) {
+        let _ = sock.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\ncontent-length: 0\r\n\r\n");
+        let _ = sock.flush();
+        let mut buf = Vec::new();
+        let _ = sock.read_to_end(&mut buf);
+    }
+
+    let status = child.wait().expect("wait igweb-serve");
+    assert!(
+        status.success(),
+        "loopback serve with a full checklist must exit 0; status={status:?}"
+    );
+}
+
 // ── 5: happy-path minimal host.toml still serves (P12/P22 parity) ──────────────────────────────────
 
 #[test]

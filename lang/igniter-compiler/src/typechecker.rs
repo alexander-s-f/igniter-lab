@@ -11,6 +11,11 @@ use std::collections::{HashMap, HashSet};
 #[path = "typechecker/stdlib_calls.rs"]
 mod stdlib_calls;
 
+// LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5: strongly-typed internal type model.
+#[path = "typechecker/type_ir.rs"]
+mod type_ir;
+use type_ir::IgType;
+
 // ── PROP-044 P5: variant shapes type alias ────────────────────────────────────
 // variant_name → arm_name → field_name → type_ir (serde_json::Value)
 type VariantShapes = HashMap<String, HashMap<String, HashMap<String, serde_json::Value>>>;
@@ -530,6 +535,55 @@ impl TypeChecker {
                                 line: None,
                             });
                         }
+                    }
+                }
+            }
+        }
+
+        // NW-T2-4 (compiler §B-U5): interprocedural effect summary.
+        // A `pure` contract must not launder ambient `stdlib.IO.*` through an app-local `def`.
+        // The classifier only scans contract bodies for inline `stdlib.IO.` prefixes, so a
+        // helper `def` that performs I/O presents as a plain call and slips past OOF-M1. Here we
+        // compute a transitive per-`def` `ambient_io` summary over the same call graph used for
+        // the OOF-L4 recursion gate, then flag any `pure` contract that reaches an effectful def.
+        {
+            let ambient_io = compute_ambient_io_summary(functions);
+            if ambient_io.values().any(|v| *v) {
+                let fn_names: HashSet<String> = functions.iter().map(|f| f.name.clone()).collect();
+                for contract in &classified.contracts {
+                    if contract.modifier != "pure" {
+                        continue;
+                    }
+                    // Collect every app-local def called anywhere in the contract body
+                    // (top-level nodes plus loop / service-loop inner nodes).
+                    let mut called: HashSet<String> = HashSet::new();
+                    for node in &contract.declarations {
+                        if let Some(expr) = &node.expr {
+                            expr_collect_calls(expr, &fn_names, &mut called);
+                        }
+                        if let Some(body_nodes) = &node.body_nodes {
+                            for inner in body_nodes {
+                                if let Some(expr) = &inner.expr {
+                                    expr_collect_calls(expr, &fn_names, &mut called);
+                                }
+                            }
+                        }
+                    }
+                    let mut leaking: Vec<String> = called
+                        .into_iter()
+                        .filter(|d| *ambient_io.get(d).unwrap_or(&false))
+                        .collect();
+                    leaking.sort();
+                    for def_name in leaking {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-M1".to_string(),
+                            message: format!(
+                                "pure contract '{}' performs ambient I/O transitively through helper def '{}' (a stdlib.IO.* sink is reachable via the call graph); pure contracts cannot launder effects through a def — use 'observed' for read-only access or move the I/O behind a declared capability",
+                                contract.name, def_name
+                            ),
+                            node: contract.name.clone(),
+                            line: None,
+                        });
                     }
                 }
             }
@@ -3153,46 +3207,29 @@ impl TypeChecker {
         }
     }
 
+    // LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5: the type helper boundary now routes
+    // through the typed `IgType` model. The public `{name, params}` JSON shape is
+    // preserved via `IgType::from_json_lossy` / `IgType::to_json`, so SIR output,
+    // the emitter, and the VM are unaffected. The enum makes a non-string `name`,
+    // a non-array `params`, or a bare object-with-no-name unrepresentable: those
+    // fail closed to `Unknown` / no-params instead of slipping through.
     fn type_ir(&self, annotation: &serde_json::Value) -> serde_json::Value {
-        if let Some(obj) = annotation.as_object() {
-            if obj.contains_key("name") {
-                return annotation.clone();
-            }
-        }
-
-        let name = if let Some(s) = annotation.as_str() {
-            s.to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        let mut ir = serde_json::Map::new();
-        ir.insert("name".to_string(), serde_json::Value::String(name));
-        ir.insert("params".to_string(), serde_json::Value::Array(Vec::new()));
-        serde_json::Value::Object(ir)
+        IgType::from_json_lossy(annotation).to_json()
     }
 
     fn get_param(&self, type_info: &serde_json::Value, index: usize) -> Option<serde_json::Value> {
-        type_info
-            .get("params")
-            .and_then(|p| p.as_array())
-            .and_then(|arr| arr.get(index))
-            .map(|val| self.type_ir(val))
+        IgType::from_json_lossy(type_info)
+            .params()
+            .get(index)
+            .map(|param| param.to_json())
     }
 
     fn decimal_scale(&self, type_info: &serde_json::Value) -> String {
-        self.get_param(type_info, 0)
-            .map(|param| self.type_name(&param))
-            .filter(|name| name != "Unknown")
-            .unwrap_or_else(|| "0".to_string())
+        IgType::from_json_lossy(type_info).decimal_scale()
     }
 
     fn type_name(&self, type_info: &serde_json::Value) -> String {
-        type_info
-            .get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or("Unknown")
-            .to_string()
+        IgType::from_json_lossy(type_info).name().to_string()
     }
 
     fn structurally_assignable(
@@ -3200,66 +3237,21 @@ impl TypeChecker {
         actual: &serde_json::Value,
         expected: &serde_json::Value,
     ) -> bool {
-        if self.type_name(expected) == "Unknown" {
-            return true;
-        } // D3: expected Unknown accepts any
-        if self.type_name(actual) == "Unknown" {
-            return false;
-        } // D2: actual Unknown always rejected
-        if self.type_name(actual) != self.type_name(expected) {
-            return false;
-        }
-        let actual_params = actual
-            .get("params")
-            .and_then(|p| p.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let expected_params = expected
-            .get("params")
-            .and_then(|p| p.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if actual_params.len() != expected_params.len() {
-            return false;
-        }
-        actual_params
-            .iter()
-            .zip(expected_params.iter())
-            .all(|(a, e)| self.structurally_assignable(&self.type_ir(a), &self.type_ir(e)))
+        IgType::structurally_assignable(
+            &IgType::from_json_lossy(actual),
+            &IgType::from_json_lossy(expected),
+        )
     }
 
     /// LANG-RUST-TYPED-COMPUTE-BINDING-P2: true when a type IR is Unknown or
     /// recursively contains any Unknown at any param depth.
     /// Mirrors Ruby `unknown_or_unknown_bearing?` in typechecker.rb.
     fn unknown_or_unknown_bearing(&self, t: &serde_json::Value) -> bool {
-        if self.type_name(t) == "Unknown" {
-            return true;
-        }
-        t.get("params")
-            .and_then(|p| p.as_array())
-            .map(|params| {
-                params
-                    .iter()
-                    .any(|p| self.unknown_or_unknown_bearing(&self.type_ir(p)))
-            })
-            .unwrap_or(false)
+        IgType::from_json_lossy(t).is_unknown_bearing()
     }
 
     fn type_display(&self, type_info: &serde_json::Value) -> String {
-        let name = self.type_name(type_info);
-        let params = type_info
-            .get("params")
-            .and_then(|p| p.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if params.is_empty() {
-            return name;
-        }
-        let rendered: Vec<String> = params
-            .iter()
-            .map(|p| self.type_display(&self.type_ir(p)))
-            .collect();
-        format!("{}[{}]", name, rendered.join(","))
+        IgType::from_json_lossy(type_info).display()
     }
 
     fn check_record_literal_shape_col4(
@@ -4016,9 +4008,11 @@ impl TypeChecker {
                 // above; an Unknown param resolves to Unknown (acceptable, never a false OOF-P1).
                 if obj_type == "Pair" && (field == "first" || field == "second") {
                     let idx = if field == "first" { 0 } else { 1 };
-                    let elem = self.get_param(&obj_typed.resolved_type, idx).unwrap_or_else(|| {
-                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                    });
+                    let elem = self
+                        .get_param(&obj_typed.resolved_type, idx)
+                        .unwrap_or_else(|| {
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        });
                     return TypedExpression {
                         resolved_type: elem,
                         deps: obj_typed.deps,
@@ -5695,6 +5689,33 @@ impl TypeChecker {
                         node: node_name.to_string(),
                         line: None,
                     });
+                } else if actual_name == expected_name
+                    && actual_name != "Unknown"
+                    && !self.unknown_or_unknown_bearing(field_type)
+                    && !self.unknown_or_unknown_bearing(expected)
+                    && !self.structurally_assignable(field_type, expected)
+                {
+                    // LAB-IGNITER-COMPILER-TYPE-IR-ENUM-P5: same outer name but
+                    // mismatched type parameters (e.g. `Collection[Integer]` vs
+                    // `Collection[Text]`) previously passed by name-only
+                    // comparison. The typed `IgType` model checks parameters
+                    // structurally and fails closed. Guarded to concrete,
+                    // fully-known types so Unknown-bearing payload positions stay
+                    // open exactly as before (D3). Display form (with params)
+                    // distinguishes this diagnostic from the outer-name case.
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-KIND2".to_string(),
+                        message: format!(
+                            "{}::{} field '{}': expected {}, got {}",
+                            variant_name,
+                            arm,
+                            fname,
+                            self.type_display(expected),
+                            self.type_display(field_type)
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
                 }
             } else {
                 type_errors.push(ClassifierDiagnostic {
@@ -6742,8 +6763,123 @@ fn expr_collect_calls(expr: &Expr, fn_names: &HashSet<String>, out: &mut HashSet
                 expr_collect_calls(&arm.body, fn_names, out);
             }
         }
+        // NW-T2-4: `?`-wrapped calls (`helper(x)?`) are real call edges. Without this arm both
+        // the OOF-L4 recursion graph and the effect summary would miss callees reached through
+        // fallible binding.
+        Expr::Try { expr } => expr_collect_calls(expr, fn_names, out),
         _ => {}
     }
+}
+
+// ── NW-T2-4: interprocedural effect summary (compiler §B-U5) ─────────────────
+// First slice models a single `ambient_io` effect: a `def` body that directly calls a
+// `stdlib.IO.*` sink, or transitively reaches one through the app-local call graph. Mirrors
+// the classifier's inline `stdlib.IO.` prefix scan (classifier::expr_has_io_call) but lifts
+// it interprocedurally so a `pure` contract cannot launder I/O through a helper `def`.
+
+fn block_has_io_call(body: &crate::parser::BlockBody) -> bool {
+    for stmt in &body.stmts {
+        let expr = match stmt {
+            Stmt::Let { expr, .. } | Stmt::ExprStmt { expr } => expr,
+        };
+        if expr_has_io_call(expr) {
+            return true;
+        }
+    }
+    if let Some(re) = &body.return_expr {
+        if expr_has_io_call(re) {
+            return true;
+        }
+    }
+    false
+}
+
+fn expr_has_io_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { fn_name, args } => {
+            fn_name.starts_with("stdlib.IO.") || args.iter().any(expr_has_io_call)
+        }
+        Expr::BinaryOp { left, right, .. } => expr_has_io_call(left) || expr_has_io_call(right),
+        Expr::UnaryOp { operand, .. } => expr_has_io_call(operand),
+        Expr::FieldAccess { object, .. } => expr_has_io_call(object),
+        Expr::IndexAccess { object, index } => expr_has_io_call(object) || expr_has_io_call(index),
+        Expr::SliceRecord { fields } => fields.values().any(expr_has_io_call),
+        Expr::IfExpr {
+            cond,
+            then,
+            else_block,
+        } => {
+            expr_has_io_call(cond)
+                || block_has_io_call(then)
+                || else_block.as_ref().map_or(false, block_has_io_call)
+        }
+        Expr::Lambda { body, .. } => match body.as_ref() {
+            ExprOrBlock::Expr(e) => expr_has_io_call(e),
+            ExprOrBlock::Block(b) => block_has_io_call(b),
+        },
+        Expr::ArrayLiteral { items } => items.iter().any(expr_has_io_call),
+        Expr::RecordLiteral { fields } => fields.values().any(expr_has_io_call),
+        Expr::RecordSpread { spread, fields } => {
+            expr_has_io_call(spread) || fields.values().any(expr_has_io_call)
+        }
+        Expr::VariantConstruct { fields, .. } => fields.values().any(expr_has_io_call),
+        Expr::MatchExpr { subject, arms } => {
+            expr_has_io_call(subject) || arms.iter().any(|a| expr_has_io_call(&a.body))
+        }
+        Expr::Try { expr } => expr_has_io_call(expr),
+        _ => false,
+    }
+}
+
+/// Compute the transitive `ambient_io` summary for every app-local `def`.
+///
+/// Seed: a def whose body directly calls a `stdlib.IO.*` sink.
+/// Propagation: reuse the same call graph + Tarjan SCC machinery as the OOF-L4 gate.
+/// Tarjan emits SCCs in reverse-topological order (callees before callers), so a single
+/// forward pass over the condensation is sufficient — a callee's summary is final before
+/// any caller is visited. Cyclic helper graphs are handled deterministically: every member
+/// of an SCC shares one summary value (the SCC is `ambient_io` iff any member touches I/O
+/// directly, or any member calls out to an already-`ambient_io` def).
+fn compute_ambient_io_summary(functions: &[crate::parser::FunctionDecl]) -> HashMap<String, bool> {
+    let fn_names: HashSet<String> = functions.iter().map(|f| f.name.clone()).collect();
+    let mut fn_names_sorted: Vec<String> = fn_names.iter().cloned().collect();
+    fn_names_sorted.sort();
+
+    let fn_calls: HashMap<String, Vec<String>> = functions
+        .iter()
+        .map(|f| (f.name.clone(), collect_fn_calls(&f.body, &fn_names)))
+        .collect();
+
+    // Seed direct I/O.
+    let mut ambient_io: HashMap<String, bool> = functions
+        .iter()
+        .map(|f| (f.name.clone(), block_has_io_call(&f.body)))
+        .collect();
+
+    // Propagate over the SCC condensation (callees finalized before callers).
+    let sccs = tarjan_sccs(&fn_names_sorted, &fn_calls);
+    for scc in &sccs {
+        let mut scc_io = scc.iter().any(|m| *ambient_io.get(m).unwrap_or(&false));
+        if !scc_io {
+            'outer: for m in scc {
+                if let Some(callees) = fn_calls.get(m) {
+                    for callee in callees {
+                        if *ambient_io.get(callee).unwrap_or(&false) {
+                            scc_io = true;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+        if scc_io {
+            for m in scc {
+                ambient_io.insert(m.clone(), true);
+            }
+        }
+    }
+
+    ambient_io
 }
 
 struct TarjanScc {

@@ -46,6 +46,14 @@ pub struct HostConfig {
     pub postgres_write: Option<PostgresWriteConfig>,
     /// `[postgres.read]`
     pub postgres_read: Option<PostgresReadConfig>,
+    /// `[host.live_bind]` — PARSE-ONLY live-bind readiness checklist (P34).
+    ///
+    /// Presence + completeness is validated here so an operator gets a fail-closed diagnostic for an
+    /// incomplete checklist. It does **NOT** enable a public/non-loopback bind: the runner still calls
+    /// `authorize_bind(addr, None)`, so non-loopback addresses remain refused regardless of this
+    /// section. `[host] mode` still only accepts `"loopback"`. See
+    /// `lab-docs/lang/lab-igniter-web-host-live-bind-checklist-parse-p34-v0.md`.
+    pub live_bind: Option<LiveBindConfig>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -109,6 +117,44 @@ impl Default for PostgresReadConfig {
             capability_id: None,
         }
     }
+}
+
+// ── live-bind checklist (PARSE-ONLY readiness; never opens a public bind) ─────────────────────────
+
+/// `[host.live_bind]` — the operator-checkable live-bind checklist (P34).
+///
+/// Mirrors the server-owned `igniter_server::serving_gate::LiveBindChecklist` fields, but stays a
+/// parse-only readiness surface: a complete `LiveBindConfig` does **not** authorize a non-loopback
+/// bind. The boolean assertions must all be `"true"` to parse; a `"false"` (or missing) assertion
+/// fails closed. File references are path strings only — never inline secret material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveBindConfig {
+    /// `signed_passport_path` — file reference to the inbound signed passport. Path only; the parser
+    /// proves the reference *shape*, never key validity or file existence.
+    pub signed_passport_path: String,
+    /// `body_cap_enabled` — must be `true`; a request-body size cap is wired.
+    pub body_cap_enabled: bool,
+    /// `read_timeout_enabled` — must be `true`; an inbound read timeout is wired.
+    pub read_timeout_enabled: bool,
+    /// `fail_closed_auth_enabled` — must be `true`; unauthenticated inbound effect/write fails closed.
+    pub fail_closed_auth_enabled: bool,
+    /// `operator_signoff` — opaque non-secret marker (e.g. `"present"` or a change-ticket id).
+    pub operator_signoff: String,
+    /// `[host.live_bind.inbound_tls]` — mandatory TLS decision for any future non-loopback v1.
+    pub inbound_tls: LiveBindTlsConfig,
+}
+
+/// `[host.live_bind.inbound_tls]` mode + its mode-specific references.
+///
+/// There is intentionally no `none` variant: non-loopback v1 must terminate TLS somewhere. v0 only
+/// records the decision; `native_tls` carries cert/key file *references* (no committed key material).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiveBindTlsConfig {
+    /// TLS terminates upstream (proxy / load balancer). Records the operator↔proxy contract name.
+    TerminatedUpstream { upstream_header_policy: String },
+    /// IgWeb would terminate TLS itself. Parse-only here: no transport exists yet (P33 keeps this
+    /// blocked until a separate implementation card). Holds cert/key path references only.
+    NativeTls { cert_file: String, key_file: String },
 }
 
 // ── resolved config (actual values; never log these fields) ──────────────────────────────────────
@@ -175,6 +221,36 @@ pub enum HostConfigError {
         key: String,
         section: String,
     },
+    /// `[host.live_bind]` (or its TLS subsection) is present but a required field is absent.
+    LiveBindMissingField {
+        field: &'static str,
+    },
+    /// A `[host.live_bind]` boolean assertion was present but `"false"` — it must be `"true"`.
+    LiveBindFalseAssertion {
+        field: &'static str,
+    },
+    /// A `[host.live_bind]` boolean assertion was not a quoted `"true"`/`"false"`.
+    LiveBindBadBool {
+        key: String,
+        value: String,
+    },
+    /// A `[host.live_bind]` file reference / signoff value was empty.
+    LiveBindEmptyValue {
+        key: String,
+    },
+    /// A `[host.live_bind]` file reference contained template syntax (`$`, `{`, `}`).
+    LiveBindTemplateValue {
+        key: String,
+    },
+    /// `[host.live_bind.inbound_tls] mode` was not a supported value (no `"none"` for non-loopback).
+    LiveBindUnsupportedTlsMode {
+        mode: String,
+    },
+    /// `[host.live_bind.inbound_tls]` is missing a field required for its chosen `mode`.
+    LiveBindMissingTlsField {
+        mode: &'static str,
+        field: &'static str,
+    },
     Parse(String),
 }
 
@@ -222,6 +298,35 @@ impl std::fmt::Display for HostConfigError {
                 f,
                 "host.toml: env var \"{var_name}\" (from [{section}].{key}) is not set or is empty"
             ),
+            Self::LiveBindMissingField { field } => write!(
+                f,
+                "host.toml: `[host.live_bind]` is missing required `{field}`"
+            ),
+            Self::LiveBindFalseAssertion { field } => write!(
+                f,
+                "host.toml: `[host.live_bind].{field}` must be \"true\" (got \"false\")"
+            ),
+            Self::LiveBindBadBool { key, value } => write!(
+                f,
+                "host.toml: `[host.live_bind].{key}` must be \"true\" or \"false\" (got \"{value}\")"
+            ),
+            Self::LiveBindEmptyValue { key } => write!(
+                f,
+                "host.toml: `[host.live_bind].{key}` must not be empty"
+            ),
+            Self::LiveBindTemplateValue { key } => write!(
+                f,
+                "host.toml: `[host.live_bind].{key}` must be a plain file path, not a template (no `$`/`{{`/`}}`)"
+            ),
+            Self::LiveBindUnsupportedTlsMode { mode } => write!(
+                f,
+                "host.toml: `[host.live_bind.inbound_tls] mode = \"{mode}\"` is unsupported \
+                 (use \"terminated_upstream\" or \"native_tls\"; \"none\" is refused for non-loopback)"
+            ),
+            Self::LiveBindMissingTlsField { mode, field } => write!(
+                f,
+                "host.toml: `[host.live_bind.inbound_tls]` mode \"{mode}\" requires `{field}`"
+            ),
             Self::Parse(m) => write!(f, "host.toml: {m}"),
         }
     }
@@ -230,7 +335,13 @@ impl std::error::Error for HostConfigError {}
 
 // ── parser ────────────────────────────────────────────────────────────────────────────────────────
 
-const INLINE_SECRET_KEYS: &[&str] = &["dsn", "password", "secret", "token", "passport", "api_key"];
+// Exact bare key names that would carry raw secret material if inlined. None is a legitimate config
+// key anywhere (paths/refs use `*_env`, `*_file`, `*_path`, `key_column`), so an exact match always
+// means "operator pasted a secret". `key`/`cert` (P34) catch an inline TLS private key / certificate
+// in `[host.live_bind.inbound_tls]` — operators must reference `key_file`/`cert_file` paths instead.
+const INLINE_SECRET_KEYS: &[&str] = &[
+    "dsn", "password", "secret", "token", "passport", "api_key", "key", "cert",
+];
 
 enum Section {
     None,
@@ -242,6 +353,10 @@ enum Section {
     PostgresReadSource(String),
     /// `[postgres.read.<source>.fields]` — per-field decode kind map (P33).
     PostgresReadSourceFields(String),
+    /// `[host.live_bind]` — parse-only live-bind checklist (P34).
+    HostLiveBind,
+    /// `[host.live_bind.inbound_tls]` — TLS decision subsection (P34).
+    HostLiveBindTls,
 }
 
 fn section_label(s: &Section) -> String {
@@ -253,6 +368,8 @@ fn section_label(s: &Section) -> String {
         Section::Effect(t) => format!("effects.{t}"),
         Section::PostgresWrite => "postgres.write".to_string(),
         Section::PostgresRead => "postgres.read".to_string(),
+        Section::HostLiveBind => "host.live_bind".to_string(),
+        Section::HostLiveBindTls => "host.live_bind.inbound_tls".to_string(),
     }
 }
 
@@ -284,6 +401,44 @@ fn parse_comma_list(val: &str, key: &str) -> Result<Vec<String>, HostConfigError
         )));
     }
     Ok(items)
+}
+
+/// Parse a `[host.live_bind]` boolean assertion from its quoted string value (`"true"`/`"false"`).
+/// The whole parser is quoted-value uniform, so booleans are quoted too (not bare TOML `true`).
+fn parse_lb_bool(key: &str, val: &str) -> Result<bool, HostConfigError> {
+    match val {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(HostConfigError::LiveBindBadBool {
+            key: key.to_string(),
+            value: val.to_string(),
+        }),
+    }
+}
+
+/// A `[host.live_bind]` boolean assertion that must be present AND `true` (a "must be wired" gate).
+fn require_true(v: Option<bool>, field: &'static str) -> Result<bool, HostConfigError> {
+    match v {
+        None => Err(HostConfigError::LiveBindMissingField { field }),
+        Some(false) => Err(HostConfigError::LiveBindFalseAssertion { field }),
+        Some(true) => Ok(true),
+    }
+}
+
+/// Validate a `[host.live_bind]` file-path/reference value: non-empty and template-free. Proves the
+/// reference SHAPE only — never reads the file or validates key material.
+fn check_file_ref(key: &str, val: &str) -> Result<(), HostConfigError> {
+    if val.is_empty() {
+        return Err(HostConfigError::LiveBindEmptyValue {
+            key: key.to_string(),
+        });
+    }
+    if val.contains('$') || val.contains('{') || val.contains('}') {
+        return Err(HostConfigError::LiveBindTemplateValue {
+            key: key.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Parse a non-negative integer from a quoted string value.
@@ -383,6 +538,20 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
     let mut pg_read_field_kinds: BTreeMap<String, BTreeMap<String, PostgresReadValueKind>> =
         BTreeMap::new();
 
+    // `[host.live_bind]` checklist accumulators (P34). `lb_seen` is set when EITHER the
+    // `[host.live_bind]` header OR its `[host.live_bind.inbound_tls]` subsection appears, so a
+    // dangling TLS-only block still triggers completeness validation (and fails closed).
+    let mut lb_seen = false;
+    let mut lb_signed_passport_path: Option<String> = None;
+    let mut lb_body_cap: Option<bool> = None;
+    let mut lb_read_timeout: Option<bool> = None;
+    let mut lb_fail_closed_auth: Option<bool> = None;
+    let mut lb_operator_signoff: Option<String> = None;
+    let mut lb_tls_mode: Option<String> = None;
+    let mut lb_tls_cert_file: Option<String> = None;
+    let mut lb_tls_key_file: Option<String> = None;
+    let mut lb_tls_upstream_header_policy: Option<String> = None;
+
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -394,6 +563,12 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             let s = inner.trim();
             section = if s == "host" {
                 Section::Host
+            } else if s == "host.live_bind.inbound_tls" {
+                lb_seen = true;
+                Section::HostLiveBindTls
+            } else if s == "host.live_bind" {
+                lb_seen = true;
+                Section::HostLiveBind
             } else if let Some(target) = s.strip_prefix("effects.") {
                 let target = target.trim();
                 if target.is_empty() {
@@ -585,6 +760,61 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
                     .or_default()
                     .insert(key.to_string(), kind);
             }
+            Section::HostLiveBind => match key {
+                "signed_passport_path" => {
+                    check_file_ref(key, &val)?;
+                    lb_signed_passport_path = Some(val);
+                }
+                "body_cap_enabled" => lb_body_cap = Some(parse_lb_bool(key, &val)?),
+                "read_timeout_enabled" => lb_read_timeout = Some(parse_lb_bool(key, &val)?),
+                "fail_closed_auth_enabled" => lb_fail_closed_auth = Some(parse_lb_bool(key, &val)?),
+                "operator_signoff" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::LiveBindEmptyValue {
+                            key: key.to_string(),
+                        });
+                    }
+                    lb_operator_signoff = Some(val);
+                }
+                _ => {
+                    return Err(HostConfigError::UnknownKey {
+                        section: label,
+                        key: key.to_string(),
+                    })
+                }
+            },
+            Section::HostLiveBindTls => match key {
+                "mode" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::LiveBindEmptyValue {
+                            key: key.to_string(),
+                        });
+                    }
+                    lb_tls_mode = Some(val);
+                }
+                "cert_file" => {
+                    check_file_ref(key, &val)?;
+                    lb_tls_cert_file = Some(val);
+                }
+                "key_file" => {
+                    check_file_ref(key, &val)?;
+                    lb_tls_key_file = Some(val);
+                }
+                "upstream_header_policy" => {
+                    if val.is_empty() {
+                        return Err(HostConfigError::LiveBindEmptyValue {
+                            key: key.to_string(),
+                        });
+                    }
+                    lb_tls_upstream_header_policy = Some(val);
+                }
+                _ => {
+                    return Err(HostConfigError::UnknownKey {
+                        section: label,
+                        key: key.to_string(),
+                    })
+                }
+            },
         }
     }
 
@@ -637,6 +867,59 @@ pub fn parse_host_config(text: &str) -> Result<HostConfig, HostConfigError> {
             field_kinds: pg_read_field_kinds,
             row_limit: pg_read_row_limit.unwrap_or(100),
             capability_id: pg_read_capability,
+        });
+    }
+
+    // `[host.live_bind]`: a present-but-incomplete checklist fails closed here (P34). This validates
+    // the readiness shape ONLY — it never relaxes the bind gate, so non-loopback stays refused.
+    if lb_seen {
+        let signed_passport_path =
+            lb_signed_passport_path.ok_or(HostConfigError::LiveBindMissingField {
+                field: "signed_passport_path",
+            })?;
+        let body_cap_enabled = require_true(lb_body_cap, "body_cap_enabled")?;
+        let read_timeout_enabled = require_true(lb_read_timeout, "read_timeout_enabled")?;
+        let fail_closed_auth_enabled =
+            require_true(lb_fail_closed_auth, "fail_closed_auth_enabled")?;
+        let operator_signoff =
+            lb_operator_signoff.ok_or(HostConfigError::LiveBindMissingField {
+                field: "operator_signoff",
+            })?;
+        let mode = lb_tls_mode.ok_or(HostConfigError::LiveBindMissingField {
+            field: "inbound_tls.mode",
+        })?;
+        let inbound_tls = match mode.as_str() {
+            "terminated_upstream" => LiveBindTlsConfig::TerminatedUpstream {
+                upstream_header_policy: lb_tls_upstream_header_policy.ok_or(
+                    HostConfigError::LiveBindMissingTlsField {
+                        mode: "terminated_upstream",
+                        field: "upstream_header_policy",
+                    },
+                )?,
+            },
+            "native_tls" => LiveBindTlsConfig::NativeTls {
+                cert_file: lb_tls_cert_file.ok_or(HostConfigError::LiveBindMissingTlsField {
+                    mode: "native_tls",
+                    field: "cert_file",
+                })?,
+                key_file: lb_tls_key_file.ok_or(HostConfigError::LiveBindMissingTlsField {
+                    mode: "native_tls",
+                    field: "key_file",
+                })?,
+            },
+            other => {
+                return Err(HostConfigError::LiveBindUnsupportedTlsMode {
+                    mode: other.to_string(),
+                })
+            }
+        };
+        config.live_bind = Some(LiveBindConfig {
+            signed_passport_path,
+            body_cap_enabled,
+            read_timeout_enabled,
+            fail_closed_auth_enabled,
+            operator_signoff,
+            inbound_tls,
         });
     }
 
@@ -1255,6 +1538,316 @@ rank = "integer"
                 Some("IGNITER_TODO_EFFECT_TOKEN")
             );
         }
+    }
+
+    // ── P34: [host.live_bind] parse-only checklist ─────────────────────────────────────────────────
+
+    const FULL_LIVE_BIND_TERMINATED: &str = r#"
+[host]
+mode = "loopback"
+
+[host.live_bind]
+signed_passport_path = "/etc/igniter/passports/inbound.passport"
+body_cap_enabled = "true"
+read_timeout_enabled = "true"
+fail_closed_auth_enabled = "true"
+operator_signoff = "present"
+
+[host.live_bind.inbound_tls]
+mode = "terminated_upstream"
+upstream_header_policy = "trusted_proxy_only"
+"#;
+
+    #[test]
+    fn no_live_bind_section_leaves_field_none() {
+        let cfg = parse_host_config("[host]\nmode = \"loopback\"\n").unwrap();
+        assert!(cfg.live_bind.is_none());
+    }
+
+    #[test]
+    fn full_live_bind_terminated_upstream_round_trips() {
+        let cfg = parse_host_config(FULL_LIVE_BIND_TERMINATED).expect("valid live_bind config");
+        // Parsing the checklist must NOT flip the host mode to anything but loopback.
+        assert_eq!(cfg.host_mode.as_deref(), Some("loopback"));
+        let lb = cfg.live_bind.expect("live_bind present");
+        assert_eq!(
+            lb.signed_passport_path,
+            "/etc/igniter/passports/inbound.passport"
+        );
+        assert!(lb.body_cap_enabled);
+        assert!(lb.read_timeout_enabled);
+        assert!(lb.fail_closed_auth_enabled);
+        assert_eq!(lb.operator_signoff, "present");
+        assert_eq!(
+            lb.inbound_tls,
+            LiveBindTlsConfig::TerminatedUpstream {
+                upstream_header_policy: "trusted_proxy_only".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn full_live_bind_native_tls_round_trips() {
+        let text = r#"
+[host.live_bind]
+signed_passport_path = "/etc/igniter/passports/inbound.passport"
+body_cap_enabled = "true"
+read_timeout_enabled = "true"
+fail_closed_auth_enabled = "true"
+operator_signoff = "ticket-4821"
+
+[host.live_bind.inbound_tls]
+mode = "native_tls"
+cert_file = "/etc/igniter/certs/site.crt"
+key_file = "/etc/igniter/certs/site.key"
+"#;
+        let cfg = parse_host_config(text).expect("valid native_tls config");
+        let lb = cfg.live_bind.unwrap();
+        assert_eq!(lb.operator_signoff, "ticket-4821");
+        assert_eq!(
+            lb.inbound_tls,
+            LiveBindTlsConfig::NativeTls {
+                cert_file: "/etc/igniter/certs/site.crt".to_string(),
+                key_file: "/etc/igniter/certs/site.key".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn live_bind_missing_signed_passport_fails_closed() {
+        let text =
+            "[host.live_bind]\nbody_cap_enabled = \"true\"\nread_timeout_enabled = \"true\"\n\
+                    fail_closed_auth_enabled = \"true\"\noperator_signoff = \"present\"\n\
+                    [host.live_bind.inbound_tls]\nmode = \"terminated_upstream\"\n\
+                    upstream_header_policy = \"p\"\n";
+        let err = parse_host_config(text).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingField { field } if *field == "signed_passport_path"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn live_bind_false_assertion_fails_closed() {
+        // Each boolean gate flipped to "false" in turn must fail closed naming that field.
+        for (field, line) in [
+            ("body_cap_enabled", "body_cap_enabled = \"false\""),
+            ("read_timeout_enabled", "read_timeout_enabled = \"false\""),
+            (
+                "fail_closed_auth_enabled",
+                "fail_closed_auth_enabled = \"false\"",
+            ),
+        ] {
+            let text = FULL_LIVE_BIND_TERMINATED.replace(&format!("{field} = \"true\""), line);
+            let err = parse_host_config(&text).unwrap_err();
+            assert!(
+                matches!(&err, HostConfigError::LiveBindFalseAssertion { field: f } if *f == field),
+                "field {field} should fail closed; got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_bind_missing_bool_fails_closed() {
+        let text =
+            "[host.live_bind]\nsigned_passport_path = \"/p\"\nread_timeout_enabled = \"true\"\n\
+                    fail_closed_auth_enabled = \"true\"\noperator_signoff = \"present\"\n\
+                    [host.live_bind.inbound_tls]\nmode = \"terminated_upstream\"\n\
+                    upstream_header_policy = \"p\"\n";
+        let err = parse_host_config(text).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingField { field } if *field == "body_cap_enabled"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn live_bind_bad_bool_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED
+            .replace("body_cap_enabled = \"true\"", "body_cap_enabled = \"yes\"");
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::LiveBindBadBool { .. }));
+    }
+
+    #[test]
+    fn live_bind_missing_tls_mode_fails_closed() {
+        let text = "[host.live_bind]\nsigned_passport_path = \"/p\"\nbody_cap_enabled = \"true\"\n\
+                    read_timeout_enabled = \"true\"\nfail_closed_auth_enabled = \"true\"\n\
+                    operator_signoff = \"present\"\n";
+        let err = parse_host_config(text).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingField { field } if *field == "inbound_tls.mode"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn live_bind_unsupported_tls_mode_fails_closed() {
+        for bad in &["none", "plaintext", "tls"] {
+            let text = FULL_LIVE_BIND_TERMINATED.replace(
+                "mode = \"terminated_upstream\"",
+                &format!("mode = \"{bad}\""),
+            );
+            let err = parse_host_config(&text).unwrap_err();
+            assert!(
+                matches!(err, HostConfigError::LiveBindUnsupportedTlsMode { .. }),
+                "mode {bad} must be refused (no `none` for non-loopback)"
+            );
+        }
+    }
+
+    #[test]
+    fn live_bind_native_tls_missing_cert_or_key_fails_closed() {
+        let base = "[host.live_bind]\nsigned_passport_path = \"/p\"\nbody_cap_enabled = \"true\"\n\
+                    read_timeout_enabled = \"true\"\nfail_closed_auth_enabled = \"true\"\n\
+                    operator_signoff = \"present\"\n[host.live_bind.inbound_tls]\nmode = \"native_tls\"\n";
+        // cert + key both absent → first missing is cert_file
+        let err = parse_host_config(base).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingTlsField { mode, field } if *mode == "native_tls" && *field == "cert_file"),
+            "got {err:?}"
+        );
+        // cert present, key absent → key_file missing
+        let with_cert = format!("{base}cert_file = \"/c.crt\"\n");
+        let err = parse_host_config(&with_cert).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingTlsField { field, .. } if *field == "key_file"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn live_bind_terminated_upstream_missing_policy_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED
+            .replace("upstream_header_policy = \"trusted_proxy_only\"", "");
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingTlsField { field, .. } if *field == "upstream_header_policy"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn live_bind_unknown_key_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED.replace(
+            "operator_signoff = \"present\"",
+            "operator_signoff = \"present\"\nallow_public = \"true\"",
+        );
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::UnknownKey { .. }));
+    }
+
+    #[test]
+    fn live_bind_tls_unknown_key_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED.replace(
+            "mode = \"terminated_upstream\"",
+            "mode = \"terminated_upstream\"\nciphers = \"all\"",
+        );
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::UnknownKey { .. }));
+    }
+
+    #[test]
+    fn live_bind_inline_secret_fails_closed() {
+        // An operator who pastes a raw passport/private key instead of a file reference fails closed.
+        for line in &["passport = \"raw-token\"", "key = \"-----BEGIN KEY-----\""] {
+            let text = FULL_LIVE_BIND_TERMINATED.replace(
+                "signed_passport_path = \"/etc/igniter/passports/inbound.passport\"",
+                line,
+            );
+            let err = parse_host_config(&text).unwrap_err();
+            assert!(
+                matches!(err, HostConfigError::InlineSecret { .. }),
+                "inline secret `{line}` must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn live_bind_inline_cert_in_tls_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED.replace(
+            "upstream_header_policy = \"trusted_proxy_only\"",
+            "cert = \"-----BEGIN CERTIFICATE-----\"",
+        );
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::InlineSecret { .. }));
+    }
+
+    #[test]
+    fn live_bind_template_in_path_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED.replace(
+            "/etc/igniter/passports/inbound.passport",
+            "${PASSPORT_PATH}",
+        );
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::LiveBindTemplateValue { .. }));
+    }
+
+    #[test]
+    fn live_bind_empty_operator_signoff_fails_closed() {
+        let text = FULL_LIVE_BIND_TERMINATED
+            .replace("operator_signoff = \"present\"", "operator_signoff = \"\"");
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::LiveBindEmptyValue { .. }));
+    }
+
+    #[test]
+    fn live_bind_tls_only_subsection_fails_closed_on_missing_parent_fields() {
+        // A dangling `[host.live_bind.inbound_tls]` with no `[host.live_bind]` still triggers
+        // completeness validation and fails closed (does not silently parse).
+        let text = "[host.live_bind.inbound_tls]\nmode = \"terminated_upstream\"\n\
+                    upstream_header_policy = \"p\"\n";
+        let err = parse_host_config(text).unwrap_err();
+        assert!(
+            matches!(&err, HostConfigError::LiveBindMissingField { field } if *field == "signed_passport_path"),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn host_mode_public_still_refused_even_with_full_live_bind() {
+        // The checklist is parse-only: providing it must NEVER let `[host] mode = "public"` through.
+        let text = FULL_LIVE_BIND_TERMINATED.replace("mode = \"loopback\"", "mode = \"public\"");
+        let err = parse_host_config(&text).unwrap_err();
+        assert!(matches!(err, HostConfigError::UnsupportedMode(_)));
+    }
+
+    #[test]
+    fn live_bind_errors_classify_as_config_parse() {
+        // Every live-bind failure must be a static parse error, never a runtime resolve error.
+        use crate::runner_diag::{classify_host_config_error, DiagCode};
+        let none_tls =
+            FULL_LIVE_BIND_TERMINATED.replace("mode = \"terminated_upstream\"", "mode = \"none\"");
+        let bad: [&str; 2] = [
+            "[host.live_bind]\nbody_cap_enabled = \"true\"\n", // missing required fields
+            none_tls.as_str(),                                 // unsupported TLS mode
+        ];
+        for text in bad {
+            let err = parse_host_config(text).unwrap_err();
+            assert_eq!(classify_host_config_error(&err).code, DiagCode::ConfigParse);
+        }
+    }
+
+    /// P34: the committed live-bind example must always parse, carry a complete checklist, and stay
+    /// loopback-only (parse-only readiness; a successful parse also proves it is secret-free, since
+    /// the parser rejects inline secrets).
+    #[test]
+    fn committed_live_bind_example_toml_parses_and_stays_loopback() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/todo_postgres_app/host.live_bind.example.toml");
+        let cfg = load_host_config(&path).expect("host.live_bind.example.toml must parse");
+        assert_eq!(
+            cfg.host_mode.as_deref(),
+            Some("loopback"),
+            "the live-bind example must NEVER set a non-loopback mode"
+        );
+        let lb = cfg.live_bind.expect("[host.live_bind] present");
+        assert!(lb.body_cap_enabled && lb.read_timeout_enabled && lb.fail_closed_auth_enabled);
+        assert_eq!(lb.operator_signoff, "present");
+        assert!(matches!(
+            lb.inbound_tls,
+            LiveBindTlsConfig::TerminatedUpstream { .. }
+        ));
     }
 
     // ── resolve_with_env ─────────────────────────────────────────────────────────────────────────

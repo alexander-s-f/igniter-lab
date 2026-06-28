@@ -1,6 +1,6 @@
 # LAB-IGNITER-COMPILER-LOCK-DEFAULT-POLICY-READINESS-P4
 
-Status: OPEN
+Status: CLOSED (2026-06-28)
 Route: standard / main-audit / compiler / package trust policy
 Skill: idd-agent-protocol
 Depends-On: `LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2`,
@@ -101,4 +101,47 @@ Packet must include:
 - policy alternatives;
 - recommendation;
 - exact implementation card if not implemented here.
+
+## Closing Report (2026-06-28)
+
+Outcome: **readiness/policy decided — no default flipped, no code change.**
+
+Decision: **keep the explicit `--locked` gate for now** (policy option C). Default-on lock
+enforcement is **deferred** to `LAB-IGNITER-COMPILER-LOCK-DEFAULT-ENFORCE-P5`, gated on a
+non-local trust surface (registry / remote source / signing) landing first.
+
+Why no flip here: the card permits a default change only if *tiny and safe*. It is neither —
+flipping default-on would `OOF-LOCK-MISSING` all **26** `project_mode` fixtures (the repo
+ships **zero** committed `igniter.lock`), break every lockless project build and the dev inner
+loop, invert a regression test, and require a brand-new `--no-lock` escape hatch. The threat
+it guards (remote/registry tampering) does not exist in the LOCAL-v0 package model, and the
+opt-in stack (`compile --locked` + `lock --frozen` + `verify --strict` + `package admit
+--require-lock`) already delivers the guarantee for anyone who wants it.
+
+Deliverable: `lab-docs/lang/lab-igniter-compiler-lock-default-policy-readiness-p4-v0.md`
+(current-behavior transcript, 4 policy alternatives, recommendation, CI/dev/operator
+consequences, next-card spec, all 6 card questions answered).
+
+Acceptance:
+
+- [x] Current default behavior verified by live CLI tests
+      (`cli_compile_without_locked_allows_missing_lock`) + tempdir smoke transcript.
+- [x] Four policy alternatives compared (A default-on / B warning-only / C explicit / D
+      auto-when-present).
+- [x] Recommendation explicit: **keep explicit `--locked` for now** (defer default-on to P5).
+- [x] CI / dev / operator consequences named.
+- [x] No code changes made → concrete next card named (`…LOCK-DEFAULT-ENFORCE-P5`).
+- [x] `git diff --check` passes.
+- [x] Card closed with this report.
+
+Side update: audit-board A12 → "PARTLY CLOSED (default policy decided)"; remaining work now
+points at P5 gated on registry/signing/remote readiness.
+
+Verification:
+
+```text
+cargo test --manifest-path lang/igniter-compiler/Cargo.toml --test package_lockfile_cli_tests   → 55 passed; 0 failed
+cargo test --manifest-path lang/igniter-compiler/Cargo.toml --test package_workspace_tests       → 53 passed; 0 failed
+git diff --check  → PASS
+```
 
