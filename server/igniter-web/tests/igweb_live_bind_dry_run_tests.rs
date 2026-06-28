@@ -10,7 +10,8 @@
 //!   - the right exit code (0 = would_authorize, non-zero = would_refuse / config error),
 //!   - no secret value (passport path, signoff) leaks into stdout/stderr.
 //!
-//! Not feature-gated: the dry run is a pure parse + pure gate check; it needs no `machine` build.
+//! The dry run opens no socket. P37 does perform host-side verifier-material I/O for non-loopback
+//! checklist evaluation so `signed_passport_path_wired` is not just an operator assertion.
 
 use std::process::Command;
 
@@ -35,6 +36,25 @@ fn write_host_toml(tag: &str, toml: &str) -> std::path::PathBuf {
     path
 }
 
+fn key_hex(seed: u8) -> String {
+    (0..32)
+        .map(|i| format!("{:02x}", seed.wrapping_add(i)))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn write_verifier_material(tag: &str, material: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "igweb_p37_{tag}_{}_{}",
+        std::process::id(),
+        stamp()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("trusted_issuer.key");
+    std::fs::write(&path, material).unwrap();
+    path
+}
+
 struct Run {
     code: i32,
     stdout: String,
@@ -53,16 +73,23 @@ fn run(args: &[&str]) -> Run {
     }
 }
 
-const COMPLETE: &str = "[host]\nmode = \"loopback\"\n\
+fn complete_config() -> (std::path::PathBuf, String) {
+    let verifier = write_verifier_material("valid", &format!("{}\n", key_hex(0x21)));
+    let toml = format!(
+        "[host]\nmode = \"loopback\"\n\
 [host.live_bind]\n\
-signed_passport_path = \"/etc/igniter/passports/inbound.passport\"\n\
+signed_passport_path = \"{}\"\n\
 body_cap_enabled = \"true\"\n\
 read_timeout_enabled = \"true\"\n\
 fail_closed_auth_enabled = \"true\"\n\
 operator_signoff = \"present\"\n\
 [host.live_bind.inbound_tls]\n\
 mode = \"terminated_upstream\"\n\
-upstream_header_policy = \"trusted_proxy_only\"\n";
+upstream_header_policy = \"trusted_proxy_only\"\n",
+        verifier.display()
+    );
+    (verifier, toml)
+}
 
 /// No `[host.live_bind]` section at all (loopback host only).
 const NO_SECTION: &str = "[host]\nmode = \"loopback\"\n";
@@ -88,8 +115,12 @@ fn assert_no_socket(r: &Run) {
 fn assert_no_secret_leak(r: &Run) {
     for hay in [&r.stdout, &r.stderr] {
         assert!(
-            !hay.contains("inbound.passport"),
-            "must not leak the passport path; got {hay}"
+            !hay.contains("trusted_issuer.key"),
+            "must not leak the verifier path; got {hay}"
+        );
+        assert!(
+            !hay.contains(&key_hex(0x21)),
+            "must not leak verifier material; got {hay}"
         );
     }
 }
@@ -97,7 +128,8 @@ fn assert_no_secret_leak(r: &Run) {
 // ── loopback: would authorize with no checklist ─────────────────────────────────────────────
 #[test]
 fn loopback_addr_would_authorize() {
-    let cfg = write_host_toml("loopback", COMPLETE);
+    let (_verifier, complete) = complete_config();
+    let cfg = write_host_toml("loopback", &complete);
     let r = run(&[
         "live-bind-check",
         "--host-config",
@@ -119,7 +151,8 @@ fn loopback_addr_would_authorize() {
 // ── non-loopback + complete checklist: would authorize, reports opaque digest, still no bind ──
 #[test]
 fn non_loopback_complete_would_authorize_with_digest() {
-    let cfg = write_host_toml("nl_complete", COMPLETE);
+    let (_verifier, complete) = complete_config();
+    let cfg = write_host_toml("nl_complete", &complete);
     let r = run(&[
         "live-bind-check",
         "--host-config",
@@ -145,7 +178,8 @@ fn non_loopback_complete_would_authorize_with_digest() {
 // ── default --addr is non-loopback (the public-bind question) ────────────────────────────────
 #[test]
 fn default_addr_is_non_loopback() {
-    let cfg = write_host_toml("default_addr", COMPLETE);
+    let (_verifier, complete) = complete_config();
+    let cfg = write_host_toml("default_addr", &complete);
     let r = run(&["live-bind-check", "--host-config", cfg.to_str().unwrap()]);
     assert_eq!(r.code, 0, "stdout={} stderr={}", r.stdout, r.stderr);
     assert!(
@@ -155,6 +189,82 @@ fn default_addr_is_non_loopback() {
     );
     assert!(r.stdout.contains("verdict=would_authorize"));
     assert_no_socket(&r);
+}
+
+// ── non-loopback + missing verifier material: refuses before any bind ───────────────────────
+#[test]
+fn non_loopback_missing_verifier_material_would_refuse() {
+    let missing = std::env::temp_dir().join(format!(
+        "igweb_p37_missing_{}_{}",
+        std::process::id(),
+        stamp()
+    ));
+    let toml = format!(
+        "[host]\nmode = \"loopback\"\n\
+[host.live_bind]\n\
+signed_passport_path = \"{}\"\n\
+body_cap_enabled = \"true\"\n\
+read_timeout_enabled = \"true\"\n\
+fail_closed_auth_enabled = \"true\"\n\
+operator_signoff = \"present\"\n\
+[host.live_bind.inbound_tls]\n\
+mode = \"terminated_upstream\"\n\
+upstream_header_policy = \"trusted_proxy_only\"\n",
+        missing.display()
+    );
+    let cfg = write_host_toml("missing_verifier", &toml);
+    let r = run(&[
+        "live-bind-check",
+        "--host-config",
+        cfg.to_str().unwrap(),
+        "--addr",
+        "0.0.0.0:8080",
+    ]);
+    assert_ne!(r.code, 0, "stdout={} stderr={}", r.stdout, r.stderr);
+    assert!(r.stdout.contains("verdict=would_refuse"));
+    assert!(r
+        .stdout
+        .contains("code=signed_passport_verifier_unavailable"));
+    assert!(r.stdout.contains("missing_field=signed_passport_path"));
+    assert_no_socket(&r);
+    assert!(!r.stdout.contains(&missing.display().to_string()));
+    assert!(!r.stderr.contains(&missing.display().to_string()));
+}
+
+// ── non-loopback + malformed verifier material: refuses before any bind ─────────────────────
+#[test]
+fn non_loopback_malformed_verifier_material_would_refuse() {
+    let verifier = write_verifier_material("malformed", "not-a-valid-key");
+    let toml = format!(
+        "[host]\nmode = \"loopback\"\n\
+[host.live_bind]\n\
+signed_passport_path = \"{}\"\n\
+body_cap_enabled = \"true\"\n\
+read_timeout_enabled = \"true\"\n\
+fail_closed_auth_enabled = \"true\"\n\
+operator_signoff = \"present\"\n\
+[host.live_bind.inbound_tls]\n\
+mode = \"terminated_upstream\"\n\
+upstream_header_policy = \"trusted_proxy_only\"\n",
+        verifier.display()
+    );
+    let cfg = write_host_toml("bad_verifier", &toml);
+    let r = run(&[
+        "live-bind-check",
+        "--host-config",
+        cfg.to_str().unwrap(),
+        "--addr",
+        "0.0.0.0:8080",
+    ]);
+    assert_ne!(r.code, 0, "stdout={} stderr={}", r.stdout, r.stderr);
+    assert!(r.stdout.contains("verdict=would_refuse"));
+    assert!(r.stdout.contains("code=signed_passport_verifier_invalid"));
+    assert!(r.stdout.contains("missing_field=signed_passport_path"));
+    assert_no_socket(&r);
+    assert!(!r.stdout.contains("not-a-valid-key"));
+    assert!(!r.stderr.contains("not-a-valid-key"));
+    assert!(!r.stdout.contains(&verifier.display().to_string()));
+    assert!(!r.stderr.contains(&verifier.display().to_string()));
 }
 
 // ── non-loopback + no checklist section: would refuse, scriptable non-zero exit, no bind ──────

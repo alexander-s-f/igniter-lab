@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-TLS-TERMINATED-UPSTREAM-RUNBOOK-P38
 
-Status: TODO
+Status: DONE
 Route: standard / main-audit / igniter-web / live-bind gate / TLS runbook
 Skill: idd-agent-protocol
 Depends-On:
@@ -81,15 +81,15 @@ Closed:
 
 ## Acceptance
 
-- [ ] Live P33/P35/P36 surfaces are characterized.
-- [ ] Packet clearly distinguishes TLS **transport**, TLS **termination
+- [x] Live P33/P35/P36 surfaces are characterized.
+- [x] Packet clearly distinguishes TLS **transport**, TLS **termination
       assertion**, and header **hints**.
-- [ ] `terminated_upstream` runbook is secret-free and uses placeholders only.
-- [ ] Native TLS remains explicitly blocked/deferred.
-- [ ] Public bind remains closed; no listener is opened.
-- [ ] P39 preconditions are listed as a checklist.
-- [ ] Any doc/code touched passes `git diff --check`.
-- [ ] Card closed with concise report.
+- [x] `terminated_upstream` runbook is secret-free and uses placeholders only.
+- [x] Native TLS remains explicitly blocked/deferred.
+- [x] Public bind remains closed; no listener is opened.
+- [x] P39 preconditions are listed as a checklist.
+- [x] Any doc/code touched passes `git diff --check`.
+- [x] Card closed with concise report.
 
 ## Suggested Verification
 
@@ -120,3 +120,28 @@ Packet must include:
 - P39 precondition checklist;
 - explicit statement that native TLS and public bind remain closed.
 
+## Closing Report
+
+Closed in:
+
+- `lab-docs/lang/lab-igniter-web-tls-terminated-upstream-runbook-p38-v0.md`
+- `server/igniter-web/IMPLEMENTED_SURFACE.md`
+- `lab-docs/lang/lab-audit-control-board-v1.md`
+
+Result:
+
+- P33/P35/P36 are characterized as gate/checklist/dry-run surfaces only.
+- `terminated_upstream` is defined as an operator termination assertion backed
+  by trusted topology evidence, not IgWeb TLS transport.
+- Forwarding headers are observability hints only unless the request is already
+  behind a trusted upstream boundary.
+- P39 must stay lab-only/human-gated, use `terminated_upstream`, and refuse
+  `native_tls` for actual non-loopback proof until a real TLS accept path
+  exists.
+- Public bind remains closed; no listener was opened.
+
+Verification:
+
+```text
+git diff --check
+```

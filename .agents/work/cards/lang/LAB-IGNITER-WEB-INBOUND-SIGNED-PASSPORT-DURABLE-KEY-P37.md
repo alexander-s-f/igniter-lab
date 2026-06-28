@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-INBOUND-SIGNED-PASSPORT-DURABLE-KEY-P37
 
-Status: TODO
+Status: DONE
 Route: standard / main-audit / igniter-web / live-bind gate / authority backing
 Skill: idd-agent-protocol
 Depends-On:
@@ -94,21 +94,21 @@ Closed:
 
 ## Acceptance
 
-- [ ] Live P35/P36/P26/server-gate surfaces are characterized.
-- [ ] The card either implements a bounded host-verified verifier backing or
+- [x] Live P35/P36/P26/server-gate surfaces are characterized.
+- [x] The card either implements a bounded host-verified verifier backing or
       produces a readiness packet explaining why implementation must be a
       follow-up.
-- [ ] `signed_passport_path_wired` is no longer treated as purely operator
+- [x] `signed_passport_path_wired` is no longer treated as purely operator
       asserted in any implemented proof path.
-- [ ] Secret/key/passport material is never logged, printed, committed, or
+- [x] Secret/key/passport material is never logged, printed, committed, or
       embedded in examples.
-- [ ] Dry-run still opens no socket and grants no bind authority.
-- [ ] Normal `igweb-serve run` public bind remains refused.
-- [ ] Tests or readiness acceptance cover missing/malformed/valid verifier
+- [x] Dry-run still opens no socket and grants no bind authority.
+- [x] Normal `igweb-serve run` public bind remains refused.
+- [x] Tests or readiness acceptance cover missing/malformed/valid verifier
       material.
-- [ ] Proof packet created under `lab-docs/lang/`.
-- [ ] `git diff --check` passes.
-- [ ] Card closed with concise report.
+- [x] Proof packet created under `lab-docs/lang/`.
+- [x] `git diff --check` passes.
+- [x] Card closed with concise report.
 
 ## Suggested Verification
 
@@ -138,3 +138,35 @@ Packet must state:
 - exact refusal taxonomy;
 - proof that public bind remains closed.
 
+## Result
+
+Closed 2026-06-28.
+
+Implemented bounded P37 host-verified backing in
+`server/igniter-web/src/live_bind_check.rs`: non-loopback `live-bind-check`
+now sets `signed_passport_path_wired=true` only after loading the referenced
+durable verifier material, parsing one 64-hex-character 32-byte trusted issuer
+key, constructing `PassportVerifier`, and validating it with a synthetic signed
+passport probe. Missing material refuses with
+`signed_passport_verifier_unavailable`; malformed material refuses with
+`signed_passport_verifier_invalid`; verdict output remains secret-safe.
+
+Public bind remains closed: the real `Run` path still calls
+`authorize_bind(addr, None)`, and the dry-run never opens a socket.
+
+Proof packet:
+
+```text
+lab-docs/lang/lab-igniter-web-inbound-signed-passport-durable-key-p37-v0.md
+```
+
+Verification:
+
+```bash
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine live_bind_check -- --nocapture
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test igweb_live_bind_dry_run_tests -- --nocapture
+cargo test --manifest-path server/igniter-web/Cargo.toml --features machine --test igweb_serve_diagnostics_tests -- --nocapture
+cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test signed_passport_dataplane_tests -- --nocapture
+cargo fmt --manifest-path server/igniter-web/Cargo.toml
+git diff --check
+```
