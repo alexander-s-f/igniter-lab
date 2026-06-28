@@ -50,24 +50,76 @@ fn reflect(pos: &mut i64, vel: &mut i64) {
     }
 }
 
-/// One fixed timestep: optional `boom` impulse (radial-out + up), gravity, integrate, bounce.
-fn step(world: &[Body; N], boom: bool) -> [Body; N] {
-    let mut next = *world;
-    for b in next.iter_mut() {
-        if boom {
-            b.v.x += sign(b.p.x) * FP / 14;
-            b.v.z += sign(b.p.z) * FP / 14;
-            b.v.y += FP / 7;
-        }
-        b.v.y -= GRAV;
-        b.p.x += b.v.x;
-        b.p.y += b.v.y;
-        b.p.z += b.v.z;
-        reflect(&mut b.p.x, &mut b.v.x);
-        reflect(&mut b.p.y, &mut b.v.y);
-        reflect(&mut b.p.z, &mut b.v.z);
+/// One body, one fixed timestep: optional `boom` impulse (radial-out + up), gravity, integrate, bounce.
+/// This is the SAME integer math as the `.ig` `StepBody` contract (`specimens/vm_game_app.ig`).
+fn step_body(mut b: Body, boom: bool) -> Body {
+    if boom {
+        b.v.x += sign(b.p.x) * FP / 14;
+        b.v.z += sign(b.p.z) * FP / 14;
+        b.v.y += FP / 7;
     }
-    next
+    b.v.y -= GRAV;
+    b.p.x += b.v.x;
+    b.p.y += b.v.y;
+    b.p.z += b.v.z;
+    reflect(&mut b.p.x, &mut b.v.x);
+    reflect(&mut b.p.y, &mut b.v.y);
+    reflect(&mut b.p.z, &mut b.v.z);
+    b
+}
+
+/// One fixed timestep over the whole world.
+fn step(world: &[Body; N], boom: bool) -> [Body; N] {
+    std::array::from_fn(|i| step_body(world[i], boom))
+}
+
+// ── `.ig`-world bridge: the exact same physics, over the flat `{px,py,pz,vx,vy,vz}` shape that the
+//    `.ig` `Step` contract consumes — for cross-checking that the Rust and `.ig` reducers agree, and
+//    for rendering a world produced by the VM. ────────────────────────────────────────────────────
+
+fn body_to_json(b: &Body) -> serde_json::Value {
+    serde_json::json!({ "px": b.p.x, "py": b.p.y, "pz": b.p.z, "vx": b.v.x, "vy": b.v.y, "vz": b.v.z })
+}
+
+fn body_from_json(v: &serde_json::Value) -> Body {
+    let g = |k: &str| v.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
+    Body { p: V3 { x: g("px"), y: g("py"), z: g("pz") }, v: V3 { x: g("vx"), y: g("vy"), z: g("vz") } }
+}
+
+/// The initial world as the `.ig` `World` JSON (`{bodies:[{px,…}]}`) — the single source of truth fed
+/// to both the Rust loop and the `.ig` `Step` contract.
+pub fn initial_world_json() -> String {
+    let bodies: Vec<serde_json::Value> = initial().iter().map(body_to_json).collect();
+    serde_json::json!({ "bodies": bodies }).to_string()
+}
+
+/// One Rust timestep over an `.ig` `World` JSON — the cross-check mirror of the `.ig` `Step` contract.
+/// Total/fail-closed: malformed input yields `{bodies:[]}`.
+pub fn step_world_json(world_json: &str, boom: bool) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
+    let bodies: Vec<serde_json::Value> = parsed
+        .get("bodies")
+        .and_then(|b| b.as_array())
+        .map(|arr| arr.iter().map(|b| body_to_json(&step_body(body_from_json(b), boom))).collect())
+        .unwrap_or_default();
+    serde_json::json!({ "bodies": bodies }).to_string()
+}
+
+/// Render an `.ig` `World` JSON (the VM's `Step` output) as the 3D wireframe — so a world produced by
+/// the `.ig` reducer on the VM draws through the same path as the Rust demo.
+pub fn render_world_json(world_json: &str) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
+    let bodies: Vec<Body> = parsed
+        .get("bodies")
+        .and_then(|b| b.as_array())
+        .map(|arr| arr.iter().map(body_from_json).collect())
+        .unwrap_or_default();
+    let mut edges: Vec<(i64, i64, i64, i64, i64)> = Vec::new();
+    push_cube(&mut edges, V3 { x: 0, y: 0, z: 0 }, BOUND, 110);
+    for b in &bodies {
+        push_cube(&mut edges, b.p, BODY, 255);
+    }
+    edges_to_svg(edges)
 }
 
 // ── Projection / render (3D wireframe via the shared scene3d primitives) ─────────────────────────
@@ -95,14 +147,7 @@ fn push_cube(out: &mut Vec<(i64, i64, i64, i64, i64)>, c: V3, s: i64, base_shade
     }
 }
 
-fn render(world: &[Body; N]) -> String {
-    let mut edges: Vec<(i64, i64, i64, i64, i64)> = Vec::new();
-    // the bounding box (faint reference)
-    push_cube(&mut edges, V3 { x: 0, y: 0, z: 0 }, BOUND, 110);
-    // the bodies (brighter)
-    for b in world.iter() {
-        push_cube(&mut edges, b.p, BODY, 255);
-    }
+fn edges_to_svg(mut edges: Vec<(i64, i64, i64, i64, i64)>) -> String {
     edges.sort_by(|a, b| a.4.cmp(&b.4)); // far→near
     let mut body = String::new();
     for (x1, y1, x2, y2, shade) in edges {
@@ -115,6 +160,15 @@ fn render(world: &[Body; N]) -> String {
     format!(
         "<svg viewBox=\"0 0 {CANVAS_W} {CANVAS_H}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <rect width=\"{CANVAS_W}\" height=\"{CANVAS_H}\" fill=\"#070510\"/>\n{body}</svg>\n"
     )
+}
+
+fn render(world: &[Body; N]) -> String {
+    let mut edges: Vec<(i64, i64, i64, i64, i64)> = Vec::new();
+    push_cube(&mut edges, V3 { x: 0, y: 0, z: 0 }, BOUND, 110); // bounding box (faint)
+    for b in world.iter() {
+        push_cube(&mut edges, b.p, BODY, 255); // bodies (bright)
+    }
+    edges_to_svg(edges)
 }
 
 // ── The game: pure (initial, input log, tick) → world ────────────────────────────────────────────

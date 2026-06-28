@@ -1,7 +1,12 @@
-# LAB-FRAME-3D-GAME-IG-P2 — game LOGIC in `.ig` on the VM (BLOCKED on a VM arithmetic gap)
+# LAB-FRAME-3D-GAME-IG-P2 — game LOGIC in `.ig` on the VM (RESOLVED → see P3)
 
-Status: BLOCKED — the `.ig` physics reducer COMPILES (the game logic is Igniter-expressible) but does
-not EXECUTE on `igniter-vm`: integer arithmetic isn't dispatched. Routed to the VM owners.
+Status: RESOLVED (the VM owners landed checked integer arithmetic on the OP_CALL path:
+`stdlib.integer.{add,sub,mul,div}` + short/legacy names, overflow/div-zero fail-closed). The `.ig`
+physics now EXECUTES — completed in `lab-frame-3d-game-ig-p3-v0.md`. This packet remains as the record
+of the gap + the routed finding.
+
+Original status: BLOCKED — the `.ig` physics reducer COMPILES (the game logic is Igniter-expressible)
+but did not EXECUTE on `igniter-vm`: integer arithmetic wasn't dispatched. Routed to the VM owners.
 Lane: igniter-lab / frame-ui / 3D + gamedev → igniter-vm
 Date: 2026-06-27
 Builds on: `lab-frame-3d-game-p1` (the Rust game loop), P6 (VM-in-the-loop pattern).
