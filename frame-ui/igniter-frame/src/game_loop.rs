@@ -216,6 +216,80 @@ pub fn render_scene_json(scene_json: &str) -> String {
     )
 }
 
+// ── GPU host (LAB-FRAME-3D-GPU-P1): emit a FILLED-FACE mesh for a real WebGL z-buffer ─────────────
+// The geometry (body positions) stays deterministic integer math from the `.ig`/Rust reducer; the GPU
+// only does the float projection + rasterization + depth test + shading (pure presentation).
+
+/// 6 cube faces, each `(4 corner signs, outward normal)`. Two triangles per face.
+const FACES: [([(i8, i8, i8); 4], (i8, i8, i8)); 6] = [
+    ([(1, -1, -1), (1, 1, -1), (1, 1, 1), (1, -1, 1)], (1, 0, 0)),
+    ([(-1, -1, 1), (-1, 1, 1), (-1, 1, -1), (-1, -1, -1)], (-1, 0, 0)),
+    ([(-1, 1, -1), (-1, 1, 1), (1, 1, 1), (1, 1, -1)], (0, 1, 0)),
+    ([(-1, -1, 1), (-1, -1, -1), (1, -1, -1), (1, -1, 1)], (0, -1, 0)),
+    ([(1, -1, 1), (1, 1, 1), (-1, 1, 1), (-1, -1, 1)], (0, 0, 1)),
+    ([(-1, -1, -1), (-1, 1, -1), (1, 1, -1), (1, -1, -1)], (0, 0, -1)),
+];
+
+const PALETTE: [(f32, f32, f32); 6] = [
+    (0.36, 0.55, 0.97), // blue
+    (0.22, 0.78, 0.46), // green
+    (0.85, 0.45, 0.30), // orange
+    (0.70, 0.45, 0.92), // purple
+    (0.20, 0.75, 0.82), // teal
+    (0.92, 0.55, 0.70), // pink
+];
+
+fn push_box_mesh(out: &mut Vec<f32>, c: V3, half: i64, color: (f32, f32, f32)) {
+    let f = FP as f32;
+    for (corners, n) in FACES.iter() {
+        let v = |k: usize| {
+            let (cx, cy, cz) = corners[k];
+            [
+                (c.x + cx as i64 * half) as f32 / f,
+                (c.y + cy as i64 * half) as f32 / f,
+                (c.z + cz as i64 * half) as f32 / f,
+            ]
+        };
+        let nrm = [n.0 as f32, n.1 as f32, n.2 as f32];
+        for &k in &[0usize, 1, 2, 0, 2, 3] {
+            let p = v(k);
+            out.extend_from_slice(&[p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], color.0, color.1, color.2]);
+        }
+    }
+}
+
+/// Build the filled-face mesh for an `.ig` `World` JSON: one coloured cube per body (by id) + a floor.
+/// Interleaved `[x,y,z, nx,ny,nz, r,g,b]` per vertex, in world units (`/FP`); a JS WebGL host projects,
+/// z-tests, and shades it on the GPU. Total/fail-closed: malformed input → just the floor.
+pub fn game_mesh_f32(world_json: &str) -> Vec<f32> {
+    let mut out: Vec<f32> = Vec::new();
+    // floor quad at y = -BOUND (a wide dim plane for depth + ground reference)
+    let fy = -BOUND;
+    let s = BOUND * 16 / 10;
+    let floor = [
+        (-s, fy, -s),
+        (-s, fy, s),
+        (s, fy, s),
+        (s, fy, -s),
+    ];
+    let fcol = (0.12f32, 0.12, 0.18);
+    let f = FP as f32;
+    for &k in &[0usize, 1, 2, 0, 2, 3] {
+        let (x, y, z) = floor[k];
+        out.extend_from_slice(&[x as f32 / f, y as f32 / f, z as f32 / f, 0.0, 1.0, 0.0, fcol.0, fcol.1, fcol.2]);
+    }
+    // a coloured cube per body
+    let parsed: serde_json::Value = serde_json::from_str(world_json).unwrap_or(serde_json::Value::Null);
+    if let Some(arr) = parsed.get("bodies").and_then(|b| b.as_array()) {
+        for bj in arr {
+            let b = body_from_json(bj);
+            let color = PALETTE[(body_id(bj).rem_euclid(6)) as usize];
+            push_box_mesh(&mut out, b.p, BODY, color);
+        }
+    }
+    out
+}
+
 /// Render an `.ig` `World` JSON (the VM's `Step` output) as the 3D wireframe — so a world produced by
 /// the `.ig` reducer on the VM draws through the same path as the Rust demo.
 pub fn render_world_json(world_json: &str) -> String {
@@ -446,6 +520,18 @@ mod tests {
                 assert!(c.abs() <= BOUND + FP, "body escaped the box: {c}");
             }
         }
+    }
+
+    #[test]
+    fn game_mesh_is_filled_triangles_and_deterministic() {
+        let w = initial_world_json();
+        let m = game_mesh_f32(&w);
+        // floor (6 verts) + 6 bodies × 6 faces × 2 tris × 3 verts (36 each) = 6 + 216 = 222 verts × 9 floats
+        assert_eq!(m.len(), 222 * 9);
+        assert_eq!(game_mesh_f32(&w), game_mesh_f32(&w), "mesh is deterministic");
+        assert!(m.iter().all(|f| f.is_finite()), "all coords finite");
+        // a malformed world still yields the floor (fail-closed)
+        assert_eq!(game_mesh_f32("{ not json").len(), 6 * 9);
     }
 
     #[test]

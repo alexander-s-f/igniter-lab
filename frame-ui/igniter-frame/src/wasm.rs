@@ -401,6 +401,11 @@ impl WasmSceneGame {
         self.world = crate::game_loop::step_world_json(&self.world, false);
     }
 
+    /// One timestep WITH the boom impulse (all bodies) — the `.ig` `Step(world, boom=1)` mirror.
+    pub fn boom(&mut self) {
+        self.world = crate::game_loop::step_world_json(&self.world, true);
+    }
+
     /// A click in frame coords: hit-test the projected scene; if it hits a body, KICK it (the `.ig`
     /// `Reduce` mirror). Returns true iff a body was hit.
     pub fn kick(&mut self, x: f64, y: f64) -> bool {
@@ -417,6 +422,12 @@ impl WasmSceneGame {
     /// Render the current world as the projected 2D scene (the `.ig` `View` mirror → host render).
     pub fn render_svg(&self) -> String {
         crate::game_loop::render_scene_json(&crate::game_loop::scene_json_of_world(&self.world))
+    }
+
+    /// The filled-face mesh (`[x,y,z, nx,ny,nz, r,g,b]` per vertex, world units) for the GPU host —
+    /// deterministic integer geometry; the JS WebGL layer projects + z-tests + shades it on the GPU.
+    pub fn mesh(&self) -> Vec<f32> {
+        crate::game_loop::game_mesh_f32(&self.world)
     }
 
     pub fn reset(&mut self) {
