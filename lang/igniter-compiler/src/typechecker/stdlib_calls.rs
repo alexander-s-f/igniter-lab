@@ -15,7 +15,16 @@ use super::*;
 const NESTED_COLLECTION_OPS: &[&str] = &["filter_map", "reduce"];
 
 /// Collection HOFs that take a lambda — whose lambda body is scanned for a (still-unsupported) nested op.
-const LAMBDA_HOF_NAMES: &[&str] = &["map", "filter", "filter_map", "fold", "reduce"];
+const LAMBDA_HOF_NAMES: &[&str] = &[
+    "map",
+    "filter",
+    "filter_map",
+    "fold",
+    "reduce",
+    "find",
+    "any",
+    "all",
+];
 
 fn nested_op_base(name: &str) -> &str {
     name.rsplit('.').next().unwrap_or(name)
@@ -2092,53 +2101,164 @@ impl TypeChecker {
                 );
                 resolved_type = serde_json::Value::Object(opt);
             }
-            "find" => {
+            "find" | "any" | "all" => {
                 is_resolved = true;
-                if typed_args.len() != 2 {
+                let qualified = format!("stdlib.collection.{fn_name}");
+                if args.len() != 2 {
                     type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-TM1".to_string(),
-                        message: format!(
-                            "find expects exactly 2 arguments, got {}",
-                            typed_args.len()
-                        ),
+                        rule: "OOF-COL1".to_string(),
+                        message: format!("{}: expected 2 arguments, got {}", qualified, args.len()),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                let inner_ty = if !typed_args.is_empty() {
-                    self.get_param(&typed_args[0].resolved_type, 0)
-                        .unwrap_or_else(|| {
-                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                        })
+
+                let first_arg_type = if !typed_args.is_empty() {
+                    typed_args[0].resolved_type.clone()
                 } else {
                     self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                 };
-                let mut opt = serde_json::Map::new();
-                opt.insert(
-                    "name".to_string(),
-                    serde_json::Value::String("Option".to_string()),
-                );
-                opt.insert(
-                    "params".to_string(),
-                    serde_json::Value::Array(vec![inner_ty]),
-                );
-                resolved_type = serde_json::Value::Object(opt);
-            }
-            "any" | "all" => {
-                is_resolved = true;
-                if typed_args.len() != 2 {
+                let first_arg_name = self.type_name(&first_arg_type);
+
+                if args.len() == 2 && first_arg_name != "Collection" && first_arg_name != "Unknown"
+                {
                     type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-TM1".to_string(),
+                        rule: "OOF-COL2".to_string(),
                         message: format!(
-                            "{} expects exactly 2 arguments, got {}",
-                            fn_name,
-                            typed_args.len()
+                            "{}: first argument must be Collection[T], got {}",
+                            qualified, first_arg_name
                         ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+
+                let elem_ty = if first_arg_name == "Collection" {
+                    self.get_param(&first_arg_type, 0).unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    })
+                } else {
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                };
+
+                if args.len() == 2 {
+                    if let Expr::Lambda { params, body } = &args[1] {
+                        let mut local_symbols = symbol_types.clone();
+                        for p in params {
+                            local_symbols.insert(p.clone(), elem_ty.clone());
+                        }
+
+                        let body_type = match body.as_ref() {
+                            ExprOrBlock::Expr(e) => {
+                                self.infer_expr(
+                                    e,
+                                    &local_symbols,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                )
+                                .resolved_type
+                            }
+                            ExprOrBlock::Block(block) => {
+                                let mut last_type =
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                let mut local_syms = local_symbols.clone();
+                                for stmt in &block.stmts {
+                                    match stmt {
+                                        Stmt::Let { name, expr } => {
+                                            let t = self.infer_expr(
+                                                expr,
+                                                &local_syms,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            local_syms
+                                                .insert(name.clone(), t.resolved_type.clone());
+                                            last_type = t.resolved_type;
+                                        }
+                                        Stmt::ExprStmt { expr } => {
+                                            let t = self.infer_expr(
+                                                expr,
+                                                &local_syms,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = t.resolved_type;
+                                        }
+                                    }
+                                }
+                                if let Some(re) = &block.return_expr {
+                                    last_type = self
+                                        .infer_expr(
+                                            re,
+                                            &local_syms,
+                                            olap_env,
+                                            type_shapes,
+                                            type_errors,
+                                            type_warnings,
+                                            node_name,
+                                            functions,
+                                            contract_registry,
+                                            current_contract_name,
+                                        )
+                                        .resolved_type;
+                                }
+                                last_type
+                            }
+                        };
+                        let pred_name = self.type_name(&body_type);
+                        if pred_name != "Bool" && pred_name != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-COL3".to_string(),
+                                message: format!(
+                                    "{}: predicate must return Bool, got {}",
+                                    qualified, pred_name
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    } else {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-COL1".to_string(),
+                            message: format!("{}: second argument must be a lambda", qualified),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+
+                if fn_name == "find" {
+                    let mut opt = serde_json::Map::new();
+                    opt.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Option".to_string()),
+                    );
+                    opt.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![elem_ty]),
+                    );
+                    resolved_type = serde_json::Value::Object(opt);
+                } else {
+                    resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+                }
             }
             "try_catch" | "propagate" => {
                 // try_catch(res, handler) -> T
