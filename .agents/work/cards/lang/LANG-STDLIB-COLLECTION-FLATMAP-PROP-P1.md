@@ -1,6 +1,6 @@
 # LANG-STDLIB-COLLECTION-FLATMAP-PROP-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — ADMIT flat_map; Ruby P3 + Rust P4 named
 Lane: lang / stdlib / collection / flat_map / canon-admission
 Mode: readiness + PROP amendment
 Skill: idd-agent-protocol
@@ -163,19 +163,45 @@ Unless live evidence contradicts it, recommend:
 
 ## Acceptance
 
-- [ ] Live canon Ruby, lab Rust compiler, VM, and inventory state are
-      characterized separately.
-- [ ] The card explicitly distinguishes canon authority from lab evidence.
-- [ ] A decision is made: admit `flat_map` now, or hold with a named blocker.
-- [ ] If admitted, the exact signature, source alias, SemanticIR name, result
-      type rule, Unknown policy, and diagnostics are specified.
-- [ ] If admitted, the packet names implementation cards:
-      `LANG-STDLIB-COLLECTION-FLATMAP-P3` (Ruby `igc`) and
+- [x] Canon Ruby / lab Rust / VM / inventory characterized separately (packet §"Live state").
+- [x] Canon authority vs lab evidence explicitly distinguished (packet §"Authority boundary").
+- [x] Decision made: **ADMIT `flat_map` now**.
+- [x] Exact signature, source alias, SemanticIR name, one-level-unwrap result rule, Unknown
+      policy, and diagnostics (`OOF-COL1`/`OOF-COL2`/new `OOF-COL9`) specified.
+- [x] Implementation cards named: `LANG-STDLIB-COLLECTION-FLATMAP-P3` (Ruby) +
       `LANG-STDLIB-COLLECTION-FLATMAP-P4` (Rust parity).
-- [ ] If not admitted, the packet names the precise gate that blocks it.
-- [ ] The P7 descriptor pressure is mapped directly to the decision.
-- [ ] No silent compiler implementation crosses the `COLLECTION_HOF_FNS` gate.
-- [ ] `git diff --check` clean.
+- [x] P7 descriptor pressure mapped directly to the decision.
+- [x] No silent compiler implementation crosses the `COLLECTION_HOF_FNS` gate (proposal + readiness
+      packet only; `typechecker.rb`/inventory untouched).
+- [x] `git diff --check` clean (both repos).
+
+## Report (2026-06-28)
+
+**Decision: ADMIT `flat_map`.** Verify-first separated the four surfaces: canon Ruby
+(`COLLECTION_HOF_FNS` = map/filter/count; `and_then` is Result-only) and the canon inventory both
+LACK flat_map (the real gate); the lab Rust compiler has a **placeholder** (`stdlib_calls.rs:1519`
+rides the Result `and_then` path with an "Integer placeholder" — wrong for collections, must be
+replaced in P4); the lab VM runtime is real and proven (`vm.rs:1020`, `d2ed524`). So the runtime half
+is done and only the canon compiler surface needs admission.
+
+Contract: `flat_map(Collection[A], A -> Collection[B]) -> Collection[B]`, SIR
+`stdlib.collection.flat_map`, arity 2 + lambda, pure/total, **one-level unwrap** (result element =
+lambda body's collection element type, never double-wrapped), Unknown permissive (as map/filter/
+concat). Diagnostics: reuse `OOF-COL1`/`OOF-COL2`, NEW `OOF-COL9` for lambda-body-not-collection
+(COL1–COL8 taken). `and_then` stays Result-only; `flatten` out of v0.
+
+Deliverables: readiness/PROP packet
+`igniter-lab/lab-docs/lang/lang-stdlib-collection-flatmap-prop-p1-v0.md`; canon proposal draft
+`igniter-lang/.agents/work/proposals/LANG-STDLIB-COLLECTION-FLATMAP-collection-flat_map-v0.md`
+(authored-pending-review — proposal text only, no `typechecker.rb`/inventory edit).
+
+Next cards: `LANG-STDLIB-COLLECTION-FLATMAP-P3` (Ruby `igc`, one file: add to `COLLECTION_HOF_FNS` +
+one-level-unwrap + `OOF-COL9`) → `LANG-STDLIB-COLLECTION-FLATMAP-P4` (Rust parity: replace the
+placeholder, emit `stdlib.collection.flat_map`, byte-parity; VM unchanged; inventory entry + digest
+follow).
+
+Verification: VM `nested_hof_eval_execution_tests` 5/5, `primitive_eq_parity_tests` 6/6; `git diff
+--check` PASS (igniter-lab + igniter-lang). No compiler/inventory behavior changed.
 
 ## Suggested Verification
 
