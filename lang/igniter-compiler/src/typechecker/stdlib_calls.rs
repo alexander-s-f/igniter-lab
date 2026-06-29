@@ -1516,7 +1516,167 @@ impl TypeChecker {
                     resolved_type = serde_json::Value::Object(col);
                 }
             }
-            "flat_map" | "and_then" => {
+            "flat_map" => {
+                is_resolved = true;
+
+                if args.len() != 2 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL1".to_string(),
+                        message: format!("flat_map expects 2 args, got {}", args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let first_arg_type = if !typed_args.is_empty() {
+                    typed_args[0].resolved_type.clone()
+                } else {
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                };
+                let first_arg_name = self.type_name(&first_arg_type);
+                if first_arg_name != "Collection" && first_arg_name != "Unknown" {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL2".to_string(),
+                        message: format!(
+                            "flat_map expects Collection as first arg, got {first_arg_name}"
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let mut lambda_return_type =
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                let mut had_lambda = false;
+                if args.len() >= 2 {
+                    if let Expr::Lambda { params, body } = &args[1] {
+                        had_lambda = true;
+                        let mut local_symbols = symbol_types.clone();
+                        let elem_ty = self.get_param(&first_arg_type, 0).unwrap_or_else(|| {
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        });
+                        for p in params {
+                            local_symbols.insert(p.clone(), elem_ty.clone());
+                        }
+                        lambda_return_type = match body.as_ref() {
+                            ExprOrBlock::Expr(e) => {
+                                let body_typed = self.infer_expr(
+                                    e,
+                                    &local_symbols,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                );
+                                body_typed.resolved_type
+                            }
+                            ExprOrBlock::Block(block) => {
+                                let mut last_type =
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                for stmt in &block.stmts {
+                                    match stmt {
+                                        Stmt::Let { name, expr } => {
+                                            local_symbols.insert(
+                                                name.clone(),
+                                                self.type_ir(&serde_json::Value::String(
+                                                    "Unknown".to_string(),
+                                                )),
+                                            );
+                                            let stmt_typed = self.infer_expr(
+                                                expr,
+                                                &local_symbols,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = stmt_typed.resolved_type;
+                                        }
+                                        Stmt::ExprStmt { expr } => {
+                                            let stmt_typed = self.infer_expr(
+                                                expr,
+                                                &local_symbols,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = stmt_typed.resolved_type;
+                                        }
+                                    }
+                                }
+                                if let Some(re) = &block.return_expr {
+                                    let re_typed = self.infer_expr(
+                                        re,
+                                        &local_symbols,
+                                        olap_env,
+                                        type_shapes,
+                                        type_errors,
+                                        type_warnings,
+                                        node_name,
+                                        functions,
+                                        contract_registry,
+                                        current_contract_name,
+                                    );
+                                    last_type = re_typed.resolved_type;
+                                }
+                                last_type
+                            }
+                        };
+                    }
+                }
+                if args.len() == 2 && !had_lambda {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL1".to_string(),
+                        message: "flat_map expects lambda as second arg".to_string(),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let col_unknown = || {
+                    let mut col = serde_json::Map::new();
+                    col.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Collection".to_string()),
+                    );
+                    col.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        ]),
+                    );
+                    serde_json::Value::Object(col)
+                };
+
+                let body_name = self.type_name(&lambda_return_type);
+                if body_name == "Collection" {
+                    resolved_type = lambda_return_type;
+                } else if body_name == "Unknown" {
+                    resolved_type = col_unknown();
+                } else {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL9".to_string(),
+                        message: format!("flat_map lambda must return Collection, got {body_name}"),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                    resolved_type = col_unknown();
+                }
+            }
+            "and_then" => {
                 is_resolved = true;
                 let first_arg_type = if !typed_args.is_empty() {
                     typed_args[0].resolved_type.clone()

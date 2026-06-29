@@ -1,6 +1,6 @@
 # LANG-STDLIB-COLLECTION-FLATMAP-P4
 
-Status: OPEN
+Status: CLOSED (2026-06-29) — lab Rust parity landed; tests 7/7; next = inventory entry/digest
 Lane: lang / stdlib / collection / flat_map / rust-parity
 Mode: bounded implementation
 Skill: idd-agent-protocol
@@ -149,21 +149,54 @@ small Rust tests make the contract unambiguous.
 
 ## Acceptance
 
-- [ ] `flat_map(Collection[A], A -> Collection[B]) -> Collection[B]` works in
-      Rust `igniter-compiler`.
-- [ ] Bare `flat_map` emits `stdlib.collection.flat_map`.
-- [ ] Lambda param uses collection element type, not Integer placeholder.
-- [ ] One-level unwrap result proven; no double-wrap.
-- [ ] `OOF-COL9` emitted for scalar/non-collection lambda body.
-- [ ] `OOF-COL1` and `OOF-COL2` covered.
-- [ ] Unknown policy matches Ruby P3.
-- [ ] `and_then` Result/Option behavior unchanged.
-- [ ] No VM/Ruby/inventory/comprehension changes.
-- [ ] `cargo test --manifest-path lang/igniter-compiler/Cargo.toml --test <new_test_target>` green.
-- [ ] Relevant regression tests green.
-- [ ] `git diff --check` clean.
-- [ ] Closing report names the next route: inventory entry/digest recompute or
-      broader algebra parity, depending on what live evidence shows.
+- [x] `flat_map(Collection[A], A -> Collection[B]) -> Collection[B]` works in Rust (identity-flatten
+      `Collection[Collection[Integer]] -> Collection[Integer]` compiles clean).
+- [x] Bare `flat_map` emits `stdlib.collection.flat_map` (SIR; never bare).
+- [x] Lambda param = collection element type, not Integer placeholder (`bd -> bd.items` on `Body`).
+- [x] One-level unwrap proven; no double-wrap (`Collection[Collection[Integer]]` output mismatches).
+- [x] `OOF-COL9` for scalar/non-collection body.
+- [x] `OOF-COL1` (arity/non-lambda) + `OOF-COL2` (non-collection first arg) covered.
+- [x] Unknown policy matches Ruby P3 (array-literal/empty-list body → no false OOF-COL9).
+- [x] `and_then` Result/Option unchanged (split into its own arm; no COL diagnostics on Result).
+- [x] No VM/Ruby/inventory/comprehension changes (only `stdlib_calls.rs` + `emitter.rs` + new test).
+- [x] `cargo test --test collection_flat_map_tests` green (7/7).
+- [x] Regressions green: comprehension 10/10, nested-ops 8/8, VM nested_hof 5/5, full compiler suite
+      0 failures, machine fleet sweep 13/13.
+- [x] `git diff --check` clean.
+- [x] Closing report + next route below.
+
+## Report (2026-06-29)
+
+Lab Rust parity for collection `flat_map`. Three edits:
+
+1. `typechecker/stdlib_calls.rs` — **split** the shared `"flat_map" | "and_then"` arm: `and_then`
+   keeps its Option/Result-monadic behavior (unchanged); a NEW dedicated `"flat_map"` arm (modeled on
+   the `map` arm) binds the lambda param to the input element type A (no Integer placeholder),
+   infers the body, and does the **one-level unwrap** — body `Collection[B]` ⇒ result `Collection[B]`
+   (as-is, not re-wrapped); body `Unknown` ⇒ `Collection[Unknown]`; else `OOF-COL9` + recover
+   `Collection[Unknown]`. OOF-COL1 (arity/non-lambda) + OOF-COL2 (non-collection first arg) mirror map.
+2. `emitter.rs` — added `("flat_map", "stdlib.collection.flat_map")` to `COLLECTION_HOF_OPS`, **and**
+   added `flat_map` to the compute-level delegation `matches!` in `semantic_expr_for_compute` (line
+   ~1490). The second edit was the load-bearing one: without it a compute-level `flat_map(...)` never
+   reached the qualification block (it fell through field-recursion and stayed bare) — that is exactly
+   why `map` qualified but `flat_map` did not until both gates listed it.
+
+**Parity caveat (documented, pre-existing — NOT a flat_map bug):** an array-literal lambda body
+`x -> [x, x]` infers `Collection[Unknown]` in the lab Rust TC, because Rust array-literal element
+inference is context-driven and a lambda body has no expected-type hint (the horizon-research §4 gap;
+Ruby infers it from contents). So the one-level-unwrap proofs use collection-VALUED bodies (a Ref
+`inner -> inner`, a record field `bd -> bd.items`) that carry a concrete element type; the
+array-literal body is still covered as an Unknown-permissive case (no false OOF-COL9). The flat_map
+contract itself is at full parity with Ruby P3.
+
+Tests `lang/igniter-compiler/tests/collection_flat_map_tests.rs` (7): one-level-unwrap clean+qualified,
+not-double-wrapped, record-pressure param-is-record-type, OOF-COL9, OOF-COL1/COL2, Unknown-permissive,
+map-qualifies + and_then-Result-only. All green; regressions green; `git diff --check` PASS.
+
+Next route: **inventory entry + digest recompute** for `stdlib.collection.flat_map`
+(`docs/spec/stdlib-inventory.json`, P5-style, with proof lineage P1→P3→P4) — deferred to its own card
+per the map/filter precedent (inventory lands separately). Then the broader
+`LANG-STDLIB-COLLECTION-ALGEBRA-PARITY-PROP-P1` (promote zip/take/find/any/all) from the horizon roadmap.
 
 ## Suggested Verification
 
