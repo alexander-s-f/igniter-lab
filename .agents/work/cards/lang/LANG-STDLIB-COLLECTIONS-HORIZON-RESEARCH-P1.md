@@ -1,6 +1,6 @@
 # LANG-STDLIB-COLLECTIONS-HORIZON-RESEARCH-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — research packet + ranked roadmap; no code
 Lane: lang / stdlib / collections / research / horizon
 Mode: research-readiness
 Skill: idd-agent-protocol
@@ -198,17 +198,36 @@ The packet should include:
 
 ## Acceptance
 
-- [ ] Live collection surface verified from code/tests, not old docs alone.
-- [ ] At least 12 candidate operations classified.
-- [ ] At least 5 concrete app/science/business pressure cases mapped.
-- [ ] Clear distinction between core stdlib, syntax sugar, host/query concerns,
-      and rejected ideas.
-- [ ] Type gaps and OOF/diagnostic needs named.
-- [ ] Determinism and authority boundaries explicit.
-- [ ] Performance risks named with proposed future benchmark cards.
-- [ ] Ranked roadmap with 5-8 named follow-up cards.
-- [ ] No production code changes.
-- [ ] `git diff --check` clean.
+- [x] Live surface verified from code (canon Ruby/inventory + lab Rust + VM), §1 table.
+- [x] 16 operations classified (≥12).
+- [x] 6 pressure cases mapped (≥5), §2.
+- [x] core-stdlib / sugar / host-query / reject distinction explicit, §3.
+- [x] Type gaps + OOF needs named (`OOF-COL9` new; `OOF-COL10` reserved for sort), §4.
+- [x] Determinism + authority boundary explicit (sort/group Float hazard; join=host), §6.
+- [x] Performance risks named + a proto-bench card proposed, §7.
+- [x] Ranked roadmap, 7 named cards, §8.
+- [x] No production code changes; `git diff --check` clean.
+
+## Report (2026-06-28)
+
+Research packet written: `lab-docs/lang/lang-stdlib-collections-horizon-research-p1-v0.md`.
+
+**Headline from verify-first:** the lab already runs a richer algebra than canon admits — canon-core
+today is `map/filter/count/filter_map/fold/sum/concat/append/first/last/is_empty/non_empty/range`,
+while `zip/find/any/all/take/reduce/flat_map` are **lab-ahead and proven** but not canon. So the
+near-horizon work is mostly *promoting proven lab ops with a contract*, not inventing helpers.
+
+Decisions: `flat_map` (in-flight) + promote `zip/take/drop/find/any/all` = **core now**;
+`sort_by/group_by/distinct_by/index_by/chunk/window/scan` = **core later** (gated on typed-empty/
+fold-seed inference and a total/stable comparator + Float-sort hazard policy); `flatten/zip_with/
+enumerate` = **sugar**; relational `join` = **host/query** (reject from stdlib); lazy/transducers =
+**reject until a bench proves it**. Expression `|>` does not exist (canon `pipeline` is decl-level
+OLAP); comprehensions (P1/P2) and `|>` both lower to the core HOFs → one flow-syntax decision.
+
+Ranked roadmap (7 cards): (1) flat_map P3/P4 land; (2) `…-ALGEBRA-PARITY-PROP-P1` promote lab-ahead
+ops; (3) `…-TYPED-EMPTY-AND-FOLD-SEED-P1`; (4) `…-ORDER-GROUP-READINESS-P1`; (5) `…-FLOW-SYNTAX-
+DECISION-P1` (comprehension vs `|>`); (6) `LAB-…-PERF-PROTOBENCH-P1`; (7) flatten/enumerate sugar
+(optional). Verification: live greps grounded §1; `git diff --check` PASS; no code.
 
 ## Suggested Next-Card Shape
 

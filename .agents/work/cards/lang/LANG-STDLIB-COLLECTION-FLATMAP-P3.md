@@ -1,6 +1,6 @@
 # LANG-STDLIB-COLLECTION-FLATMAP-P3
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — canon Ruby flat_map landed; proof 18/18; next = P4 Rust parity
 Lane: lang / stdlib / collection / flat_map / ruby-igc
 Mode: bounded implementation
 Skill: idd-agent-protocol
@@ -157,19 +157,44 @@ Use exact assertions, not just “compiler exits”.
 
 ## Acceptance
 
-- [ ] `flat_map` added to Ruby `COLLECTION_HOF_FNS`.
-- [ ] Ruby `igc` emits `stdlib.collection.flat_map`.
-- [ ] Result type is one-level unwrapped: `A -> Collection[B]` yields
-      `Collection[B]`.
-- [ ] Lambda body scalar/non-collection triggers `OOF-COL9`.
-- [ ] Unknown policy matches P1.
-- [ ] `map`/`filter`/`count` regressions are covered.
-- [ ] `and_then` remains Result-only.
-- [ ] Proof runner added and green.
-- [ ] No Rust, VM, parser, inventory, or comprehension changes.
-- [ ] `git diff --check` clean in `igniter-lang`.
-- [ ] Closing report added to this card with proof counts and next route
-      `LANG-STDLIB-COLLECTION-FLATMAP-P4`.
+- [x] `flat_map` added to Ruby `COLLECTION_HOF_FNS` (`{ qualified_name: "stdlib.collection.flat_map", arity: 2, has_lambda: true }`).
+- [x] Ruby `igc` emits `stdlib.collection.flat_map` (proof 2.2/2.3; never bare).
+- [x] One-level unwrap: `A -> Collection[B]` → `Collection[B]` (proof 2.1 clean + 2.4 nested-output MISMATCHES).
+- [x] Scalar/non-collection lambda body → `OOF-COL9` naming `stdlib.collection.flat_map` (proof 5.1/5.2).
+- [x] Unknown policy matches P1 (empty-list body → no false `OOF-COL9`, 4.1; body-fully-Unknown branch source-verified, 4.2).
+- [x] `map`/`filter`/`count` regressions covered (7.1–7.3 clean + qualified + registered).
+- [x] `and_then` remains Result-only (7.4: absent from `COLLECTION_HOF_FNS`).
+- [x] Proof runner added + green (18/18).
+- [x] No Rust/VM/parser/inventory/comprehension changes (only `typechecker.rb`).
+- [x] `git diff --check` clean in `igniter-lang`.
+- [x] Closing report below; next route `LANG-STDLIB-COLLECTION-FLATMAP-P4`.
+
+## Report (2026-06-28)
+
+Canon Ruby implementation under the P1 admission. Two edits in
+`igniter-lang/lib/igniter_lang/typechecker.rb`: (1) added `flat_map` to `COLLECTION_HOF_FNS`
+(arity 2, has_lambda); (2) a `when "flat_map"` branch in `infer_collection_hof_call`'s output-type
+case doing the **one-level unwrap** — `type_name(body_type) == "Collection"` ⇒ return `body_type`
+as-is (NOT `collection_type_ir_from`, which would double-wrap); `"Unknown"` ⇒ `Collection[Unknown]`
+(permissive); else `OOF-COL9` + recover as `Collection[Unknown]`. `infer_collection_hof_call`
+already owned OOF-COL1/COL2/lambda-binding, so those are inherited unchanged; OOF-COL3 stays
+filter-only.
+
+Proof runner `experiments/stdlib_collection_flatmap_proof/verify_stdlib_collection_flatmap_p3.rb`
+(in the gitignored `experiments/` dir, the established convention for all sibling collection proof
+runners): **18/18 PASS** — registration, happy path + qualified SIR + non-nested, record/descriptor
+pressure (row→many flat), Unknown-permissive, OOF-COL9, OOF-COL1/COL2, and map/filter/count +
+`and_then`-Result-only regressions.
+
+Note on the map/filter P3 runner: it reports 2 failures (`H-05`/`H-06`, "map/filter not in
+stdlib-inventory.json") — these are **pre-existing stale assertions** (P5 added those inventory
+entries after the P3 runner was written). Proven independent of this card: with the `typechecker.rb`
+change stashed, the same 2 failures persist. No flat_map effect; the inventory was not touched.
+
+Verification: flat_map runner 18/18; `git diff --check` PASS (`igniter-lang`); only tracked change is
+`typechecker.rb`. Next: **`LANG-STDLIB-COLLECTION-FLATMAP-P4`** — lab Rust parity (replace the
+`stdlib_calls.rs` placeholder with the one-level-unwrap contract, emit `stdlib.collection.flat_map`,
+byte-parity with Ruby; VM unchanged), then the inventory entry + digest recompute.
 
 ## Suggested Verification
 
