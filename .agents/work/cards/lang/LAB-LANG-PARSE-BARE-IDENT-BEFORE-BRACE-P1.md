@@ -1,6 +1,6 @@
 # LAB-LANG-PARSE-BARE-IDENT-BEFORE-BRACE-P1
 
-Status: OPEN
+Status: CLOSED (2026-06-28) — stale claim falsified; regression-locked; specimen cleaned up
 Lane: igniter-lab / lang / parser / grammar hygiene / app-pressure
 Mode: standard
 Skill: idd-agent-protocol
@@ -107,19 +107,38 @@ unchanged and document the next cleanup card.
 
 ## Acceptance
 
-- [ ] Exact failure shape reproduced or the stale claim is falsified with live
-      parser/compiler evidence.
-- [ ] Minimal parser/compiler regression tests cover the four key shapes above.
-- [ ] If fixed: natural `if b.id == target { ... }` compiles, and control cases
-      for record literals still pass.
-- [ ] If fixed: `if ready { ... }` either works, or the remaining blocker is
-      named precisely (parser vs typechecker vs VM).
-- [ ] No frame-ui-specific parser hacks.
-- [ ] If `vm_game_app.ig` changes, `ig_vm_game_tests` stay green and behavior is
-      unchanged.
-- [ ] Proof packet or closing report written:
-      `lab-docs/lang/lab-lang-parse-bare-ident-before-brace-p1-v0.md`.
-- [ ] `git diff --check` clean.
+- [x] Stale claim **falsified** with live evidence: all natural shapes compile ok (Phase 0 table).
+- [x] Regression tests cover the four key shapes (+ record literal + game-exact + PascalCase
+      boundary): `tests/if_cond_bare_ident_before_brace_tests.rs` 7/7.
+- [x] Natural `if b.id == target { ... }` compiles; record literals still parse.
+- [x] `if ready { ... }` works (bare lowercase Bool ⇒ `Ref` ⇒ `{` opens body).
+- [x] No frame-ui-specific parser hacks (no parser change at all).
+- [x] `vm_game_app.ig` switched to natural spelling; `ig_vm_game_tests` 9/9 green; byte-identical
+      (`==` symmetric, fixtures unchanged, specimen recompiles ok).
+- [x] Proof packet written (`lab-docs/lang/lab-lang-parse-bare-ident-before-brace-p1-v0.md`).
+- [x] `git diff --check` clean.
+
+## Report (2026-06-28)
+
+**Falsified, not fixed** — no parser change needed. Verify-first compiled all five card shapes
+(plus the game-exact nested shape): every one compiles ok, including the supposedly-broken
+`if b.id == target { ... }` and `if ready { ... }`. Root cause of the (non-)ambiguity: the
+variant-construct trigger in `parser.rs` (`TokenType::Ident` arm) fires **only for a PascalCase**
+ident before `{`; a lowercase value identifier before `{` parses as `Expr::Ref`, leaving `{` to open
+the `if` body. The P6/P7 workaround (`if target == b.id {`) was unverified caution.
+
+Locked with 7 regression tests (incl. a boundary test proving a PascalCase comparand before `{` IS
+still a construct — the disambiguation is intentional, by case). Phase 2: `KickBody` in the game
+specimen now spells the natural `if b.id == target { ... }` (kx/kz/ky) with the stale comment
+replaced; `==` is symmetric so the committed game fixtures are unchanged and `ig_vm_game_tests` stays
+9/9, the specimen recompiles `ok`.
+
+Files: `lang/igniter-compiler/tests/if_cond_bare_ident_before_brace_tests.rs` (new, 7 tests),
+`lab-docs/lang/specimens/dx-view-d/vm_game_app.ig` (KickBody natural spelling + comment),
+packet `lab-docs/lang/lab-lang-parse-bare-ident-before-brace-p1-v0.md`.
+
+Verification: parser regression 7/7; full compiler suite 0 failures; `ig_vm_game_tests` 9/9;
+specimen compiles `ok`; `git diff --check` PASS.
 
 ## Suggested Verification
 

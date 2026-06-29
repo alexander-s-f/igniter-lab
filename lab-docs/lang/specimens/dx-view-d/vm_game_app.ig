@@ -79,15 +79,17 @@ contract View {
 -- ── INTERACTION, also `.ig`: a click on a body's marker → kick THAT body, on the VM ────────────────
 -- The host hit-tests the clicked marker → its `id`, and runs `Reduce(world, target)`; the matched body
 -- (real `==` equality, even inside a `map`-called contract) gets a strong up + radial-out impulse.
--- (Written `target == b.id` — RHS a field access, not a bare ident — so the comparand before `{` does
--- not mis-parse as a record construct.)
+-- Natural spelling `b.id == target` (LAB-LANG-PARSE-BARE-IDENT-BEFORE-BRACE-P1): a lowercase value
+-- identifier before `{` parses as a plain ref, so the `{` opens the `if` body — no record-construct
+-- mis-parse (the construct trigger is gated to PascalCase). `==` is symmetric, so this is byte-identical
+-- to the earlier `target == b.id` workaround.
 
 contract KickBody {
   input b      : Body
   input target : Integer
-  compute kx = if target == b.id { if b.px > 0 { 700 } else { if b.px < 0 { 0 - 700 } else { 0 } } } else { 0 }
-  compute kz = if target == b.id { if b.pz > 0 { 700 } else { if b.pz < 0 { 0 - 700 } else { 0 } } } else { 0 }
-  compute ky = if target == b.id { 1400 } else { 0 }
+  compute kx = if b.id == target { if b.px > 0 { 700 } else { if b.px < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute kz = if b.id == target { if b.pz > 0 { 700 } else { if b.pz < 0 { 0 - 700 } else { 0 } } } else { 0 }
+  compute ky = if b.id == target { 1400 } else { 0 }
   compute b2 = { px: b.px, py: b.py, pz: b.pz, vx: b.vx + kx, vy: b.vy + ky, vz: b.vz + kz, id: b.id }
   output b2 : Body
 }
