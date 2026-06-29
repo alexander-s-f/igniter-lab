@@ -7,6 +7,8 @@ pub mod lexer;
 pub mod monomorphizer;
 pub mod multifile;
 pub mod parser;
+// LAB-IGNITER-STDLIB-SURFACE-HELP-P1: queryable stdlib inventory help surface for the CLI.
+pub mod stdlib_surface;
 pub mod typechecker;
 // LAB-IGNITER-WEB-ROUTING-LOWERING-P4: `.igweb` route sugar → explicit `.ig` Serve (lab tooling)
 pub mod igweb;

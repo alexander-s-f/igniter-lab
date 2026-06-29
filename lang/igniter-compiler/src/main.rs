@@ -39,6 +39,15 @@ fn main() {
             run_package(&args);
             return;
         }
+        // LAB-IGNITER-STDLIB-SURFACE-HELP-P1: queryable stdlib help surface.
+        "stdlib" => {
+            run_stdlib(&args);
+            return;
+        }
+        "explain" => {
+            run_explain(&args);
+            return;
+        }
         other => {
             eprintln!("Unsupported command: {}", other);
             std::process::exit(1);
@@ -1311,4 +1320,101 @@ fn report_path_for(out_path: &str) -> String {
     } else {
         format!("{}.compilation_report.json", out_path)
     }
+}
+
+// ── LAB-IGNITER-STDLIB-SURFACE-HELP-P1: stdlib help CLI ──────────────────────────────────────────
+
+/// Value of a `--flag VALUE` option, if present.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1).cloned())
+}
+
+/// First positional (non-`--`) argument at or after `from`.
+fn first_positional(args: &[String], from: usize) -> Option<String> {
+    args.iter().skip(from).find(|a| !a.starts_with("--")).cloned()
+}
+
+fn emit(value: &Value, as_json: bool) {
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap());
+    } else {
+        // Compact human text derived from the same value (JSON stays the agent contract).
+        if let Some(entries) = value.get("entries").and_then(|e| e.as_array()) {
+            for e in entries {
+                match e {
+                    Value::Object(_) => println!(
+                        "{}  ·  {}",
+                        e.get("canonical_name").and_then(|c| c.as_str()).unwrap_or("?"),
+                        e.get("signature").and_then(|s| s.as_str()).unwrap_or("")
+                    ),
+                    Value::String(s) => println!("{s}"),
+                    _ => {}
+                }
+            }
+        } else if let Some(matches) = value.get("matches").and_then(|m| m.as_array()) {
+            for m in matches {
+                println!(
+                    "{}  ·  {}",
+                    m.get("canonical_name").and_then(|c| c.as_str()).unwrap_or("?"),
+                    m.get("signature").and_then(|s| s.as_str()).unwrap_or("")
+                );
+            }
+        } else if let Some(entry) = value.get("entry") {
+            println!("{}", serde_json::to_string_pretty(entry).unwrap());
+        } else {
+            println!("{}", serde_json::to_string_pretty(value).unwrap());
+        }
+    }
+}
+
+fn run_stdlib(args: &[String]) {
+    use igniter_compiler::stdlib_surface as ss;
+    let as_json = args.iter().any(|a| a == "--json");
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
+    match sub {
+        "list" => {
+            let category = flag_value(args, "--category");
+            emit(&ss::list_result_json(category.as_deref()), as_json);
+        }
+        "search" => {
+            // QUERY... = all positionals after `search`, joined; flags (and `--category` value) excluded.
+            let query = args
+                .iter()
+                .skip(3)
+                .filter(|a| !a.starts_with("--"))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.is_empty() {
+                eprintln!("Usage: igc stdlib search QUERY... [--json]");
+                std::process::exit(1);
+            }
+            emit(&ss::search_result_json(&query), as_json);
+        }
+        "show" => {
+            let Some(name) = first_positional(args, 3) else {
+                eprintln!("Usage: igc stdlib show NAME_OR_ALIAS [--json]");
+                std::process::exit(1);
+            };
+            let (value, ok) = ss::show_result_json(&name);
+            emit(&value, as_json);
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            eprintln!("Usage: igc stdlib <list|search|show> ... [--json]");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_explain(args: &[String]) {
+    use igniter_compiler::stdlib_surface as ss;
+    let as_json = args.iter().any(|a| a == "--json");
+    let Some(rule) = first_positional(args, 2) else {
+        eprintln!("Usage: igc explain RULE [--json]");
+        std::process::exit(1);
+    };
+    emit(&ss::explain_result_json(&rule), as_json);
 }
