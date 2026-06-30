@@ -97,9 +97,13 @@ file "$tmp/usr/bin/tbackend"              # ELF for the matching arch
 systemd-analyze verify "$tmp/lib/systemd/system/tbackend.service"   # UNIT_VALID
 ```
 
-> ⚠ The nfpm pipeline + maintainer scripts are **new and not yet device-verified**. The legacy
-> hand-built debs in `igniter-home-lab/artifacts/tbackend/p4/` remain the last device-proven artifacts
-> until this pipeline is run on a Linux node (see Forward plan).
+> ✅ **Device-verified on arm64** (`pi5-lab2`, 2026-06-30): `./scripts/build-and-package.sh` built the
+> release binary (44.95s) and nfpm produced a clean `tbackend_*_arm64.deb` **and** `.aarch64.rpm` in one
+> run. Verified on the node: `dpkg-deb -I` valid Debian 2.0 with `postinst`+`postrm` present (turn-key),
+> exact payload, `ExecStart=… --config …`, conffile shape, binary `ping→pong` smoke on a temp port — with
+> the live `:7401` service untouched. **amd64** still needs a build on an x86 node (cargo not on
+> `ai-main-lab` PATH today — see Forward plan). The legacy hand-built debs under
+> `igniter-home-lab/artifacts/tbackend/p4/` are now superseded by this pipeline.
 
 ### B3. Install (turn-key)
 
@@ -137,18 +141,20 @@ is a conffile, so operator edits survive upgrades. The service is hardened (`NoN
 `/var/log/tbackend` is reserved for future/file-log use. Proven running on `pi5-lab2`. ⚠ Survival across an
 actual **reboot** has not been tested.
 
-### B5. Enable auth (optional) — via a systemd drop-in (don't edit the packaged unit)
+### B5. Enable auth (optional) — edit the conffile
+
+Because the unit runs `--config`, every runtime knob (`auth_enabled`, `durability`, `enable_compaction`,
+`max_inflight_requests`, `hash_strict`, `commit_*`) is a one-line edit of the conffile
+`/etc/tbackend/tbackend.config.json` (operator edits survive upgrades) + a restart:
 
 ```bash
-sudo install -d /etc/systemd/system/tbackend.service.d
-sudo tee /etc/systemd/system/tbackend.service.d/10-auth.conf >/dev/null <<'EOF'
-[Service]
-ExecStart=
-ExecStart=/usr/bin/tbackend --host 127.0.0.1 --port 7401 --data-dir /var/lib/tbackend --auth-enabled true
-EOF
-sudo systemctl daemon-reload && sudo systemctl restart tbackend.service
+sudo sed -i 's/"auth_enabled": false/"auth_enabled": true/' /etc/tbackend/tbackend.config.json
+sudo systemctl restart tbackend.service
 # journal: "Auth Enabled:true"
 ```
+
+(The daemon reads `auth_enabled` from `--config` — `src/main.rs`. A systemd drop-in that overrides
+`ExecStart` with extra CLI flags still works as an alternative, but the conffile is the clean path now.)
 
 Roles: `admin` / `read_only` / `write_only` / `peer`; store ACL via `allowed_stores`. On first auth boot the
 server mints a one-time `BOOTSTRAP_ADMIN_TOKEN` (mode 0600) under `<data_dir>/security/`; use it to create
@@ -196,7 +202,7 @@ produce a P9 deb, (2) the human operator gate.
 | install (nfpm deb) | `sudo apt install ./out/tbackend_<ver>_<arch>.deb` |
 | start | `sudo systemctl enable --now tbackend.service` |
 | status | `systemctl is-active tbackend.service` · `ss -ltnp \| grep 7401` |
-| enable auth | drop-in `10-auth.conf` + `daemon-reload` + `restart` (B5) |
+| enable auth | edit conffile `"auth_enabled": true` + `sudo systemctl restart tbackend.service` (B5) |
 | reinstall | `stop` → `apt install ./out/...deb` → `start` |
 | remove (keep data) | `sudo dpkg -r tbackend` |
 | purge (delete data) | `sudo dpkg --purge tbackend` |
@@ -224,13 +230,16 @@ port + temp data dir**.
 install + smoke + data-preservation (P5) · persistent systemd service, loopback, hardened (P6) · auth-enable
 drop-in (P6A).
 
-**New here (⚠ verify on a Linux node before relying on it):** the nfpm one-shot pipeline
-(`scripts/build-and-package.sh` + `packaging/`) — clean deb **+ rpm**, maintainer scripts → **turn-key
-install** (closes the "no build/package script" and "manual user/chown" gaps).
+**Now device-proven (arm64):** the nfpm one-shot pipeline (`scripts/build-and-package.sh` + `packaging/`) —
+clean deb **+ rpm** with maintainer scripts → **turn-key install** (closes the "no build/package script" and
+"manual user/chown" gaps). Verified on `pi5-lab2` 2026-06-30: build 45 s, deb+rpm produced, `postinst`/`postrm`
+present, `--config` unit, `ping→pong` smoke on a temp port, live `:7401` untouched.
 
 **Open gaps → forward order:**
-1. **Run the nfpm pipeline on `pi5-lab2`/`ai-main-lab`** (temp port, non-disruptive) → device-verify the
-   turn-key deb. This makes Track B genuinely trivial. ← next.
+1. **amd64 deb + full turn-key `apt install`.** The arm64 deb is device-proven; still to do: build the amd64
+   deb on an x86 node (install rustup on `ai-main-lab` — cargo not on PATH today), and run a real
+   `apt install + systemctl enable` on a node/port that does **not** collide with the live `:7401` (a free
+   node or a maintenance window). ← next.
 2. **CI / cross-build** so artifacts don't require an SSH round-trip per arch (qemu or GitHub Actions).
 3. **Signed apt repo** → `apt install tbackend` + upgrade-via-apt (today install is `dpkg -i` of a file).
 4. **Execute the live auth-upgrade** (B6) once a P9 deb exists + the operator gate is granted.
