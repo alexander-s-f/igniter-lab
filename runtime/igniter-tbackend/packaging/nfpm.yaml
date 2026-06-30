@@ -1,0 +1,38 @@
+# nfpm package spec for the TBackend daemon.
+# One config -> clean .deb (and .rpm) with maintainer scripts, no macOS `ar`
+# hacks, no AppleDouble/xattr junk. Supersedes the ad-hoc P4 hand-assembly.
+#   ARCH=amd64|arm64  VERSION=0.1.0-<sha>  nfpm pkg --packager deb -f packaging/nfpm.yaml -t out/
+# (the binary at target/release/tbackend must be built for the target arch — see build-and-package.sh)
+name: tbackend
+arch: ${ARCH}
+version: ${VERSION}
+section: misc
+priority: optional
+maintainer: Igniter Home Lab <private>
+description: |
+  TBackend daemon — temporal (bitemporal) ledger.
+  Loopback-only home-lab package; pure-Rust daemon, no FFI/Ruby.
+license: Internal
+contents:
+  - src: ./target/release/tbackend
+    dst: /usr/bin/tbackend
+    file_info: { mode: 0755 }
+  - src: ./packaging/tbackend.config.json
+    dst: /etc/tbackend/tbackend.config.json
+    type: "config|noreplace"        # conffile: operator edits are preserved across upgrades
+  - src: ./packaging/tbackend.service
+    dst: /lib/systemd/system/tbackend.service
+  - src: ./docs/deployment.md
+    dst: /usr/share/doc/tbackend/deployment.md
+  - dst: /var/lib/tbackend          # owned data dir; preserved on remove, removed only on purge
+    type: dir
+    file_info: { mode: 0750 }
+  - dst: /var/log/tbackend
+    type: dir
+    file_info: { mode: 0750 }
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  postremove: ./packaging/postremove.sh
+deb:
+  fields:
+    Bugs: private

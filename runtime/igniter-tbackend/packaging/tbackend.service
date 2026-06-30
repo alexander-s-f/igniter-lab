@@ -1,0 +1,23 @@
+[Unit]
+Description=TBackend daemon (temporal ledger)
+Documentation=file:/usr/share/doc/tbackend/deployment.md
+After=network.target
+
+[Service]
+Type=simple
+User=tbackend
+Group=tbackend
+# Loopback-only by default. Change the bind ONLY behind a reviewed network policy.
+# Runtime knobs live in /etc/tbackend/tbackend.config.json (package conffile).
+ExecStart=/usr/bin/tbackend --config /etc/tbackend/tbackend.config.json
+Restart=on-failure
+RestartSec=2
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/tbackend /var/log/tbackend
+
+[Install]
+WantedBy=multi-user.target

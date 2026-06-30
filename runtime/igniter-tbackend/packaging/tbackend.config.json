@@ -1,0 +1,13 @@
+{
+  "host": "127.0.0.1",
+  "port": 7401,
+  "data_dir": "/var/lib/tbackend",
+  "thread_pool_size": 4,
+  "auth_enabled": false,
+  "max_inflight_requests": 0,
+  "hash_strict": false,
+  "enable_compaction": false,
+  "durability": "accepted",
+  "commit_interval_ms": 5,
+  "commit_max_batch": 256
+}
