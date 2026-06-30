@@ -1,0 +1,44 @@
+module ParserLexer
+import ParserTypes
+import stdlib.collection.{ append }
+import stdlib.string.{ char_at, substring }
+
+contract LexNextToken {
+  input state : LexerState
+
+  -- Simulates a single step of a state machine lexer.
+  -- In a fully functional language without loops, this would be recursively called.
+  compute current_char = char_at(state.source, state.pos)
+
+  compute is_keyword_module = if current_char == "m" {
+    true
+  } else {
+    false
+  }
+
+  -- Extract token text via byte slice: "module" is 6 bytes starting at state.pos.
+  -- IP-P05: substring now available (LANG-STDLIB-STRING-SUBSTRING-P2).
+  compute token_text = substring(state.source, state.pos, 6)
+
+  compute new_token = {
+    kind: "Keyword",
+    text: token_text,
+    line: state.line
+  }
+  
+  -- Avoid inline record parsing bug by using helper contract or direct assignment
+  compute next_tokens = if is_keyword_module {
+    append(state.tokens, new_token)
+  } else {
+    state.tokens
+  }
+  
+  compute new_state = {
+    source: state.source,
+    pos: state.pos + 1,
+    line: state.line,
+    tokens: next_tokens
+  }
+  
+  output new_state : LexerState
+}

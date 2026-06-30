@@ -185,7 +185,7 @@ async fn test_machine_loads_multifile_app() {
     let machine = IgniterMachine::new(None, "in_memory").unwrap();
     let base = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../apps/igniter-apps/web_router"
+        "/tests/fixtures/fleet_apps/web_router"
     );
     let paths: Vec<String> = ["example.ig", "serve.ig", "types.ig"]
         .iter()
@@ -217,7 +217,7 @@ async fn test_machine_fleet_sweep() {
         ("vector_editor", "RunCanvasClickDemo"),
         ("web_router", "RunArticle"),
     ];
-    let apps_base = concat!(env!("CARGO_MANIFEST_DIR"), "/../apps/igniter-apps");
+    let apps_base = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fleet_apps");
     let mut failures: Vec<String> = Vec::new();
     let mut ok = 0;
     for (app, entry) in apps {
