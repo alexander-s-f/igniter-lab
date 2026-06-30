@@ -3,7 +3,9 @@
 A container image for ECS / EC2 / Kubernetes-style environments. Build it with **Docker only** (no Rust on
 the host) — the `Dockerfile` is a multi-stage build (Rust builder → slim Debian runtime).
 
-This is a **lab** artifact. Loopback/private by default, auth off, no TLS — not a production surface.
+This is a **preview** image for local/private evaluation. It is loopback/private
+by default, auth is off, and TLS is not bundled into the image; put it behind
+your normal private-network controls while evaluating it.
 
 ## Build + run (quickstart)
 

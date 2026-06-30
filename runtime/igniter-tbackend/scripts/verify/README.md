@@ -1,6 +1,6 @@
 # TBackend verification scripts
 
-Focused lab proofs live here so the package root stays readable.
+Focused verification checks live here so the package root stays readable.
 
 Run from the package root:
 
@@ -14,10 +14,10 @@ Useful groups:
 
 ```bash
 make test          # Rust unit tests
-make verify-auth   # auth/storage/bootstrap proof
-make verify-core   # compact Rust + auth proof
+make verify-auth   # auth/storage/bootstrap check
+make verify-core   # compact Rust + auth check
 ```
 
 Most scripts start a temporary loopback daemon, write ignored `*_data` and
-`*_daemon.log` paths, then clean up after themselves. They are proof harnesses,
-not public product commands.
+`*_daemon.log` paths, then clean up after themselves. They are maintainer checks,
+not the team quickstart path.

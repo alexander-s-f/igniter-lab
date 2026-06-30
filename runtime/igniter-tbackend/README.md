@@ -1,22 +1,21 @@
 # Igniter TBackend
 
-TBackend is the Rust temporal ledger substrate used by Igniter Lab and Home Lab
-for append-only fact storage, temporal lookups, audit/replay, and
-Spark-shaped shadow systems.
+TBackend is a small Rust temporal-ledger daemon for append-only fact storage,
+point-in-time lookups, audit/replay, and Spark-shaped shadow systems.
 
 Current status:
 
 ```text
-implemented lab substrate
-  -> shadow-ready candidate for Spark-shaped side-ledger work
-  -> preview packaging in progress
-  -> production authority only after convergence gates
+implemented core
+  -> ready for local/team preview
+  -> intended first use: Spark-shaped shadow side ledger
+  -> source-of-truth promotion only after convergence evidence
 ```
 
-It is **not** an Igniter Lang canonical runtime component, not Reference
-Runtime support, and not a public/stable wire API promise. Those are governance
-claims. It is legitimate infrastructure for bounded shadow/admission
-experiments where the existing application database remains source of truth.
+In plain terms: it is ready to try as a bounded side ledger next to an existing
+application database. It is not asking to replace that database on day one. For
+now the existing app stays authoritative; TBackend records history, lineage, and
+point-in-time evidence beside it.
 
 ## Start Here
 
@@ -66,7 +65,7 @@ docs/                 Operator, architecture, Docker, and team-facing docs
 examples/             Small runnable examples
 packaging/            Debian/systemd configs and macOS bundle payload files
 scripts/build-*.sh    Build/package helpers
-scripts/verify/       Focused lab proof harnesses
+scripts/verify/       Focused verification scripts
 scripts/dev/          Legacy/local Ruby dev utilities
 docs/assets/          Images and diagrams
 ```
@@ -87,7 +86,7 @@ make test
 make verify-auth
 ```
 
-Focused proof scripts:
+Focused verification scripts:
 
 ```bash
 ruby scripts/verify/verify_auth.rb
@@ -98,15 +97,15 @@ python3 scripts/verify/verify_compaction_loss.py
 ruby scripts/verify/verify_mcp.rb
 ```
 
-Most proof scripts start temporary loopback daemons, write ignored `*_data` and
-`*_daemon.log` paths, and clean up after themselves. They are lab proofs, not
-stable product commands.
+Most verification scripts start temporary loopback daemons, write ignored
+`*_data` and `*_daemon.log` paths, and clean up after themselves. They are for
+maintainers and CI-style checks; the human quickstart paths are listed above.
 
-## Boundary
+## Current fit
 
-Allowed today:
+Good fits today:
 
-- local lab daemons;
+- local development daemons;
 - Home Lab services;
 - synthetic Rails mirrors;
 - Spark-shaped side ledgers;
@@ -114,11 +113,10 @@ Allowed today:
 - audit/explainability packets;
 - non-authoritative replay evidence.
 
-Not implied:
+Not the right first use:
 
 - public database/service support;
-- production source-of-truth authority;
-- canonical Igniter Lang runtime authority;
+- immediate production source-of-truth role;
 - stable wire/API/layout guarantees;
 - public MCP/auth/mesh/pipeline service guarantees.
 

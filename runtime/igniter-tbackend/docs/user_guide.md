@@ -1,21 +1,21 @@
 # TBackend User Guide & Quick Start
 
 This guide records operator examples for TBackend: a standalone temporal
-ledger and reactive pipeline substrate used by Igniter Lab proofs and
-Spark-shaped shadow systems.
+ledger daemon for shadow side-ledgers, point-in-time reads, audit, replay, and
+selected reactive workflows.
 
 Current status:
 
 ```text
-implemented lab substrate
-  -> shadow-ready candidate for side-ledger work
-  -> production promotion only after convergence gates
+implemented core
+  -> ready for local/team preview
+  -> intended first use: side-ledger / shadow mirror
+  -> source-of-truth promotion only after convergence evidence
 ```
 
-This is not public service documentation and does not promise stable API,
-production authority, or performance behavior. It **does** document a legitimate
-local daemon/client seam for bounded shadow deployments where the main
-application remains authoritative.
+This is preview documentation for the local daemon/client seam. It is meant for
+bounded shadow deployments where the main application remains authoritative
+while TBackend records history and replay evidence beside it.
 
 ---
 
@@ -104,7 +104,12 @@ Writes a bitemporal fact to a dynamic store.
 
 ### A2. Idempotent Durable Write (`write_fact_once`) — recommended
 
-The durable, idempotent write path (prefer this over `write_fact` for any ledger/shadow use). The server **stamps a canonical Blake3 `value_hash`** and **assigns a per-store monotonic `seq_id`** (the ordering authority), then dedups by `(store, id)`. Derive a **stable, domain-deterministic `id`** (e.g. `store:record_id:event_type:source_version`) so a retry re-sends the same id and collapses to a replay instead of a duplicate. **Never put wall-clock in the id** — it breaks idempotency.
+The durable, idempotent write path (prefer this over `write_fact` for any
+ledger/shadow use). The server stamps the content hash and assigns a per-store
+monotonic `seq_id`, then dedups by `(store, id)`. Derive a stable,
+domain-deterministic `id` (e.g. `store:record_id:event_type:source_version`) so
+a retry re-sends the same id and collapses to a replay instead of a duplicate.
+Avoid wall-clock values in the id; they make each retry look like a new event.
 
 ```json
 {
@@ -131,7 +136,9 @@ Response:
 
 ### A3. Clock-Free Ordered Read (`facts_by_seq`)
 
-Reads facts in **server `seq_id` order** (the ordering authority), independent of wall-clock — correct under backfills, corrections, and replays. Use this for replay/audit instead of ordering by `transaction_time`.
+Reads facts in **server `seq_id` order**, independent of wall-clock — correct
+under backfills, corrections, and replays. Use this for replay/audit instead of
+ordering by `transaction_time`.
 ```json
 { "op": "facts_by_seq", "store": "availability", "after_seq": 0, "until_seq": null }
 ```
@@ -292,7 +299,7 @@ Execute complex business rules dynamically without GVL blocking inside your core
 ### Use Case D: Edge Swarms & Distributed Synchronization (RPi5 / ESP32)
 Deploy standalone lightweight TBackend binaries to independent IoT devices:
 1.  Configure the node peers list using the `--peers 192.168.1.50:7401,192.168.1.51:7401` flag.
-2.  Devices gossip, exchange state vectors, and replicate missing WAL timelines. **Caveat (current):** gossip replication still pulls by client `transaction_time`, so under cross-node **clock skew it can silently drop writes** — the seq-watermark fix (`LAB-TBACKEND-MESH-SEQ-WATERMARK-P13`) is designed but **not yet wired**. Treat the multi-node mesh as **readiness-stage**, not production-convergent, until it lands.
+2.  Devices gossip, exchange state vectors, and replicate missing WAL timelines. **Current caveat:** gossip replication still pulls by client `transaction_time`, so cross-node clock skew can miss writes. Keep the multi-node mesh in evaluation mode until the seq-watermark path (`LAB-TBACKEND-MESH-SEQ-WATERMARK-P13`) lands; single-node side-ledger usage is the recommended preview path.
 
 ### Use Case E: Secure Multi-Tenant Ledger Isolation (SparkCRM Migration)
 Securely isolate sensitive business ledgers and restrict client access on shared infrastructure:

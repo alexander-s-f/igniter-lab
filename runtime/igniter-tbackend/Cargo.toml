@@ -1,7 +1,7 @@
 [package]
 # Historical crate/package name kept for compatibility with existing Rust and
 # Ruby FFI callers. The user-facing daemon is `tbackend`; current docs should
-# treat it as an implemented lab substrate / shadow-ready candidate. A future
+# treat it as an implemented preview daemon / shadow-ready candidate. A future
 # crate rename is a separate compatibility card.
 name = "igniter_tbackend_playground"
 version = "0.1.0"

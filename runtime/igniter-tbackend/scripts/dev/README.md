@@ -1,7 +1,7 @@
 # TBackend developer utilities
 
-Legacy and local-development Ruby helpers live here. They are intentionally not
-the preview install path.
+Local-development Ruby helpers live here. They are useful for contributors, but
+the preview install paths below are the friendlier team entrypoints.
 
 Primary preview paths:
 

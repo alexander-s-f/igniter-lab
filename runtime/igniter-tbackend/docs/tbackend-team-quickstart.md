@@ -4,9 +4,10 @@
 *fact*, so you can ask "what did we know at time T?" and "why?" and replay it. You talk to it over a
 loopback TCP wire (framed JSON). It's pure Rust, loopback-only, no auth by default.
 
-**Why it matters / how to think about it:** it is a **side-ledger / shadow** for audit, replay,
-point-in-time, and explanation — **not** a source-of-truth switch. Your existing system (Postgres, etc.)
-stays authoritative; TBackend records the lineage next to it. Don't swap a database for it.
+**Why it matters / how to think about it:** it starts as a **side-ledger / shadow** for audit, replay,
+point-in-time, and explanation. Your existing system (Postgres, etc.) keeps doing the business write;
+TBackend records the lineage next to it. Promotion to source-of-truth is a later decision based on
+convergence and operational evidence.
 
 ## Pick your path
 
@@ -17,7 +18,8 @@ stays authoritative; TBackend records the lineage next to it. Don't swap a datab
 | **Linux host ops** | **`.deb`** package (arm64 today; amd64 soon) | no |
 | **contributor** | source build (`cargo build --release --bin tbackend`) | yes |
 
-Artifacts live in `igniter-home-lab/artifacts/tbackend/releases/<version>/` (current: `v0.1.0-lab.1`).
+Artifacts live in `igniter-home-lab/artifacts/tbackend/releases/<version>/` (current preview:
+`v0.1.0-lab.1`).
 
 ## 10-minute demo
 
@@ -53,19 +55,19 @@ plain UPDATE-in-place table can't give you cheaply:
 - **seq-ordered audit** — replay order is a server `seq_id`, immune to clock skew;
 - **lineage / why** — every fact carries who/when/why, so a decision is explainable a month later.
 
-## What it is NOT ready for (yet)
+## Current preview boundaries
 
 - **Public internet** — loopback / private only; no TLS/mTLS, auth off by default.
-- **Production source-of-truth** — it's a shadow side-ledger; promotion needs explicit gates.
-- **Multi-node mesh under clock skew** — gossip replication is readiness-stage; can drop writes under
-  skew. Single-node only for now.
+- **Production source-of-truth** — start as a shadow side-ledger; promote only after parity/runbook gates.
+- **Multi-node mesh under clock skew** — keep multi-node in evaluation mode until seq-watermark sync lands.
+  Single-node side-ledger is the recommended preview path.
 - **Live auth-storage upgrade** of a running service — documented but gated (operator approval).
 - **Cross-arch coverage** — `v0.1.0-lab.1` ships arm64 (deb + macOS bundle + docker) and arm64-local
   docker; amd64 / Intel-mac / a pushed registry image are pending.
 
 ## Artifacts & versioning
 
-- **Immutable version tags**, never `latest`. Channels: `lab` (proof) → `preview` (team eval) → `stable`.
+- **Immutable version tags**, never `latest`. Channels: `preview` (team eval) → `stable`.
 - Every release has a `manifest.json` (provenance + per-artifact `sha256`) and `SHA256SUMS`. **Verify before
   you run:** `sha256sum -c SHA256SUMS` (or `shasum -a 256 -c`).
 - Rules: `igniter-home-lab/artifacts/tbackend/releases/README.md`.

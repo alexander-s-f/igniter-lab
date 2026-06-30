@@ -25,8 +25,8 @@ read, clock-free audit order, lineage). See the comments in `examples/availabili
 - **Loopback only** (`127.0.0.1:7401`), **auth off** — this is a local dev bundle, not a server install.
 - Data is durable under `./var/data` (delete it to reset). Edit `config/tbackend.dev.json` to change the
   port / data dir / `auth_enabled` / `durability`.
-- This is a **lab** artifact — not a production/release surface. For the full story (architecture, the two
-  install tracks, deployment), see the source repo's `docs/` (`technical_architecture.md`, `user_guide.md`,
+- This is a **preview** artifact for local evaluation. For the full story (architecture, the two install
+  tracks, deployment), see the source repo's `docs/` (`technical_architecture.md`, `user_guide.md`,
   `example-usecase.md`, `deployment.md`).
 
 `manifest.json` records the exact version, git commit, and rustc this bundle was built from.

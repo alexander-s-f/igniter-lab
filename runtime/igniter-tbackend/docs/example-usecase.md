@@ -4,10 +4,10 @@ A small, self-contained example that shows **what TBackend gives you that a
 plain UPDATE-in-place table does not**. Runnable end to end against a local
 daemon. Code: [`examples/availability_ledger.py`](../examples/availability_ledger.py).
 
-This is lab/example material. The intended authority boundary is a **shadow
-side-ledger**: an existing system (Rails/Postgres) stays the source of truth and
-mirrors selected lifecycle facts here for audit, replay, and explainability (see
-`technical_architecture.md` §2 Promotion Ladder).
+The intended first deployment shape is a **shadow side-ledger**: an existing
+system (Rails/Postgres) stays the source of truth and mirrors selected lifecycle
+facts here for audit, replay, and explainability (see `technical_architecture.md`
+§2 Promotion Ladder).
 
 ## The domain
 
@@ -64,17 +64,17 @@ two coordinates: the heart of bitemporal time-travel.
   the same id, so `write_fact_once` collapses it to a replay. The `version` is a
   stable domain version (think `updated_at` / `lock_version`) — **never a
   wall-clock**, which would make every retry a new id and silently duplicate.
-- **`seq_id` is the ordering authority** (server-assigned, monotonic).
+- **`seq_id` is the replay order** (server-assigned, monotonic).
   `transaction_time` is *evidence* and `valid_time` is *domain time*; neither is
-  trusted for order. `facts_by_seq` reads in `seq_id` order, correct even when
+  used for order. `facts_by_seq` reads in `seq_id` order, correct even when
   facts arrived out of wall-clock order (backfills, corrections, replays).
 - **`durability:"durable"`** blocks until a group-commit `fdatasync` covers the
   write. The default `"accepted"` is page-cache (survives a process crash, not
   power loss) and is the right mode for a high-volume shadow path. On an
   ephemeral (no `--data-dir`) daemon, `durable` honestly downgrades to
   `in_memory` — it never claims a durability it didn't achieve.
-- **The server stamps a canonical Blake3 `value_hash`** — the client's hash is
-  not trusted, so content identity can't be poisoned.
+- **The server stamps the Blake3 `value_hash`** — clients do not need to supply
+  or trust their own hash for content identity.
 
 ## Anti-patterns the example deliberately avoids
 
@@ -84,9 +84,8 @@ two coordinates: the heart of bitemporal time-travel.
   `facts_by_seq` for replay/audit.
 - **Treating `accepted` as power-loss-durable** → it isn't. Ask for `durable`
   when you need on-device durability.
-- **Multi-node mesh under clock skew** → the gossip replication is readiness-
-  stage (still tt-keyed); don't rely on convergence yet (see
-  `technical_architecture.md` §D4).
+- **Multi-node mesh under clock skew** → keep it in evaluation mode until the
+  seq-watermark path lands (see `technical_architecture.md` §D4).
 
 ## Where this goes next
 

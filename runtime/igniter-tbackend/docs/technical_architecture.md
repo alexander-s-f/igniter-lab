@@ -1,32 +1,31 @@
 # TBackend Technical Architecture & Core Concepts Guide
 
 This document records architecture notes for TBackend: an implemented Rust
-temporal ledger substrate used in lab proofs and Spark-shaped shadow systems.
-It is a candidate backend for side-ledger, audit, replay, and explainability
-work. It is not, by itself, public runtime, database product, release,
-performance, certification, or portability authority.
+temporal-ledger daemon used for Spark-shaped shadow systems, audit, replay, and
+explainability work. It describes how the current preview works and which gates
+matter before deeper production use.
 
 Status language:
 
 ```text
-implemented lab substrate
-  -> shadow-ready candidate
-  -> production authority only after convergence + operator gate
+implemented core
+  -> ready for local/team preview
+  -> intended first use: shadow side ledger
+  -> source-of-truth promotion only after convergence + operator gate
 ```
 
-This distinction matters. TBackend should be used where the authority boundary
-is correct: shadow side-ledger, replay, point-in-time explanation, and parity
-evidence. SparkCRM or other production systems keep their existing source of
-truth until a separate promotion decision says otherwise.
+This distinction keeps adoption simple. Start with the low-risk fit: shadow
+side-ledger, replay, point-in-time explanation, and parity evidence. SparkCRM or
+other production systems keep their existing source of truth until a separate
+promotion decision says otherwise.
 
 ---
 
 ## 1. Technical Design Notes
 
 TBackend implements temporal ledger and reactive pipeline mechanisms for
-bounded lab and Home Lab workloads. The notes below describe mechanisms and
-candidate production gates; they do not make public performance or production
-claims:
+bounded local/team workloads. The notes below describe mechanisms and the
+evidence still needed for broader production roles:
 
 ```mermaid
 graph TD
@@ -58,7 +57,7 @@ graph TD
         .filter(|fact| fact.transaction_time <= as_of)
         .max_by(by_transaction_time)   // latest_for / query_scope
     ```
-    This is $O(N)$ in the version depth of a single key — correctness-first over wall-clock reads. **`seq_id` has since landed (LAB-TBACKEND-SEQID-PER-STORE-P9):** the server assigns a per-store monotonic `seq_id` at `write_fact_once` time (the **ordering authority**; `transaction_time` is demoted to evidence, `valid_time` is domain time). The new `facts_by_seq(store, after, until)` read is **clock-free** — filter + sort by `seq_id`, correct regardless of arrival order — and is the right read for replay/audit. tt-based reads (`latest_for`, windowed) keep the correctness-first scan; an `O(\log N)` `partition_point` over the seq-sorted path is a safe later optimization.
+    This is $O(N)$ in the version depth of a single key — correctness-first over wall-clock reads. **`seq_id` has since landed (LAB-TBACKEND-SEQID-PER-STORE-P9):** the server assigns a per-store monotonic `seq_id` at `write_fact_once` time (the replay order; `transaction_time` is evidence, `valid_time` is domain time). The new `facts_by_seq(store, after, until)` read is **clock-free** — filter + sort by `seq_id`, correct regardless of arrival order — and is the right read for replay/audit. tt-based reads (`latest_for`, windowed) keep the correctness-first scan; an `O(\log N)` `partition_point` over the seq-sorted path is a safe later optimization.
 
 ### C. P2P WAL Gossip Anti-Entropy Replication (`MeshClusterPack`)
 *   **The Problem**: Traditional master-slave replication introduces coordination and availability tradeoffs.
@@ -83,14 +82,14 @@ graph TD
 *   **No false durability.** Ephemeral mode downgrades `durable` to `in_memory` (never claims durable). An `fdatasync` failure fails the ack with `committed:false, retryable:true` — never a silent downgrade. CI proves the sync *path* via a `sync_count` seam; true power-loss survival is a separately gated hardware proof.
 *   **Closed (P12):** compaction's temp-WAL rename is now durable (`fsync(tmp) → rename → fsync(dir)`), resolving the earlier un-fsynced-rename gap (audit B4); compaction is safe-manual and still off by default (§D).
 
-### D3. Server-authority write core — canonical hash + write-once (LAB-TBACKEND-CANONICAL-HASH-P4 / SEQID-P9)
-The `write_fact_once` path is **server-authority** end to end:
-*   **Canonical content hash.** The server always recomputes `value_hash` as a canonical Blake3 over a key-order-independent serialization (`pure_core::canonical_value_hash`) and stamps it (`enforce_canonical_hash`); a `strict` mode rejects a disagreeing client hash (`value_hash_mismatch`). Clients cannot poison content identity — a correction over the earlier "client supplies `value_hash`" model. Client `transaction_time` is recorded as evidence only.
+### D3. Server-owned write core — content hash + write-once (LAB-TBACKEND-CANONICAL-HASH-P4 / SEQID-P9)
+The `write_fact_once` path is server-owned end to end:
+*   **Content hash.** The server always recomputes `value_hash` as a Blake3 over a key-order-independent serialization (`pure_core::canonical_value_hash`) and stamps it (`enforce_canonical_hash`); a `strict` mode rejects a disagreeing client hash (`value_hash_mismatch`). Clients cannot poison content identity — a correction over the earlier "client supplies `value_hash`" model. Client `transaction_time` is recorded as evidence only.
 *   **Write-once dedup.** `push_once` dedups by `(store, id)`: an identical re-send (same id + canonical hash + value) returns `Replay` with the **original** `seq_id`; a same-id / different-content write returns `Conflict` (`duplicate_fact_id_conflict`, not retryable). Idempotent retries converge instead of duplicating — **provided the caller derives a stable, domain-deterministic `id`** (wall-clock in the id breaks idempotency; use a domain version such as `updated_at` / `lock_version`).
 
 ### D4. Current status & known gaps (verify-first, 2026-06-29)
 Honest state so readers don't infer more than the code delivers (full audit: `igniter-home-lab/cards/LAB-TBACKEND-CORE-FOUNDATION-AUDIT-P1.md`):
-*   ✅ **Closed:** server `seq_id` ordering authority (§B), canonical-hash authority (§D3), durable group-commit ack (§D2), safe manual compaction (§D), domain-deterministic idempotent write (§D3).
+*   ✅ **Closed:** server `seq_id` replay order (§B), server-stamped content hash (§D3), durable group-commit ack (§D2), safe manual compaction (§D), domain-deterministic idempotent write (§D3).
 *   ⚠ **Mesh gossip is readiness-design, not wired:** `mesh_cluster.rs` still pulls by client `transaction_time`, so cross-node **clock skew can silently drop writes** (seq-watermark fix `LAB-TBACKEND-MESH-SEQ-WATERMARK-P13` is designed, not yet in code). Do not rely on multi-node convergence under skew.
 *   ⚠ **WAL recovery is silent on mid-file corruption:** `replay_pure` stops at the first bad record with no count / quarantine. Lower probability now (durable fsync ⇒ fewer torn tails), but a mid-file corruption truncates everything after, silently.
 *   ⚠ **Two cores:** the daemon (`pure_core`, the product) is internally coherent; the opt-in FFI path (`fact.rs`, `--features ffi`) still defines a divergent `FactData` without `seq_id` — collapse pending.
@@ -116,10 +115,10 @@ Use this ladder when deciding whether TBackend belongs in a system:
 
 | Stage | Meaning | Allowed usage |
 | --- | --- | --- |
-| Lab proof | Synthetic or local proof, no business authority | feature and protocol exploration |
+| Local proof | Synthetic or local proof, no business authority | feature and protocol exploration |
 | Shadow side-ledger | Existing system remains source of truth; TBackend mirrors and explains | Spark-shaped availability audit, point-in-time replay, parity packets |
 | Candidate production dependency | TBackend is on the critical path but still behind fallback/reconcile gates | only after shadow convergence + runbook + rollback |
-| Production authority | TBackend is a source of truth for a bounded domain | explicit operator/business gate, not implied by this repo |
+| Source-of-truth role | TBackend is a source of truth for a bounded domain | explicit operator/business gate, not implied by this repo |
 
 For Spark availability, the current desired status is **shadow side-ledger**.
 Rails/Postgres remains authoritative; TBackend records lineage, replay, and
