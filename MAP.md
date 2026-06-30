@@ -15,7 +15,8 @@ Navigation only, ~1 screen. Cross-repo master: `igniter-gov/MAP.md`.
 
 | category | path |
 |---|---|
-| **Implemented surface (per crate)** | `<umbrella>/<crate>/IMPLEMENTED_SURFACE.md` — verify-first answer (pilot: `lang/igniter-vm/`) |
+| **Implemented surface (per crate)** | root/package `IMPLEMENTED_SURFACE.md` — verify-first answer (pilot: `igniter-vm/`, `igniter-machine/`) |
+| **Core crates** | `igniter-compiler/`, `igniter-stdlib/`, `igniter-vm/`, `igniter-machine/`, `igniter-tbackend/` |
 | **Domain umbrellas** | `lang/`, `runtime/`, `server/`, `frame-ui/`, `ide/`, `apps/`, `archive/` |
 | **Search protocol** | `SEARCH.md` + `.rgignore` (active-first firewall) |
 | **Lab status board** | `lab-docs/STATUS.md` ← live |
@@ -36,4 +37,4 @@ Navigation only, ~1 screen. Cross-repo master: `igniter-gov/MAP.md`.
 - **Doc segmentation:** `igniter-gov/docs/doc-segmentation-standard.md`
 - **Canon spec/covenant:** `igniter-lang/MAP.md`
 
-**Maintained:** 2026-06-19 · update via `igniter-gov/cards/map-maintenance.md`.
+**Maintained:** 2026-06-30 · update via `igniter-gov/cards/map-maintenance.md`.

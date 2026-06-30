@@ -3,7 +3,7 @@
 -- Proves the LANGUAGE/APP side of relational contracts recommended by
 -- `lab-igniter-relational-contracts-readiness-p1-v0.md`: ordinary `.ig` contracts express relational
 -- intent as STRUCTURED VALUES the host would execute — a `QueryPlan` record for reads, a `WriteIntent`
--- record for writes — mirroring the live machine boundary (`runtime/igniter-machine/src/postgres_read.rs`
+-- record for writes — mirroring the live machine boundary (`igniter-machine/src/postgres_read.rs`
 -- `QueryPlan`, `postgres_write.rs` `PostgresWriteIntent`). Records are built via the `MakeXxx` factory
 -- pattern (inline/array record literals infer to Unknown in the Rust TC — same convention as the proven
 -- `query_engine` app). NO SQL, NO connection, NO ORM: relations are CONTRACTS, not lazy row fields; the

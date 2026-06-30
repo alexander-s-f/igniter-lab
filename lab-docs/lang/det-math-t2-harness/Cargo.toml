@@ -6,7 +6,7 @@ publish = false
 
 # LAB-STDLIB-DET-MATH-T2-THIRD-ISA-P4: third-ISA (riscv64 via qemu) determinism evidence harness.
 # Deps mirror the VM's deterministic-math surface EXACTLY: libm pinned to =0.2.16 (the same pin as
-# `lang/igniter-vm/Cargo.toml`); det_sqrt uses std IEEE-754 `f64::sqrt`. No other dependency, so the
+# `igniter-vm/Cargo.toml`); det_sqrt uses std IEEE-754 `f64::sqrt`. No other dependency, so the
 # crate cross-compiles to riscv64gc-unknown-linux-musl as a self-contained static binary.
 [dependencies]
 libm = "=0.2.16"

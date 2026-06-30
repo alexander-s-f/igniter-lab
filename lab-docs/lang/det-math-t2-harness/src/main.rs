@@ -1,9 +1,9 @@
 // LAB-STDLIB-DET-MATH-T2-THIRD-ISA-P4 — deterministic-math golden harness.
 //
-// Recomputes the EXACT det_* surface the VM uses (`lang/igniter-vm/src/vm.rs::eval_math_call`) with the
+// Recomputes the EXACT det_* surface the VM uses (`igniter-vm/src/vm.rs::eval_math_call`) with the
 // SAME backing functions — libm 0.2.16 for sin/cos/tan/ln/exp, IEEE-754 `f64::sqrt` for sqrt — and compares
 // the resulting f64 BIT PATTERNS to the checked-in golden vectors
-// (`lang/igniter-vm/tests/stdlib_math_det_tests.rs::golden_vectors_exact_bits`).
+// (`igniter-vm/tests/stdlib_math_det_tests.rs::golden_vectors_exact_bits`).
 //
 // The point of this standalone crate is portability: with only `libm` as a dependency it cross-compiles to a
 // self-contained static riscv64 binary, so the same golden set can be evaluated on a THIRD ISA (riscv64,

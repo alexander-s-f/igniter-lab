@@ -8,7 +8,7 @@ Surface refresh: **2026-06-27** doc/source grep for Postgres read/write status, 
 typed Decimal read value kind, fake-vs-real adapters, idempotency, DSN safety, host policy,
 signed passport data-plane entrypoints, MCP auth/checkpoint sandboxing, and fleet status.
 Fleet recheck: **2026-06-27 OK** —
-`cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`
+`cargo test --manifest-path igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`
 is **13/13 OK**. The prior 2026-06-24 HOLD for `batch_importer` and `web_router` is closed;
 do not cite the old 11/13 status as current.
 
@@ -159,7 +159,7 @@ do not cite the old 11/13 status as current.
   audit_ledger, batch_importer, call_router, erp_logistics, igniter_parser, job_runner,
   lead_router, query_engine, reconciler, vector_editor, web_router). Current live recheck
   2026-06-27 is **13/13 OK** via
-  `cargo test --manifest-path runtime/igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`.
+  `cargo test --manifest-path igniter-machine/Cargo.toml --test machine_tests test_machine_fleet_sweep -- --nocapture`.
   This is a finite zero-input fleet proof, not a claim of dynamic dispatch or public language
   completeness.
 - `tests/capability_io_tests.rs` (13) — **production capability IO boundary**: receipt-as-fact,

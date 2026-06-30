@@ -7,8 +7,8 @@ the repo for what exists.
 
 "Is X implemented?" →
 1. Check the package's **`IMPLEMENTED_SURFACE.md`** when it has one (e.g.
-   `lang/igniter-vm/IMPLEMENTED_SURFACE.md` or
-   `runtime/igniter-machine/IMPLEMENTED_SURFACE.md`).
+   `igniter-vm/IMPLEMENTED_SURFACE.md` or
+   `igniter-machine/IMPLEMENTED_SURFACE.md`).
 2. **Grep the live source** (`src/**`).
 3. Only then trust any doc's "not implemented / deferred / blocked" claim.
 

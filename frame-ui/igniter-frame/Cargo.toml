@@ -13,7 +13,7 @@ serde = "1.0"
 serde_json = "1.0"
 blake3 = "1.5"
 async-trait = "0.1"
-igniter_machine = { path = "../../runtime/igniter-machine", default-features = false, optional = true }
+igniter_machine = { path = "../../igniter-machine", default-features = false, optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 
 [features]

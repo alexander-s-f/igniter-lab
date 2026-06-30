@@ -36,7 +36,7 @@
 | Location | Disposition |
 |---|---|
 | `igniter-lab/frame-ui/igniter-view-engine/` (this dir) | **`KEEP_LIVE`** |
-| `igniter-lab/lang/igniter-compiler/igniter-view-engine/` | `DELETE_CANDIDATE` — under a later hygiene card (0 files, no referrers) |
+| `igniter-lab/igniter-compiler/igniter-view-engine/` | `DELETE_CANDIDATE` — under a later hygiene card (0 files, no referrers) |
 | workspace sibling `../igniter-view-engine/` | `ARCHIVE_CANDIDATE` — after a later human/archive decision (IDE reads this copy, not the sibling) |
 
 ## 5. References

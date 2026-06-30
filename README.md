@@ -13,13 +13,19 @@ accepts them.
 
 ## Workspace Map
 
-The lab is grouped by flat domain umbrellas. Crates remain standalone unless a
-later workspace-root card changes that; run checks from each package directory.
+The lab now keeps core Rust crates as flat root-level packages so mirror
+checkouts can live as siblings without rewriting path dependencies. Crates
+remain standalone; run checks from each package directory.
 
 | Umbrella | Stack | Role |
 | --- | --- | --- |
-| [`lang/`](./lang/) | Rust / docs | Experimental compiler, VM, stdlib, and language research. |
-| [`runtime/`](./runtime/) | Rust / Ruby | Machine runtime, temporal backend, and runtime/storage adapters. |
+| [`igniter-compiler/`](./igniter-compiler/) | Rust | Lab compiler evidence and CLI. |
+| [`igniter-stdlib/`](./igniter-stdlib/) | Rust / `.ig` | Lab stdlib evidence and stdlib sources. |
+| [`igniter-vm/`](./igniter-vm/) | Rust | Lab VM/runtime evidence. |
+| [`igniter-machine/`](./igniter-machine/) | Rust | Machine runtime, host IO, effects, receipts, and service substrate evidence. |
+| [`igniter-tbackend/`](./igniter-tbackend/) | Rust | Temporal backend / ledger substrate evidence. |
+| [`lang/`](./lang/) | docs | Language research that is not one of the flat core crates. |
+| [`runtime/`](./runtime/) | Ruby | Runtime/storage adapters such as `acts-as-tbackend`. |
 | [`server/`](./server/) | Rust | `igniter-server`, `igniter-web`, IgWeb runner, and server/app protocol work. |
 | [`frame-ui/`](./frame-ui/) | Rust / JS / Ruby / assets | Frame runtime, UI kit, console, 3D/GUI proofs, design-system sketches, and live view-engine IDE backend. |
 | [`ide/`](./ide/) | Kotlin / Svelte / Tauri | JetBrains plugin and lab IDE. |
@@ -33,7 +39,7 @@ later workspace-root card changes that; run checks from each package directory.
 
 Install the toolchains needed for the package you are working on:
 
-- Rust and Cargo for `lang/*`, `runtime/*`, `server/*`, and `frame-ui/*` Rust
+- Rust and Cargo for root core crates, `server/*`, and `frame-ui/*` Rust
   packages.
 - Ruby 3.x for proof runners and runtime playgrounds.
 - Node.js and npm for `ide/igniter-ide` and browser-facing view experiments.
@@ -41,9 +47,9 @@ Install the toolchains needed for the package you are working on:
 Common local checks:
 
 ```bash
-(cd lang/igniter-compiler && cargo test)
+(cd igniter-compiler && cargo test)
 ruby frame-ui/igniter-gui-engine/run_proof.rb
-ruby lang/igniter-stdlib/proofs/experimental_io_stdlib_candidate_proof.rb
+ruby igniter-stdlib/proofs/experimental_io_stdlib_candidate_proof.rb
 ```
 
 IDE development:
@@ -57,7 +63,7 @@ npm run tauri dev
 Rust package checks are package-local, for example:
 
 ```bash
-cd lang/igniter-compiler
+cd igniter-compiler
 cargo test
 ```
 

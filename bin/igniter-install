@@ -69,11 +69,11 @@ fi
 mkdir -p "$BIN_DIR"
 
 # fleet rows: install-name | crate-dir (rel) | cargo bin target | built artifact filename
-FLEET="igc|lang/igniter-compiler|igniter_compiler|igniter_compiler
-igniter-vm|lang/igniter-vm|igniter-vm|igniter-vm
+FLEET="igc|igniter-compiler|igniter_compiler|igniter_compiler
+igniter-vm|igniter-vm|igniter-vm|igniter-vm
 igweb-serve|server/igniter-web|igweb-serve|igweb-serve
-igniter-mcp|runtime/igniter-machine|igniter-mcp|igniter-mcp
-tbackend|runtime/igniter-tbackend|tbackend|tbackend"
+igniter-mcp|igniter-machine|igniter-mcp|igniter-mcp
+tbackend|igniter-tbackend|tbackend|tbackend"
 
 # ── build + stage ─────────────────────────────────────────────────────────────────────────────────
 declare -a MANIFEST_BINS=()
@@ -97,8 +97,8 @@ REPL_INSTALLED=false
 REPL_SHA=""
 if [[ "$WITH_REPL" == 1 ]]; then
   echo "$PROG: building optional igniter-repl (cargo build --release --bin igniter-repl --features repl)…"
-  ( cd "$REPO_ROOT/runtime/igniter-machine" && cargo build --release --bin igniter-repl --features repl ) >&2
-  rsrc="$REPO_ROOT/runtime/igniter-machine/target/release/igniter-repl"
+  ( cd "$REPO_ROOT/igniter-machine" && cargo build --release --bin igniter-repl --features repl ) >&2
+  rsrc="$REPO_ROOT/igniter-machine/target/release/igniter-repl"
   if [[ ! -x "$rsrc" ]]; then echo "$PROG: expected igniter-repl artifact missing: $rsrc" >&2; exit 1; fi
   cp -f "$rsrc" "$BIN_DIR/igniter-repl"
   chmod +x "$BIN_DIR/igniter-repl"

@@ -327,7 +327,7 @@ fn default_compiler_path() -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let candidates = [
         cwd.join("../igniter-compiler/target/debug/igniter_compiler"),
-        cwd.join("lang/igniter-compiler/target/debug/igniter_compiler"),
+        cwd.join("igniter-compiler/target/debug/igniter_compiler"),
     ];
     candidates
         .iter()

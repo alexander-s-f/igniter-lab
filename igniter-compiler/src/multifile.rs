@@ -533,7 +533,7 @@ fn sha256(value: &str) -> String {
 }
 
 fn stdlib_module_table() -> HashMap<String, Vec<String>> {
-    const JSON_STR: &str = include_str!("../../../../igniter-lang/docs/spec/stdlib-inventory.json");
+    const JSON_STR: &str = include_str!("../../../igniter-lang/docs/spec/stdlib-inventory.json");
     let inventory: serde_json::Value =
         serde_json::from_str(JSON_STR).unwrap_or_else(|_| json!({"entries": []}));
     let mut table: HashMap<String, Vec<String>> = HashMap::new();

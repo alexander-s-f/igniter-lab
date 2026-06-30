@@ -134,7 +134,7 @@ The `.ig` view/reducer loop is now proven past the old selected-state blocker:
 
 Current live boundary:
 
-- VM equality is implemented for the frame-view path. `lang/igniter-vm/IMPLEMENTED_SURFACE.md`
+- VM equality is implemented for the frame-view path. `igniter-vm/IMPLEMENTED_SURFACE.md`
   lists `==` / `OP_EQ`; the operator is emitted as SIR `binary_op op:"=="`, not as a runtime
   `stdlib.primitive.eq` call.
 - Selected-state is authored by the `.ig` view as `selected : Bool`; `ig_bridge` reads that field

@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 /// The canon stdlib inventory, embedded at build time (same source as `multifile.rs`).
-const INVENTORY_JSON: &str = include_str!("../../../../igniter-lang/docs/spec/stdlib-inventory.json");
+const INVENTORY_JSON: &str = include_str!("../../../igniter-lang/docs/spec/stdlib-inventory.json");
 
 /// Parse the embedded inventory. Returns `Value::Null` only if the embedded file is unparseable
 /// (a build-time invariant; never expected at runtime).

@@ -148,7 +148,7 @@ resolve_igc() {
   if [[ -n "${IGNITER_IGC_BIN:-}" ]]; then printf '%s' "$IGNITER_IGC_BIN"; return 0; fi
   if [[ -x "$SCRIPT_DIR/igc" ]]; then printf '%s' "$SCRIPT_DIR/igc"; return 0; fi
   local p
-  if p="$(probe_built lang/igniter-compiler igniter_compiler)"; then printf '%s' "$p"; return 0; fi
+  if p="$(probe_built igniter-compiler igniter_compiler)"; then printf '%s' "$p"; return 0; fi
   return 1
 }
 
@@ -313,17 +313,17 @@ cmd_doctor() {
     elif path="$(probe_built "$crate" "$artifact")"; then doc_emit toolchain "$label" ok "$path (repo build)" ""
     else doc_emit toolchain "$label" warn "not built" "igniter-install  (or: cd $crate && $build)"; fi
   done <<EOF
-igc|lang/igniter-compiler|igniter_compiler|cargo build --release
-igniter-vm|lang/igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
+igc|igniter-compiler|igniter_compiler|cargo build --release
+igniter-vm|igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
 igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-serve
-igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
-tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend
+igniter-mcp|igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
+tbackend|igniter-tbackend|tbackend|cargo build --release --bin tbackend
 EOF
   # optional igniter-repl: ok/present when staged or built in repo target; else info/optional.
   local repl_doc_path
   if [[ -x "$SCRIPT_DIR/igniter-repl" ]]; then
     doc_emit toolchain igniter-repl ok "$SCRIPT_DIR/igniter-repl (optional, staged)" ""
-  elif repl_doc_path="$(probe_built runtime/igniter-machine igniter-repl)"; then
+  elif repl_doc_path="$(probe_built igniter-machine igniter-repl)"; then
     doc_emit toolchain igniter-repl ok "$repl_doc_path (optional, repo build)" ""
   else
     doc_emit toolchain igniter-repl info "optional — opt-in via 'install --with-repl' (or --features repl); not in the default v0 fleet (P17/P21)" ""
@@ -388,11 +388,11 @@ toolchain_report() {
   local indent="${1:-}"
   # rows: label | crate-dir (rel) | artifact | build command
   # NOTE: igniter_compiler self-names `igc`; artifact file is `igniter_compiler` (P1/P3 name caveat).
-  local rows="igc|lang/igniter-compiler|igniter_compiler|cargo build --release
-igniter-vm|lang/igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
+  local rows="igc|igniter-compiler|igniter_compiler|cargo build --release
+igniter-vm|igniter-vm|igniter-vm|cargo build --release --bin igniter-vm
 igweb-serve|server/igniter-web|igweb-serve|cargo build --release --bin igweb-serve
-igniter-mcp|runtime/igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
-tbackend|runtime/igniter-tbackend|tbackend|cargo build --release --bin tbackend"
+igniter-mcp|igniter-machine|igniter-mcp|cargo build --release --bin igniter-mcp
+tbackend|igniter-tbackend|tbackend|cargo build --release --bin tbackend"
   local label crate artifact build path
   while IFS='|' read -r label crate artifact build; do
     [[ -z "$label" ]] && continue
@@ -413,7 +413,7 @@ EOF
   local repl_path
   if [[ -x "$SCRIPT_DIR/igniter-repl" ]]; then
     echo "${indent}[present] igniter-repl → $SCRIPT_DIR/igniter-repl (optional, staged)"
-  elif repl_path="$(probe_built runtime/igniter-machine igniter-repl)"; then
+  elif repl_path="$(probe_built igniter-machine igniter-repl)"; then
     echo "${indent}[present] igniter-repl → $repl_path (optional, repo build)"
   else
     echo "${indent}[optional] igniter-repl — opt-in via 'install --with-repl' (or --features repl); not in the default v0 fleet (P17/P21)"
@@ -576,7 +576,7 @@ cmd_package() {
   local bin
   if ! bin="$(resolve_igc)" || [[ ! -x "$bin" ]]; then
     echo "$PROG: igc (the package authority) is not built/staged${bin:+ at: $bin}." >&2
-    echo "  → build it:   (cd lang/igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
+    echo "  → build it:   (cd igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
     echo "  → or install: bin/igniter-install                                    # stages a co-located 'igc'" >&2
     echo "  → or point:   IGNITER_IGC_BIN=/path/to/igc" >&2
     exit 1
@@ -614,7 +614,7 @@ exec_igc_or_die() {
   local bin
   if ! bin="$(resolve_igc)" || [[ ! -x "$bin" ]]; then
     echo "$PROG: igc (the $label authority) is not built/staged${bin:+ at: $bin}." >&2
-    echo "  → build it:   (cd lang/igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
+    echo "  → build it:   (cd igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
     echo "  → or install: bin/igniter-install                                    # stages a co-located 'igc'" >&2
     echo "  → or point:   IGNITER_IGC_BIN=/path/to/igc" >&2
     exit 1

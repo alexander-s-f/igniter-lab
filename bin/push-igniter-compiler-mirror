@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Push lang/igniter-compiler as a clean subtree mirror.
+# Push igniter-compiler as a clean subtree mirror.
 #
-# This is a monorepo-owner helper. Keep it outside lang/igniter-compiler so it
+# This is a monorepo-owner helper. Keep it outside igniter-compiler so it
 # does not appear inside the team-facing mirror repository.
 
 set -euo pipefail
 
-PREFIX="lang/igniter-compiler"
+PREFIX="igniter-compiler"
 REMOTE="${IGNITER_COMPILER_REMOTE:-igniter-compiler}"
 REMOTE_BRANCH="${IGNITER_COMPILER_REMOTE_BRANCH:-main}"
 SPLIT_BRANCH="${IGNITER_COMPILER_SPLIT_BRANCH:-igniter-compiler-main}"

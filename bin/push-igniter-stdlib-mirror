@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Push lang/igniter-stdlib as a clean subtree mirror.
+# Push igniter-stdlib as a clean subtree mirror.
 #
-# This is a monorepo-owner helper. Keep it outside lang/igniter-stdlib so it
+# This is a monorepo-owner helper. Keep it outside igniter-stdlib so it
 # does not appear inside the team-facing mirror repository.
 
 set -euo pipefail
 
-PREFIX="lang/igniter-stdlib"
+PREFIX="igniter-stdlib"
 REMOTE="${IGNITER_STDLIB_REMOTE:-igniter-stdlib}"
 REMOTE_BRANCH="${IGNITER_STDLIB_REMOTE_BRANCH:-main}"
 SPLIT_BRANCH="${IGNITER_STDLIB_SPLIT_BRANCH:-igniter-stdlib-main}"

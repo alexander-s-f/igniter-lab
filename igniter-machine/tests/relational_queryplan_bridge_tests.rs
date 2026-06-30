@@ -1,6 +1,6 @@
 //! LAB-IGNITER-RELATIONAL-QUERYPLAN-BRIDGE-P3 — `.ig` relational QueryPlan → fake Postgres read executor.
 //!
-//! Bridges the P2 language shape (`lang/igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig`,
+//! Bridges the P2 language shape (`igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig`,
 //! a pure `.ig` `QueryPlan` mirror type) to the EXISTING fake `PostgresReadExecutor`, with NO live DB, NO
 //! `postgres` feature, NO SQL. Proof shape **B (host-side mirror)**: executing compiled `.ig` from a
 //! machine test would need the compiler crate + `.igapp` load + VM dispatch + value extraction — not a
@@ -23,7 +23,7 @@ const CAP: &str = "IO.PostgresRead";
 
 /// The P2 relational fixture — the source of truth for the `.ig` `QueryPlan` shape this card bridges.
 const P2_FIXTURE: &str = include_str!(
-    "../../../lang/igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig"
+    "../../igniter-compiler/tests/fixtures/relational_todo/relational_todo.ig"
 );
 
 fn rt() -> tokio::runtime::Runtime {

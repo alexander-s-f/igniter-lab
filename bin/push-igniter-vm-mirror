@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Push lang/igniter-vm as a clean subtree mirror.
+# Push igniter-vm as a clean subtree mirror.
 #
-# This is a monorepo-owner helper. Keep it outside lang/igniter-vm so it does
+# This is a monorepo-owner helper. Keep it outside igniter-vm so it does
 # not appear inside the team-facing mirror repository.
 
 set -euo pipefail
 
-PREFIX="lang/igniter-vm"
+PREFIX="igniter-vm"
 REMOTE="${IGNITER_VM_REMOTE:-igniter-vm}"
 REMOTE_BRANCH="${IGNITER_VM_REMOTE_BRANCH:-main}"
 SPLIT_BRANCH="${IGNITER_VM_SPLIT_BRANCH:-igniter-vm-main}"

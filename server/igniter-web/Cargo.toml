@@ -15,8 +15,8 @@ doctest = false
 # NO effect authority, NO serving loop/sockets. Not canon; lab-only.
 [dependencies]
 igniter_server = { path = "../igniter-server" }
-igniter_compiler = { path = "../../lang/igniter-compiler" }
-igniter_machine = { path = "../../runtime/igniter-machine" }
+igniter_compiler = { path = "../../igniter-compiler" }
+igniter_machine = { path = "../../igniter-machine" }
 # Needed for IntentBridgeExecutor in host_binding.rs under --features postgres (P26).
 async-trait = "0.1"
 # Host-minted Todo surrogate id recipe (LAB-TODOAPP-API-HOST-SURROGATE-ID-P36): a deterministic,

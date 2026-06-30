@@ -28,7 +28,7 @@ const ARTIFACT: &str = r#"{ "artifact":"view","layout":"workbench",
   "actions": { "record": { "contract":"Add", "input":{"a":"$form.a","b":"$form.b"},
     "effect": { "capability_id":"IO.FrameFixture","operation":"record","scope":"write" } } } }"#;
 const LEAD_REVIEW: &str =
-    include_str!("../../../frame-ui/igniter-ui-kit/web/lead_review.view.json");
+    include_str!("../../frame-ui/igniter-ui-kit/web/lead_review.view.json");
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

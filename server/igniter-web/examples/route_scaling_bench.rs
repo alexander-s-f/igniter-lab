@@ -21,7 +21,7 @@ use igniter_web::{build_igweb_app, IgWebBuildInput};
 use serde_json::{json, Value};
 
 // P4 (LAB-LANG-REGEXP-RUNTIME-CACHE) landed a process-global compiled-regex cache in `igniter-vm`; this
-// run reflects the tree WITH that cache. (Verified by reading `lang/igniter-vm/src/vm.rs` `cached_regex`.)
+// run reflects the tree WITH that cache. (Verified by reading `igniter-vm/src/vm.rs` `cached_regex`.)
 const REGEXP_CACHE_P4_PRESENT: bool = true;
 
 const DEFAULT_ROUTE_COUNTS: [usize; 3] = [10, 50, 90];

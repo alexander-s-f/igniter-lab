@@ -27,8 +27,8 @@ tokio        = { version = "1", features = ["full"] }
 futures      = "0.3"
 chrono       = { version = "0.4", features = ["serde"] }
 parking_lot  = "0.12"
-igniter_machine = { path = "../../../runtime/igniter-machine", default-features = false }
-igniter_compiler = { path = "../../../lang/igniter-compiler" }
-igniter_vm       = { path = "../../../lang/igniter-vm" }
+igniter_machine = { path = "../../../igniter-machine", default-features = false }
+igniter_compiler = { path = "../../../igniter-compiler" }
+igniter_vm       = { path = "../../../igniter-vm" }
 sha2             = "0.10"
 uuid             = { version = "1", features = ["v4"] }

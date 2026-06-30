@@ -1,6 +1,6 @@
 # igniter-lab: Current Status
 
-Last updated: 2026-06-22
+Last updated: 2026-06-30
 
 `igniter-lab` is the frontier lab repo for Igniter experiments. It contains
 working prototypes, proof runners, research reports, and agent handoffs that
@@ -13,12 +13,17 @@ surface.
 
 ## Current Shape
 
-The repo is now organized by flat domain umbrellas:
+The repo is now organized as flat root core crates plus domain umbrellas:
 
 | Domain | Purpose |
 | --- | --- |
-| `lang/` | Compiler, VM, stdlib, language research. |
-| `runtime/` | Machine runtime, temporal backend, storage/runtime adapters. |
+| `igniter-compiler/` | Lab compiler evidence and CLI. |
+| `igniter-stdlib/` | Lab stdlib evidence and sources. |
+| `igniter-vm/` | Lab VM/runtime evidence. |
+| `igniter-machine/` | Machine runtime, host IO, effects, receipts, and service substrate evidence. |
+| `igniter-tbackend/` | Temporal backend / ledger substrate evidence. |
+| `lang/` | Language research outside the flat core crates. |
+| `runtime/` | Storage/runtime adapters such as `acts-as-tbackend`. |
 | `server/` | `igniter-server`, `igniter-web`, IgWeb runner and server protocol work. |
 | `frame-ui/` | Frame/UI kit/console/3D/GUI/view-engine/design-system work. |
 | `ide/` | JetBrains plugin and Tauri/Svelte lab IDE. |
@@ -31,11 +36,15 @@ There is still no root Cargo workspace; crates remain package-local.
 
 `9bb6508 Rehome lab into domain umbrellas`
 
+`LAB-IGNITER-MONOREPO-FLATTEN-CORE-P2` flattened the five core Rust crates to
+root-level standalone packages to support sibling checkout mirrors without path
+dependency rewrites.
+
 Verified after the move:
 
 | Check | Result |
 | --- | --- |
-| `runtime/igniter-machine cargo test --no-default-features --no-fail-fast` | green |
+| `igniter-machine cargo test --no-default-features --no-fail-fast` | green |
 | `ide/igniter-jetbrains-plugin ./gradlew test --rerun-tasks` | green |
 | `ide/igniter-ide/src-tauri cargo check` | green |
 | active-code stale-path scan | clean |
@@ -44,8 +53,8 @@ Stale known-red claims cleared by targeted recheck on 2026-06-22:
 
 | Surface | Command | Result |
 | --- | --- |
-| `lang/igniter-compiler` | `cargo test --test loop_conformance_tests` | green: 14 passed, 0 failed |
-| `lang/igniter-vm` | `cargo test --test vm_candidate_proof_tests` | green: 9 passed, 0 failed |
+| `igniter-compiler` | `cargo test --test loop_conformance_tests` | green: 14 passed, 0 failed |
+| `igniter-vm` | `cargo test --test vm_candidate_proof_tests` | green: 9 passed, 0 failed |
 
 This is a targeted recheck only. It clears the stale known-red entries above; it
 does not claim whole-repo or whole-workspace green.
@@ -54,8 +63,9 @@ does not claim whole-repo or whole-workspace green.
 
 | Lane | Status | Boundary |
 | --- | --- | --- |
-| Language / stdlib | Active pressure lane (`lang/`). | Evidence for future language design; no stable grammar claim. |
-| Machine / capability IO | Active runtime/substrate lane (`runtime/`). | Lab-only capability and machine evidence; no public runtime authority. |
+| Language / stdlib | Active pressure lane (`igniter-compiler/`, `igniter-stdlib/`, `igniter-vm/`, `lang/`). | Evidence for future language design; no stable grammar claim. |
+| Machine / capability IO | Active runtime/substrate lane (`igniter-machine/`). | Lab-only capability and machine evidence; no public runtime authority. |
+| TBackend / ledger | Active substrate lane (`igniter-tbackend/`, `runtime/acts-as-tbackend/`). | Lab/business-pressure evidence; no public runtime authority unless explicitly promoted. |
 | Server / IgWeb | Active server/app DX lane (`server/`). | Loopback/lab runner evidence; no public hosting or production claim. |
 | Frame / UI / console | Active UI authoring lane (`frame-ui/`). | Machine-free UI evidence unless explicitly bridged by host-side proof. |
 | IDE tooling | Active tooling lane (`ide/`). | Editor/tooling assistance only; no language/runtime authority. |

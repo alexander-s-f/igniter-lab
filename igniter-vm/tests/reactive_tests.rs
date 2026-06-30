@@ -16,9 +16,7 @@ impl TBackendDaemon {
         let binary_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
-            .parent()
-            .unwrap()
-            .join("runtime/igniter-tbackend/target/release/tbackend");
+            .join("igniter-tbackend/target/release/tbackend");
         let binary_path_str = binary_path.to_str().unwrap();
         let child = Command::new(binary_path_str)
             .arg("--host")

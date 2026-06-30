@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 const FIXTURE: &str =
-    "../../frame-ui/igniter-view-engine/fixtures/storage_capability/storage_capability_exec.ig";
+    "../frame-ui/igniter-view-engine/fixtures/storage_capability/storage_capability_exec.ig";
 const STORAGE_CAP: &str = "IO.StorageCapability";
 
 fn rt() -> tokio::runtime::Runtime {

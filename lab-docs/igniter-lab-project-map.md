@@ -1,7 +1,7 @@
 # Igniter Lab Project Map
 
 Status: current lab map
-Updated: 2026-06-19
+Updated: 2026-06-30
 Owner: local lab / status curator
 
 ---
@@ -37,16 +37,22 @@ and local app state are inspection evidence only.
 
 ## Repository Shape
 
-As of 2026-06-19 the lab is grouped by flat domain umbrellas:
+As of 2026-06-30 the lab keeps core Rust crates as root-level standalone
+packages. This preserves the sibling checkout shape used by repository mirrors:
 
 ```text
-lang/       compiler, VM, stdlib, language research
-runtime/    machine runtime, temporal backend, runtime/storage adapters
-server/     igniter-server, igniter-web, IgWeb runner
-frame-ui/   frame runtime, UI kit, console, 3D/GUI, view-engine, design assets
-ide/        JetBrains plugin, Tauri/Svelte lab IDE
-apps/       app/product pressure fixtures
-archive/    parked stubs kept for explicit later disposition
+igniter-compiler/   compiler evidence and CLI
+igniter-stdlib/     stdlib evidence and sources
+igniter-vm/         VM/runtime evidence
+igniter-machine/    machine runtime, host IO, effects, receipts, service substrate
+igniter-tbackend/   temporal backend / ledger substrate
+lang/               language research that is not one of the flat core crates
+runtime/            runtime/storage adapters such as acts-as-tbackend
+server/             igniter-server, igniter-web, IgWeb runner
+frame-ui/           frame runtime, UI kit, console, 3D/GUI, view-engine, design assets
+ide/                JetBrains plugin, Tauri/Svelte lab IDE
+apps/               app/product pressure fixtures
+archive/            parked stubs kept for explicit later disposition
 ```
 
 There is still no root Cargo workspace. Rust crates are standalone and use
@@ -57,8 +63,9 @@ workspace-root card changes that.
 
 | Domain | Contents | Status | Primary entry points |
 | --- | --- | --- | --- |
-| `lang/` | `igniter-compiler`, `igniter-vm`, `igniter-stdlib`, `igniter-research` | Active language/runtime evidence. | `lang/igniter-compiler/src/`, `lang/igniter-vm/src/`, `lang/igniter-stdlib/stdlib/` |
-| `runtime/` | `igniter-machine`, `igniter-tbackend`, `acts-as-tbackend` | Active machine/substrate evidence. | `runtime/igniter-machine/src/`, `runtime/igniter-tbackend/src/` |
+| root core crates | `igniter-compiler`, `igniter-vm`, `igniter-stdlib`, `igniter-machine`, `igniter-tbackend` | Active compiler/runtime/substrate evidence with sibling-checkout-compatible paths. | `igniter-compiler/src/`, `igniter-vm/src/`, `igniter-stdlib/stdlib/`, `igniter-machine/src/`, `igniter-tbackend/src/` |
+| `lang/` | `igniter-research` | Language research outside the flat core crates. | `lang/igniter-research/` |
+| `runtime/` | `acts-as-tbackend` | Runtime/storage adapter evidence. | `runtime/acts-as-tbackend/` |
 | `server/` | `igniter-server`, `igniter-web` | Active server/app/IgWeb evidence. | `server/igniter-server/src/`, `server/igniter-web/src/bin/igweb-serve.rs` |
 | `frame-ui/` | `igniter-frame`, `igniter-ui-kit`, `igniter-console`, `igniter-3d`, `igniter-gui`, `igniter-view-engine`, GUI/3D/design proofs | Active UI/frame/console/view evidence. | `frame-ui/igniter-frame/src/`, `frame-ui/igniter-ui-kit/src/`, `frame-ui/igniter-console/src/`, `frame-ui/igniter-view-engine/STATUS.md` |
 | `ide/` | `igniter-jetbrains-plugin`, `igniter-ide` | Active tooling evidence. | `ide/igniter-jetbrains-plugin/src/main/kotlin/`, `ide/igniter-ide/src-tauri/src/` |
@@ -70,11 +77,13 @@ workspace-root card changes that.
 ## Verification Snapshot
 
 The 2026-06-19 domain rehome landed in commit `9bb6508`.
+The 2026-06-30 core flatten moved the five core Rust crates to root-level
+standalone packages.
 
 Verified after the move:
 
 ```text
-runtime/igniter-machine cargo test --no-default-features --no-fail-fast  -> green
+igniter-machine cargo test --no-default-features --no-fail-fast          -> green
 server/igniter-server cargo test                                         -> green in rehome pass
 server/igniter-web cargo test                                            -> green in rehome pass
 frame-ui Rust crates                                                     -> green in rehome pass
@@ -88,18 +97,18 @@ All known older red tests have been cleared (all suites compile and run 100% gre
 
 ```text
 apps / .ig fixtures
-  -> lang/igniter-compiler
-  -> lang/igniter-vm or runtime/igniter-machine
-  -> runtime/igniter-tbackend where storage/fact pressure is needed
+  -> igniter-compiler
+  -> igniter-vm or igniter-machine
+  -> igniter-tbackend where storage/fact pressure is needed
 
 server/igniter-web
-  -> generated .ig via lang/igniter-compiler
-  -> runtime/igniter-machine for lab execution proofs
+  -> generated .ig via igniter-compiler
+  -> igniter-machine for lab execution proofs
   -> server/igniter-server as transport/process substrate
 
 frame-ui/*
   -> machine-free UI/frame artifacts by default
-  -> runtime/igniter-machine only through host-side bridge proofs
+  -> igniter-machine only through host-side bridge proofs
 
 ide/*
   -> tooling over compiler/runtime/frame evidence

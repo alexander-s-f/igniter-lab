@@ -354,7 +354,7 @@ fn contract_body_cannot_write() {
         // a machine running a contract has no write executor registry — dispatch cannot write
         let m = IgniterMachine::new(None, "in_memory").unwrap();
         m.load_program(
-            &["../../frame-ui/igniter-view-engine/fixtures/storage_capability/storage_capability_exec.ig".to_string()],
+            &["../frame-ui/igniter-view-engine/fixtures/storage_capability/storage_capability_exec.ig".to_string()],
             "ExecuteQuery",
         )
         .unwrap();

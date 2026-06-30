@@ -9,8 +9,8 @@ name = "igniter_machine"
 crate-type = ["rlib"]
 
 [dependencies]
-igniter_compiler = { path = "../../lang/igniter-compiler" }
-igniter_vm = { path = "../../lang/igniter-vm" }
+igniter_compiler = { path = "../igniter-compiler" }
+igniter_vm = { path = "../igniter-vm" }
 igniter_tbackend_playground = { path = "../igniter-tbackend", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -58,8 +58,8 @@ path = "src/bin/mcp.rs"
 # console (top-of-stack integration). console/ui-kit depend on igniter_frame WITHOUT the `machine`
 # feature, so there is no dependency cycle and they stay machine-free. This is a DEV dep only.
 [dev-dependencies]
-igniter_console = { path = "../../frame-ui/igniter-console" }
-igniter_ui_kit = { path = "../../frame-ui/igniter-ui-kit" }
+igniter_console = { path = "../frame-ui/igniter-console" }
+igniter_ui_kit = { path = "../frame-ui/igniter-ui-kit" }
 
 [profile.release]
 lto = true

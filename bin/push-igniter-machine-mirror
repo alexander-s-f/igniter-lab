@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Push runtime/igniter-machine as a clean subtree mirror.
+# Push igniter-machine as a clean subtree mirror.
 #
-# This is a monorepo-owner helper. Keep it outside runtime/igniter-machine so it
+# This is a monorepo-owner helper. Keep it outside igniter-machine so it
 # does not appear inside the team-facing mirror repository.
 
 set -euo pipefail
 
-PREFIX="runtime/igniter-machine"
+PREFIX="igniter-machine"
 REMOTE="${IGNITER_MACHINE_REMOTE:-igniter-machine}"
 REMOTE_BRANCH="${IGNITER_MACHINE_REMOTE_BRANCH:-main}"
 SPLIT_BRANCH="${IGNITER_MACHINE_SPLIT_BRANCH:-igniter-machine-main}"

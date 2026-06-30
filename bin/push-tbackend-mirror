@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Push runtime/igniter-tbackend as a clean subtree mirror.
+# Push igniter-tbackend as a clean subtree mirror.
 #
-# This is a monorepo-owner helper. Keep it outside runtime/igniter-tbackend so it
+# This is a monorepo-owner helper. Keep it outside igniter-tbackend so it
 # does not appear inside the team-facing mirror repository.
 
 set -euo pipefail
 
-PREFIX="runtime/igniter-tbackend"
+PREFIX="igniter-tbackend"
 REMOTE="${TBACKEND_REMOTE:-tbackend}"
 REMOTE_BRANCH="${TBACKEND_REMOTE_BRANCH:-main}"
 SPLIT_BRANCH="${TBACKEND_SPLIT_BRANCH:-tbackend-main}"
