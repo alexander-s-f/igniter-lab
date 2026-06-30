@@ -102,6 +102,16 @@ doc_absent "stale P18 string-only body"  'must be a non-empty JSON string title'
 doc_absent "stale idem-key-as-id"        'create key = idempotency'
 doc_absent "stale legacy body accepted"  'legacy non-empty JSON string) | accepted'
 
+# 8. Demo DX surface guard (LAB-TODOAPP-DEMO-DX-GUARD-P57) — DB-free, no socket: demo script fails
+#    closed on missing/unsafe env before any bind, active docs point at the demo path, no committed
+#    secrets. Delegated to its sibling so the two surfaces stay separately runnable.
+if bash scripts/check_todo_demo_surface.sh >/dev/null 2>&1; then
+  echo "todo-product: demo DX surface guard (check_todo_demo_surface.sh) ok"
+else
+  echo "todo-product: demo DX surface guard FAILED (run scripts/check_todo_demo_surface.sh for detail)"
+  pass=0
+fi
+
 echo "----"
 if [[ "$pass" -eq 1 ]]; then
   echo "todo-product: PASS"

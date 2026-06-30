@@ -377,6 +377,37 @@ fn explicit_same_correlation_same_plan_replays() {
     });
 }
 
+/// A correlation SYNTHESIZED by the trace middleware (marked `x-correlation-source: trace`) must NOT
+/// opt a read into replay (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). This reproduces the
+/// exact P55 symptom: under `trace = true`, two identical GETs get the SAME deterministic correlation
+/// (method+path+body), which pre-fix collided on one receipt key and stale-replayed. With the marker
+/// honored, both run fresh — same as the `trace = false` baseline (`uncorrelated_same_plan_reads_run_fresh`).
+#[test]
+fn trace_derived_correlation_runs_fresh() {
+    rt().block_on(async {
+        let adapter = Arc::new(FakePostgresAdapter::new().with_table("todos", todo_rows()));
+        let host = make_read_host(adapter.clone(), todos_policy(100));
+        let plan = list_plan();
+
+        // Two identical GETs as the trace middleware would shape them: the SAME derived correlation
+        // value on both, each carrying the trace-source marker.
+        let mut req = freshness_req("acct-7", Some("corr-deadbeef"));
+        req.headers.insert(
+            "x-correlation-source".to_string(),
+            "trace".to_string(),
+        );
+
+        let _ = host.execute(&plan, &req).await;
+        let _ = host.execute(&plan, &req).await;
+
+        assert_eq!(
+            adapter.query_count(),
+            2,
+            "a trace-derived correlation must run fresh, not replay (P58)"
+        );
+    });
+}
+
 /// P12 regression: two DIFFERENT plans must never collide — even under the same/empty correlation each
 /// runs its own query.
 #[test]

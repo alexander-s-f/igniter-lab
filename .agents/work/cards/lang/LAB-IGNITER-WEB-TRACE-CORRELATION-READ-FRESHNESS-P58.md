@@ -1,6 +1,6 @@
 # LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58
 
-Status: TODO
+Status: DONE
 Route: standard / IgWeb product hardening / read freshness
 Skill: idd-agent-protocol
 
@@ -87,23 +87,88 @@ cheap, add one to prove middleware provenance survives the request path.
 
 ## Acceptance
 
-- [ ] Exact failure path is reproduced or disproved.
-- [ ] Chosen fix distinguishes client-supplied vs trace-generated correlation,
+- [x] Exact failure path is reproduced or disproved.
+- [x] Chosen fix distinguishes client-supplied vs trace-generated correlation,
       or otherwise makes the replay opt-in rule unambiguous.
-- [ ] Explicit client correlation replay still works.
-- [ ] Uncorrelated reads are fresh with `trace=false` and `trace=true`.
-- [ ] Existing `todo_postgres_smoke.sh` and `todo_demo.sh` either no longer need
-      unique read IDs, or their comments/docs state the final truth accurately.
-- [ ] `scripts/check_todo_product_surface.sh` still passes.
-- [ ] Relevant `cargo test` targets pass (include exact commands in closing).
-- [ ] `git diff --check` clean.
+- [x] Explicit client correlation replay still works.
+- [x] Uncorrelated reads are fresh with `trace=false` and `trace=true`.
+- [x] Existing `todo_postgres_smoke.sh` and `todo_demo.sh` no longer need
+      unique read IDs — the workaround was removed; both run plain reads.
+- [x] `scripts/check_todo_product_surface.sh` still passes.
+- [x] Relevant `cargo test` targets pass (commands in closing).
+- [x] `git diff --check` clean.
 
-## Reporting
+## Closing
 
-Close with:
+### Failure path — reproduced (live)
 
-- the exact provenance rule for correlations;
-- the chosen layer and why;
-- what scripts/docs changed after the fix;
-- regression tests and command output summary;
-- any remaining lab-only limitation.
+Confirmed all three steps against the real binary + local Postgres, with NO client
+`x-correlation-id`:
+
+1. `trace = true` (the app's `igweb.toml`) + no incoming correlation → `LoadedMiddleware`
+   (`src/machine_runner.rs`) derived a deterministic `corr-<hash(method+path+body)>` and
+   wrote it into `req.correlation_id`.
+2. `StagedReadHost::idem_key_for` (`src/read_dispatch.rs`) saw that value as an explicit
+   client correlation → keyed the read receipt `"{corr}:{plan_digest}"`.
+3. Two identical GETs shared that key → the second **replayed** the first snapshot.
+   Live: `list (empty) → create → list` returned `{"items":[]}` instead of the new row.
+
+### Provenance rule (the fix)
+
+**Only a client-supplied `x-correlation-id` opts a read into replay.** A correlation
+synthesized by the trace middleware is tagged with a marker header
+`x-correlation-source: trace`; the read host treats a trace-tagged correlation exactly
+like *no* correlation (fresh `auto-{n}` key, P23). A client retry that sends its own
+`x-correlation-id` (marker absent) still replays.
+
+### Chosen layer — why
+
+**Candidate 1 (mark provenance), implemented as a marker header**, over the alternatives:
+
+- Picked at the **read-host key derivation** + a 1-branch change in the **trace
+  middleware**. Smallest layer that fixes the bug without disturbing the authority split.
+- *Preserves all observability*: the derived correlation still flows to the response
+  echo, the app input (`build_request_input`), and the write/effect receipt — only **read
+  replay** ignores it. (Candidate 2 "response/log-only" would have stripped trace
+  correlation from write receipts + app input — an observability regression.)
+- No `ServerRequest` struct change (no broken construction sites), no receipt/machine
+  rewrite, no new route, no schema change.
+- Safety direction is robust: the only way to get a stale read is to send a real client
+  `x-correlation-id` and repeat the plan — the explicit opt-in. A client can never get an
+  *accidental* stale read.
+
+### Changed after the fix
+
+- `src/read_dispatch.rs` — `idem_key_for` honors the marker; added
+  `CORRELATION_SOURCE_HEADER` / `CORRELATION_SOURCE_TRACE` consts.
+- `src/machine_runner.rs` — `LoadedMiddleware::prepare_request` marks a derived
+  correlation, leaves a client one unmarked; added `trace_correlation_provenance_tests`.
+- `tests/readthen_dispatch_tests.rs` — added `trace_derived_correlation_runs_fresh`.
+- `scripts/todo_postgres_smoke.sh` + `scripts/todo_demo.sh` — **removed** the P55
+  unique-correlation-per-read workaround; both now issue plain uncorrelated reads.
+- Docs: `examples/todo_postgres_app/API.md` (Reads & freshness), `DEMO.md` §5,
+  `IMPLEMENTED_SURFACE.md` read-freshness row — all state the final truth + new tests.
+
+### Regression tests + command output
+
+- `cargo test --features machine --test readthen_dispatch_tests` → 11 pass, incl.
+  `uncorrelated_same_plan_reads_run_fresh` (trace=false baseline),
+  `trace_derived_correlation_runs_fresh` (trace=true, **the P58 case**),
+  `explicit_same_correlation_same_plan_replays` (client retry still replays),
+  `distinct_plans_never_collide` (P12).
+- `cargo test --features machine --lib trace_correlation_provenance` → 2 pass
+  (middleware marks derived, not client).
+- `cargo test --features machine` → all suites green.
+- `cargo test --features postgres --test todo_postgres_local_e2e_tests
+  local_read_after_write_is_fresh_same_process -- --test-threads=1` → 1 pass (live).
+- `scripts/todo_postgres_smoke.sh` → 21/21 PASS with plain reads.
+- `scripts/todo_demo.sh start|smoke|html` → PASS with plain reads.
+- `scripts/check_implemented_surface.sh` / `check_todo_product_surface.sh` /
+  `check_todo_demo_surface.sh` → PASS. `git diff --check` clean.
+
+### Remaining lab-only limitation
+
+Product-hardening of the lab runner semantics only — no production claim. The sync
+`ServerApp` + `TraceApp` path (`igniter-server/src/middleware.rs`) does not feed a
+`StagedReadHost`, so it has no read-replay surface and was left unchanged; if a read host
+is ever wired into that path, it should adopt the same marker convention.

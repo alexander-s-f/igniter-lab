@@ -115,9 +115,17 @@ Reads run **fresh by default**: each `GET` without an `x-correlation-id` header 
 so a `list → create → list` against the same account in one server run observes the new row (it never
 replays an earlier empty result). Read **replay is opt-in**: a client that wants a stable snapshot
 across a retry sends the same `x-correlation-id` — the host then returns the prior result for that
-(correlation, query) pair. Different queries never share a cache even under one correlation. Pinned by
-`uncorrelated_same_plan_reads_run_fresh` / `explicit_same_correlation_same_plan_replays` /
-`distinct_plans_never_collide` (`tests/readthen_dispatch_tests.rs`) and the live
+(correlation, query) pair. Different queries never share a cache even under one correlation.
+
+Only a **client-supplied** correlation opts a read into replay. With `trace = true` the host
+synthesizes a correlation for a request that arrives without one (for response/log/effect
+observability), but marks it `x-correlation-source: trace` so it is **not** treated as a replay
+request — otherwise identical `GET`s would replay a stale snapshot
+(LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). Pinned by
+`uncorrelated_same_plan_reads_run_fresh` / `trace_derived_correlation_runs_fresh` /
+`explicit_same_correlation_same_plan_replays` / `distinct_plans_never_collide`
+(`tests/readthen_dispatch_tests.rs`), the middleware provenance tests
+(`trace_correlation_provenance_tests`, `src/machine_runner.rs`), and the live
 `local_read_after_write_is_fresh_same_process` (`tests/todo_postgres_local_e2e_tests.rs`).
 
 ## Error contract (v0)

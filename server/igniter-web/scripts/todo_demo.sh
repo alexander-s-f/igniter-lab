@@ -220,27 +220,22 @@ cmd_smoke() {
   local CREATE_BODY='{"title":"Demo task — smoke run"}'
   local TOK="$IGNITER_TODO_EFFECT_TOKEN"
 
-  # Reads must observe CURRENT state, so each GET carries a UNIQUE x-correlation-id.
-  # The app runs with `trace = true`, which derives a deterministic correlation from
-  # (method+path+body) when the client sends none — two identical GETs would then share a
-  # correlation and the host would REPLAY the first read's snapshot (P23 freshness/replay is
-  # keyed on correlation+plan). A unique nonce per read is the documented opt-in for a fresh
-  # read; a genuine retry would instead reuse a correlation to replay. (See DEMO.md §5.)
-  # NOTE: each fresh_get takes an explicit unique LABEL ($1). A shared counter would not
-  # work — fresh_get runs inside a `$(...)` command-substitution subshell, so any variable
-  # it mutates is lost in the parent. The label makes the correlation deterministically
-  # distinct per logical read.
-  fresh_get() { # $1=unique label  $2=path  $3=output file (optional)
-    curl -s -o "${3:-/dev/null}" -w '%{http_code}' \
-      -H "x-correlation-id: demo-read-$RUN-$1" "$BASE$2" || echo ERR
+  # Reads carry NO client x-correlation-id. Under the app's `trace = true` the host derives a
+  # correlation for observability but MARKS it trace-source, so the read host runs each read FRESH —
+  # an identical GET after a write observes the new state, never a stale replay
+  # (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). Read replay stays opt-in for a genuine
+  # client retry that sends its OWN x-correlation-id (P23). The earlier P55 unique-correlation-per-read
+  # workaround is no longer needed.
+  get() { # $1=path  $2=output file (optional)
+    curl -s -o "${2:-/dev/null}" -w '%{http_code}' "$BASE$1" || echo ERR
   }
 
   local c_health c_missing c_empty c_create c_creplay c_found c_show \
         c_done c_dreplay c_delete c_delreplay c_show_gone
 
-  c_health="$(  fresh_get health  "/health" )"
-  c_missing="$( fresh_get missing "/accounts/$DEMO_ACCOUNT_MISSING/todos" )"
-  c_empty="$(   fresh_get empty   "/accounts/$DEMO_ACCOUNT/todos" )"
+  c_health="$(  get "/health" )"
+  c_missing="$( get "/accounts/$DEMO_ACCOUNT_MISSING/todos" )"
+  c_empty="$(   get "/accounts/$DEMO_ACCOUNT/todos" )"
 
   c_create="$(  curl -s -o /dev/null -w '%{http_code}' \
                   -H "Authorization: Bearer $TOK" -H "idempotency-key: $CREATE_KEY" \
@@ -248,13 +243,13 @@ cmd_smoke() {
   c_creplay="$( curl -s -o /dev/null -w '%{http_code}' \
                   -H "Authorization: Bearer $TOK" -H "idempotency-key: $CREATE_KEY" \
                   --data "$CREATE_BODY" -X POST "$BASE/accounts/$DEMO_ACCOUNT/todos" || echo ERR)"
-  c_found="$(   fresh_get found "/accounts/$DEMO_ACCOUNT/todos" "$found_body" )"
+  c_found="$(   get "/accounts/$DEMO_ACCOUNT/todos" "$found_body" )"
 
   local TODO_ID
   TODO_ID="$(grep -oE 'todo_[0-9a-f]{32}' "$found_body" | head -1)"
   [[ -n "$TODO_ID" ]] || TODO_ID="__not_discovered__"
 
-  c_show="$(    fresh_get show "/accounts/$DEMO_ACCOUNT/todos/$TODO_ID" "$show_body" )"
+  c_show="$(    get "/accounts/$DEMO_ACCOUNT/todos/$TODO_ID" "$show_body" )"
   c_done="$(    curl -s -o /dev/null -w '%{http_code}' \
                   -H "Authorization: Bearer $TOK" -H "idempotency-key: $DONE_KEY" \
                   --data '{}' -X POST "$BASE/accounts/$DEMO_ACCOUNT/todos/$TODO_ID/done" || echo ERR)"
@@ -267,7 +262,7 @@ cmd_smoke() {
   c_delreplay="$(curl -s -o /dev/null -w '%{http_code}' \
                   -H "Authorization: Bearer $TOK" -H "idempotency-key: $DELETE_KEY" \
                   --data '{}' -X DELETE "$BASE/accounts/$DEMO_ACCOUNT/todos/$TODO_ID" || echo ERR)"
-  c_show_gone="$(fresh_get show-gone "/accounts/$DEMO_ACCOUNT/todos/$TODO_ID" )"
+  c_show_gone="$(get "/accounts/$DEMO_ACCOUNT/todos/$TODO_ID" )"
 
   local found_has_title=no show_has_title=no
   grep -qF "Demo task" "$found_body" 2>/dev/null && found_has_title=yes
@@ -314,7 +309,6 @@ cmd_html() {
   server_running || die "server is not running — run 'scripts/todo_demo.sh start' first"
   local BASE="http://127.0.0.1:$DEMO_PORT"
   local URL="$BASE/accounts/$DEMO_ACCOUNT/todos.html"
-  echo "todo_demo html: fetching $URL ..."
 
   _SMOKE_PASS=1
 
@@ -323,28 +317,64 @@ cmd_html() {
   # shellcheck disable=SC2064
   trap "rm -f '$body' '$headers'" RETURN
 
-  # Unique x-correlation-id for a fresh read (see cmd_smoke / DEMO.md §5 for why).
+  local RUN="${$}-$(date +%s)"
+  local TOK="$IGNITER_TODO_EFFECT_TOKEN"
+  # Seed ONE demo todo whose title carries markup, so the page has a real row + per-row detail
+  # link AND the escape check is meaningful (a raw '<script>' in the title must come back as
+  # '&lt;script&gt;'). The row is written through the real product write path and removed at the
+  # end — the saved artifact keeps the rendered snapshot for human inspection.
+  local HTML_TITLE='Demo <script>alert(1)</script> task'
+  local SEED_KEY="demo-html-seed-$RUN"
+  echo "todo_demo html: seeding one demo todo (title carries markup, to prove escaping) ..."
+  curl -s -o /dev/null \
+    -H "Authorization: Bearer $TOK" -H "idempotency-key: $SEED_KEY" \
+    --data "{\"title\":\"Demo <script>alert(1)</script> task\"}" \
+    -X POST "$BASE/accounts/$DEMO_ACCOUNT/todos" || true
+
+  echo "todo_demo html: fetching $URL ..."
+  # No client x-correlation-id needed: trace-derived correlations run fresh (see cmd_smoke / P58).
   local code
-  code="$(curl -s -D "$headers" -o "$body" -w '%{http_code}' \
-            -H "x-correlation-id: demo-html-${$}-$(date +%s)" "$URL" || echo ERR)"
+  code="$(curl -s -D "$headers" -o "$body" -w '%{http_code}' "$URL" || echo ERR)"
+
+  # Persist an openable local artifact (ignored path; see .gitignore '.todo_demo/').
+  local ART_DIR="$CRATE_DIR/.todo_demo"
+  local ART="$ART_DIR/todos.html"
+  mkdir -p "$ART_DIR"
+  cp "$body" "$ART" 2>/dev/null || true
 
   local ct_ok=no
   grep -qi 'content-type:.*text/html' "$headers" 2>/dev/null && ct_ok=yes
 
-  # The renderer always emits structural HTML tags
+  # The renderer always emits structural HTML tags.
   local has_html=no
-  grep -qi '<html\|<!doctype\|<body\|<ul\|<li\|<p' "$body" 2>/dev/null && has_html=yes
+  grep -qi '<html\|<!doctype\|<body\|<ul\|<li\|<h1\|<p' "$body" 2>/dev/null && has_html=yes
 
-  # Escape verification: if the body contained a raw '<script' the renderer would
-  # have emitted '&lt;script' — check the raw response does NOT contain an executable
-  # inline script tag (the renderer is safe-by-construction; this is a belt check).
+  # Escape proof: the seeded markup title must be ESCAPED (&lt;script&gt;) and the page must
+  # carry NO raw executable <script> tag (the renderer is safe-by-construction).
+  local escaped=no
+  grep -qF '&lt;script&gt;' "$body" 2>/dev/null && escaped=yes
   local no_raw_script=yes
   grep -qi '<script' "$body" 2>/dev/null && no_raw_script=no
+
+  # At least one per-row detail link to the JSON show route (href="/accounts/<acct>/todos/<id>").
+  local has_link=no
+  grep -qF "href=\"/accounts/$DEMO_ACCOUNT/todos/todo_" "$body" 2>/dev/null && has_link=yes
 
   chk "HTML route status -> 200"                 200  "$code"
   chk "Content-Type is text/html"               yes  "$ct_ok"
   chk "response contains HTML structure"         yes  "$has_html"
+  chk "user content escaped (&lt;script&gt;)"    yes  "$escaped"
   chk "no raw <script> tag (safe renderer)"      yes  "$no_raw_script"
+  chk "at least one per-row detail link"         yes  "$has_link"
+
+  # Remove the seeded row + receipt (demo-owned); the saved artifact already captured the render.
+  psql_dsn -q >/dev/null 2>&1 <<SQL || true
+DELETE FROM effect_receipts WHERE idempotency_key LIKE 'demo-html-seed-$RUN%';
+DELETE FROM todos WHERE account_id = '$DEMO_ACCOUNT';
+SQL
+
+  echo "todo_demo html: saved artifact → $ART"
+  echo "                open: file://$ART"
 
   if [[ "$_SMOKE_PASS" == 1 ]]; then
     echo "todo_demo html: PASS"
@@ -424,7 +454,7 @@ case "$CMD" in
     echo "  doctor  check prerequisites" >&2
     echo "  start   build + start the demo server (loopback, dedicated DB)" >&2
     echo "  smoke   drive the API: health/list/create/replay/show/done/delete" >&2
-    echo "  html    fetch the HTML todo route and verify text/html" >&2
+    echo "  html    fetch the HTML route, save an openable artifact, verify text/html + escaping + links" >&2
     echo "  status  print server state (no secrets echoed)" >&2
     echo "  stop    stop the demo server; no listener remains" >&2
     echo "  reset   delete demo-owned rows; re-seed demo account" >&2

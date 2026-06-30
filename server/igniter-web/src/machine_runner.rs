@@ -76,13 +76,33 @@ impl LoadedMiddleware {
         }
 
         if self.trace {
-            let correlation_id = req
+            // A CLIENT-supplied (non-empty) x-correlation-id is the read-replay opt-in signal (P23) and
+            // is preserved verbatim. When the client sends none we DERIVE one for observability (response
+            // echo + write/effect correlation), but MARK it `x-correlation-source: trace` so the read host
+            // does not mistake it for an explicit replay request and stale-replay identical GETs
+            // (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58).
+            let client = req
                 .correlation_id
-                .clone()
-                .unwrap_or_else(|| deterministic_correlation(&req));
-            req.correlation_id = Some(correlation_id.clone());
-            req.headers
-                .insert("x-correlation-id".to_string(), correlation_id);
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            match client {
+                Some(c) => {
+                    req.correlation_id = Some(c.clone());
+                    req.headers.insert("x-correlation-id".to_string(), c);
+                    req.headers.remove(crate::read_dispatch::CORRELATION_SOURCE_HEADER);
+                }
+                None => {
+                    let derived = deterministic_correlation(&req);
+                    req.correlation_id = Some(derived.clone());
+                    req.headers.insert("x-correlation-id".to_string(), derived);
+                    req.headers.insert(
+                        crate::read_dispatch::CORRELATION_SOURCE_HEADER.to_string(),
+                        crate::read_dispatch::CORRELATION_SOURCE_TRACE.to_string(),
+                    );
+                }
+            }
         }
 
         Ok(req)
@@ -298,4 +318,52 @@ pub async fn serve_loop_loaded_with_read_and_middleware(
         bound_addr: addr.to_string(),
         is_loopback: addr.ip().is_loopback(),
     })
+}
+
+#[cfg(test)]
+mod trace_correlation_provenance_tests {
+    //! LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58 — the trace middleware must mark a
+    //! DERIVED correlation as `x-correlation-source: trace` (so the read host runs it fresh) while
+    //! leaving a CLIENT-supplied correlation unmarked (so it still opts into replay). This proves the
+    //! provenance signal is produced at the request path, complementing the read-host unit test in
+    //! `tests/readthen_dispatch_tests.rs`.
+    use super::*;
+    use crate::read_dispatch::{CORRELATION_SOURCE_HEADER, CORRELATION_SOURCE_TRACE};
+    use igniter_server::protocol::ServerRequest;
+
+    fn trace_mw() -> LoadedMiddleware {
+        LoadedMiddleware { trace: true, body_limit_bytes: None, auth_token: None }
+    }
+
+    #[test]
+    fn derived_correlation_is_marked_trace_source() {
+        let req = ServerRequest::new("GET", "/accounts/a/todos", serde_json::Value::Null);
+        let out = trace_mw().prepare_request(req).expect("trace middleware ok");
+        assert!(
+            out.correlation_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false),
+            "a correlation id is derived for observability"
+        );
+        assert_eq!(
+            out.headers.get(CORRELATION_SOURCE_HEADER).map(String::as_str),
+            Some(CORRELATION_SOURCE_TRACE),
+            "a derived correlation is marked trace-source (read host runs it fresh)"
+        );
+    }
+
+    #[test]
+    fn client_correlation_is_not_marked() {
+        let mut req = ServerRequest::new("GET", "/accounts/a/todos", serde_json::Value::Null);
+        req.correlation_id = Some("client-corr-1".to_string());
+        let out = trace_mw().prepare_request(req).expect("trace middleware ok");
+        assert_eq!(out.correlation_id.as_deref(), Some("client-corr-1"), "client correlation preserved");
+        assert_eq!(
+            out.headers.get("x-correlation-id").map(String::as_str),
+            Some("client-corr-1"),
+            "client correlation echoed verbatim"
+        );
+        assert!(
+            out.headers.get(CORRELATION_SOURCE_HEADER).is_none(),
+            "a client correlation is NOT marked trace-source (it still opts into replay)"
+        );
+    }
 }

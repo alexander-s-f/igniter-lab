@@ -132,12 +132,12 @@ BASE="http://127.0.0.1:$PORT"
 echo "todo_postgres_smoke: serving on $BASE (bounded to $REQS loopback requests)"
 
 # ── Drive exactly $REQS requests, in order ────────────────────────────────────────────────────────
-# Fresh read: each logical GET carries a UNIQUE x-correlation-id. The app runs trace=true, so when a
-# client sends none the host derives a deterministic correlation from (method+path+body); two identical
-# GETs (e.g. show before vs. after delete) would then share it and the host would REPLAY the first read's
-# snapshot (read replay is keyed on correlation+plan, P23). $3 = unique label (defaults to the path; pass
-# an explicit one to disambiguate two same-path reads). Hardened by LAB-TODOAPP-DEMO-DX-P55.
-get_code()  { curl -s -o "${2:-/dev/null}" -w '%{http_code}' -H "x-correlation-id: smoke-read:${3:-$1}" "$BASE$1" || echo ERR; }
+# Reads carry NO client x-correlation-id. Under the app's trace=true the host derives a correlation for
+# observability but MARKS it trace-source, so the read host runs each read FRESH — even two identical GETs
+# like show before vs. after delete (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). Read replay
+# stays opt-in for a client that sends its OWN x-correlation-id (P23). The interim P55 unique-correlation
+# workaround (added when trace-derived correlations wrongly enabled replay) is no longer needed.
+get_code()  { curl -s -o "${2:-/dev/null}" -w '%{http_code}' "$BASE$1" || echo ERR; }
 # POST with bearer + idempotency-key. $1=path, $2=request body, $3=idempotency key. The create body is
 # the CANONICAL object form (P35), not the deprecated string body.
 post_code() {
@@ -183,7 +183,7 @@ db_done="$(psql_dsn -qtAc "SELECT done FROM todos WHERE id='$TODO_ID';" | tr -d 
 # then show → 404 (the real read no longer finds the row).
 c_delete="$(del_code    "/accounts/$ACCT/todos/$TODO_ID" "{}" "$DELETE_KEY")"
 c_delreplay="$(del_code "/accounts/$ACCT/todos/$TODO_ID" "{}" "$DELETE_KEY")"
-c_show_gone="$(get_code "/accounts/$ACCT/todos/$TODO_ID" /dev/null "show-after-delete")"
+c_show_gone="$(get_code "/accounts/$ACCT/todos/$TODO_ID")"
 
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""

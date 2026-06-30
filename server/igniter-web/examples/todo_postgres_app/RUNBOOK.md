@@ -4,7 +4,12 @@
 proves each claim.** Lab prototype — **loopback-only, local Postgres only, NOT production**, no stable
 CLI/API promise.
 
+**Just want to try it in 5 minutes?** Use [DEMO.md](DEMO.md) — a copy/pasteable
+`scripts/todo_demo.sh doctor|start|smoke|html|stop` flow over this same product path.
+This RUNBOOK is the deeper operator reference.
+
 Companion docs (read these for depth):
+[DEMO.md](DEMO.md) (5-minute `todo_demo.sh` local demo) ·
 [API.md](API.md) (routes, status/error contract, body contract) ·
 [EXAMPLES.md](EXAMPLES.md) (copy/paste curl examples) ·
 [host.example.toml](host.example.toml) (commit-safe operator config) ·

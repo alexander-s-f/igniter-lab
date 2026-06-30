@@ -51,5 +51,9 @@ Users/
 # Local scratch inputs
 scratch_inputs.json
 
+# TodoApp demo HTML artifacts (LAB-TODOAPP-DEMO-HTML-P56) — generated, never committed
+.todo_demo/
+**/.todo_demo/
+
 # Local workspace repository map
 /repository-map.md

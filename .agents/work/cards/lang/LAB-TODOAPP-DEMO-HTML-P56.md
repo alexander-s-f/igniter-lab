@@ -1,6 +1,6 @@
 # LAB-TODOAPP-DEMO-HTML-P56
 
-Status: TODO (reduced after P55)
+Status: DONE
 Route: fast_lane / TodoApp payoff / HTML DX
 Skill: idd-agent-protocol
 
@@ -55,21 +55,58 @@ Do not build a UI framework. Do not add JS. Do not introduce `.ig.html`.
 
 ## Acceptance
 
-- [ ] HTML demo command exists and is documented in `DEMO.md`.
-- [ ] It fetches real HTML from the running TodoApp demo server.
-- [ ] It saves an ignored local artifact and prints the path.
-- [ ] It checks `text/html`.
-- [ ] It checks escaping (no raw `<script>` from authored/user content).
-- [ ] It checks at least one detail/load-more link if rows exist.
-- [ ] Existing HTML tests still pass.
-- [ ] `git diff --check` clean.
+- [x] HTML demo command exists and is documented in `DEMO.md`.
+- [x] It fetches real HTML from the running TodoApp demo server.
+- [x] It saves an ignored local artifact and prints the path.
+- [x] It checks `text/html`.
+- [x] It checks escaping (no raw `<script>` from authored/user content).
+- [x] It checks at least one detail/load-more link if rows exist.
+- [x] Existing HTML tests still pass.
+- [x] `git diff --check` clean.
 
-## Reporting
+## Closing
 
-Close with:
+**Exact command** (from `server/igniter-web/`, server already `start`ed):
 
-- exact command;
-- saved artifact path;
-- what HTML route was inspected;
-- whether money report remains proof-only or runnable;
-- verification summary.
+```bash
+scripts/todo_demo.sh html
+```
+
+**What it does now (enhanced from the P55 stub).** Seeds one demo todo whose
+title carries markup (`Demo <script>alert(1)</script> task`) via the real product
+write path, fetches `GET /accounts/acct-demo/todos.html` with **no client
+correlation** (P58: trace-derived correlations run fresh), **saves the response
+to an openable artifact** and prints its path, runs six assertions, then removes
+the seeded row (the artifact keeps the rendered snapshot).
+
+**Saved artifact path** (gitignored):
+`server/igniter-web/.todo_demo/todos.html` — printed as both an absolute path and
+`file://…/.todo_demo/todos.html`. Added `.todo_demo/` + `**/.todo_demo/` to the
+repo `.gitignore`; `git check-ignore` confirms it is never committed.
+
+**HTML route inspected.** `GET /accounts/:account_id/todos.html` (the existing
+`AccountTodoHtml` → `ReadThen` → `RenderView` path). No new route, no JS, no
+`.ig.html`, no rendering-substrate change. Six checks: `200`, `text/html`,
+HTML structure, **escaped `&lt;script&gt;`** from the seeded title, **no raw
+`<script>`**, and **≥1 per-row detail link** (`href="/accounts/acct-demo/todos/todo_…"`).
+
+**Money report stays proof-only.** `GET /accounts/:id/report/money` needs a host
+policy with a typed `Decimal` field kind that `host.toml` cannot express yet
+(`LAB-IGNITER-WEB-HOST-CONFIG-TYPED-FIELD-KINDS`). It is proven DB-free in
+`todo_postgres_money_report_tests` (4/4) only; the demo deliberately does **not**
+drive it, and DEMO.md §5 documents it as proof-only — no product-ready report
+claim.
+
+**Verification summary (this box, local PG):**
+
+- `scripts/todo_demo.sh html` → 6/6 PASS; artifact written + path printed; idempotent on re-run.
+- `cargo test --features machine --test todo_postgres_html_tests` → 4/4 pass.
+- `cargo test --features machine --test todo_postgres_money_report_tests` → 4/4 pass (DB-free).
+- `scripts/todo_demo.sh smoke` → still PASS (15/15).
+- `scripts/check_todo_product_surface.sh` → PASS (no DB).
+- artifact gitignored (`git check-ignore` ✓); no trailing whitespace;
+  `git diff --check` clean.
+
+**Lab-only / unchanged.** Loopback demo, not production; same v0 constraints as
+P55 (surrogate ids, object create body, no pooling). P58 removed the old
+unique-correlation workaround; plain reads are now fresh even under `trace=true`.

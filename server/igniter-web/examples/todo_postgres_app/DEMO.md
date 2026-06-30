@@ -60,7 +60,8 @@ scripts/todo_demo.sh start
 # 2. Drive the full API cycle against the real Postgres.
 scripts/todo_demo.sh smoke
 
-# 3. Prove the HTML route returns escaped text/html.
+# 3. Prove the HTML route returns escaped text/html, and save an openable artifact.
+#    Prints the absolute + file:// path of .todo_demo/todos.html (gitignored).
 scripts/todo_demo.sh html
 
 # 4. (any time) See whether the server is up — no secrets printed.
@@ -79,7 +80,7 @@ scripts/todo_demo.sh stop
 | `doctor` | `cargo`/`curl`/`psql` present; both env vars set; DSN is loopback + not a prod/Spark name. Actionable lines for anything missing. |
 | `start`  | Builds `igweb-serve --features postgres`, ensures demo-owned schema + a `acct-demo` account (idempotent DDL), starts the **real** product path bound to `127.0.0.1:<ephemeral>`, writes a small state file, prints `BASE=`. |
 | `smoke`  | Real API cycle on the real DB: `health 200` → missing account `404` → existing-empty `200 []` → `create 200` → `create replay 200` (no 2nd write) → `list 200` carries title → surrogate `todo_<hash>` id discovered → `show 200` → `done 200` + replay → `delete 200` + replay → `show 404`. Cleans up its own rows. |
-| `html`   | `GET /accounts/:id/todos.html` returns `200` with `Content-Type: text/html`, structural HTML, and **no raw `<script>`** (the renderer escapes by construction). |
+| `html`   | Seeds one demo todo whose title carries markup, fetches `GET /accounts/:id/todos.html`, and **saves an openable artifact** to `.todo_demo/todos.html` (gitignored) — printing its absolute + `file://` path. Asserts `200`, `Content-Type: text/html`, the seeded `<script>` came back **escaped as `&lt;script&gt;`**, **no raw `<script>`**, and **at least one per-row detail link** (`href="/accounts/<id>/todos/<todo_id>"`). The seeded row is removed afterward; the saved artifact keeps the rendered snapshot. |
 | `status` | Prints RUNNING/NOT RUNNING + PID + BASE + log path. Never echoes DSN or token. |
 | `stop`   | Terminates the server and clears the state file; no listener is left behind. |
 | `reset`  | Deletes only demo-owned rows (`acct-demo` todos + `demo-*` receipts), re-seeds the `acct-demo` account. Does not touch the server. |
@@ -119,15 +120,23 @@ dropdb igniter_todo_demo
   cleared by `stop`.
 - **Surrogate ids, object create body, no pooling** — same v0 constraints as the
   product surface; see [RUNBOOK.md §5](RUNBOOK.md).
-- **Read freshness needs a fresh correlation id** — the app runs with `trace = true`
-  (`igweb.toml`), so when a client sends no `x-correlation-id` the host derives a
-  deterministic one from `(method+path+body)`. Two *identical* GETs then share a
-  correlation and the host **replays** the first read's snapshot (read replay is keyed
-  on `correlation + plan`, P23). The demo's `smoke`/`html` therefore send a **unique
-  `x-correlation-id` per read** so each read observes current state — this is the
-  documented opt-in: a unique nonce ⇒ fresh read, a reused correlation ⇒ replay a
-  retry. A naive client that re-issues the same GET twice without correlation will see
-  the earlier snapshot.
+- **Read freshness** — reads with **no client `x-correlation-id` always run fresh**, so
+  a GET after a write observes the new state. The app runs with `trace = true`
+  (`igweb.toml`): when the client sends no correlation the host derives one for
+  observability but marks it trace-source, so it does **not** turn an ordinary GET into a
+  stale replay (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). Read **replay is
+  opt-in**: a client that sends its own `x-correlation-id` and repeats the same read plan
+  replays the first snapshot (the intended retry semantics, P23). The demo's `smoke`/`html`
+  therefore send plain reads — no per-read correlation workaround is needed.
+- **HTML artifact is generated, never committed** — `html` writes
+  `.todo_demo/todos.html` under the crate dir; that path is gitignored. It is a
+  rendered snapshot for human inspection, not a fixture.
+- **Money report is proof-only, not runnable here** — the second HTML route
+  `GET /accounts/:id/report/money` needs a host policy with a typed `Decimal`
+  field kind, which `host.toml` cannot express yet
+  (`LAB-IGNITER-WEB-HOST-CONFIG-TYPED-FIELD-KINDS`). It is proven DB-free in
+  tests only; the demo deliberately does **not** drive it, to avoid implying a
+  product-ready report/export surface. See [API.md](API.md) HTML view routes.
 - **Not the operator smoke** — for the contract-grade receipt used in CI/proofs,
   `scripts/todo_postgres_smoke.sh` still runs the full assertion set. This demo
   wraps the same product binary for human DX; it does not replace that smoke.

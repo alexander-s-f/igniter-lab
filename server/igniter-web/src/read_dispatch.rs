@@ -20,6 +20,15 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// Header marker the trace middleware sets when it **derives** a correlation id for a request that
+/// arrived without one (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). A trace-derived
+/// correlation is observability metadata, NOT a client replay request, so the read host must treat
+/// it exactly like "no correlation" (fresh `auto-{n}`). Only a CLIENT-supplied `x-correlation-id`
+/// (this marker absent) opts a read into replay (P23). Set by `machine_runner::LoadedMiddleware`.
+pub const CORRELATION_SOURCE_HEADER: &str = "x-correlation-source";
+/// The marker value meaning "this correlation id was synthesized by the trace middleware".
+pub const CORRELATION_SOURCE_TRACE: &str = "trace";
+
 /// Digest of a query plan, used to scope the in-memory read idempotency key per query.
 /// This key is only used for in-memory host receipts, so process-local stability is enough.
 fn plan_digest(plan: &Value) -> u64 {
@@ -161,12 +170,25 @@ impl StagedReadHost {
     /// a unique `"auto-{n}:{plan_digest}"` so reads always run fresh.
     fn idem_key_for(&self, plan: &Value, req: &ServerRequest) -> String {
         let digest = plan_digest(plan);
-        match req
-            .correlation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        // A correlation synthesized by the trace middleware (marked `x-correlation-source: trace`) is
+        // observability metadata, NOT a client replay request. Treat it as "no correlation" so the read
+        // runs fresh — otherwise identical GETs would replay a stale snapshot under `trace = true`
+        // (LAB-IGNITER-WEB-TRACE-CORRELATION-READ-FRESHNESS-P58). Only a CLIENT-supplied correlation
+        // (this marker absent) opts the read into replay (P23 explicit-retry semantics).
+        let trace_derived = req
+            .headers
+            .get(CORRELATION_SOURCE_HEADER)
+            .map(|v| v == CORRELATION_SOURCE_TRACE)
+            .unwrap_or(false);
+        let client_corr = if trace_derived {
+            None
+        } else {
+            req.correlation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        };
+        match client_corr {
             Some(corr) => format!("{corr}:{digest:016x}"),
             None => {
                 let n = self.read_seq.fetch_add(1, Ordering::Relaxed);
