@@ -8,11 +8,11 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT    = Pathname.new(__dir__)
+ROOT    = Pathname.new(__dir__).parent.parent
 COMP    = ROOT / "target/release/igniter_compiler"
-VM_TOML = File.expand_path("../igniter-vm/Cargo.toml", __dir__)
+VM_TOML = File.expand_path("../igniter-vm/Cargo.toml", ROOT)
 
 $pass_count = 0
 $fail_count = 0

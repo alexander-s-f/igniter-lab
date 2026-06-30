@@ -35,7 +35,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-COMPILER_DIR = Pathname.new(__FILE__).parent
+COMPILER_DIR = Pathname.new(__FILE__).parent.parent.parent
 LAB_ROOT     = COMPILER_DIR.parent
 WORKSPACE    = LAB_ROOT.parent
 IGNITER_LIB  = WORKSPACE / "igniter-lang" / "lib"

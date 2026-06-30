@@ -37,7 +37,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-SCRIPT_DIR = Pathname.new(__FILE__).realpath.dirname
+SCRIPT_DIR = Pathname.new(__FILE__).realpath.dirname.parent.parent
 BIN        = SCRIPT_DIR / "target" / "release" / "igniter_compiler"
 TC_RS      = SCRIPT_DIR / "src" / "typechecker.rs"
 

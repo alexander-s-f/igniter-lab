@@ -27,7 +27,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-SCRIPT_DIR  = Pathname.new(__FILE__).realpath.dirname
+SCRIPT_DIR  = Pathname.new(__FILE__).realpath.dirname.parent.parent
 LAB_ROOT    = SCRIPT_DIR.parent
 WORKSPACE   = LAB_ROOT.parent
 LANG_ROOT   = WORKSPACE / "igniter-lang"

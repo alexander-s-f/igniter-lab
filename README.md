@@ -41,8 +41,7 @@ Install the toolchains needed for the package you are working on:
 Common local checks:
 
 ```bash
-ruby lang/igniter-compiler/verify_compiler.rb
-ruby lang/igniter-compiler/verify_loops.rb
+(cd lang/igniter-compiler && cargo test)
 ruby frame-ui/igniter-gui-engine/run_proof.rb
 ruby lang/igniter-stdlib/proofs/experimental_io_stdlib_candidate_proof.rb
 ```

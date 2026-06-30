@@ -12,7 +12,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-COMPILER_DIR = Pathname.new(__dir__).expand_path
+COMPILER_DIR = Pathname.new(__dir__).parent.parent.expand_path
 LAB_ROOT = COMPILER_DIR.parent
 SRC = COMPILER_DIR / "src"
 APPS = LAB_ROOT / "igniter-apps"
@@ -23,7 +23,7 @@ STDLIB_RS = SRC / "typechecker" / "stdlib_calls.rs"
 LIB_RS = SRC / "lib.rs"
 EMITTER_RS = SRC / "emitter.rs"
 CARD = LAB_ROOT / ".agents" / "work" / "cards" / "lang" / "LAB-RUST-TYPECHECKER-DECOMP-P2.md"
-P1_RUNNER = COMPILER_DIR / "verify_rust_typechecker_decomp_p1.rb"
+P1_RUNNER = COMPILER_DIR / "proofs" / "verify" / "verify_rust_typechecker_decomp_p1.rb"
 
 def read(path)
   File.read(path.to_s, encoding: "utf-8")

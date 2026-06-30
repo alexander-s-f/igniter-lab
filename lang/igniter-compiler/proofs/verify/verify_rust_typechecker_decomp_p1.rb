@@ -39,7 +39,7 @@ require "fileutils"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-COMPILER_DIR = Pathname.new(__dir__).expand_path             # igniter-compiler/
+COMPILER_DIR = Pathname.new(__dir__).parent.parent.expand_path             # igniter-compiler/
 SRC          = COMPILER_DIR / "src"
 LAB_ROOT     = COMPILER_DIR.parent                           # igniter-lab/
 APPS         = LAB_ROOT / "igniter-apps"

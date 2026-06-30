@@ -12,7 +12,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-ROOT = Pathname.new(__dir__).expand_path
+ROOT = Pathname.new(__dir__).parent.parent.expand_path
 LAB_ROOT = ROOT.parent
 WS_ROOT = LAB_ROOT.parent
 LANG_ROOT = WS_ROOT / "igniter-lang"

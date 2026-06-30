@@ -16,7 +16,7 @@ require "pathname"
 require "tmpdir"
 require "timeout"
 
-COMPILER_DIR = Pathname.new(__dir__).expand_path
+COMPILER_DIR = Pathname.new(__dir__).parent.parent.expand_path
 LAB_ROOT = COMPILER_DIR.parent
 WORKSPACE_ROOT = LAB_ROOT.parent
 LANG_ROOT = WORKSPACE_ROOT / "igniter-lang"

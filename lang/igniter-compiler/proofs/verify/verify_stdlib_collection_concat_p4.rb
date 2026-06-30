@@ -26,7 +26,7 @@ require "json"
 require "tmpdir"
 require "pathname"
 
-SCRIPT_DIR     = Pathname.new(__FILE__).realpath.dirname
+SCRIPT_DIR     = Pathname.new(__FILE__).realpath.dirname.parent.parent
 LAB_ROOT       = SCRIPT_DIR.parent
 LANG_ROOT      = LAB_ROOT.parent / "igniter-lang"
 COMPILER_BIN   = SCRIPT_DIR / "target" / "release" / "igniter_compiler"

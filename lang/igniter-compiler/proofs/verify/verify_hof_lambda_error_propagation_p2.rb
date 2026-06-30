@@ -40,7 +40,7 @@ require "fileutils"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-COMPILER_DIR = Pathname.new(__dir__).expand_path         # igniter-compiler/
+COMPILER_DIR = Pathname.new(__dir__).parent.parent.expand_path         # igniter-compiler/
 LAB_ROOT     = COMPILER_DIR.parent                       # igniter-lab/
 LANG_ROOT    = LAB_ROOT.parent / "igniter-lang"
 COMPILER_BIN = COMPILER_DIR / "target" / "release" / "igniter_compiler"

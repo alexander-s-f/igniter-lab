@@ -4,9 +4,9 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT = Pathname.new(__dir__)
+ROOT = Pathname.new(__dir__).parent.parent
 SOURCE_DIR = ROOT / "fixtures/conformance/source"
 GOLDEN_DIR = ROOT / "fixtures/conformance/golden"
 OUT_DIR = ROOT / "out"

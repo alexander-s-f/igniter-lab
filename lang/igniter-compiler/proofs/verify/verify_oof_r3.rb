@@ -18,11 +18,11 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT      = Pathname.new(__dir__)
+ROOT      = Pathname.new(__dir__).parent.parent
 COMP      = ROOT / "target/release/igniter_compiler"
-FIXTURES  = Pathname.new(__dir__).parent.parent /
+FIXTURES  = ROOT.parent.parent.parent /
             "igniter-lang/experiments/oof_r3_syntactic_variant_decrease_proof/fixtures"
 
 $pass_count = 0

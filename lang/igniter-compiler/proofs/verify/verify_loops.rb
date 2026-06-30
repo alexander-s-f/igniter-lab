@@ -4,9 +4,9 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT = Pathname.new(__dir__)
+ROOT = Pathname.new(__dir__).parent.parent
 SOURCE_FILE = ROOT / "fixtures/conformance/source/loops_and_recursion.ig"
 OUT_APP = ROOT / "out/loops_and_recursion.igapp"
 INPUTS_FILE = ROOT / "out/loops_and_recursion_inputs.json"
@@ -51,7 +51,7 @@ puts "[*] Inputs file written to #{INPUTS_FILE}"
 
 # 3. Run using igniter-vm via cargo run
 puts "[*] Executing LoopTester contract on IVM..."
-vm_cargo_toml = File.expand_path("../igniter-vm/Cargo.toml", __dir__)
+vm_cargo_toml = File.expand_path("../igniter-vm/Cargo.toml", ROOT)
 # LAB-PROOF-HYGIENE-P1: bounded VM execution
 vm_r = BoundedCommand.run(
   "cargo run --manifest-path #{vm_cargo_toml} --release -- run --contract #{OUT_APP} --inputs #{INPUTS_FILE} --json",

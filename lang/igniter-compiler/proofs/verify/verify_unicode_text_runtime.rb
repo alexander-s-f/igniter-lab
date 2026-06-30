@@ -58,9 +58,9 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT         = Pathname.new(__dir__)
+ROOT         = Pathname.new(__dir__).parent.parent
 COMP         = ROOT / "target/release/igniter_compiler"
 VM_BIN       = ROOT.parent / "igniter-vm/target/release/igniter-vm"
 VM_CARGO     = ROOT.parent / "igniter-vm/Cargo.toml"

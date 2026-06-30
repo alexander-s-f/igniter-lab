@@ -30,9 +30,9 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT     = Pathname.new(__dir__)
+ROOT     = Pathname.new(__dir__).parent.parent
 COMP     = ROOT / "target/release/igniter_compiler"
 FIXTURES = ROOT / "fixtures"
 CONF_SRC = FIXTURES / "conformance/source"

@@ -13,7 +13,7 @@ require "open3"
 require "tmpdir"
 require "pathname"
 
-SCRIPT_DIR = Pathname.new(__FILE__).realpath.dirname
+SCRIPT_DIR = Pathname.new(__FILE__).realpath.dirname.parent.parent
 LAB_ROOT = SCRIPT_DIR.parent
 COMPILER_DIR = SCRIPT_DIR
 COMPILER_BIN = COMPILER_DIR / "target" / "release" / "igniter_compiler"

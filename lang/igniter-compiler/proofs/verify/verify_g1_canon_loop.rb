@@ -10,9 +10,9 @@
 require 'json'
 require 'fileutils'
 require 'pathname'
-require_relative '../tools/proof_harness/bounded_command'
+require_relative '../../../../tools/proof_harness/bounded_command'
 
-ROOT         = Pathname.new(__dir__)
+ROOT         = Pathname.new(__dir__).parent.parent
 FIXTURE      = ROOT / "fixtures/loops/budgeted_loop_canon_g1.ig"
 OUT_IGAPP    = ROOT / "out/g1_canon_loop.igapp"
 OUT_INPUTS   = ROOT / "out/g1_canon_loop_inputs.json"

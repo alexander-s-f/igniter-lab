@@ -35,7 +35,7 @@ require "pathname"
 require "set"
 require "tmpdir"
 
-SCRIPT_DIR       = Pathname.new(__FILE__).realpath.dirname
+SCRIPT_DIR       = Pathname.new(__FILE__).realpath.dirname.parent.parent
 LAB_ROOT         = SCRIPT_DIR.parent
 WORKSPACE_ROOT   = LAB_ROOT.parent
 COMPILER_BIN     = SCRIPT_DIR / "target" / "release" / "igniter_compiler"

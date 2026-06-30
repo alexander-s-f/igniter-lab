@@ -32,7 +32,7 @@ require "open3"
 require "pathname"
 require "tmpdir"
 
-SCRIPT_DIR   = Pathname.new(__dir__)
+SCRIPT_DIR   = Pathname.new(__dir__).parent.parent
 COMPILER_DIR = SCRIPT_DIR
 LANG_DIR     = Pathname.new("/Users/alex/dev/projects/igniter-workspace/igniter-lang")
 LAB_DIR      = Pathname.new("/Users/alex/dev/projects/igniter-workspace/igniter-lab")

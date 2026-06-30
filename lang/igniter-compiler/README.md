@@ -70,13 +70,18 @@ Compile a source fixture:
 cargo run -- compile fixtures/conformance/source/add.ig --out out/add.igapp
 ```
 
-Run lab verification scripts from the repository root:
+Legacy/card-specific verification scripts live under `proofs/verify/`. They are
+kept for audit lineage and old proof replay, but some depend on historical
+fixtures or neighboring lab packages. Prefer `cargo test` for the current
+compiler health check.
+
+Example card-specific runners from this package root:
 
 ```bash
-ruby igniter-compiler/verify_compiler.rb
-ruby igniter-compiler/verify_loops.rb
-ruby igniter-compiler/proofs/contract_invocation_forms_type_directed_dispatch_proof.rb
-ruby igniter-compiler/proofs/contract_invocation_forms_semanticir_lowering_proof.rb
+ruby proofs/verify/verify_compiler.rb
+ruby proofs/verify/verify_loops.rb
+ruby proofs/contract_invocation_forms_type_directed_dispatch_proof.rb
+ruby proofs/contract_invocation_forms_semanticir_lowering_proof.rb
 ```
 
 ## Fixtures And Proof Inputs
@@ -89,6 +94,8 @@ ruby igniter-compiler/proofs/contract_invocation_forms_semanticir_lowering_proof
   proof inputs.
 - [`fixtures/io_*`](./fixtures/) groups IO and capability proof inputs.
 - [`proofs/`](./proofs/) contains proof runners.
+- [`proofs/verify/`](./proofs/verify/) contains legacy/admission verification
+  scripts that used to live at package root.
 
 ## Generated Output Policy
 
