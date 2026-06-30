@@ -5,7 +5,8 @@ require "fileutils"
 require "socket"
 require "zlib"
 
-Dir.chdir(__dir__)
+ROOT = File.expand_path("../..", __dir__)
+Dir.chdir(ROOT)
 
 PID_FILE = "tbackend.pid"
 CONFIG_FILE = "tbackend.config.json"
@@ -65,7 +66,7 @@ def start_server
   puts "#{Style::BOLD}#{Style::CYAN}Starting TBackend Server...#{Style::RESET}"
   
   # Spawn run_server.rb detaching the process group and redirecting output
-  pid = spawn("ruby run_server.rb", out: [log_path, "a"], err: [log_path, "a"], pgroup: true)
+  pid = spawn("ruby scripts/dev/run_server.rb", out: [log_path, "a"], err: [log_path, "a"], pgroup: true)
   Process.detach(pid)
   File.write(PID_FILE, pid)
 
@@ -262,11 +263,11 @@ when "metrics"
 else
   puts "#{Style::BOLD}#{Style::CYAN}TBackend Service Manager#{Style::RESET}"
   puts "Usage:"
-  puts "  ruby tbackend_service.rb start      - Start server as a daemon"
-  puts "  ruby tbackend_service.rb stop       - Stop the daemon"
-  puts "  ruby tbackend_service.rb restart    - Restart the daemon"
-  puts "  ruby tbackend_service.rb status     - Inspect telemetry dashboard"
-  puts "  ruby tbackend_service.rb log        - Tail the server log file"
-  puts "  ruby tbackend_service.rb metrics    - Dump raw JSON metrics payload"
+  puts "  ruby scripts/dev/tbackend_service.rb start      - Start server as a daemon"
+  puts "  ruby scripts/dev/tbackend_service.rb stop       - Stop the daemon"
+  puts "  ruby scripts/dev/tbackend_service.rb restart    - Restart the daemon"
+  puts "  ruby scripts/dev/tbackend_service.rb status     - Inspect telemetry dashboard"
+  puts "  ruby scripts/dev/tbackend_service.rb log        - Tail the server log file"
+  puts "  ruby scripts/dev/tbackend_service.rb metrics    - Dump raw JSON metrics payload"
   puts ""
 end

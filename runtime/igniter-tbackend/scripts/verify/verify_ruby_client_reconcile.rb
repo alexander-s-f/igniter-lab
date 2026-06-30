@@ -6,7 +6,7 @@ require "securerandom"
 require "socket"
 require "timeout"
 require "zlib"
-require_relative "tbackend_client"
+require_relative "../dev/tbackend_client"
 
 HOST = "127.0.0.1"
 PORT = 7422

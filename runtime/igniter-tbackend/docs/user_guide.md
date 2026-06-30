@@ -56,7 +56,7 @@ TBackend can be configured using command-line arguments or a JSON configuration 
 ### C. Launching the Administrative Time-Traveling REPL
 TBackend comes with a FFI-free pure-Ruby administrative REPL shell supporting tab completion and command history:
 ```bash
-ruby tbackend_repl.rb
+ruby scripts/dev/tbackend_repl.rb
 ```
 *REPL Console Session:*
 ```text
@@ -304,21 +304,21 @@ Securely isolate sensitive business ledgers and restrict client access on shared
 
 ## 4. Lab Service Control Plane CLI
 
-Administrators can operate TBackend as a daemon process using `tbackend_service.rb` inside the project folder:
+Administrators can operate TBackend as a daemon process using `scripts/dev/tbackend_service.rb` inside the project folder:
 
 ```bash
 # 1. Boot the TBackend server in the background
-ruby tbackend_service.rb start
+ruby scripts/dev/tbackend_service.rb start
 # ✔ TBackend Server started in background! PID: 92842
 
 # 2. Query process details and live metrics dashboard
-ruby tbackend_service.rb status
+ruby scripts/dev/tbackend_service.rb status
 
 # 3. View live system logs
-ruby tbackend_service.rb log
+ruby scripts/dev/tbackend_service.rb log
 
 # 4. Gracefully shutdown the server and sync all WAL segments
-ruby tbackend_service.rb stop
+ruby scripts/dev/tbackend_service.rb stop
 # ✔ TBackend Server stopped successfully.
 ```
 

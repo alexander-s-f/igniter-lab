@@ -1,44 +1,133 @@
 # Igniter TBackend
 
-`igniter-tbackend` is the Rust temporal ledger substrate used by Igniter Lab
-and Home Lab experiments for ledger storage, temporal lookups, reactive
-pipelines, VM integration tests, and Spark-shaped shadow systems.
+TBackend is the Rust temporal ledger substrate used by Igniter Lab and Home Lab
+for append-only fact storage, temporal lookups, audit/replay, and
+Spark-shaped shadow systems.
 
 Current status:
 
 ```text
 implemented lab substrate
   -> shadow-ready candidate for Spark-shaped side-ledger work
-  -> production promotion only after convergence gates
+  -> preview packaging in progress
+  -> production authority only after convergence gates
 ```
 
-It is still **not** an Igniter Lang canonical runtime component, not Reference
-Runtime support, and not a public/stable API promise. Those are governance
-claims. But the binary and client seam are legitimate infrastructure for
-bounded shadow deployment experiments, especially Spark availability/audit
-work where Rails/Postgres remains the source of truth.
+It is **not** an Igniter Lang canonical runtime component, not Reference
+Runtime support, and not a public/stable wire API promise. Those are governance
+claims. It is legitimate infrastructure for bounded shadow/admission
+experiments where the existing application database remains source of truth.
 
-## Current Role
+## Start Here
 
-TBackend currently provides:
+```bash
+make build          # build ./target/release/tbackend
+make test           # Rust unit tests
+make verify-auth    # auth/storage/bootstrap proof
+make docker-up      # local Docker quickstart on 127.0.0.1:7401
+make docker-down    # stop and remove quickstart volume
+```
 
-- append-oriented fact storage and WAL-backed temporal timelines;
-- TCP JSON command handling for local proof runners;
-- query, analytics, snapshot, diagnostics, auth, MCP, mesh, and pipeline packs;
-- VM reactive integration support used by `igniter-vm` tests;
-- Ruby verification scripts for pack-level lab checks;
-- a side-ledger substrate for Spark-shaped shadow and explainability work.
+Manual run:
 
-The core boundary is now explicit:
+```bash
+cargo build --release --bin tbackend
+./target/release/tbackend --config tbackend.config.json
+```
 
-- **Allowed today:** local lab daemons, Home Lab services, synthetic Rails
-  mirrors, Spark-shaped shadow ledgers, audit/explainability packets,
-  side-by-side parity checks, and non-authoritative replay evidence.
-- **Not implied:** public database product, stable wire/API contract, canonical
-  Igniter Lang runtime authority, or replacement of SparkCRM production state.
-- **Promotion path:** shadow convergence, failure-mode evidence, operational
-  runbook, restore/reconcile story, and explicit human gate before any
-  production authority switch.
+Framed ping:
+
+```bash
+python3 - <<'PY'
+import json, socket, struct, zlib
+b = json.dumps({"op": "ping"}).encode()
+s = socket.create_connection(("127.0.0.1", 7401), 3)
+s.sendall(struct.pack(">I", len(b)) + b + struct.pack(">I", zlib.crc32(b) & 0xffffffff))
+n = struct.unpack(">I", s.recv(4))[0]
+print(s.recv(n).decode())
+PY
+```
+
+## Preview Paths
+
+| Audience | Entry point |
+| --- | --- |
+| macOS developer | `packaging/README-quickstart.md` |
+| devops / AWS evaluation | `docs/docker.md` |
+| Linux host ops | `docs/deployment.md` |
+| team intro | `docs/tbackend-team-quickstart.md` |
+| worked domain example | `docs/example-usecase.md` + `examples/availability_ledger.py` |
+
+## Layout
+
+```text
+src/                  Rust daemon, command server, packs, WAL/core logic
+docs/                 Operator, architecture, Docker, and team-facing docs
+examples/             Small runnable examples
+packaging/            Debian/systemd configs and macOS bundle payload files
+scripts/build-*.sh    Build/package helpers
+scripts/verify/       Focused lab proof harnesses
+scripts/dev/          Legacy/local Ruby dev utilities
+docs/assets/          Images and diagrams
+```
+
+The package root intentionally keeps only the preview-facing entrypoints:
+`Cargo.toml`, `Dockerfile`, `docker-compose.quickstart.yml`, `Makefile`,
+`README.md`, and local sample config.
+
+Ignored runtime/build output includes `target/`, `data/`, `out/`, `*.log`, and
+`*.wal`.
+
+## Verification
+
+Fast path:
+
+```bash
+make test
+make verify-auth
+```
+
+Focused proof scripts:
+
+```bash
+ruby scripts/verify/verify_auth.rb
+python3 scripts/verify/verify_seqid.py
+python3 scripts/verify/verify_idempotent_write.py
+python3 scripts/verify/verify_durable_ack.py
+python3 scripts/verify/verify_compaction_loss.py
+ruby scripts/verify/verify_mcp.rb
+```
+
+Most proof scripts start temporary loopback daemons, write ignored `*_data` and
+`*_daemon.log` paths, and clean up after themselves. They are lab proofs, not
+stable product commands.
+
+## Boundary
+
+Allowed today:
+
+- local lab daemons;
+- Home Lab services;
+- synthetic Rails mirrors;
+- Spark-shaped side ledgers;
+- shadow parity checks;
+- audit/explainability packets;
+- non-authoritative replay evidence.
+
+Not implied:
+
+- public database/service support;
+- production source-of-truth authority;
+- canonical Igniter Lang runtime authority;
+- stable wire/API/layout guarantees;
+- public MCP/auth/mesh/pipeline service guarantees.
+
+Promotion path:
+
+```text
+shadow mirror -> parity evidence -> failure-mode evidence -> restore/reconcile runbook
+  -> explicit operator gate -> preview/stable promotion
+```
 
 For SparkCRM-style usage, the intended first role is a **side ledger**:
 
@@ -48,58 +137,3 @@ Rails/Postgres write succeeds
   -> shadow projection/audit compares against ActiveRecord truth
   -> convergence evidence decides promotion
 ```
-
-TBackend should be presented to agents as a candidate substrate with clear
-admission and promotion gates.
-
-## Layout
-
-- `src/` contains the Rust backend, command server, packs, and WAL logic.
-- `docs/technical_architecture.md` records architecture notes and candidate
-  pack boundaries.
-- `docs/user_guide.md` records lab-local operator examples and command shapes.
-- `verify_*.rb` scripts run focused pack verification checks.
-- `test_suite.rb` runs the compact core verification harness.
-- `tbackend_repl.rb`, `run_server.rb`, and `tbackend_service.rb` are lab-local
-  operator utilities.
-
-Runtime data, WAL files, logs, and Rust build outputs are intentionally ignored
-by git.
-
-## Commands
-
-From this package directory:
-
-```bash
-cargo test
-cargo build --release
-ruby test_suite.rb
-ruby verify_analytics.rb
-ruby verify_auth.rb
-ruby verify_cross_store.rb
-ruby verify_diagnostics.rb
-ruby verify_mcp.rb
-ruby verify_mesh.rb
-ruby verify_pipeline.rb
-ruby verify_snapshot.rb
-ruby verify_trigger.rb
-```
-
-Some verification scripts start local daemon processes on loopback ports and
-create temporary WAL/log data under ignored paths.
-
-## Boundary
-
-This package should be framed as **implemented lab substrate and
-shadow-ready candidate**, with boundaries. It does not by itself create
-authority for:
-
-- Igniter Lang runtime support;
-- public database/service support;
-- Reference Runtime status;
-- stable API, stable wire protocol, or stable package layout;
-- release, production, performance, certification, or portability claims;
-- public MCP, auth, mesh, or pipeline service guarantees.
-
-Use wording that names the gate: safe for bounded shadow/admission experiments;
-production promotion requires convergence and operator approval.

@@ -43,7 +43,7 @@ the optional FFI cdylib, not the daemon).
 ### Try it
 
 ```bash
-ruby tbackend_repl.rb                     # time-traveling REPL (ping / put / list ...)
+ruby scripts/dev/tbackend_repl.rb                     # time-traveling REPL (ping / put / list ...)
 python3 examples/availability_ledger.py   # the worked example (see example-usecase.md)
 ```
 
@@ -163,7 +163,7 @@ your real tokens (`auth_token_create`), then delete the handoff file. See `user_
 > ⚠ **Security note on package version.** The device-proven P4 binary is **pre-P9**: persistent token
 > *filenames are the token value* (`security/<TOKEN>.json`), so `ls security/` leaks tokens. The **P9**
 > hardening (hash/id storage `security/<blake3(token)>.json`, fail-closed on legacy files) is in source and
-> tested (`verify_auth.rb` 67/0) but **was never packaged/installed** (the P11 upgrade is HELD — see B6).
+> tested (`scripts/verify/verify_auth.rb` 67/0) but **was never packaged/installed** (the P11 upgrade is HELD — see B6).
 > Package from current source (B2) to get P9; do not enable auth on a pre-P9 binary you care about.
 
 ### B6. Reinstall / update
@@ -197,7 +197,7 @@ produce a P9 deb, (2) the human operator gate.
 | goal | command |
 |------|---------|
 | dev: build + run | `cargo build --release --bin tbackend && ./target/release/tbackend --host 127.0.0.1 --port 7401 --data-dir data` |
-| dev: try | `python3 examples/availability_ledger.py` · `ruby tbackend_repl.rb` |
+| dev: try | `python3 examples/availability_ledger.py` · `ruby scripts/dev/tbackend_repl.rb` |
 | package | `./scripts/build-and-package.sh` (on a Linux node of the target arch) |
 | install (nfpm deb) | `sudo apt install ./out/tbackend_<ver>_<arch>.deb` |
 | start | `sudo systemctl enable --now tbackend.service` |

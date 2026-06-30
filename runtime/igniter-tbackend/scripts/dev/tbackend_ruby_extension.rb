@@ -7,7 +7,7 @@ module TBackendRubyExtension
 
   def build_and_require!(root: __dir__)
     Dir.chdir(root) do
-      cmd = "RUSTFLAGS='-C link-arg=-undefined -C link-arg=dynamic_lookup' cargo build --release"
+      cmd = "RUSTFLAGS='-C link-arg=-undefined -C link-arg=dynamic_lookup' cargo build --release --features ffi"
       system(cmd) || raise("Failed to compile TBackend Rust extension")
       ensure_ruby_extension_alias!(File.join(root, "target", "release"))
     end

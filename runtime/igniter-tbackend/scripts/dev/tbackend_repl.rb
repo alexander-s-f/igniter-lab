@@ -9,7 +9,8 @@ require "shellwords"
 require "digest"
 require "readline"
 
-Dir.chdir(__dir__)
+ROOT = File.expand_path("../..", __dir__)
+Dir.chdir(ROOT)
 
 CONFIG_FILE = "tbackend.config.json"
 
@@ -147,7 +148,7 @@ class AdministrativeREPL
     return true if @client
     connect_client
     if @client.nil?
-      raise "TBackend daemon offline at #{@host}:#{@port}! Please start it first: ruby tbackend_service.rb start"
+      raise "TBackend daemon offline at #{@host}:#{@port}! Please start it first: ruby scripts/dev/tbackend_service.rb start"
     end
     true
   end

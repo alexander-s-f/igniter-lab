@@ -3,9 +3,11 @@
 require "fileutils"
 require "securerandom"
 
+ROOT = File.expand_path("../..", __dir__)
+
 puts "=== 1. Compiling Playground Rust Extension ==="
-Dir.chdir(__dir__) do
-  cmd = "RUSTFLAGS='-C link-arg=-undefined -C link-arg=dynamic_lookup' cargo build --release"
+Dir.chdir(ROOT) do
+  cmd = "RUSTFLAGS='-C link-arg=-undefined -C link-arg=dynamic_lookup' cargo build --release --features ffi"
   system(cmd) || raise("Failed to compile playground Rust extension!")
   
   # Ensure the symlink exists without the 'lib' prefix so Ruby require works
@@ -26,11 +28,11 @@ Dir.chdir(__dir__) do
 end
 
 # Load Mainline
-$LOAD_PATH.unshift(File.expand_path("../../packages/igniter-ledger/lib", __dir__))
+$LOAD_PATH.unshift(File.expand_path("../../packages/igniter-ledger/lib", ROOT))
 require "igniter-ledger"
 
 # Load Playground
-$LOAD_PATH.unshift(File.expand_path("target/release", __dir__))
+$LOAD_PATH.unshift(File.expand_path("target/release", ROOT))
 require "igniter_tbackend_playground"
 
 # Setup Playground Ruby wrappers

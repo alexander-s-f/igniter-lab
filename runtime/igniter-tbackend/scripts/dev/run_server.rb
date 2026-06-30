@@ -3,7 +3,8 @@
 require "json"
 require "fileutils"
 
-Dir.chdir(__dir__)
+ROOT = File.expand_path("../..", __dir__)
+Dir.chdir(ROOT)
 
 # Load config
 unless File.exist?("tbackend.config.json")
@@ -16,7 +17,7 @@ config = JSON.parse(File.read("tbackend.config.json"), symbolize_names: true)
 # Compile and load Ruby extension
 require_relative "tbackend_ruby_extension"
 begin
-  TBackendRubyExtension.build_and_require!(root: __dir__)
+  TBackendRubyExtension.build_and_require!(root: ROOT)
 rescue StandardError => e
   puts "Failed to compile or load TBackend Rust extension: #{e.message}"
   exit 1

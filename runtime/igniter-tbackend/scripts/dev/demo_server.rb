@@ -6,9 +6,12 @@ require "socket"
 require "json"
 require "zlib"
 
+ROOT = File.expand_path("../..", __dir__)
+Dir.chdir(ROOT)
+
 puts "=== 1. Compiling Playground Rust Extension ==="
 require_relative "tbackend_ruby_extension"
-TBackendRubyExtension.build_and_require!(root: __dir__)
+TBackendRubyExtension.build_and_require!(root: ROOT)
 
 # Setup Playground Ruby wrappers
 module Igniter

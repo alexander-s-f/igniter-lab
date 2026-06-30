@@ -6,7 +6,8 @@ require "socket"
 require "zlib"
 require "securerandom"
 
-Dir.chdir(__dir__)
+ROOT = File.expand_path("../..", __dir__)
+Dir.chdir(ROOT)
 
 # ANSI styling
 GREEN  = "\e[32m"
@@ -38,9 +39,9 @@ end
 
 # Compile and load Ruby extension
 puts "\n#{BOLD}#{CYAN}=== TEST SUITE: Compilation ===#{RESET}"
-require_relative "tbackend_ruby_extension"
+require_relative "../dev/tbackend_ruby_extension"
 begin
-  TBackendRubyExtension.build_and_require!(root: __dir__)
+  TBackendRubyExtension.build_and_require!(root: ROOT)
 rescue StandardError => e
   puts "#{RED}Compilation or extension load failed: #{e.message}#{RESET}"
   exit 1
