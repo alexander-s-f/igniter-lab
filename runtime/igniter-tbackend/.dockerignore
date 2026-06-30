@@ -1,0 +1,12 @@
+target/
+out/
+data/
+*.wal
+*.log
+.git/
+.idea/
+docs/
+examples/
+tests/
+*.rb
+*.py

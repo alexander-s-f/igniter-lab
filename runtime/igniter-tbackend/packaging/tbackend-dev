@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# tbackend-dev — start / ping / stop a local loopback TBackend from this bundle.
+# No Rust, no systemd, no root. Loopback only. Data lives in ./var/data inside the bundle.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"   # bundle root
+cd "$HERE"
+BIN="bin/tbackend"
+CFG="config/tbackend.dev.json"
+PIDF="var/tbackend.pid"
+LOG="var/tbackend.log"
+PORT=7401                                  # must match config/tbackend.dev.json
+mkdir -p var/data
+
+ping() {
+  python3 - "$PORT" <<'PY'
+import socket, struct, zlib, json, sys
+p = int(sys.argv[1]); b = json.dumps({"op": "ping"}).encode()
+f = struct.pack(">I", len(b)) + b + struct.pack(">I", zlib.crc32(b) & 0xffffffff)
+s = socket.create_connection(("127.0.0.1", p), 3); s.sendall(f)
+n = struct.unpack(">I", s.recv(4))[0]; print(s.recv(n).decode()); s.close()
+PY
+}
+
+case "${1:-}" in
+  start)
+    if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+      echo "already running (pid $(cat "$PIDF")) on 127.0.0.1:$PORT"; exit 0
+    fi
+    "$BIN" --config "$CFG" >"$LOG" 2>&1 &
+    echo $! > "$PIDF"
+    sleep 1
+    if kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+      echo "started pid $(cat "$PIDF") on 127.0.0.1:$PORT  (data: $HERE/var/data)"
+    else
+      echo "failed to start — see $HERE/$LOG"; rm -f "$PIDF"; exit 1
+    fi
+    ;;
+  ping)
+    ping
+    ;;
+  stop)
+    if [ -f "$PIDF" ]; then
+      kill "$(cat "$PIDF")" 2>/dev/null || true; rm -f "$PIDF"; echo "stopped"
+    else
+      echo "not running"
+    fi
+    ;;
+  *)
+    echo "usage: $0 {start|ping|stop}"; exit 2
+    ;;
+esac

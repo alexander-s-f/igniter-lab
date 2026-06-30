@@ -1,0 +1,17 @@
+# Loopback-only quickstart. The container binds 0.0.0.0:7401 INTERNALLY; the host
+# mapping pins it to 127.0.0.1 so nothing is exposed beyond this machine.
+# Build:  docker compose -f docker-compose.quickstart.yml up --build -d
+# Stop:   docker compose -f docker-compose.quickstart.yml down -v
+services:
+  tbackend:
+    image: tbackend:0.1.0-lab.1-local      # immutable tag — never `latest`
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:7401:7401"              # host loopback ONLY — never "7401:7401"
+    volumes:
+      - tbackend-data:/var/lib/tbackend     # durable ledger
+    restart: unless-stopped
+volumes:
+  tbackend-data:
