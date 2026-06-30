@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Push runtime/igniter-machine as a clean subtree mirror.
+#
+# This is a monorepo-owner helper. Keep it outside runtime/igniter-machine so it
+# does not appear inside the team-facing mirror repository.
+
+set -euo pipefail
+
+PREFIX="runtime/igniter-machine"
+REMOTE="${IGNITER_MACHINE_REMOTE:-igniter-machine}"
+REMOTE_BRANCH="${IGNITER_MACHINE_REMOTE_BRANCH:-main}"
+SPLIT_BRANCH="${IGNITER_MACHINE_SPLIT_BRANCH:-igniter-machine-main}"
+
+usage() {
+  cat <<USAGE
+Usage: bin/push-igniter-machine-mirror
+
+Push the $PREFIX subtree to the '$REMOTE' remote branch '$REMOTE_BRANCH'.
+
+Expected setup:
+  git remote add igniter-machine ssh://git@git.int.avenlance.com:222/Igniter/igniter-machine.git
+
+Recommended flow:
+  git status
+  git add <files>
+  git commit -m "..."
+  git push origin main
+  bin/push-igniter-machine-mirror
+
+Environment overrides:
+  IGNITER_MACHINE_REMOTE        default: igniter-machine
+  IGNITER_MACHINE_REMOTE_BRANCH default: main
+  IGNITER_MACHINE_SPLIT_BRANCH  default: igniter-machine-main
+USAGE
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if [[ ! -d "$PREFIX" ]]; then
+  echo "push-igniter-machine-mirror: ERROR: prefix not found: $PREFIX" >&2
+  exit 1
+fi
+
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "push-igniter-machine-mirror: ERROR: remote '$REMOTE' is not configured." >&2
+  echo "Run:" >&2
+  echo "  git remote add igniter-machine ssh://git@git.int.avenlance.com:222/Igniter/igniter-machine.git" >&2
+  exit 1
+fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "push-igniter-machine-mirror: ERROR: working tree is dirty; commit or stash first." >&2
+  git status --short >&2
+  exit 1
+fi
+
+echo "push-igniter-machine-mirror: splitting $PREFIX ..."
+git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+git subtree split --prefix="$PREFIX" -b "$SPLIT_BRANCH"
+
+cleanup() {
+  git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "push-igniter-machine-mirror: pushing $SPLIT_BRANCH -> $REMOTE/$REMOTE_BRANCH ..."
+git push "$REMOTE" "$SPLIT_BRANCH:$REMOTE_BRANCH"
+
+echo "push-igniter-machine-mirror: OK"
