@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Push runtime/acts-as-tbackend as a clean subtree mirror.
+#
+# This is a monorepo-owner helper. Keep it outside runtime/acts-as-tbackend so it
+# does not appear inside the team-facing mirror repository.
+
+set -euo pipefail
+
+PREFIX="runtime/acts-as-tbackend"
+REMOTE="${ACTS_AS_TBACKEND_REMOTE:-acts-as-tbackend}"
+REMOTE_BRANCH="${ACTS_AS_TBACKEND_REMOTE_BRANCH:-main}"
+SPLIT_BRANCH="${ACTS_AS_TBACKEND_SPLIT_BRANCH:-acts-as-tbackend-main}"
+
+usage() {
+  cat <<USAGE
+Usage: bin/push-acts-as-tbackend-mirror
+
+Push the $PREFIX subtree to the '$REMOTE' remote branch '$REMOTE_BRANCH'.
+
+Expected setup:
+  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/afokin/acts-as-tbackend.git
+
+Recommended flow:
+  git status
+  git add <files>
+  git commit -m "..."
+  git push origin main
+  bin/push-acts-as-tbackend-mirror
+
+Environment overrides:
+  ACTS_AS_TBACKEND_REMOTE        default: acts-as-tbackend
+  ACTS_AS_TBACKEND_REMOTE_BRANCH default: main
+  ACTS_AS_TBACKEND_SPLIT_BRANCH  default: acts-as-tbackend-main
+USAGE
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if [[ ! -d "$PREFIX" ]]; then
+  echo "push-acts-as-tbackend-mirror: ERROR: prefix not found: $PREFIX" >&2
+  exit 1
+fi
+
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "push-acts-as-tbackend-mirror: ERROR: remote '$REMOTE' is not configured." >&2
+  echo "Run:" >&2
+  echo "  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/afokin/acts-as-tbackend.git" >&2
+  exit 1
+fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "push-acts-as-tbackend-mirror: ERROR: working tree is dirty; commit or stash first." >&2
+  git status --short >&2
+  exit 1
+fi
+
+echo "push-acts-as-tbackend-mirror: splitting $PREFIX ..."
+git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+git subtree split --prefix="$PREFIX" -b "$SPLIT_BRANCH"
+
+cleanup() {
+  git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "push-acts-as-tbackend-mirror: pushing $SPLIT_BRANCH -> $REMOTE/$REMOTE_BRANCH ..."
+git push "$REMOTE" "$SPLIT_BRANCH:$REMOTE_BRANCH"
+
+echo "push-acts-as-tbackend-mirror: OK"
