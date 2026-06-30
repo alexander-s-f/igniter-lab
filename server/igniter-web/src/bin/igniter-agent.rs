@@ -121,6 +121,49 @@ fn tools_list() -> Value {
                 "properties": { "path": { "type": "string", "description": "App dir or produced bundle dir" } },
                 "required": ["path"]
             }
+        },
+        {
+            "name": "stdlib_list",
+            "description": "List the implemented stdlib surface (delegates to `igniter stdlib list --json`). Read-only; `igc` owns the stdlib JSON contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "category": { "type": "string", "description": "Optional exact category filter, passed to --category" }
+                }
+            }
+        },
+        {
+            "name": "stdlib_search",
+            "description": "Search the implemented stdlib surface (delegates to `igniter stdlib search QUERY --json`). Read-only; no inventory parsing in the agent.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Required non-empty search query" }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "stdlib_show",
+            "description": "Show one stdlib entry by canonical name, semantic IR name, or source alias (delegates to `igniter stdlib show NAME --json`).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Required stdlib canonical name, semantic IR name, or source alias" }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "diagnostic_explain",
+            "description": "Explain which stdlib entries are linked to a diagnostic rule (delegates to `igniter explain RULE --json`).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule": { "type": "string", "description": "Required diagnostic rule id, for example OOF-COL3" }
+                },
+                "required": ["rule"]
+            }
         }
     ])
 }
@@ -378,6 +421,20 @@ fn tool_arg_error(out: &mut impl Write, id: Value, tool: &str, message: &str) {
     );
 }
 
+fn required_nonblank_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Run a JSON-producing control-center command and place parsed stdout into the additive MCP envelope.
+/// The delegated CLI owns semantics and exit status; parse failure only leaves `parsed:null`.
+fn run_json_igniter_tool(out: &mut impl Write, id: Value, tool: &str, argv: &[&str]) {
+    let (code, so, se) = run_igniter(argv);
+    let parsed = serde_json::from_str::<Value>(&so).unwrap_or(Value::Null);
+    tool_command_result(out, id, tool, code, &so, &se, code != 0, parsed);
+}
+
 /// Extract the whitespace-delimited token following `key` in a line (e.g. `entry=Serve` → `Serve`).
 fn field_after(line: &str, key: &str) -> Option<String> {
     line.split(key)
@@ -604,6 +661,44 @@ fn handle_tool_call(out: &mut impl Write, id: Value, params: &Value) {
                 tool_command_result(out, id, "env_check", code, &so, &se, code != 0, parsed);
             }
             None => tool_arg_error(out, id, "env_check", "missing required argument: path"),
+        },
+        "stdlib_list" => {
+            if let Some(category) = required_nonblank_arg(&args, "category") {
+                run_json_igniter_tool(
+                    out,
+                    id,
+                    "stdlib_list",
+                    &["stdlib", "list", "--category", category, "--json"],
+                );
+            } else {
+                run_json_igniter_tool(out, id, "stdlib_list", &["stdlib", "list", "--json"]);
+            }
+        }
+        "stdlib_search" => match required_nonblank_arg(&args, "query") {
+            Some(query) => run_json_igniter_tool(
+                out,
+                id,
+                "stdlib_search",
+                &["stdlib", "search", query, "--json"],
+            ),
+            None => tool_arg_error(out, id, "stdlib_search", "missing required argument: query"),
+        },
+        "stdlib_show" => match required_nonblank_arg(&args, "name") {
+            Some(name) => {
+                run_json_igniter_tool(out, id, "stdlib_show", &["stdlib", "show", name, "--json"])
+            }
+            None => tool_arg_error(out, id, "stdlib_show", "missing required argument: name"),
+        },
+        "diagnostic_explain" => match required_nonblank_arg(&args, "rule") {
+            Some(rule) => {
+                run_json_igniter_tool(out, id, "diagnostic_explain", &["explain", rule, "--json"])
+            }
+            None => tool_arg_error(
+                out,
+                id,
+                "diagnostic_explain",
+                "missing required argument: rule",
+            ),
         },
         other => tool_enveloped(
             out,

@@ -41,7 +41,7 @@ use igniter_server::effect_host::MachineEffectHost;
 use igniter_server::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRequest};
 use igniter_web::runner::build_app_from_dir;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -240,6 +240,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: WRITE_CAP.into(),
         operation: "write_record".into(),

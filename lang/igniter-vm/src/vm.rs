@@ -5,6 +5,7 @@ use crate::instructions::*;
 use crate::tbackend::TBackend;
 use crate::value::Value;
 use igniter_stdlib::decimal::Decimal;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -113,6 +114,116 @@ pub struct DispatchEntry {
 // LAB-RACK-P9: Maximum user-contract call depth.
 // Prevents stack overflow from deep or cyclic dispatch chains.
 pub const MAX_CALL_DEPTH: i64 = 64;
+pub const MAX_EVAL_AST_DEPTH: i64 = 32;
+pub const MAX_COLLECTION_ELEMENTS: usize = 1_000_000;
+pub const MAX_VM_STEPS: u64 = 1_000_000;
+
+fn checked_int_add(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_add(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_sub(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_sub(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_mul(a: i64, b: i64) -> Result<i64, String> {
+    a.checked_mul(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_div(a: i64, b: i64) -> Result<i64, String> {
+    if b == 0 {
+        return Err("Division by zero".to_string());
+    }
+    a.checked_div(b)
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn checked_int_neg(a: i64) -> Result<i64, String> {
+    a.checked_neg()
+        .ok_or_else(|| "Integer overflow".to_string())
+}
+
+fn decimal_from_value(value: &Value) -> Option<Decimal> {
+    match value {
+        Value::Decimal { value, scale } => Some(Decimal::new(*value, *scale)),
+        _ => None,
+    }
+}
+
+fn value_eq_exact(a: &Value, b: &Value) -> Result<bool, String> {
+    match (decimal_from_value(a), decimal_from_value(b)) {
+        (Some(da), Some(db)) => Ok(da.cmp_decimal(&db)? == Ordering::Equal),
+        _ => Ok(a == b),
+    }
+}
+
+fn collection_budget_error(context: &str, len: usize) -> String {
+    format!(
+        "OOF-VM-COLLECTION-BUDGET: {} would create {} element(s), max {}",
+        context, len, MAX_COLLECTION_ELEMENTS
+    )
+}
+
+fn checked_collection_len(context: &str, len: usize) -> Result<(), String> {
+    if len > MAX_COLLECTION_ELEMENTS {
+        return Err(collection_budget_error(context, len));
+    }
+    Ok(())
+}
+
+fn checked_range_len(start: i64, end: i64) -> Result<usize, String> {
+    if end <= start {
+        return Ok(0);
+    }
+    let len = (end as i128) - (start as i128);
+    if len > MAX_COLLECTION_ELEMENTS as i128 {
+        return Err(collection_budget_error("range", MAX_COLLECTION_ELEMENTS + 1));
+    }
+    usize::try_from(len).map_err(|_| collection_budget_error("range", MAX_COLLECTION_ELEMENTS + 1))
+}
+
+fn build_integer_range(start: i64, end: i64) -> Result<Value, String> {
+    let len = checked_range_len(start, end)?;
+    let mut list = Vec::with_capacity(len);
+    for i in start..end {
+        list.push(Value::Integer(i));
+    }
+    Ok(Value::Array(Arc::new(list)))
+}
+
+fn checked_concat_len(left: usize, right: usize, context: &str) -> Result<usize, String> {
+    let len = left
+        .checked_add(right)
+        .ok_or_else(|| collection_budget_error(context, MAX_COLLECTION_ELEMENTS + 1))?;
+    checked_collection_len(context, len)?;
+    Ok(len)
+}
+
+fn ast_depth_exceeds_budget(root: &serde_json::Value, max_depth: i64) -> bool {
+    let mut stack = vec![(root, 1_i64)];
+    while let Some((node, depth)) = stack.pop() {
+        if depth > max_depth {
+            return true;
+        }
+        match node {
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    stack.push((child, depth + 1));
+                }
+            }
+            serde_json::Value::Object(fields) => {
+                for child in fields.values() {
+                    stack.push((child, depth + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
 
 // LAB-FUNCTION-SIR-RUNTIME-P1: a statically-emitted app-local `def` function.
 // params: parameter names in declaration order; body: runnable SIR (eval_ast-evaluated).
@@ -317,8 +428,18 @@ impl VM {
         let total_instructions = instructions.len();
         // LAB-VMTRACE-P1: monotonic sequence counter for trace events.
         let mut trace_seq: usize = 0;
+        let mut steps_executed: u64 = 0;
 
         while ip < total_instructions {
+            steps_executed = steps_executed
+                .checked_add(1)
+                .ok_or_else(|| "OOF-VM-BUDGET: runtime step counter overflow".to_string())?;
+            if steps_executed > MAX_VM_STEPS {
+                return Err(format!(
+                    "OOF-VM-BUDGET: runtime step budget ({}) exceeded",
+                    MAX_VM_STEPS
+                ));
+            }
             let inst = &instructions[ip];
             // LAB-VMTRACE-P1: capture pre-instruction state (zero-cost when trace_collector is None).
             let trace_pre_ip = ip;
@@ -408,7 +529,9 @@ impl VM {
                                 Err(e) => return Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_add(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
                         _ => {
                             return Err(format!("Invalid operand types for ADD: {:?} + {:?}", a, b))
@@ -446,7 +569,9 @@ impl VM {
                                 Err(e) => return Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av - bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_sub(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av - bv),
                         _ => {
                             return Err(format!("Invalid operand types for SUB: {:?} - {:?}", a, b))
@@ -476,13 +601,17 @@ impl VM {
                         ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
-                            let res_dec = da.mul(&db);
-                            Value::Decimal {
-                                value: res_dec.value,
-                                scale: res_dec.scale,
+                            match da.mul(&db) {
+                                Ok(res_dec) => Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                },
+                                Err(e) => return Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av * bv),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Value::Integer(checked_int_mul(*av, *bv)?)
+                        }
                         (Value::Float(av), Value::Float(bv)) => Value::Float(av * bv),
                         _ => {
                             return Err(format!("Invalid operand types for MUL: {:?} * {:?}", a, b))
@@ -521,10 +650,7 @@ impl VM {
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
-                            if *bv == 0 {
-                                return Err("Division by zero".to_string());
-                            }
-                            Value::Integer(av / bv)
+                            Value::Integer(checked_int_div(*av, *bv)?)
                         }
                         (Value::Float(av), Value::Float(bv)) => {
                             if *bv == 0.0 {
@@ -547,7 +673,7 @@ impl VM {
                     let a = stack
                         .pop()
                         .ok_or("Stack underflow during EQ first operand")?;
-                    stack.push(Value::Bool(a == b));
+                    stack.push(Value::Bool(value_eq_exact(&a, &b)?));
                     ip += 1;
                 }
 
@@ -568,11 +694,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() > db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Greater,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av > bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av > bv),
                         _ => {
@@ -600,11 +725,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() < db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Less,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av < bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av < bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av < bv),
@@ -633,11 +757,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() <= db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Greater,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av <= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av <= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av <= bv),
@@ -666,11 +789,10 @@ impl VM {
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Value::Bool(da.to_f64() >= db.to_f64())
-                        }
+                        ) => Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Less,
+                        ),
                         (Value::Integer(av), Value::Integer(bv)) => Value::Bool(av >= bv),
                         (Value::Float(av), Value::Float(bv)) => Value::Bool(av >= bv),
                         (Value::String(av), Value::String(bv)) => Value::Bool(av >= bv),
@@ -689,7 +811,7 @@ impl VM {
                     let a = stack
                         .pop()
                         .ok_or("Stack underflow during NE first operand")?;
-                    stack.push(Value::Bool(a != b));
+                    stack.push(Value::Bool(!value_eq_exact(&a, &b)?));
                     ip += 1;
                 }
 
@@ -754,7 +876,9 @@ impl VM {
                             Value::String(Arc::from(s.as_str()))
                         }
                         (Value::Array(av), Value::Array(bv)) => {
-                            let mut list = (**av).clone();
+                            let len = checked_concat_len(av.len(), bv.len(), "concat")?;
+                            let mut list = Vec::with_capacity(len);
+                            list.extend(av.iter().cloned());
                             list.extend_from_slice(bv);
                             Value::Array(Arc::new(list))
                         }
@@ -781,7 +905,9 @@ impl VM {
                             count
                         ));
                     }
-                    let mut items = Vec::with_capacity(count as usize);
+                    let count = count as usize;
+                    checked_collection_len("PUSH_ARRAY", count)?;
+                    let mut items = Vec::with_capacity(count);
                     for _ in 0..count {
                         let item = stack.pop().ok_or("Stack underflow during PUSH_ARRAY")?;
                         items.push(item);
@@ -803,6 +929,8 @@ impl VM {
                             key_count
                         ));
                     }
+                    let key_count_usize = key_count as usize;
+                    checked_collection_len("PUSH_RECORD", key_count_usize)?;
                     let mut map = std::collections::BTreeMap::new();
                     for i in (0..key_count).rev() {
                         let key_val = inst
@@ -828,9 +956,14 @@ impl VM {
                         .get(1)
                         .ok_or("Missing arg count for OP_CALL")?
                         .as_integer()?;
+                    if arg_count < 0 {
+                        return Err(format!("Invalid negative arg count for OP_CALL: {}", arg_count));
+                    }
+                    let arg_count_usize = arg_count as usize;
+                    checked_collection_len("OP_CALL args", arg_count_usize)?;
 
-                    let mut args = Vec::with_capacity(arg_count as usize);
-                    for _ in 0..arg_count {
+                    let mut args = Vec::with_capacity(arg_count_usize);
+                    for _ in 0..arg_count_usize {
                         args.push(stack.pop().ok_or("Stack underflow during OP_CALL")?);
                     }
                     args.reverse();
@@ -883,6 +1016,11 @@ impl VM {
                         "stdlib.collection.all" => "all",
                         "stdlib.collection.find" => "find",
                         "stdlib.collection.filter_map" => "filter_map",
+                        // LAB-STDLIB-COLLECTION-FLATMAP-OR-CONCAT-P1: wire the qualified name to the
+                        // already-implemented flat_map handler (Array: per-element lambda, Array results
+                        // flattened). VM half is ready; the compiler-side registration is PROP-gated
+                        // (COLLECTION_HOF_FNS) and named as the canon follow-up card.
+                        "stdlib.collection.flat_map" => "flat_map",
                         // concat -> lenient bare handler (Array+Array merge, else string
                         // concat); the front-end sometimes types a string concat as
                         // collection.concat.
@@ -1105,7 +1243,11 @@ impl VM {
                                     "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
                                 )),
                             };
-                            Value::Decimal { value, scale }
+                            let decimal = Decimal::checked_new(value, scale)?;
+                            Value::Decimal {
+                                value: decimal.value,
+                                scale: decimal.scale,
+                            }
                         }
                         "length" => {
                             if args.len() != 1 {
@@ -1126,7 +1268,9 @@ impl VM {
                             }
                             match (&args[0], &args[1]) {
                                 (Value::Array(a), Value::Array(b)) => {
-                                    let mut merged: Vec<Value> = a.iter().cloned().collect();
+                                    let len = checked_concat_len(a.len(), b.len(), "concat")?;
+                                    let mut merged = Vec::with_capacity(len);
+                                    merged.extend(a.iter().cloned());
                                     merged.extend(b.iter().cloned());
                                     Value::Array(Arc::new(merged))
                                 }
@@ -1438,7 +1582,10 @@ impl VM {
                             }
                             match (&args[0], &args[1]) {
                                 (Value::Array(a), Value::Array(b)) => {
-                                    let mut merged: Vec<Value> = a.iter().cloned().collect();
+                                    let len =
+                                        checked_concat_len(a.len(), b.len(), "collection.concat")?;
+                                    let mut merged = Vec::with_capacity(len);
+                                    merged.extend(a.iter().cloned());
                                     merged.extend(b.iter().cloned());
                                     Value::Array(Arc::new(merged))
                                 }
@@ -1866,6 +2013,7 @@ impl VM {
                                 _ => return Err("zip second argument must be an array".to_string()),
                             };
                             let len = std::cmp::min(array_a.len(), array_b.len());
+                            checked_collection_len("zip", len)?;
                             let mut zipped = Vec::with_capacity(len);
                             for i in 0..len {
                                 let mut map = std::collections::BTreeMap::new();
@@ -1884,11 +2032,7 @@ impl VM {
                             }
                             let start = args[0].as_integer()?;
                             let end = args[1].as_integer()?;
-                            let mut list = Vec::new();
-                            for i in start..end {
-                                list.push(Value::Integer(i));
-                            }
-                            Value::Array(Arc::new(list))
+                            build_integer_range(start, end)?
                         }
                         "stdlib.option.wrap" | "some" => {
                             if args.len() != 1 {
@@ -2021,42 +2165,16 @@ impl VM {
                                 _ => val.clone(),
                             }
                         }
-                        "stdlib.numeric.add" | "add" => {
-                            if args.len() != 2 {
-                                return Err(format!(
-                                    "add expects exactly 2 arguments, got {}",
-                                    args.len()
-                                ));
-                            }
-                            match (&args[0], &args[1]) {
-                                (
-                                    Value::Decimal {
-                                        value: av,
-                                        scale: as_,
-                                    },
-                                    Value::Decimal {
-                                        value: bv,
-                                        scale: bs,
-                                    },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    let res_dec = da.add(&db)?;
-                                    Value::Decimal {
-                                        value: res_dec.value,
-                                        scale: res_dec.scale,
-                                    }
-                                }
-                                (Value::Integer(av), Value::Integer(bv)) => Value::Integer(av + bv),
-                                (Value::Float(av), Value::Float(bv)) => Value::Float(av + bv),
-                                _ => {
-                                    return Err(format!(
-                                        "Invalid operand types for add: {:?} + {:?}",
-                                        args[0], args[1]
-                                    ))
-                                }
-                            }
-                        }
+                        // LAB-VM-INTEGER-ARITHMETIC-OPCALL-PARITY-P2: compiler-emitted
+                        // stdlib.integer.{add,sub,mul,div} names share the same checked
+                        // arithmetic helper as eval_ast call/operator dispatch. The legacy
+                        // stdlib.numeric.add/add aliases remain supported, now checked too.
+                        "stdlib.numeric.add" | "add" | "stdlib.integer.add"
+                        | "stdlib.integer.sub" | "sub" | "stdlib.integer.mul" | "mul"
+                        | "stdlib.integer.div" | "div" => match eval_arithmetic_call(fn_name, &args) {
+                            Some(r) => r?,
+                            None => unreachable!("OP_CALL arithmetic arm names mirror eval_arithmetic_call"),
+                        },
                         "stdlib.integer.lt" | "stdlib.integer.gt" | "stdlib.integer.lte"
                         | "stdlib.integer.gte" => {
                             if args.len() != 2 {
@@ -2075,6 +2193,23 @@ impl VM {
                                 _ => a >= b,
                             };
                             Value::Bool(r)
+                        }
+                        // LAB-FRAME-3D-GAME-EQ-WORKAROUND-REMOVAL-P6: equality on the OP_CALL path.
+                        // The Ruby igc lowers `==` / `!=` to OP_CALL builtins `stdlib.primitive.{eq,ne}`,
+                        // which were missing on this path (so `==` failed at runtime even though OP_EQ and
+                        // the binary-op evaluator support it) — the same builtin-name gap the arithmetic
+                        // ops had. Reuse the shared exact-equality helper (Decimal-aware).
+                        "stdlib.primitive.eq" => {
+                            if args.len() != 2 {
+                                return Err(format!("eq expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            Value::Bool(value_eq_exact(&args[0], &args[1])?)
+                        }
+                        "stdlib.primitive.ne" => {
+                            if args.len() != 2 {
+                                return Err(format!("ne expects exactly 2 arguments, got {}", args.len()));
+                            }
+                            Value::Bool(!value_eq_exact(&args[0], &args[1])?)
                         }
                         "stdlib.collection.append" | "append" => {
                             if args.len() != 2 {
@@ -2774,7 +2909,7 @@ impl VM {
                 OP_NEG => {
                     let val = stack.pop().ok_or("Stack underflow during NEG")?;
                     let res = match val {
-                        Value::Integer(i) => Value::Integer(-i),
+                        Value::Integer(i) => Value::Integer(checked_int_neg(i)?),
                         Value::Float(f) => Value::Float(-f),
                         Value::Decimal { value, scale } => Value::Decimal {
                             value: -value,
@@ -3499,6 +3634,156 @@ fn float_to_text(x: f64, decimals: i64, mode: &str) -> Result<String, String> {
     }
 }
 
+fn eval_arithmetic_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+    enum ArithmeticOp {
+        Add,
+        Sub,
+        Mul,
+        Div,
+    }
+
+    let op = match fn_name {
+        "+" | "add" | "stdlib.numeric.add" | "stdlib.integer.add" => ArithmeticOp::Add,
+        "-" | "sub" | "stdlib.integer.sub" => ArithmeticOp::Sub,
+        "*" | "mul" | "stdlib.integer.mul" => ArithmeticOp::Mul,
+        "/" | "div" | "stdlib.integer.div" => ArithmeticOp::Div,
+        _ => return None,
+    };
+
+    Some((|| {
+        if args.len() != 2 {
+            return Err(format!(
+                "{} expects exactly 2 arguments, got {}",
+                fn_name,
+                args.len()
+            ));
+        }
+
+        let left_val = &args[0];
+        let right_val = &args[1];
+        match op {
+            ArithmeticOp::Add => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.add(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_add(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
+                _ => Err(format!(
+                    "Invalid operand types for ADD: {:?} + {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Sub => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.sub(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_sub(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
+                _ => Err(format!(
+                    "Invalid operand types for SUB: {:?} - {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Mul => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.mul(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_mul(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
+                _ => Err(format!(
+                    "Invalid operand types for MUL: {:?} * {:?}",
+                    left_val, right_val
+                )),
+            },
+            ArithmeticOp::Div => match (left_val, right_val) {
+                (
+                    Value::Decimal {
+                        value: av,
+                        scale: as_,
+                    },
+                    Value::Decimal {
+                        value: bv,
+                        scale: bs,
+                    },
+                ) => {
+                    let da = Decimal::new(*av, *as_);
+                    let db = Decimal::new(*bv, *bs);
+                    let res_dec = da.div(&db)?;
+                    Ok(Value::Decimal {
+                        value: res_dec.value,
+                        scale: res_dec.scale,
+                    })
+                }
+                (Value::Integer(av), Value::Integer(bv)) => {
+                    Ok(Value::Integer(checked_int_div(*av, *bv)?))
+                }
+                (Value::Float(av), Value::Float(bv)) => {
+                    if *bv == 0.0 {
+                        Err("Division by zero".to_string())
+                    } else {
+                        Ok(Value::Float(av / bv))
+                    }
+                }
+                _ => Err(format!(
+                    "Invalid operand types for DIV: {:?} / {:?}",
+                    left_val, right_val
+                )),
+            },
+        }
+    })())
+}
+
 pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, String>> {
     // Arity + Float-type check, message-identical to the original bytecode arms.
     fn unary(
@@ -3834,9 +4119,9 @@ pub fn eval_math_call(fn_name: &str, args: &[Value]) -> Option<Result<Value, Str
                         float_to_text(*x, *decimals, mode.as_ref())
                             .map(|s| Value::String(Arc::from(s.as_str())))
                     }
-                    _ => Err(
-                        "float_to_text expects (Float, Integer, String) arguments".to_string(),
-                    ),
+                    _ => {
+                        Err("float_to_text expects (Float, Integer, String) arguments".to_string())
+                    }
                 }
             }
         }
@@ -3967,6 +4252,35 @@ fn eval_ast<'a>(
     vm: &'a VM,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
+        let eval_depth = temporal_context
+            .get("__eval_depth__")
+            .and_then(|v| {
+                if let Value::Integer(d) = v {
+                    Some(*d)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        if eval_depth == 0 && ast_depth_exceeds_budget(node, MAX_EVAL_AST_DEPTH) {
+            return Err(format!(
+                "OOF-VM-EVAL-DEPTH: eval_ast depth budget ({}) exceeded",
+                MAX_EVAL_AST_DEPTH
+            ));
+        }
+        if eval_depth >= MAX_EVAL_AST_DEPTH {
+            return Err(format!(
+                "OOF-VM-EVAL-DEPTH: eval_ast depth budget ({}) exceeded",
+                MAX_EVAL_AST_DEPTH
+            ));
+        }
+        let mut guarded_temporal_context = temporal_context.clone();
+        guarded_temporal_context.insert(
+            "__eval_depth__".to_string(),
+            Value::Integer(eval_depth + 1),
+        );
+        let temporal_context = &guarded_temporal_context;
+
         let kind = node
             .get("kind")
             .ok_or_else(|| "AST node missing kind".to_string())?
@@ -4083,6 +4397,11 @@ fn eval_ast<'a>(
                     .ok_or_else(|| "Missing operator".to_string())?
                     .as_str()
                     .ok_or_else(|| "operator must be string".to_string())?;
+                if let Some(arithmetic) =
+                    eval_arithmetic_call(op, &[left_val.clone(), right_val.clone()])
+                {
+                    return arithmetic;
+                }
                 match op {
                     "+" => match (&left_val, &right_val) {
                         (
@@ -4105,7 +4424,9 @@ fn eval_ast<'a>(
                                 Err(e) => Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av + bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_add(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
                         _ => Err(format!(
                             "Invalid operand types for ADD: {:?} + {:?}",
@@ -4133,7 +4454,9 @@ fn eval_ast<'a>(
                                 Err(e) => Err(e),
                             }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av - bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_sub(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
                         _ => Err(format!(
                             "Invalid operand types for SUB: {:?} - {:?}",
@@ -4153,13 +4476,17 @@ fn eval_ast<'a>(
                         ) => {
                             let da = Decimal::new(*av, *as_);
                             let db = Decimal::new(*bv, *bs);
-                            let res_dec = da.mul(&db);
-                            Ok(Value::Decimal {
-                                value: res_dec.value,
-                                scale: res_dec.scale,
-                            })
+                            match da.mul(&db) {
+                                Ok(res_dec) => Ok(Value::Decimal {
+                                    value: res_dec.value,
+                                    scale: res_dec.scale,
+                                }),
+                                Err(e) => Err(e),
+                            }
                         }
-                        (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Integer(av * bv)),
+                        (Value::Integer(av), Value::Integer(bv)) => {
+                            Ok(Value::Integer(checked_int_mul(*av, *bv)?))
+                        }
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
                         _ => Err(format!(
                             "Invalid operand types for MUL: {:?} * {:?}",
@@ -4188,11 +4515,7 @@ fn eval_ast<'a>(
                             }
                         }
                         (Value::Integer(av), Value::Integer(bv)) => {
-                            if *bv == 0 {
-                                Err("Division by zero".to_string())
-                            } else {
-                                Ok(Value::Integer(av / bv))
-                            }
+                            Ok(Value::Integer(checked_int_div(*av, *bv)?))
                         }
                         (Value::Float(av), Value::Float(bv)) => {
                             if *bv == 0.0 {
@@ -4206,8 +4529,8 @@ fn eval_ast<'a>(
                             left_val, right_val
                         )),
                     },
-                    "==" => Ok(Value::Bool(left_val == right_val)),
-                    "!=" => Ok(Value::Bool(left_val != right_val)),
+                    "==" => Ok(Value::Bool(value_eq_exact(&left_val, &right_val)?)),
+                    "!=" => Ok(Value::Bool(!value_eq_exact(&left_val, &right_val)?)),
                     ">" => match (&left_val, &right_val) {
                         (
                             Value::Decimal {
@@ -4218,11 +4541,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() > db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Greater,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av > bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av > bv)),
                         _ => Err(format!(
@@ -4240,11 +4562,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() < db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                == Ordering::Less,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av < bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av < bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av < bv)),
@@ -4263,11 +4584,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() <= db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Greater,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av <= bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av <= bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av <= bv)),
@@ -4286,11 +4606,10 @@ fn eval_ast<'a>(
                                 value: bv,
                                 scale: bs,
                             },
-                        ) => {
-                            let da = Decimal::new(*av, *as_);
-                            let db = Decimal::new(*bv, *bs);
-                            Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                        }
+                        ) => Ok(Value::Bool(
+                            Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                != Ordering::Less,
+                        )),
                         (Value::Integer(av), Value::Integer(bv)) => Ok(Value::Bool(av >= bv)),
                         (Value::Float(av), Value::Float(bv)) => Ok(Value::Bool(av >= bv)),
                         (Value::String(av), Value::String(bv)) => Ok(Value::Bool(av >= bv)),
@@ -4320,7 +4639,9 @@ fn eval_ast<'a>(
                             Ok(Value::String(Arc::from(s.as_str())))
                         }
                         (Value::Array(av), Value::Array(bv)) => {
-                            let mut list = (**av).clone();
+                            let len = checked_concat_len(av.len(), bv.len(), "concat")?;
+                            let mut list = Vec::with_capacity(len);
+                            list.extend(av.iter().cloned());
                             list.extend_from_slice(bv);
                             Ok(Value::Array(Arc::new(list)))
                         }
@@ -4352,7 +4673,7 @@ fn eval_ast<'a>(
                         _ => Err(format!("Invalid operand type for NOT operator: {:?}", val)),
                     },
                     "-" => match val {
-                        Value::Integer(i) => Ok(Value::Integer(-i)),
+                        Value::Integer(i) => Ok(Value::Integer(checked_int_neg(i)?)),
                         Value::Float(f) => Ok(Value::Float(-f)),
                         Value::Decimal { value, scale } => Ok(Value::Decimal {
                             value: -value,
@@ -4369,6 +4690,7 @@ fn eval_ast<'a>(
                     .ok_or_else(|| "Missing items in array".to_string())?
                     .as_array()
                     .ok_or_else(|| "items must be array".to_string())?;
+                checked_collection_len("array literal", items.len())?;
                 let mut vals = Vec::with_capacity(items.len());
                 for item in items {
                     vals.push(
@@ -4418,7 +4740,9 @@ fn eval_ast<'a>(
                         Ok(Value::String(Arc::from(s.as_str())))
                     }
                     (Value::Array(av), Value::Array(bv)) => {
-                        let mut list = (**av).clone();
+                        let len = checked_concat_len(av.len(), bv.len(), "concat")?;
+                        let mut list = Vec::with_capacity(len);
+                        list.extend(av.iter().cloned());
                         list.extend_from_slice(bv);
                         Ok(Value::Array(Arc::new(list)))
                     }
@@ -4599,11 +4923,7 @@ fn eval_ast<'a>(
                 .await?;
                 let start = start_val.as_integer()?;
                 let end = end_val.as_integer()?;
-                let mut list = Vec::new();
-                for i in start..end {
-                    list.push(Value::Integer(i));
-                }
-                Ok(Value::Array(Arc::new(list)))
+                build_integer_range(start, end)
             }
             "temporal_read" => {
                 let store_name = node
@@ -4790,7 +5110,9 @@ fn eval_ast<'a>(
                         }
                         match (&evaluated_operands[0], &evaluated_operands[1]) {
                             (Value::Array(a), Value::Array(b)) => {
-                                let mut merged: Vec<Value> = a.iter().cloned().collect();
+                                let len = checked_concat_len(a.len(), b.len(), "concat")?;
+                                let mut merged = Vec::with_capacity(len);
+                                merged.extend(a.iter().cloned());
                                 merged.extend(b.iter().cloned());
                                 Ok(Value::Array(Arc::new(merged)))
                             }
@@ -5074,6 +5396,7 @@ fn eval_ast<'a>(
                             _ => return Err("zip second argument must be an array".to_string()),
                         };
                         let len = std::cmp::min(array_a.len(), array_b.len());
+                        checked_collection_len("zip", len)?;
                         let mut zipped = Vec::with_capacity(len);
                         for i in 0..len {
                             let mut map = std::collections::BTreeMap::new();
@@ -5645,7 +5968,11 @@ fn eval_ast<'a>(
                                 "stdlib.decimal.decimal: scale must be a non-negative Integer, got {:?}", other
                             )),
                         };
-                        Ok(Value::Decimal { value, scale })
+                        let decimal = Decimal::checked_new(value, scale)?;
+                        Ok(Value::Decimal {
+                            value: decimal.value,
+                            scale: decimal.scale,
+                        })
                     }
                     "map" => {
                         if evaluated_operands.len() != 2 {
@@ -5872,6 +6199,9 @@ fn eval_ast<'a>(
                         // HOF/lambda bodies, dispatched BEFORE the binary-operator assumption — otherwise a
                         // 1-arg `sin` here would wrongly error "expects exactly 2 operands" (the P9 blocker).
                         // Same `eval_math_call` source as the bytecode OP_CALL path → identical semantics.
+                        if let Some(arithmetic) = eval_arithmetic_call(op, &evaluated_operands) {
+                            return arithmetic;
+                        }
                         if let Some(math) = eval_math_call(op, &evaluated_operands) {
                             return math;
                         }
@@ -5907,7 +6237,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av + bv))
+                                    Ok(Value::Integer(checked_int_add(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av + bv)),
                                 _ => Err(format!(
@@ -5937,7 +6267,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av - bv))
+                                    Ok(Value::Integer(checked_int_sub(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av - bv)),
                                 _ => Err(format!(
@@ -5958,14 +6288,16 @@ fn eval_ast<'a>(
                                 ) => {
                                     let da = Decimal::new(*av, *as_);
                                     let db = Decimal::new(*bv, *bs);
-                                    let res_dec = da.mul(&db);
-                                    Ok(Value::Decimal {
-                                        value: res_dec.value,
-                                        scale: res_dec.scale,
-                                    })
+                                    match da.mul(&db) {
+                                        Ok(res_dec) => Ok(Value::Decimal {
+                                            value: res_dec.value,
+                                            scale: res_dec.scale,
+                                        }),
+                                        Err(e) => Err(e),
+                                    }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    Ok(Value::Integer(av * bv))
+                                    Ok(Value::Integer(checked_int_mul(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => Ok(Value::Float(av * bv)),
                                 _ => Err(format!(
@@ -5995,11 +6327,7 @@ fn eval_ast<'a>(
                                     }
                                 }
                                 (Value::Integer(av), Value::Integer(bv)) => {
-                                    if *bv == 0 {
-                                        Err("Division by zero".to_string())
-                                    } else {
-                                        Ok(Value::Integer(av / bv))
-                                    }
+                                    Ok(Value::Integer(checked_int_div(*av, *bv)?))
                                 }
                                 (Value::Float(av), Value::Float(bv)) => {
                                     if *bv == 0.0 {
@@ -6013,8 +6341,8 @@ fn eval_ast<'a>(
                                     left_val, right_val
                                 )),
                             },
-                            "==" | "eq" => Ok(Value::Bool(left_val == right_val)),
-                            "!=" | "ne" => Ok(Value::Bool(left_val != right_val)),
+                            "==" | "eq" => Ok(Value::Bool(value_eq_exact(left_val, right_val)?)),
+                            "!=" | "ne" => Ok(Value::Bool(!value_eq_exact(left_val, right_val)?)),
                             ">" | "gt" | "stdlib.integer.gt" => match (left_val, right_val) {
                                 (
                                     Value::Decimal {
@@ -6025,11 +6353,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() > db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        == Ordering::Greater,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av > bv))
                                 }
@@ -6049,11 +6376,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() < db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        == Ordering::Less,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av < bv))
                                 }
@@ -6074,11 +6400,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() <= db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        != Ordering::Greater,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av <= bv))
                                 }
@@ -6099,11 +6424,10 @@ fn eval_ast<'a>(
                                         value: bv,
                                         scale: bs,
                                     },
-                                ) => {
-                                    let da = Decimal::new(*av, *as_);
-                                    let db = Decimal::new(*bv, *bs);
-                                    Ok(Value::Bool(da.to_f64() >= db.to_f64()))
-                                }
+                                ) => Ok(Value::Bool(
+                                    Decimal::new(*av, *as_).cmp_decimal(&Decimal::new(*bv, *bs))?
+                                        != Ordering::Less,
+                                )),
                                 (Value::Integer(av), Value::Integer(bv)) => {
                                     Ok(Value::Bool(av >= bv))
                                 }
@@ -6135,7 +6459,9 @@ fn eval_ast<'a>(
                                     Ok(Value::String(Arc::from(s.as_str())))
                                 }
                                 (Value::Array(av), Value::Array(bv)) => {
-                                    let mut list = (**av).clone();
+                                    let len = checked_concat_len(av.len(), bv.len(), "concat")?;
+                                    let mut list = Vec::with_capacity(len);
+                                    list.extend(av.iter().cloned());
                                     list.extend_from_slice(bv);
                                     Ok(Value::Array(Arc::new(list)))
                                 }
@@ -6321,5 +6647,41 @@ fn collect_captures(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn eval_ast_depth_budget_errors_before_native_stack_overflow() {
+        let mut node = serde_json::json!({ "kind": "literal", "value": 0 });
+        for _ in 0..(MAX_EVAL_AST_DEPTH + 8) {
+            node = serde_json::json!({
+                "kind": "binary_op",
+                "operator": "+",
+                "left": node,
+                "right": { "kind": "literal", "value": 0 }
+            });
+        }
+
+        let res = eval_ast(
+            &node,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &None,
+            &VM::new(None),
+        )
+        .await;
+
+        match res {
+            Err(err) => assert!(
+                err.contains("OOF-VM-EVAL-DEPTH"),
+                "expected eval depth budget error, got {err}"
+            ),
+            Ok(value) => panic!("expected eval depth budget error, got {value:?}"),
+        }
     }
 }

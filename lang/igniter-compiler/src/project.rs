@@ -876,7 +876,11 @@ fn build_module_index(
 /// loop here — it is reported later by `detect_cycle`). Display names are deterministic: the smallest
 /// declaring edge name.
 fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
-    let root_canon = normalize_abs(root);
+    let root_canon = canonicalize_existing_dir(root).unwrap_or_else(|| normalize_abs(root));
+    let workspace_root = root_canon
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root_canon.clone());
     let mut nodes: BTreeMap<PathBuf, PackageNode> = BTreeMap::new();
     let mut names: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
     let mut queue: Vec<PathBuf> = vec![root_canon.clone()];
@@ -891,9 +895,10 @@ fn collect_package_graph(root: &Path) -> Result<PackageGraph, ProjectError> {
         let config = ProjectConfig::load(&canon);
         let mut deps = BTreeSet::new();
         for dep in &config.dependencies {
-            let dep_canon = normalize_abs(&canon.join(&dep.path));
+            let dep_canon = resolve_dependency_root(&workspace_root, &canon, dep)
+                .map_err(ProjectError::Diagnostic)?;
             if !dep_canon.is_dir() {
-                missing.push((canon.clone(), dep.name.clone(), dep_canon));
+                missing.push((canon.clone(), dep.name.clone(), dep_canon.clone()));
                 continue; // do not fold a phantom node for a path that does not exist
             }
             deps.insert(dep_canon.clone());
@@ -1626,6 +1631,83 @@ fn validate_overlays(
         });
     }
     Ok(resolved)
+}
+
+fn canonicalize_existing_dir(path: &Path) -> Option<PathBuf> {
+    path.canonicalize().ok().filter(|p| p.is_dir())
+}
+
+fn unsafe_dependency_path_diag(
+    workspace_root: &Path,
+    declaring: &Path,
+    dep: &Dependency,
+    candidate: &Path,
+    reason: &str,
+) -> ProjectDiagnostic {
+    let mut diag = ProjectDiagnostic::new(
+        "OOF-IMP10",
+        format!(
+            "unsafe dependency path: package '{}' declares dependency '{}' at '{}', which is outside the workspace trust root ({reason})",
+            declaring.to_string_lossy(),
+            dep.name,
+            dep.path.to_string_lossy()
+        ),
+        format!("dependency:{}->{}", declaring.to_string_lossy(), dep.name),
+    );
+    diag.source_paths = vec![
+        declaring.to_string_lossy().to_string(),
+        candidate.to_string_lossy().to_string(),
+    ];
+    diag.details = Some(json!({
+        "declaring_package": declaring.to_string_lossy(),
+        "dependency": dep.name,
+        "declared_path": dep.path.to_string_lossy(),
+        "resolved_path": candidate.to_string_lossy(),
+        "workspace_root": workspace_root.to_string_lossy(),
+        "reason": reason,
+    }));
+    diag
+}
+
+fn resolve_dependency_root(
+    workspace_root: &Path,
+    declaring: &Path,
+    dep: &Dependency,
+) -> Result<PathBuf, ProjectDiagnostic> {
+    if dep.path.is_absolute() {
+        return Err(unsafe_dependency_path_diag(
+            workspace_root,
+            declaring,
+            dep,
+            &dep.path,
+            "absolute paths are not allowed",
+        ));
+    }
+
+    let lexical = normalize_abs(&declaring.join(&dep.path));
+    if !lexical.starts_with(workspace_root) {
+        return Err(unsafe_dependency_path_diag(
+            workspace_root,
+            declaring,
+            dep,
+            &lexical,
+            "lexical path escapes",
+        ));
+    }
+
+    let Some(canon) = canonicalize_existing_dir(&lexical) else {
+        return Ok(lexical);
+    };
+    if !canon.starts_with(workspace_root) {
+        return Err(unsafe_dependency_path_diag(
+            workspace_root,
+            declaring,
+            dep,
+            &canon,
+            "canonical path escapes",
+        ));
+    }
+    Ok(canon)
 }
 
 /// Lexically absolutize and normalize a path (join cwd if relative; collapse

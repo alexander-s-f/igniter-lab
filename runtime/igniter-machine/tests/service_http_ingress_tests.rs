@@ -8,14 +8,18 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::CapabilityPassport;
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, PoolRefusal, PoolRight, PoolVisibility,
-    ServiceRecipe, COORD_AUDIT_STORE,
+    AgentIdentity, AgentKind, AgentStatus, COORD_AUDIT_STORE, CoordinationHub, PoolRefusal,
+    PoolRight, PoolVisibility, ServiceRecipe,
 };
-use igniter_machine::ingress::{map_refusal, serve_once, IngressRequest, IngressRouter};
+use igniter_machine::ingress::{
+    HardenedReadPolicy, IngressRequest, IngressRouter, map_refusal, read_one_request_with_policy,
+    serve_once,
+};
 use igniter_machine::machine::IgniterMachine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn rt() -> tokio::runtime::Runtime {
@@ -26,6 +30,68 @@ fn rt() -> tokio::runtime::Runtime {
 }
 fn clock() -> Arc<dyn ClockProvider> {
     Arc::new(FixedClock::new(100.0))
+}
+
+#[test]
+fn ingress_read_policy_rejects_oversized_content_length() {
+    rt().block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            match read_one_request_with_policy(
+                &mut stream,
+                HardenedReadPolicy::new(8, Duration::from_secs(1)),
+            )
+            .await
+            {
+                Ok(_) => panic!("expected oversized request to fail"),
+                Err(e) => e,
+            }
+        };
+        let client = async {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 9\r\n\r\n")
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+        };
+        let (err, _) = tokio::join!(server, client);
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("payload too large"));
+    });
+}
+
+#[test]
+fn ingress_read_policy_times_out_incomplete_body() {
+    rt().block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            match read_one_request_with_policy(
+                &mut stream,
+                HardenedReadPolicy::new(1024, Duration::from_millis(50)),
+            )
+            .await
+            {
+                Ok(_) => panic!("expected incomplete request to fail"),
+                Err(e) => e,
+            }
+        };
+        let client = async {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n")
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        let (err, _) = tokio::join!(server, client);
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+    });
 }
 
 const SCOPES: &[&str] = &[
@@ -208,9 +274,10 @@ fn invalid_passport_refused_before_activation() {
             !evs.iter().any(|e| e["operation"] == "invoke"),
             "activation must not be reached"
         );
-        assert!(evs
-            .iter()
-            .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
+        assert!(
+            evs.iter()
+                .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied")
+        );
     });
 }
 
@@ -287,12 +354,14 @@ fn audit_for_accepted_and_denied() {
         )
         .await;
         let evs = audit_events(&audit).await;
-        assert!(evs
-            .iter()
-            .any(|e| e["operation"] == "ingress" && e["outcome"] == "allowed"));
-        assert!(evs
-            .iter()
-            .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied"));
+        assert!(
+            evs.iter()
+                .any(|e| e["operation"] == "ingress" && e["outcome"] == "allowed")
+        );
+        assert!(
+            evs.iter()
+                .any(|e| e["operation"] == "ingress" && e["outcome"] == "denied")
+        );
     });
 }
 

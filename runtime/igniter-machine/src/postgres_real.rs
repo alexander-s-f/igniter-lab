@@ -316,6 +316,28 @@ impl PostgresReadAdapter for TokioPostgresReadAdapter {
 // layer) without a separate transaction object (`Client::query` takes `&self`, so `Arc<Client>`
 // suffices). Read-only reconcile via `PostgresWriteReceiptResolver`. Dedicated test DB only.
 
+/// Canonical DDL for the durable-CAS receipt table (LAB-MACHINE-DURABLE-CAS-PG-EXACTLY-ONCE-P2).
+///
+/// The machine's multi-process exactly-once guarantee rests entirely on the **UNIQUE/PRIMARY KEY on
+/// `idempotency_key`**: the write is `INSERT INTO effect_receipts (idempotency_key, …) ON CONFLICT
+/// (idempotency_key) DO NOTHING`, and the business mutation runs only `WHERE EXISTS (SELECT 1 FROM
+/// ins)`. The database — not the in-process `single_flight` lock — is what makes two racing writers
+/// (even in different OS processes) resolve to exactly one business mutation. If the PK/UNIQUE is
+/// absent, `ON CONFLICT (idempotency_key)` cannot match and Postgres raises SQLSTATE 42P10, which
+/// `classify_write_error` maps to `PermanentConfig` (fail loud, never a silent double write).
+///
+/// This is operator-owned schema: the machine NEVER creates or migrates it (no schema-migration
+/// runner). It is exposed here so the canonical shape is code-anchored (tests + operator runbooks
+/// reference one source of truth) rather than re-typed per call site.
+pub const EFFECT_RECEIPTS_DDL: &str = "\
+    CREATE TABLE IF NOT EXISTS effect_receipts (\
+      idempotency_key TEXT PRIMARY KEY,\
+      correlation_id TEXT,\
+      target TEXT NOT NULL,\
+      business_key TEXT NOT NULL,\
+      committed_at TIMESTAMPTZ NOT NULL DEFAULT now()\
+    );";
+
 /// Render a JSON value as an optional TEXT parameter (absent/null → SQL NULL).
 fn json_to_opt_text(v: Option<&Value>) -> Option<String> {
     match v {
@@ -325,8 +347,19 @@ fn json_to_opt_text(v: Option<&Value>) -> Option<String> {
     }
 }
 
-/// Map a `tokio_postgres` error to the P3 write taxonomy: SQLSTATE class drives permanent vs
-/// retryable vs denied; a non-DB (connection/IO) error is `Unknown` (no blind retry).
+/// Map a `tokio_postgres` error to the P3/P2 write taxonomy: SQLSTATE class drives permanent vs
+/// retryable vs denied vs config; a non-DB (connection/IO) error is `Unknown` (no blind retry).
+///
+/// Classes, in order:
+/// - `40001`/`40P01` (serialization / deadlock) → `SerializationFailure` (rolled back, retryable).
+/// - `42501` (insufficient privilege) → `Denied`.
+/// - schema/config-DDL drift → `PermanentConfig` (P2): `42P01` undefined_table, `42703`
+///   undefined_column, `42704` undefined_object, `42P07` duplicate_table, `42601` syntax_error,
+///   and crucially `42P10` — "no unique/exclusion constraint matching the ON CONFLICT
+///   specification", i.e. the durable-CAS UNIQUE key is missing. These are operator schema bugs,
+///   not per-write data conflicts; fail loud as a config error (still permanent, no blind retry).
+/// - `23xxx` (integrity constraint) → `ConstraintViolation` (permanent).
+/// - any other DB error → `ConstraintViolation` (permanent fallback, unchanged).
 fn classify_write_error(e: &tokio_postgres::Error) -> PostgresWriteResult {
     match e.as_db_error() {
         Some(db) => {
@@ -336,6 +369,9 @@ fn classify_write_error(e: &tokio_postgres::Error) -> PostgresWriteResult {
                     PostgresWriteResult::SerializationFailure(format!("{code}: {e}"))
                 }
                 "42501" => PostgresWriteResult::Denied(format!("{code}: insufficient privilege")),
+                "42P01" | "42P10" | "42703" | "42704" | "42P07" | "42601" => {
+                    PostgresWriteResult::PermanentConfig(format!("{code}: {e}"))
+                }
                 c if c.starts_with("23") => {
                     PostgresWriteResult::ConstraintViolation(format!("{c}: {e}"))
                 }

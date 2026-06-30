@@ -1,6 +1,8 @@
 use crate::lexer::{Token, TokenType};
 use std::collections::HashMap;
 
+const MAX_PARSE_EXPR_DEPTH: usize = 32;
+
 /// LAB-SRCMAP-P1: one entry in the parser span table.
 /// Carries the qualified node_id, kind discriminant, and best-effort source location.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -621,6 +623,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     errors: Vec<ParseErrorDetail>,
+    expr_depth: usize,
     in_contract_body: bool,
     /// LAB-SRCMAP-P1: populated during parse; maps node_id → source position.
     pub span_table: Vec<SpanEntry>,
@@ -636,6 +639,7 @@ impl Parser {
             tokens,
             pos: 0,
             errors: Vec::new(),
+            expr_depth: 0,
             in_contract_body: false,
             span_table: Vec::new(),
             current_contract: String::new(),
@@ -752,6 +756,33 @@ impl Parser {
             line,
             col,
         });
+    }
+
+    fn finite_json_number_or_diagnostic(
+        &mut self,
+        raw: &str,
+        context: &str,
+        line: usize,
+        col: usize,
+    ) -> serde_json::Number {
+        match raw
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .and_then(serde_json::Number::from_f64)
+        {
+            Some(number) => number,
+            None => {
+                self.add_parse_error(
+                    "OOF-PFLOAT",
+                    &format!("{context} must be a finite Float literal"),
+                    raw,
+                    line,
+                    col,
+                );
+                serde_json::Number::from_f64(0.0).expect("0.0 is a finite JSON number")
+            }
+        }
     }
 
     /// LAB-SRCMAP-P1: record a source span entry for a named node.
@@ -1251,9 +1282,14 @@ impl Parser {
             }
             "strength" => {
                 if self.peek_type(TokenType::FloatLit) {
-                    let val = self.advance().unwrap().value.parse::<f64>().unwrap_or(0.0);
+                    let tok = self.advance().unwrap().clone();
                     Ok(serde_json::Value::Number(
-                        serde_json::Number::from_f64(val).unwrap(),
+                        self.finite_json_number_or_diagnostic(
+                            &tok.value,
+                            "assumption strength",
+                            tok.line,
+                            tok.col,
+                        ),
                     ))
                 } else if self.peek_type(TokenType::IntLit) {
                     let val = self.advance().unwrap().value.parse::<i64>().unwrap_or(0);
@@ -3117,6 +3153,32 @@ impl Parser {
         }
     }
 
+    fn skip_balanced_delimiter_or_token(&mut self) {
+        let Some(tok) = self.current() else {
+            return;
+        };
+        if !matches!(
+            tok.token_type,
+            TokenType::LParen | TokenType::LBracket | TokenType::LBrace
+        ) {
+            self.advance();
+            return;
+        }
+
+        let mut depth = 0_i32;
+        while let Some(tok) = self.advance().cloned() {
+            match tok.token_type {
+                TokenType::LParen | TokenType::LBracket | TokenType::LBrace => depth += 1,
+                TokenType::RParen | TokenType::RBracket | TokenType::RBrace => depth -= 1,
+                TokenType::Eof => break,
+                _ => {}
+            }
+            if depth <= 0 {
+                break;
+            }
+        }
+    }
+
     fn skip_until_body_boundary(&mut self) {
         while let Some(tok) = self.current() {
             if tok.token_type == TokenType::RBrace
@@ -3287,7 +3349,31 @@ impl Parser {
     // ── Expression parsing ────────────────────────────────────────────────────
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
-        self.parse_binary_or(0)
+        let tok = self.current().cloned().unwrap_or(Token {
+            token_type: TokenType::Eof,
+            value: String::new(),
+            line: 0,
+            col: 0,
+        });
+        if self.expr_depth >= MAX_PARSE_EXPR_DEPTH {
+            self.add_parse_error(
+                "OOF-PDEPTH",
+                &format!(
+                    "expression nesting exceeds parser limit of {}",
+                    MAX_PARSE_EXPR_DEPTH
+                ),
+                &tok.value,
+                tok.line,
+                tok.col,
+            );
+            self.skip_balanced_delimiter_or_token();
+            return Ok(Expr::Error { token: tok.value });
+        }
+
+        self.expr_depth += 1;
+        let result = self.parse_binary_or(0);
+        self.expr_depth = self.expr_depth.saturating_sub(1);
+        result
     }
 
     fn parse_binary_or(&mut self, min_prec: i32) -> Result<Expr, String> {
@@ -3625,9 +3711,13 @@ impl Parser {
             }
             TokenType::FloatLit => {
                 self.advance();
-                let v = tok.value.parse::<f64>().unwrap_or(0.0);
                 Ok(Expr::Literal {
-                    value: serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap()),
+                    value: serde_json::Value::Number(self.finite_json_number_or_diagnostic(
+                        &tok.value,
+                        "float literal",
+                        tok.line,
+                        tok.col,
+                    )),
                     type_tag: "Float".to_string(),
                 })
             }

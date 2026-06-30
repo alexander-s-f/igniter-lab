@@ -23,10 +23,11 @@ use crate::host;
 use crate::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRequest, ServerResponse};
 use igniter_machine::coordination::CoordinationHub;
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRequest, IngressRouter};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time;
 
 /// Maps a logical app `target` to an existing `igniter-machine` ingress route and runs the decision
 /// through `IngressRouter::handle_effect`. Holds NO `(method, path) -> business action` table — that
@@ -154,27 +155,64 @@ pub async fn dispatch(
 // ── real loopback HTTP/1.1 (one connection), routed through ServerApp then the machine ───────────
 
 pub async fn read_server_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
+    read_server_request_with_policy(stream, host::HardenedReadPolicy::default()).await
+}
+
+pub async fn read_server_request_with_policy(
+    stream: &mut TcpStream,
+    policy: host::HardenedReadPolicy,
+) -> std::io::Result<ServerRequest> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {
-        let n = stream.read(&mut tmp).await?;
+        let n = read_with_timeout(stream, &mut tmp, policy.read_timeout).await?;
         if n == 0 {
             break;
         }
         buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > policy.max_header_bytes && host::find_subslice(&buf, b"\r\n\r\n").is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "request headers too large",
+            ));
+        }
         if let Some(pos) = host::find_subslice(&buf, b"\r\n\r\n") {
-            let need = pos + 4 + host::content_length(&buf[..pos]);
+            let body_len = host::content_length(&buf[..pos]);
+            if body_len > policy.max_body_bytes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "payload too large",
+                ));
+            }
+            let need = pos + 4 + body_len;
             while buf.len() < need {
-                let n = stream.read(&mut tmp).await?;
+                let n = read_with_timeout(stream, &mut tmp, policy.read_timeout).await?;
                 if n == 0 {
                     break;
                 }
                 buf.extend_from_slice(&tmp[..n]);
+                if buf.len() > need {
+                    buf.truncate(need);
+                }
             }
             break;
         }
     }
     Ok(host::parse_request(&buf))
+}
+
+async fn read_with_timeout(
+    stream: &mut TcpStream,
+    tmp: &mut [u8],
+    timeout: std::time::Duration,
+) -> std::io::Result<usize> {
+    match time::timeout(timeout, stream.read(tmp)).await {
+        Ok(result) => result,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "request read timeout",
+        )),
+    }
 }
 
 /// Serve exactly ONE inbound loopback connection: parse → `ServerApp::call` (routing in the app) →
@@ -186,7 +224,15 @@ pub async fn serve_once_effect(
     effect_host: &MachineEffectHost<'_>,
 ) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
-    let req = read_server_request(&mut stream).await?;
+    let req = match read_server_request(&mut stream).await {
+        Ok(req) => req,
+        Err(e) => {
+            stream
+                .write_all(&host::encode_response(&host::read_error_response(&e)))
+                .await?;
+            return stream.flush().await;
+        }
+    };
     let decision = app.call(req.clone());
     let resp = dispatch(&req, decision, effect_host).await;
     stream.write_all(&host::encode_response(&resp)).await?;
@@ -217,7 +263,16 @@ pub async fn serve_once_effect_reloadable_observed(
     let (mut stream, _) = listener.accept().await?;
     let current = app.current(); // snapshot before read/call — in-flight keeps this instance.
     let identity = current.identity();
-    let req = read_server_request(&mut stream).await?;
+    let req = match read_server_request(&mut stream).await {
+        Ok(req) => req,
+        Err(e) => {
+            stream
+                .write_all(&host::encode_response(&host::read_error_response(&e)))
+                .await?;
+            stream.flush().await?;
+            return Ok(identity);
+        }
+    };
     let decision = current.call(req.clone());
     let resp = dispatch(&req, decision, effect_host).await;
     stream.write_all(&host::encode_response(&resp)).await?;

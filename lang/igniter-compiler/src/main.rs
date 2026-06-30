@@ -39,6 +39,15 @@ fn main() {
             run_package(&args);
             return;
         }
+        // LAB-IGNITER-STDLIB-SURFACE-HELP-P1: queryable stdlib help surface.
+        "stdlib" => {
+            run_stdlib(&args);
+            return;
+        }
+        "explain" => {
+            run_explain(&args);
+            return;
+        }
         other => {
             eprintln!("Unsupported command: {}", other);
             std::process::exit(1);
@@ -467,10 +476,15 @@ fn run_project_mode(args: &[String]) {
     ) else {
         eprintln!(
             "Usage: igc compile --project-root ROOT --entry MODULE \
-             [--overlay PROJECT_PATH=OVERLAY_PATH ...] --out OUT.igapp"
+             [--overlay PROJECT_PATH=OVERLAY_PATH ...] [--locked] --out OUT.igapp"
         );
         std::process::exit(1);
     };
+
+    // LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2: explicit build-time lock enforcement. This is project-mode
+    // only; positional/single-file compile stays unchanged. `--frozen` is accepted as a CI-friendly alias
+    // for `--locked`, matching the existing `lock --frozen` vocabulary while keeping compile non-mutating.
+    let locked = args.iter().any(|a| a == "--locked" || a == "--frozen");
 
     // LAB-COMPILER-PROJECT-OVERLAY-P2: collect zero or more `--overlay a=b`.
     let mut overlays = Vec::new();
@@ -495,6 +509,13 @@ fn run_project_mode(args: &[String]) {
             i += 2;
         } else {
             i += 1;
+        }
+    }
+
+    if locked {
+        if let Err(diagnostics) = enforce_project_lock(Path::new(&root)) {
+            emit_lock_diagnostics(&diagnostics);
+            std::process::exit(1);
         }
     }
 
@@ -528,6 +549,125 @@ fn run_project_mode(args: &[String]) {
             std::process::exit(1);
         }
     }
+}
+
+fn lock_gate_diagnostic(rule: &str, message: String, lockfile: &Path, details: Value) -> Value {
+    json!({
+        "rule": rule,
+        "severity": "error",
+        "message": message,
+        "node": "project_lock",
+        "lockfile": lockfile.to_string_lossy(),
+        "details": details,
+    })
+}
+
+fn enforce_project_lock(root: &Path) -> Result<(), Vec<Value>> {
+    let lock_path = root.join("igniter.lock");
+    let text = match fs::read_to_string(&lock_path) {
+        Ok(text) => text,
+        Err(_) => {
+            return Err(vec![lock_gate_diagnostic(
+                "OOF-LOCK-MISSING",
+                format!(
+                    "locked project compile requires {} (run `igc lock --project-root {}` first)",
+                    lock_path.display(),
+                    root.display()
+                ),
+                &lock_path,
+                json!({ "kind": "lock_missing" }),
+            )])
+        }
+    };
+    let Some(lock) = serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|v| WorkspaceLock::from_value(&v))
+    else {
+        return Err(vec![lock_gate_diagnostic(
+            "OOF-LOCK-MALFORMED",
+            format!(
+                "locked project compile found a malformed lockfile at {}",
+                lock_path.display()
+            ),
+            &lock_path,
+            json!({ "kind": "lock_malformed" }),
+        )]);
+    };
+
+    let drift = match project::verify_lock(root, &lock) {
+        Ok(drift) => drift,
+        Err(project::ProjectError::Diagnostic(d)) => return Err(vec![d.to_value()]),
+        Err(_) => {
+            return Err(vec![lock_gate_diagnostic(
+                "OOF-LOCK-IO",
+                format!(
+                    "locked project compile could not verify {}",
+                    lock_path.display()
+                ),
+                &lock_path,
+                json!({ "kind": "lock_io" }),
+            )])
+        }
+    };
+    if !drift.is_empty() {
+        return Err(vec![lock_gate_diagnostic(
+            "OOF-LOCK-DRIFT",
+            format!(
+                "locked project compile refused because {} is out of date",
+                lock_path.display()
+            ),
+            &lock_path,
+            json!({
+                "kind": "lock_drift",
+                "drift": drift.iter().map(drift_to_json).collect::<Vec<_>>(),
+            }),
+        )]);
+    }
+
+    match project::check_workspace_integrity(root) {
+        Ok(()) => Ok(()),
+        Err(project::ProjectError::Diagnostic(d)) => Err(vec![d.to_value()]),
+        Err(_) => Err(vec![lock_gate_diagnostic(
+            "OOF-LOCK-INTEGRITY",
+            format!(
+                "locked project compile could not assemble workspace integrity for {}",
+                root.display()
+            ),
+            &lock_path,
+            json!({ "kind": "lock_integrity_io" }),
+        )]),
+    }
+}
+
+fn emit_lock_diagnostics(diagnostics_json: &[Value]) {
+    let result = json!({
+        "kind": "compiler_result",
+        "format_version": "0.1.0",
+        "status": "oof",
+        "program_id": Value::Null,
+        "source_path": "project:lock",
+        "source_hash": Value::Null,
+        "grammar_version": "igniter-v0",
+        "stages": {
+            "project_lock": "oof",
+            "project_resolve": "skipped",
+            "multifile_resolve": "skipped",
+            "parse": "skipped",
+            "classify": "skipped",
+            "typecheck": "skipped",
+            "emit": "skipped",
+            "assemble": "skipped"
+        },
+        "igapp_path": Value::Null,
+        "contracts": [],
+        "compilation_report_path": Value::Null,
+        "diagnostics": diagnostics_json,
+        "warnings": []
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&result).unwrap_or_default()
+    );
 }
 
 /// Render a project-assembly diagnostic as a compiler_result + compilation
@@ -1180,4 +1320,101 @@ fn report_path_for(out_path: &str) -> String {
     } else {
         format!("{}.compilation_report.json", out_path)
     }
+}
+
+// ── LAB-IGNITER-STDLIB-SURFACE-HELP-P1: stdlib help CLI ──────────────────────────────────────────
+
+/// Value of a `--flag VALUE` option, if present.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1).cloned())
+}
+
+/// First positional (non-`--`) argument at or after `from`.
+fn first_positional(args: &[String], from: usize) -> Option<String> {
+    args.iter().skip(from).find(|a| !a.starts_with("--")).cloned()
+}
+
+fn emit(value: &Value, as_json: bool) {
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap());
+    } else {
+        // Compact human text derived from the same value (JSON stays the agent contract).
+        if let Some(entries) = value.get("entries").and_then(|e| e.as_array()) {
+            for e in entries {
+                match e {
+                    Value::Object(_) => println!(
+                        "{}  ·  {}",
+                        e.get("canonical_name").and_then(|c| c.as_str()).unwrap_or("?"),
+                        e.get("signature").and_then(|s| s.as_str()).unwrap_or("")
+                    ),
+                    Value::String(s) => println!("{s}"),
+                    _ => {}
+                }
+            }
+        } else if let Some(matches) = value.get("matches").and_then(|m| m.as_array()) {
+            for m in matches {
+                println!(
+                    "{}  ·  {}",
+                    m.get("canonical_name").and_then(|c| c.as_str()).unwrap_or("?"),
+                    m.get("signature").and_then(|s| s.as_str()).unwrap_or("")
+                );
+            }
+        } else if let Some(entry) = value.get("entry") {
+            println!("{}", serde_json::to_string_pretty(entry).unwrap());
+        } else {
+            println!("{}", serde_json::to_string_pretty(value).unwrap());
+        }
+    }
+}
+
+fn run_stdlib(args: &[String]) {
+    use igniter_compiler::stdlib_surface as ss;
+    let as_json = args.iter().any(|a| a == "--json");
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
+    match sub {
+        "list" => {
+            let category = flag_value(args, "--category");
+            emit(&ss::list_result_json(category.as_deref()), as_json);
+        }
+        "search" => {
+            // QUERY... = all positionals after `search`, joined; flags (and `--category` value) excluded.
+            let query = args
+                .iter()
+                .skip(3)
+                .filter(|a| !a.starts_with("--"))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if query.is_empty() {
+                eprintln!("Usage: igc stdlib search QUERY... [--json]");
+                std::process::exit(1);
+            }
+            emit(&ss::search_result_json(&query), as_json);
+        }
+        "show" => {
+            let Some(name) = first_positional(args, 3) else {
+                eprintln!("Usage: igc stdlib show NAME_OR_ALIAS [--json]");
+                std::process::exit(1);
+            };
+            let (value, ok) = ss::show_result_json(&name);
+            emit(&value, as_json);
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            eprintln!("Usage: igc stdlib <list|search|show> ... [--json]");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_explain(args: &[String]) {
+    use igniter_compiler::stdlib_surface as ss;
+    let as_json = args.iter().any(|a| a == "--json");
+    let Some(rule) = first_positional(args, 2) else {
+        eprintln!("Usage: igc explain RULE [--json]");
+        std::process::exit(1);
+    };
+    emit(&ss::explain_result_json(&rule), as_json);
 }

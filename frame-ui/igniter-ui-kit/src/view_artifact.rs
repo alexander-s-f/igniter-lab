@@ -144,6 +144,14 @@ fn workbench_from_value(v: &Value) -> Result<Workbench, ViewError> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // Fail closed on an empty lead set: `Workbench::initial_world` selects `leads[0]`, so an empty
+    // `data.leads` would compile here and panic at runtime. Reject it at the schema boundary instead.
+    if leads.is_empty() {
+        return Err(ViewError::Schema(
+            "workbench: at least one lead required".into(),
+        ));
+    }
+
     let fields_v = v
         .get("regions")
         .and_then(|r| r.get("main"))

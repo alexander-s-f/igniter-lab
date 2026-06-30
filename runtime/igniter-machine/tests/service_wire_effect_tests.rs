@@ -11,14 +11,14 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
-    PoolVisibility, ServiceRecipe, COORD_AUDIT_STORE,
+    AgentIdentity, AgentKind, AgentStatus, COORD_AUDIT_STORE, CoordinationHub, DuplicatePolicy,
+    PoolRight, PoolVisibility, ServiceRecipe,
 };
-use igniter_machine::ingress::{serve_once_effect, EffectBridgeConfig, IngressRouter};
+use igniter_machine::ingress::{EffectBridgeConfig, IngressRouter, serve_once_effect};
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -154,7 +154,10 @@ async fn http_post(addr: std::net::SocketAddr, key: &str, base: i64, corr: &str)
     let body = json!({ "base": base }).to_string();
     let req = format!(
         "POST /w HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer vtok\r\nX-Vendor-Event-Id: {}\r\nX-Correlation-Id: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        key, corr, body.len(), body
+        key,
+        corr,
+        body.len(),
+        body
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut resp = Vec::new();
@@ -181,6 +184,7 @@ fn cfg<'a>(
         receipts,
         effect_clock: eclock,
         effect_passport: ep,
+        effect_passport_verifier: None,
         single_flight: sf,
         capability_id: CAP.into(),
         operation: "create_lead".into(),
@@ -283,16 +287,20 @@ fn wire_bounded_fresh_attempts() {
             3,
             "three HTTP requests → three distinct effects"
         );
-        assert!(receipts
-            .read_as_of("__receipts__", "IO.SparkCRM:E1:0", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
-        assert!(receipts
-            .read_as_of("__receipts__", "IO.SparkCRM:E1:2", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            receipts
+                .read_as_of("__receipts__", "IO.SparkCRM:E1:0", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            receipts
+                .read_as_of("__receipts__", "IO.SparkCRM:E1:2", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
     });
 }
 

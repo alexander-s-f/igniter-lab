@@ -15,8 +15,9 @@
 //! - `MachineEffectHost` target→route bindings derived from `[effects.<target>].route`.
 
 use crate::host_config::{HostConfig, PostgresReadConfig, PostgresWriteConfig};
-use igniter_machine::postgres_read::PostgresReadPolicy;
+use igniter_machine::postgres_read::{PostgresReadPolicy, PostgresReadValueKind};
 use igniter_machine::postgres_write::PostgresWritePolicy;
+use std::collections::BTreeMap;
 
 // ── Write binding ─────────────────────────────────────────────────────────────────────────────────
 
@@ -89,17 +90,16 @@ pub struct ReadPolicyBinding {
 pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
     let mut policy = PostgresReadPolicy::new(cfg.row_limit as i64);
     if let Some(source) = &cfg.source {
-        policy = policy.allow_source(
+        policy = allow_configured_source(
+            policy,
             source,
-            &cfg.fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &cfg.fields,
+            cfg.field_kinds.get(source),
         );
     }
     // Additional `[postgres.read.<name>]` sources (P38) — a two-stage read needs >1 allowlisted table.
     for (source, fields) in &cfg.extra_sources {
-        policy = policy.allow_source(
-            source,
-            &fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-        );
+        policy = allow_configured_source(policy, source, fields, cfg.field_kinds.get(source));
     }
     let capability_id = cfg
         .capability_id
@@ -110,6 +110,28 @@ pub fn read_policy_binding(cfg: &PostgresReadConfig) -> ReadPolicyBinding {
         policy,
         capability_id,
     }
+}
+
+fn allow_configured_source(
+    mut policy: PostgresReadPolicy,
+    source: &str,
+    fields: &[String],
+    kinds: Option<&BTreeMap<String, PostgresReadValueKind>>,
+) -> PostgresReadPolicy {
+    policy = policy.allow_source(
+        source,
+        &fields.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+    );
+    if let Some(kinds) = kinds {
+        policy.field_kinds.insert(
+            source.to_string(),
+            kinds
+                .iter()
+                .map(|(field, kind)| (field.clone(), *kind))
+                .collect(),
+        );
+    }
+    policy
 }
 
 // ── StagedReadHost factory (machine feature) ──────────────────────────────────────────────────────
@@ -198,9 +220,43 @@ pub struct WriteHostComponents {
     pub receipts: std::sync::Arc<dyn igniter_machine::backend::TBackend>,
     pub clk: std::sync::Arc<dyn igniter_machine::clock::ClockProvider>,
     pub ep: igniter_machine::capability::CapabilityPassport,
+    pub effect_verifier: igniter_machine::capability::PassportVerifier,
     pub sf: igniter_machine::single_flight::SingleFlight,
     pub capability_id: String,
     pub bind_targets: Vec<(String, String)>,
+}
+
+#[cfg(feature = "postgres")]
+fn host_process_effect_signing_key() -> [u8; 32] {
+    let material = format!(
+        "igweb-effect-host|pid:{}|nanos:{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    *blake3::hash(material.as_bytes()).as_bytes()
+}
+
+#[cfg(feature = "postgres")]
+fn signed_passport(
+    key: &[u8; 32],
+    subject: &str,
+    capability_id: &str,
+    scopes: Vec<String>,
+) -> igniter_machine::capability::CapabilityPassport {
+    let mut passport = igniter_machine::capability::CapabilityPassport {
+        subject: subject.to_string(),
+        capability_id: capability_id.to_string(),
+        scopes,
+        issued_at: 0.0,
+        expires_at: Some(f64::MAX),
+        revoked: false,
+        evidence_digest: String::new(),
+    };
+    passport.evidence_digest = igniter_machine::capability::sign_passport(key, &passport);
+    passport
 }
 
 /// Build all host-owned write infrastructure from the resolved host config.
@@ -221,11 +277,11 @@ pub async fn build_write_host_from_resolved(
 ) -> Result<Option<WriteHostComponents>, Box<dyn std::error::Error + Send + Sync>> {
     use igniter_machine::{
         backend::{InMemoryBackend, TBackend},
-        capability::{CapabilityExecutorRegistry, CapabilityPassport},
+        capability::{CapabilityExecutorRegistry, PassportVerifier},
         clock::{ClockProvider, SystemClock},
         coordination::{
-            AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
-            PoolVisibility, ServiceRecipe, COORDINATION_CAPABILITY,
+            AgentIdentity, AgentKind, AgentStatus, COORDINATION_CAPABILITY, CoordinationHub,
+            DuplicatePolicy, PoolRight, PoolVisibility, ServiceRecipe,
         },
         ingress::IngressRouter,
         machine::IgniterMachine,
@@ -284,17 +340,21 @@ pub async fn build_write_host_from_resolved(
 
     let clk: Arc<dyn ClockProvider> = Arc::new(SystemClock);
     let audit: Arc<dyn TBackend> = Arc::new(InMemoryBackend::new());
-    let mut hub = CoordinationHub::new(Arc::clone(&audit), Arc::clone(&clk));
+    let signing_key = host_process_effect_signing_key();
+    let verifier = PassportVerifier::new().trust(signing_key);
+    let mut hub =
+        CoordinationHub::new_signed(Arc::clone(&audit), Arc::clone(&clk), verifier.clone());
 
     // Host-internal coordination subjects (never product-named; purely infra).
     let actor_id = "host:write-actor";
     let dev_id = "host:dev";
     let svc_id = "host:svc";
 
-    let coord_passport = CapabilityPassport {
-        subject: svc_id.to_string(),
-        capability_id: COORDINATION_CAPABILITY.to_string(),
-        scopes: vec![
+    let coord_passport = signed_passport(
+        &signing_key,
+        svc_id,
+        COORDINATION_CAPABILITY,
+        vec![
             "create_pool".into(),
             "import_capsule".into(),
             "activate_capsule".into(),
@@ -302,20 +362,13 @@ pub async fn build_write_host_from_resolved(
             "accept_recipe".into(),
             "invoke".into(),
         ],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
-    let dev_passport = CapabilityPassport {
-        subject: dev_id.to_string(),
-        capability_id: COORDINATION_CAPABILITY.to_string(),
-        scopes: vec!["accept_recipe".into(), "grant_access".into()],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
+    );
+    let dev_passport = signed_passport(
+        &signing_key,
+        dev_id,
+        COORDINATION_CAPABILITY,
+        vec!["accept_recipe".into(), "grant_access".into()],
+    );
 
     hub.register_agent(AgentIdentity {
         agent_id: actor_id.into(),
@@ -411,15 +464,7 @@ pub async fn build_write_host_from_resolved(
         router.token(token, coord_passport.clone());
     }
 
-    let ep = CapabilityPassport {
-        subject: "host".into(),
-        capability_id: capability_id.clone(),
-        scopes: vec!["write".into()],
-        issued_at: 0.0,
-        expires_at: Some(f64::MAX),
-        revoked: false,
-        evidence_digest: "host-owned".into(),
-    };
+    let ep = signed_passport(&signing_key, "host", &capability_id, vec!["write".into()]);
 
     Ok(Some(WriteHostComponents {
         hub,
@@ -428,6 +473,7 @@ pub async fn build_write_host_from_resolved(
         receipts: Arc::new(InMemoryBackend::new()),
         clk,
         ep,
+        effect_verifier: verifier,
         sf: SingleFlight::new(),
         capability_id,
         bind_targets: plan.bind_targets,
@@ -566,6 +612,51 @@ mod tests {
                 "field {f} must be allowed"
             );
         }
+    }
+
+    #[test]
+    fn read_policy_binding_maps_configured_field_kinds() {
+        let cfg = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\n\
+             fields = \"id,title,done,amount\"\nrow_limit = \"10\"\n\
+             [postgres.read.todos.fields]\ndone = \"bool\"\namount = \"decimal:2\"\n",
+        )
+        .unwrap();
+        let rc = cfg.postgres_read.as_ref().unwrap();
+        let binding = read_policy_binding(rc);
+        assert_eq!(
+            binding.policy.field_kind("todos", "done"),
+            PostgresReadValueKind::Boolean
+        );
+        assert_eq!(
+            binding.policy.field_kind("todos", "amount"),
+            PostgresReadValueKind::Decimal { scale: 2 }
+        );
+        assert_eq!(
+            binding.policy.field_kind("todos", "title"),
+            PostgresReadValueKind::Text,
+            "missing kind stays backwards-compatible Text"
+        );
+    }
+
+    #[test]
+    fn read_policy_binding_maps_extra_source_field_kinds() {
+        let cfg = parse_host_config(
+            "[postgres.read]\ndsn_env = \"R\"\nsource = \"todos\"\nfields = \"id\"\n\
+             [postgres.read.accounts]\nfields = \"id,active\"\n\
+             [postgres.read.accounts.fields]\nactive = \"bool\"\n",
+        )
+        .unwrap();
+        let rc = cfg.postgres_read.as_ref().unwrap();
+        let binding = read_policy_binding(rc);
+        assert_eq!(
+            binding.policy.field_kind("accounts", "active"),
+            PostgresReadValueKind::Boolean
+        );
+        assert_eq!(
+            binding.policy.field_kind("accounts", "id"),
+            PostgresReadValueKind::Text
+        );
     }
 
     #[test]

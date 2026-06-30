@@ -251,7 +251,7 @@ pub fn sign_passport(issuer_key: &[u8; 32], passport: &CapabilityPassport) -> St
 /// A set of trusted issuer keys. A passport is authentic iff its `evidence_digest` is a valid
 /// keyed-hash signature over its material under SOME trusted key. The host can no longer simply
 /// fabricate a passport — it must be signed by a trusted issuer.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PassportVerifier {
     trusted_keys: Vec<[u8; 32]>,
 }
@@ -297,6 +297,52 @@ pub fn verify_passport_signed(
 /// Receipts are bitemporal facts in a dedicated TBackend store namespace.
 pub const RECEIPTS_STORE: &str = "__receipts__";
 
+// ── receipt ordering tie-break (LAB-MACHINE-RECEIPT-SEQ-TIEBREAK-P4) ──────────────────────────────
+//
+// `transaction_time` (host wall clock) is the PRIMARY order for "latest receipt" selection, but two
+// receipt facts on the same key can land at the SAME timestamp (FixedClock always; coarse/loaded
+// SystemClock can) — then the winner used to fall to incidental push / HashMap-iteration order.
+// `receipt_seq` is a per-PROCESS monotonic counter stamped on each receipt fact and used ONLY to
+// break ties at equal `transaction_time`. It is explicitly NOT the TBackend daemon fact-log seq_id:
+// it is process-local, non-durable (resets on restart — fine because tx-time stays primary, so
+// cross-restart equal-tx collisions are vanishing), and makes no global/replicated ordering claim.
+
+/// Per-process monotonic receipt sequence. Starts at 1 so 0 is reserved for legacy receipts written
+/// before this field existed (they read back as seq 0 and lose a tie to any stamped receipt).
+static RECEIPT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Next per-process receipt sequence. Called ONLY when a receipt fact is actually written, so a
+/// replay (which writes no receipt) never increments it.
+pub(crate) fn next_receipt_seq() -> u64 {
+    RECEIPT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The `receipt_seq` recorded in a receipt value (0 if absent — legacy/back-compat).
+pub(crate) fn receipt_seq_of(value: &Value) -> u64 {
+    value
+        .get("receipt_seq")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+}
+
+/// True when `(cand_tx, cand_val.receipt_seq)` is at-or-after `(cur_tx, cur_val.receipt_seq)` —
+/// the shared `(transaction_time, receipt_seq)` lexicographic "latest receipt" rule. `tx` is
+/// primary; `receipt_seq` only breaks an equal-`tx` tie. Used everywhere the machine folds receipt
+/// facts down to the latest state (write resolution, recovery sweep, observability snapshot).
+pub(crate) fn receipt_is_newer_or_equal(
+    cand_tx: f64,
+    cand_val: &Value,
+    cur_tx: f64,
+    cur_val: &Value,
+) -> bool {
+    match cand_tx.partial_cmp(&cur_tx) {
+        Some(std::cmp::Ordering::Greater) => true,
+        Some(std::cmp::Ordering::Less) => false,
+        // equal tx (or a NaN sentinel start) → deterministic seq tie-break
+        _ => receipt_seq_of(cand_val) >= receipt_seq_of(cur_val),
+    }
+}
+
 fn receipt_key(req: &EffectRequest) -> String {
     format!("{}:{}", req.capability_id, req.idempotency_key)
 }
@@ -333,6 +379,8 @@ async fn write_receipt(
         "outcome_kind": outcome.kind.as_str(),
         "result": outcome.result,
         "failure_kind": outcome.failure_kind,
+        // P4 per-process tie-breaker for equal-`transaction_time` receipts (NOT TBackend seq_id).
+        "receipt_seq": next_receipt_seq(),
     });
     let fact = Fact {
         id: format!("receipt:{}", rkey),
@@ -443,7 +491,7 @@ pub async fn run_effect_with_passport(
             return Ok(EffectOutcome::denied(&format!(
                 "preflight: authority refused ({:?})",
                 reason
-            )))
+            )));
         }
     };
     run_effect_core(registry, receipts, clock, req, &digest, mode).await
@@ -474,7 +522,7 @@ pub async fn run_effect_with_verified_passport(
             return Ok(EffectOutcome::denied(&format!(
                 "preflight: authority refused ({:?})",
                 reason
-            )))
+            )));
         }
     };
     run_effect_core(registry, receipts, clock, req, &digest, mode).await
@@ -564,5 +612,49 @@ impl CapabilityExecutor for KvReadExecutor {
                 None => EffectOutcome::permanent("key not found"),
             },
         }
+    }
+}
+
+// ── P4 receipt-seq tie-break unit tests (LAB-MACHINE-RECEIPT-SEQ-TIEBREAK-P4) ──────────────────────
+#[cfg(test)]
+mod receipt_seq_tiebreak_tests {
+    use super::*;
+
+    fn val(seq: u64) -> Value {
+        json!({ "receipt_seq": seq })
+    }
+
+    #[test]
+    fn equal_tx_higher_seq_wins() {
+        // The headline: at an equal timestamp the higher-seq receipt (the later terminal) wins.
+        assert!(receipt_is_newer_or_equal(100.0, &val(10), 100.0, &val(5)));
+        assert!(!receipt_is_newer_or_equal(100.0, &val(5), 100.0, &val(10)));
+    }
+
+    #[test]
+    fn transaction_time_is_primary_seq_only_breaks_equal_tx() {
+        // Boundary (non-monotonic clock): `transaction_time` is ALWAYS primary. A higher tx wins
+        // even with a lower seq; a lower tx loses even with a higher seq. So `receipt_seq` NEVER
+        // reorders receipts that differ in timestamp — it only tie-breaks equal timestamps.
+        assert!(receipt_is_newer_or_equal(101.0, &val(1), 100.0, &val(999)));
+        assert!(!receipt_is_newer_or_equal(99.0, &val(999), 100.0, &val(1)));
+    }
+
+    #[test]
+    fn legacy_zero_seq_loses_tie_to_stamped() {
+        // A legacy receipt (no `receipt_seq` field ⇒ 0) loses an equal-tx tie to any stamped one.
+        assert_eq!(receipt_seq_of(&json!({})), 0);
+        assert!(receipt_is_newer_or_equal(100.0, &val(1), 100.0, &json!({})));
+    }
+
+    #[test]
+    fn next_receipt_seq_is_strictly_monotonic() {
+        let a = next_receipt_seq();
+        let b = next_receipt_seq();
+        let c = next_receipt_seq();
+        assert!(
+            a < b && b < c,
+            "per-process seq must strictly increase: {a} {b} {c}"
+        );
     }
 }

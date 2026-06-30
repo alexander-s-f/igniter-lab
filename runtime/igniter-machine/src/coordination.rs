@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! subject action
-//!   -> CapabilityPassport authenticates the SUBJECT (who)        (P5 verify_passport)
+//!   -> CapabilityPassport authenticates the SUBJECT (who)        (P5/P21 passport verifier)
 //!   -> Pool ACL authorizes the OPERATION on the POOL (what)      (this module)
 //!   -> every operation writes an AuditEvent fact                 (receipt principle, P1)
 //! ```
@@ -21,12 +21,14 @@
 //! `String` actor that can later be `vendor:*` / `RuntimeActor`, transferable ownership).
 
 use crate::backend::TBackend;
-use crate::capability::{verify_passport, AuthRefusal, CapabilityPassport};
+use crate::capability::{
+    AuthRefusal, CapabilityPassport, PassportVerifier, verify_passport, verify_passport_signed,
+};
 use crate::clock::ClockProvider;
 use crate::errors::EngineError;
 use crate::fact::Fact;
 use crate::machine::IgniterMachine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -201,6 +203,7 @@ pub struct CoordinationHub {
     content: HashMap<String, Vec<u8>>, // content-addressed capsule bytes, deduped by digest
     audit: Arc<dyn TBackend>,
     clock: Arc<dyn ClockProvider>,
+    passport_verifier: Option<PassportVerifier>,
 }
 
 impl CoordinationHub {
@@ -212,6 +215,26 @@ impl CoordinationHub {
             content: HashMap::new(),
             audit,
             clock,
+            passport_verifier: None,
+        }
+    }
+
+    /// Build a coordination hub whose authority boundary requires signed passports from the
+    /// configured trusted issuer set. The legacy `new` constructor remains for older proof
+    /// fixtures; production/data-plane hosts should prefer this constructor.
+    pub fn new_signed(
+        audit: Arc<dyn TBackend>,
+        clock: Arc<dyn ClockProvider>,
+        passport_verifier: PassportVerifier,
+    ) -> Self {
+        Self {
+            agents: HashMap::new(),
+            pools: HashMap::new(),
+            grants: Vec::new(),
+            content: HashMap::new(),
+            audit,
+            clock,
+            passport_verifier: Some(passport_verifier),
         }
     }
 
@@ -222,6 +245,23 @@ impl CoordinationHub {
 
     pub fn pool(&self, pool_id: &str) -> Option<&CapsulePool> {
         self.pools.get(pool_id)
+    }
+
+    fn verify_authority(
+        &self,
+        passport: &CapabilityPassport,
+        operation: &str,
+    ) -> Result<String, AuthRefusal> {
+        match &self.passport_verifier {
+            Some(verifier) => verify_passport_signed(
+                verifier,
+                passport,
+                COORDINATION_CAPABILITY,
+                operation,
+                &self.clock,
+            ),
+            None => verify_passport(passport, COORDINATION_CAPABILITY, operation, &self.clock),
+        }
     }
 
     // ── audit ──────────────────────────────────────────────────────────────────
@@ -299,26 +339,25 @@ impl CoordinationHub {
     ) -> Result<String, PoolRefusal> {
         let actor = passport.subject.clone();
 
-        // 1. authenticate WHO (P5). Passport must carry the op-class as a scope.
-        let authority_digest =
-            match verify_passport(passport, COORDINATION_CAPABILITY, operation, &self.clock) {
-                Ok(d) => d,
-                Err(a) => {
-                    let r = PoolRefusal::Unauthenticated(a);
-                    let _ = self
-                        .write_audit(
-                            &actor,
-                            operation,
-                            pool_id,
-                            target_capsule,
-                            "",
-                            "denied",
-                            Some(&r.reason()),
-                        )
-                        .await;
-                    return Err(r);
-                }
-            };
+        // 1. authenticate WHO. Passport must carry the op-class as a scope.
+        let authority_digest = match self.verify_authority(passport, operation) {
+            Ok(d) => d,
+            Err(a) => {
+                let r = PoolRefusal::Unauthenticated(a);
+                let _ = self
+                    .write_audit(
+                        &actor,
+                        operation,
+                        pool_id,
+                        target_capsule,
+                        "",
+                        "denied",
+                        Some(&r.reason()),
+                    )
+                    .await;
+                return Err(r);
+            }
+        };
 
         // 2. the subject must be a registered, active agent.
         let agent = match self.agents.get(&actor) {
@@ -615,14 +654,15 @@ impl CoordinationHub {
             .unwrap_or(false)
     }
 
-    /// Authenticate a subject for a message op (no audit, no IO): passport (P5) + registered +
+    /// Authenticate a subject for a message op (no audit, no IO): passport + registered +
     /// active. Returns `(authority_digest, is_developer)`. The caller writes the single audit.
     fn authed(
         &self,
         passport: &CapabilityPassport,
         operation: &str,
     ) -> Result<(String, bool), PoolRefusal> {
-        let digest = verify_passport(passport, COORDINATION_CAPABILITY, operation, &self.clock)
+        let digest = self
+            .verify_authority(passport, operation)
             .map_err(PoolRefusal::Unauthenticated)?;
         let agent = self
             .agents

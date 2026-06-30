@@ -94,6 +94,8 @@ fn cli_help_is_available_without_app_dir() {
             assert!(text.contains("igweb-serve"));
             assert!(text.contains("run [--addr"));
             assert!(text.contains("check <app_dir>"));
+            assert!(text.contains("live-bind-proof"));
+            assert!(text.contains("IGNITER_LIVE_BIND_HUMAN_ACK"));
             assert!(text.contains("Commands:"));
             assert!(text.contains("--addr"));
             assert!(text.contains("--max-requests"));
@@ -171,6 +173,42 @@ fn cli_check_rejects_missing_and_extra_app_dir() {
 }
 
 #[test]
+fn cli_live_bind_proof_parses_as_human_gated_command() {
+    let parsed = parse_cli_args([
+        "live-bind-proof",
+        "--host-config",
+        "/tmp/host.toml",
+        "--addr",
+        "0.0.0.0:8443",
+    ])
+    .unwrap();
+    match parsed {
+        RunnerCliCommand::LiveBindProof(opts) => {
+            assert_eq!(opts.host_config_path, PathBuf::from("/tmp/host.toml"));
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8443");
+        }
+        other => panic!("expected live-bind-proof, got {other:?}"),
+    }
+
+    let parsed_default =
+        parse_cli_args(["live-bind-proof", "--host-config", "/tmp/host.toml"]).unwrap();
+    match parsed_default {
+        RunnerCliCommand::LiveBindProof(opts) => {
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8080");
+        }
+        other => panic!("expected live-bind-proof, got {other:?}"),
+    }
+
+    assert!(
+        matches!(
+            parse_cli_args(["live-bind-proof", "--addr", "0.0.0.0:8080"]),
+            Err(RunnerError::Cli(_))
+        ),
+        "missing proof host config rejected"
+    );
+}
+
+#[test]
 fn cli_accepts_loopback_addr_and_max_override() {
     let parsed = parse_cli_args([
         "--addr",
@@ -191,14 +229,13 @@ fn cli_accepts_loopback_addr_and_max_override() {
 }
 
 #[test]
-fn cli_rejects_public_addr_zero_max_unknown_option_and_extra_app_dir() {
-    assert!(
-        matches!(
-            parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]),
-            Err(RunnerError::Cli(_))
-        ),
-        "public bind forbidden"
-    );
+fn cli_parses_public_addr_for_server_gate_and_rejects_other_bad_args() {
+    match parse_cli_args(["--addr", "0.0.0.0:8080", "examples/todo_app"]).unwrap() {
+        RunnerCliCommand::Run(opts) => {
+            assert_eq!(opts.addr.to_string(), "0.0.0.0:8080");
+        }
+        other => panic!("expected run, got {other:?}"),
+    }
     assert!(
         matches!(
             parse_cli_args(["--max-requests", "0", "examples/todo_app"]),

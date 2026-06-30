@@ -50,6 +50,10 @@ fn run(cmd: &str, root: &Path) -> (bool, Value) {
 
 /// Run `igc` with explicit args; return (success, parsed-stdout-json).
 fn run_args(args: &[&str]) -> (bool, Value) {
+    run_owned_args(&args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>())
+}
+
+fn run_owned_args(args: &[String]) -> (bool, Value) {
     let output = Command::new(bin())
         .args(args)
         .output()
@@ -57,6 +61,26 @@ fn run_args(args: &[&str]) -> (bool, Value) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let v: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
     (output.status.success(), v)
+}
+
+fn compile_project(root: &Path, out: &Path, extra: &[&str]) -> (bool, Value) {
+    let mut args = vec![
+        "compile".to_string(),
+        "--project-root".to_string(),
+        root.to_string_lossy().to_string(),
+        "--entry".to_string(),
+        "App.Main".to_string(),
+        "--out".to_string(),
+        out.to_string_lossy().to_string(),
+    ];
+    args.extend(extra.iter().map(|arg| arg.to_string()));
+    run_owned_args(&args)
+}
+
+fn compile_out(tag: &str) -> PathBuf {
+    let out = std::env::temp_dir().join(format!("igc_compile_out_{}_{}", tag, std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    out
 }
 
 #[test]
@@ -320,6 +344,104 @@ fn cli_verify_strict_integrity_is_structured() {
             .is_some_and(|m| m.contains("Lib.Private")),
         "{d}"
     );
+}
+
+// ── LAB-IGNITER-COMPILER-LOCK-ON-BUILD-P2 ──────────────────────────────────────────────────────────
+
+#[test]
+fn cli_compile_locked_passes_when_lock_is_current() {
+    let root = temp_workspace("compile_locked_ok");
+    run("lock", &root);
+    let out = compile_out("locked_ok");
+
+    let (ok, v) = compile_project(&root, &out, &["--locked"]);
+
+    assert!(ok, "locked compile passes on a current lock: {v}");
+    assert_eq!(v["status"], serde_json::json!("ok"));
+    assert!(
+        out.exists(),
+        "successful compile writes the .igapp directory"
+    );
+}
+
+#[test]
+fn cli_compile_locked_fails_when_lock_missing_without_writing_output() {
+    let root = temp_workspace("compile_locked_missing");
+    let out = compile_out("locked_missing");
+
+    let (ok, v) = compile_project(&root, &out, &["--locked"]);
+
+    assert!(!ok, "locked compile fails without igniter.lock: {v}");
+    assert_eq!(v["status"], serde_json::json!("oof"));
+    assert_eq!(
+        v["diagnostics"][0]["rule"],
+        serde_json::json!("OOF-LOCK-MISSING")
+    );
+    assert!(
+        !out.exists(),
+        "missing-lock refusal must happen before emit/assemble writes"
+    );
+}
+
+#[test]
+fn cli_compile_locked_fails_when_lock_is_stale_without_writing_output() {
+    let root = temp_workspace("compile_locked_stale");
+    run("lock", &root);
+    let dep_file = root.join("../lib/src/util.ig");
+    let mut content = std::fs::read_to_string(&dep_file).unwrap();
+    content.push_str("\n-- drift before locked compile\n");
+    std::fs::write(&dep_file, content).unwrap();
+    let out = compile_out("locked_stale");
+
+    let (ok, v) = compile_project(&root, &out, &["--locked"]);
+
+    assert!(!ok, "locked compile fails on lock drift: {v}");
+    assert_eq!(
+        v["diagnostics"][0]["rule"],
+        serde_json::json!("OOF-LOCK-DRIFT")
+    );
+    assert_eq!(
+        v["diagnostics"][0]["details"]["drift"][0]["kind"],
+        serde_json::json!("changed")
+    );
+    assert!(
+        !out.exists(),
+        "stale-lock refusal must happen before emit/assemble writes"
+    );
+}
+
+#[test]
+fn cli_compile_locked_reuses_strict_integrity_gate() {
+    let root = temp_fixture("workspace_phantom", "compile_locked_phantom");
+    run("lock", &root);
+    let out = compile_out("locked_phantom");
+
+    let (ok, v) = compile_project(&root, &out, &["--locked"]);
+
+    assert!(
+        !ok,
+        "locked compile fails on strict workspace integrity: {v}"
+    );
+    assert_eq!(v["diagnostics"][0]["rule"], serde_json::json!("OOF-IMP6"));
+    assert!(
+        !out.exists(),
+        "integrity refusal must happen before emit/assemble writes"
+    );
+}
+
+#[test]
+fn cli_compile_without_locked_allows_missing_lock() {
+    let root = temp_workspace("compile_unlocked_missing");
+    let out = compile_out("unlocked_missing");
+
+    let (ok, v) = compile_project(&root, &out, &[]);
+
+    assert!(
+        ok,
+        "plain project compile remains unchanged without a lock: {v}"
+    );
+    assert_eq!(v["status"], serde_json::json!("ok"));
+    assert!(out.exists(), "plain compile writes the .igapp directory");
 }
 
 // ── LAB-IGNITER-PACKAGE-ARCHIVE-PACK-VERIFY-P22 ─────────────────────────────────────────────────────
@@ -1011,7 +1133,8 @@ fn cli_export_change_is_lock_drift() {
 // ── LAB-IGNITER-PACKAGE-EMERGENCE-PACK-P24 (Kuramoto Admission) ───────────────────
 
 fn temp_kuramoto_fixture(tag: &str) -> PathBuf {
-    let base = std::env::temp_dir().join(format!("igc_lock_kuramoto_{}_{}", tag, std::process::id()));
+    let base =
+        std::env::temp_dir().join(format!("igc_lock_kuramoto_{}_{}", tag, std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     copy_tree(
         Path::new("tests/fixtures/package_emergence_kuramoto"),
@@ -1067,7 +1190,10 @@ fn cli_admit_emergence_kuramoto() {
     let (ok, v) = admit(&pkg, &["--match-toolchain"]);
     assert!(ok, "admission failed: {v}");
     assert_eq!(v["accepted"], Value::Bool(true));
-    assert!(v["artifact_digest"].as_str().unwrap().starts_with("sha256:"));
+    assert!(v["artifact_digest"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
     assert_eq!(v["lock_digest"], Value::Null);
     assert!(v["compiler_version"].as_str().is_some());
     assert!(v["stdlib_version"].as_str().is_some());
@@ -1103,7 +1229,10 @@ fn cli_admit_emergence_kuramoto_require_lock() {
     // 1. Missing required lock
     let pkg_nolock = pack_kuramoto_temp("kuramoto_require_lock_missing", false);
     let (ok, v) = admit(&pkg_nolock, &["--require-lock"]);
-    assert!(!ok, "admit without lock under --require-lock succeeded: {v}");
+    assert!(
+        !ok,
+        "admit without lock under --require-lock succeeded: {v}"
+    );
     assert!(
         refusal_reasons(&v).contains(&"missing_lock".to_string()),
         "expected missing_lock: {v}"

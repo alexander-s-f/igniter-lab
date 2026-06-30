@@ -1,0 +1,42 @@
+# host.live_bind.example.toml — PARSE-ONLY live-bind checklist example
+# (LAB-IGNITER-WEB-HOST-LIVE-BIND-CHECKLIST-PARSE-P34).
+#
+# COMMIT-SAFE. This file holds file-PATH references and non-secret operator markers only — never
+# inline passports, private keys, certificate material, tokens, or DSNs. The parser
+# (`load_host_config`) rejects inline secret keys (`dsn`, `password`, `secret`, `token`, `passport`,
+# `api_key`, `key`, `cert`), template syntax in path values, unknown sections, and unknown keys.
+#
+# IMPORTANT: This section is READINESS ONLY. A complete `[host.live_bind]` checklist does NOT open a
+# public/non-loopback listener. `igweb-serve` still calls the server live-bind gate with NO runtime
+# checklist, so a non-loopback `--addr` still fails closed with BIND_REFUSED. `[host] mode` still
+# only accepts "loopback". Enabling a real public bind requires a separate gate decision (see the
+# P34 proof doc). The block below exists so an operator can author and validate the checklist shape
+# ahead of that decision, and so an incomplete checklist fails closed with an actionable diagnostic.
+
+# Host process policy. Only "loopback" is accepted in v0; "public" is still refused.
+[host]
+mode = "loopback"
+
+# The operator-checkable live-bind checklist. Every boolean assertion must be "true"; a "false" or
+# missing assertion fails closed. Values are quoted strings (the whole parser is quoted-value
+# uniform), so booleans are written "true"/"false".
+[host.live_bind]
+# File-path reference to the inbound signed passport. Path only — the parser proves the reference
+# shape, never key validity or file existence.
+signed_passport_path = "/etc/igniter/passports/inbound.passport"
+# A request-body size cap is wired.
+body_cap_enabled = "true"
+# An inbound read timeout is wired.
+read_timeout_enabled = "true"
+# Unauthenticated inbound effect/write surfaces fail closed.
+fail_closed_auth_enabled = "true"
+# Opaque, non-secret operator marker (e.g. "present" or a change-ticket id).
+operator_signoff = "present"
+
+# Mandatory TLS decision for any future non-loopback v1. There is no "none" mode.
+# This example uses `terminated_upstream` (TLS terminates at a proxy / load balancer before IgWeb).
+# `native_tls` is parse-only and remains blocked until a transport implementation card exists; it
+# would carry `cert_file` / `key_file` PATH references (never committed key material).
+[host.live_bind.inbound_tls]
+mode = "terminated_upstream"
+upstream_header_policy = "trusted_proxy_only"

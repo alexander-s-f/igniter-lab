@@ -146,6 +146,18 @@ fn unknown_field_kind_is_a_schema_error() {
 }
 
 #[test]
+fn empty_leads_is_a_schema_error() {
+    // A workbench with `data.leads: []` passes lead-shape validation but would panic at runtime in
+    // `Workbench::initial_world` (it selects `leads[0]`). It must fail closed at the schema boundary.
+    let json = r#"{ "artifact":"view","layout":"workbench","data":{"leads":[]},
+      "regions":{"main":{"fields":[{"id":"name","kind":"text","label":"Name"}]}} }"#;
+    match compile_workbench(json) {
+        Err(ViewError::Schema(m)) => assert!(m.contains("lead"), "message should mention lead: {m}"),
+        other => panic!("expected empty-leads schema error, got {other:?}"),
+    }
+}
+
+#[test]
 fn compile_dispatches_on_layout() {
     assert!(matches!(compile(WORKBENCH_JSON), Ok(Screen::Workbench(_))));
     assert!(matches!(compile(FORM_JSON), Ok(Screen::Form(_))));

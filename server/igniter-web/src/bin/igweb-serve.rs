@@ -8,20 +8,30 @@
 //! Requires `--features machine`. Not a stable CLI surface. Loopback only.
 
 use igniter_server::reload::ReloadableApp;
+use igniter_server::serving_gate::authorize_bind;
 use igniter_server::serving_loop::{serve_loop, ServingPolicy};
 #[cfg(feature = "machine")]
 use igniter_web::runner::RunnerCliOptions;
 use igniter_web::runner::{
     build_app_from_dir, check_app_dir, parse_cli_args, resolve_sources, RunnerCliCommand,
 };
-use igniter_web::runner_diag::{classify_runner_error, RunnerDiagnostic};
-use std::net::TcpListener;
+use igniter_web::runner_diag::{classify_runner_error, DiagCode, RunnerDiagnostic};
+use std::net::{SocketAddr, TcpListener};
 
 /// Print a coded, redacted diagnostic to stderr and exit with its stable non-zero code.
 /// stdout stays reserved for the machine-readable `listening http://…` line.
 fn fail(diag: RunnerDiagnostic) -> ! {
     eprintln!("{diag}");
     std::process::exit(diag.exit_code());
+}
+
+fn authorize_runner_bind(addr: SocketAddr) -> Result<(), RunnerDiagnostic> {
+    authorize_bind(addr, None).map(|_| ()).map_err(|e| {
+        RunnerDiagnostic::new(
+            DiagCode::BindRefused,
+            format!("live bind gate refused {addr}: {}", e.code()),
+        )
+    })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,6 +59,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             return Ok(());
         }
+        RunnerCliCommand::LiveBindCheck(opts) => {
+            // LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36: report-only. Parse the
+            // host config, ask the pure server gate what it WOULD decide for the
+            // intended address, print the verdict — and never open a socket. Public
+            // bind stays closed; a `would_authorize` here grants no bind authority.
+            use igniter_web::host_config::load_host_config;
+            use igniter_web::live_bind_check::evaluate;
+            use igniter_web::runner_diag::classify_host_config_error;
+            let host_cfg = match load_host_config(&opts.host_config_path) {
+                Ok(c) => c,
+                Err(e) => fail(classify_host_config_error(&e)),
+            };
+            let verdict = evaluate(opts.addr, host_cfg.live_bind.as_ref());
+            println!("{}", verdict.render(opts.addr));
+            if verdict.would_authorize() {
+                return Ok(());
+            }
+            // Scriptable refusal: stable non-zero exit, verdict already on stdout.
+            std::process::exit(DiagCode::BindRefused.exit_code());
+        }
+        RunnerCliCommand::LiveBindProof(opts) => {
+            // LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39: human-gated lab
+            // proof. Reuses the P37 host-verified checklist conversion and asks
+            // the pure gate for authorization, but never opens a listener.
+            use igniter_web::host_config::load_host_config;
+            use igniter_web::live_bind_proof::{evaluate, LIVE_BIND_PROOF_ACK_ENV};
+            use igniter_web::runner_diag::classify_host_config_error;
+            let host_cfg = match load_host_config(&opts.host_config_path) {
+                Ok(c) => c,
+                Err(e) => fail(classify_host_config_error(&e)),
+            };
+            let ack = std::env::var(LIVE_BIND_PROOF_ACK_ENV).ok();
+            let verdict = evaluate(opts.addr, host_cfg.live_bind.as_ref(), ack.as_deref());
+            println!("{}", verdict.render(opts.addr));
+            if verdict.would_authorize() {
+                return Ok(());
+            }
+            std::process::exit(DiagCode::BindRefused.exit_code());
+        }
         RunnerCliCommand::Run(cli) => cli,
     };
 
@@ -74,13 +123,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sync path (unchanged)
     let app_dir = &cli.app_dir;
     let (app, manifest) = build_app_from_dir(app_dir)?;
+    if let Err(diag) = authorize_runner_bind(cli.addr) {
+        fail(diag);
+    }
     let listener = TcpListener::bind(cli.addr)?;
     let addr = listener.local_addr()?;
     let source_count = resolve_sources(app_dir, &manifest)?.len();
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
     println!(
         "igweb-serve: app_dir={} entry={} sources={} listening http://{} (loopback, bounded to {} request(s))",
-        app_dir.display(), manifest.entry, source_count, addr, max
+        app_dir.display(),
+        manifest.entry,
+        source_count,
+        addr,
+        max
     );
     let reloadable = ReloadableApp::new(app);
     let report = serve_loop(
@@ -114,7 +170,7 @@ fn run_machine_mode(
     use igniter_web::machine_runner;
     use igniter_web::read_dispatch::StagedReadHost;
     use igniter_web::runner::build_loaded_app_from_dir;
-    use igniter_web::runner_diag::{classify_host_config_error, classify_runner_error, DiagCode};
+    use igniter_web::runner_diag::{classify_host_config_error, classify_runner_error};
     use std::sync::Arc;
 
     // 1. Parse + resolve host config — env var expansion happens here; secrets never interpolated.
@@ -168,6 +224,7 @@ fn run_machine_mode(
     }
 
     let max = cli.max_requests.or(manifest.max_requests).unwrap_or(1024);
+    let middleware = machine_runner::LoadedMiddleware::from_manifest(&manifest);
 
     // 3. Build a default no-op effect host (fallback path when no write binding is configured)
     let router = IngressRouter::new();
@@ -191,6 +248,7 @@ fn run_machine_mode(
         receipts: &receipts,
         effect_clock: &clk,
         effect_passport: &ep,
+        effect_passport_verifier: None,
         single_flight: &sf,
         capability_id: "noop".to_string(),
         operation: "noop".to_string(),
@@ -202,6 +260,7 @@ fn run_machine_mode(
     let app_dir_str = cli.app_dir.display().to_string();
     let entry = manifest.entry.clone();
     let addr = cli.addr;
+    authorize_runner_bind(addr)?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -273,6 +332,7 @@ fn run_machine_mode(
                     receipts: &state.receipts,
                     effect_clock: &state.clk,
                     effect_passport: &state.ep,
+                    effect_passport_verifier: Some(&state.effect_verifier),
                     single_flight: &state.sf,
                     capability_id: state.capability_id.clone(),
                     operation: "write_record".to_string(),
@@ -297,8 +357,13 @@ fn run_machine_mode(
                     app_dir_str, entry, bound, max
                 );
                 let policy = ServingPolicy::new(max).loopback_only();
-                let report = machine_runner::serve_loop_loaded_with_read(
-                    &listener, &app, &real_effect_host, &read_host, &policy,
+                let report = machine_runner::serve_loop_loaded_with_read_and_middleware(
+                    &listener,
+                    &app,
+                    &real_effect_host,
+                    &read_host,
+                    &policy,
+                    &middleware,
                 )
                 .await
                 .map_err(|e| {
@@ -325,12 +390,18 @@ fn run_machine_mode(
             app_dir_str, entry, bound, max
         );
         let policy = ServingPolicy::new(max).loopback_only();
-        let report =
-            machine_runner::serve_loop_loaded_with_read(&listener, &app, &effect_host, &read_host, &policy)
-                .await
-                .map_err(|e| {
-                    RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
-                })?;
+        let report = machine_runner::serve_loop_loaded_with_read_and_middleware(
+            &listener,
+            &app,
+            &effect_host,
+            &read_host,
+            &policy,
+            &middleware,
+        )
+        .await
+        .map_err(|e| {
+            RunnerDiagnostic::new(DiagCode::RunnerInternal, format!("serve loop: {e}"))
+        })?;
         println!(
             "igweb-serve: machine-mode served {} request(s); exiting",
             report.requests_served

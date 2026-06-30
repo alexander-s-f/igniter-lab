@@ -21,18 +21,21 @@ use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
 use igniter_server::effect_host::{
-    serve_loop_effect, serve_once_effect, serve_once_effect_reloadable, MachineEffectHost,
+    MachineEffectHost, read_server_request_with_policy, serve_loop_effect, serve_once_effect,
+    serve_once_effect_reloadable,
 };
 use igniter_server::fixture::DemoApp;
+use igniter_server::host::HardenedReadPolicy;
 use igniter_server::protocol::{
     AppIdentity, ServerApp, ServerDecision, ServerRequest, ServerResponse,
 };
 use igniter_server::reload::ReloadableApp;
 use igniter_server::serving_loop::ServingPolicy;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -71,6 +74,62 @@ fn vendor() -> CapabilityPassport {
             "invoke",
         ],
     )
+}
+
+#[test]
+fn async_read_policy_rejects_oversized_content_length() {
+    rt().block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_server_request_with_policy(
+                &mut stream,
+                HardenedReadPolicy::new(8, Duration::from_secs(1)),
+            )
+            .await
+            .unwrap_err()
+        };
+        let client = async {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 9\r\n\r\n")
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+        };
+        let (err, _) = tokio::join!(server, client);
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("payload too large"));
+    });
+}
+
+#[test]
+fn async_read_policy_times_out_incomplete_body() {
+    rt().block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_server_request_with_policy(
+                &mut stream,
+                HardenedReadPolicy::new(1024, Duration::from_millis(50)),
+            )
+            .await
+            .unwrap_err()
+        };
+        let client = async {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n")
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        let (err, _) = tokio::join!(server, client);
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+    });
 }
 async fn register(h: &mut CoordinationHub, id: &str, kind: AgentKind) {
     h.register_agent(AgentIdentity {
@@ -188,6 +247,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: CAP.into(),
         operation: "create_record".into(),
@@ -207,7 +267,11 @@ async fn server_post(
     let body = json!({ "base": base }).to_string();
     let req = format!(
         "POST {} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer vtok\r\nX-Vendor-Event-Id: {}\r\nX-Correlation-Id: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        path, key, corr, body.len(), body
+        path,
+        key,
+        corr,
+        body.len(),
+        body
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut resp = Vec::new();
@@ -315,18 +379,20 @@ fn server_invoke_effect_bounded_fresh_attempts_match_ingress() {
             "three fresh attempts → three distinct effects"
         );
         // distinct effect idempotency keys = CAP:duplicate_key:attempt (matches direct ingress).
-        assert!(st
-            .receipts
-            .read_as_of("__receipts__", "IO.Demo:E1:0", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
-        assert!(st
-            .receipts
-            .read_as_of("__receipts__", "IO.Demo:E1:2", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            st.receipts
+                .read_as_of("__receipts__", "IO.Demo:E1:0", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            st.receipts
+                .read_as_of("__receipts__", "IO.Demo:E1:2", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -568,11 +634,12 @@ fn server_concurrent_same_key_exactly_one_effect() {
             1,
             "four concurrent same-key requests perform exactly one effect"
         );
-        assert!(st
-            .receipts
-            .read_as_of("__receipts__", "IO.Demo:SAME:0", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            st.receipts
+                .read_as_of("__receipts__", "IO.Demo:SAME:0", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
     });
 }

@@ -78,7 +78,10 @@ fn latest_by_key(all: &[crate::fact::Fact], store: &str) -> HashMap<String, Valu
         let e = latest
             .entry(f.key.clone())
             .or_insert((f64::NEG_INFINITY, Value::Null));
-        if f.transaction_time >= e.0 {
+        // P4: latest by (transaction_time, receipt_seq) — same tie-break helper as the write
+        // resolution + recovery sweep (receipt facts carry `receipt_seq`; other stores read it as 0,
+        // degrading to the prior wall-clock-only behavior).
+        if crate::capability::receipt_is_newer_or_equal(f.transaction_time, &f.value, e.0, &e.1) {
             *e = (f.transaction_time, f.value.clone());
         }
     }

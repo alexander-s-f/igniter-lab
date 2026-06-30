@@ -11,7 +11,7 @@
 //! Test 4 is feature-gated to `machine`.
 
 use igniter_web::host_config::{load_host_config, resolve_host_config};
-use igniter_web::runner::{parse_cli_args, RunnerCliCommand, RunnerCliOptions};
+use igniter_web::runner::{RunnerCliCommand, RunnerCliOptions, parse_cli_args};
 use std::path::PathBuf;
 
 #[cfg(feature = "machine")]
@@ -225,6 +225,7 @@ fn machine_mode_smoke_serves_health_request() {
         receipts: &receipts,
         effect_clock: &clk,
         effect_passport: &ep,
+        effect_passport_verifier: None,
         single_flight: &sf,
         capability_id: "noop".to_string(),
         operation: "noop".to_string(),
@@ -406,6 +407,7 @@ mod readthen_p23 {
             receipts: &parts.receipts,
             effect_clock: &parts.clk,
             effect_passport: &parts.ep,
+            effect_passport_verifier: None,
             single_flight: &parts.sf,
             capability_id: "noop".to_string(),
             operation: "noop".to_string(),
@@ -461,6 +463,7 @@ mod readthen_p23 {
             receipts: &parts.receipts,
             effect_clock: &parts.clk,
             effect_passport: &parts.ep,
+            effect_passport_verifier: None,
             single_flight: &parts.sf,
             capability_id: "noop".to_string(),
             operation: "noop".to_string(),
@@ -492,7 +495,10 @@ mod readthen_p23 {
                 200,
                 "empty rows → 200 [] in machine-mode path (a list, not 404); raw={raw}"
             );
-            assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
+            assert!(
+                raw.contains("[]"),
+                "body carries the empty array; raw={raw}"
+            );
         });
     }
 
@@ -511,6 +517,7 @@ mod readthen_p23 {
             receipts: &parts.receipts,
             effect_clock: &parts.clk,
             effect_passport: &parts.ep,
+            effect_passport_verifier: None,
             single_flight: &parts.sf,
             capability_id: "noop".to_string(),
             operation: "noop".to_string(),

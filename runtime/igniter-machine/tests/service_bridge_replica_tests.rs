@@ -11,14 +11,14 @@ use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{CapabilityExecutorRegistry, CapabilityPassport};
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
-    AgentIdentity, AgentKind, AgentStatus, CoordinationHub, DuplicatePolicy, PoolRight,
-    PoolVisibility, ServiceRecipe, COORD_AUDIT_STORE,
+    AgentIdentity, AgentKind, AgentStatus, COORD_AUDIT_STORE, CoordinationHub, DuplicatePolicy,
+    PoolRight, PoolVisibility, ServiceRecipe,
 };
 use igniter_machine::ingress::{EffectBridgeConfig, IngressRequest, IngressRouter};
 use igniter_machine::machine::IgniterMachine;
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -195,6 +195,7 @@ fn one_request_one_effect() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -225,6 +226,7 @@ fn dedup_strict_no_second_effect() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -256,6 +258,7 @@ fn bounded_fresh_distinct_effects() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -272,16 +275,20 @@ fn bounded_fresh_distinct_effects() {
             3,
             "each fresh attempt is a distinct effect"
         );
-        assert!(receipts
-            .read_as_of("__receipts__", "IO.SparkCRM:E1:0", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
-        assert!(receipts
-            .read_as_of("__receipts__", "IO.SparkCRM:E1:2", f64::MAX)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            receipts
+                .read_as_of("__receipts__", "IO.SparkCRM:E1:0", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            receipts
+                .read_as_of("__receipts__", "IO.SparkCRM:E1:2", f64::MAX)
+                .await
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -302,6 +309,7 @@ fn audit_links_request_attempt_replica_effect() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -335,6 +343,7 @@ fn unknown_effect_202() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -364,6 +373,7 @@ fn fanout_never_on_bridge_path() {
             receipts: &receipts,
             effect_clock: &eclock,
             effect_passport: &ep,
+            effect_passport_verifier: None,
             single_flight: &sf,
             capability_id: CAP.into(),
             operation: "create_lead".into(),
@@ -372,9 +382,10 @@ fn fanout_never_on_bridge_path() {
 
         r.handle_effect(&h, &req("E1", "c1"), &cfg).await;
         let all = audit.all_facts().await.unwrap();
-        assert!(all
-            .iter()
-            .all(|f| f.value["operation"] != json!("invoke_fanout")));
+        assert!(
+            all.iter()
+                .all(|f| f.value["operation"] != json!("invoke_fanout"))
+        );
         assert_eq!(
             bridge_facts(&audit).await.len(),
             1,

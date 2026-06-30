@@ -121,12 +121,44 @@ point-in-rect for box widgets and radius for points, so a GUI of rectangles and 
 points share one entry point. Point digests are unchanged (`[id,sx,sy]`). These power the sibling
 domains `igniter-3d` (wireframe sim) and `igniter-gui` (layout/hit-test/intent).
 
+## Igniter-authored view loop (P5/P6/P7)
+
+The `.ig` view/reducer loop is now proven past the old selected-state blocker:
+
+```text
+.ig View computes selected = row_key == state.sel
+  -> igniter-vm executes equality
+  -> ig_bridge renders the authored selected field
+  -> frame runtime reprojects after reducer state changes
+```
+
+Current live boundary:
+
+- VM equality is implemented for the frame-view path. `lang/igniter-vm/IMPLEMENTED_SURFACE.md`
+  lists `==` / `OP_EQ`; the operator is emitted as SIR `binary_op op:"=="`, not as a runtime
+  `stdlib.primitive.eq` call.
+- Selected-state is authored by the `.ig` view as `selected : Bool`; `ig_bridge` reads that field
+  and renders it structurally. It does not decide selection with host-side `id == sel` logic.
+- `ig_reducer_interaction_tests` proves the frame runtime mechanics: hit-test, authored intent,
+  reducer effect, lineage, and fresh re-projection after state changes.
+- `ig_vm_loop_tests` proves the VM-in-the-loop payoff over command-produced runtime fixtures:
+  click key -> `.ig Reduce` on the VM -> `.ig View` re-run on the VM -> selected row rendered.
+- The remaining DX gap is an in-process VM-loop projector/runner. Today the proof uses the
+  documented subprocess/command-produced fixture boundary to keep the frame crate machine-free.
+
+This is lab evidence only. It does not make `.igv`, `.ig.html`, cross-module forms, or the frame
+API a stable public/canon surface.
+
 ## Boundary / status
 
 Lab-only. No GUI / window / GPU / network. No stable schema or public API. Not Igniter Lang canon.
 `Frame`/`Camera`/projection moved here OUT of `igniter-machine` so the kernel stays boring and
 different projection domains (IDE frame, GUI layout, game world, 3D scene, trace viewer) can
 diverge in their own crates without ontology soup in the machine.
+
+`Cargo.lock` in this crate is a local ignored artifact (`frame-ui/igniter-frame/.gitignore`);
+documentation and proof slices should not treat it as a tracked deliverable unless that policy
+is changed explicitly.
 
 ## Next
 

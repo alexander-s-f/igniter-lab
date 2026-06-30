@@ -75,15 +75,6 @@ pub fn validate_path(
     let abs_sandbox = fs::canonicalize(&abs_sandbox)
         .map_err(|e| format!("Failed to canonicalize sandbox path: {}", e))?;
 
-    // Safety policy check: sandbox directory must reside under igniter-stdlib/out/
-    let abs_sandbox_str = abs_sandbox.to_string_lossy();
-    if !abs_sandbox_str.contains("/igniter-stdlib/out") {
-        return Err(
-            "SandboxSecurityViolation: sandbox directory must be under igniter-stdlib/out/"
-                .to_string(),
-        );
-    }
-
     // 3. Absolute path checks (must fail closed unless explicitly mapped)
     if req_path.is_absolute() {
         if let Some(ref allowed) = cap.allowed_absolute_paths {
@@ -118,16 +109,87 @@ pub fn validate_path(
         return Err("PathTraversalError: path traversal outside sandbox detected".to_string());
     }
 
-    // Double check with canonical filesystem check if resolved target already exists
-    if resolved_path.exists() {
-        if let Ok(canonical) = fs::canonicalize(&resolved_path) {
-            if !canonical.starts_with(&abs_sandbox) {
-                return Err("PathTraversalError: canonical path traversal detected".to_string());
-            }
+    if is_write {
+        validate_write_target(&resolved_path, &abs_sandbox)?;
+    } else if resolved_path.exists() {
+        let canonical = fs::canonicalize(&resolved_path)
+            .map_err(|e| format!("PathTraversalError: failed to canonicalize path: {}", e))?;
+        if !canonical.starts_with(&abs_sandbox) {
+            return Err("PathTraversalError: canonical path traversal detected".to_string());
         }
     }
 
     Ok(resolved_path)
+}
+
+fn validate_write_target(path: &Path, sandbox_root: &Path) -> Result<(), String> {
+    let relative = path.strip_prefix(sandbox_root).map_err(|_| {
+        "PathTraversalError: write target outside canonical sandbox root".to_string()
+    })?;
+
+    let mut current = sandbox_root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err("PathTraversalError: write target traverses a symlink".to_string());
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => {
+                return Err(format!(
+                    "PathTraversalError: failed to inspect write path component: {}",
+                    e
+                ))
+            }
+        }
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "PathTraversalError: write target has no parent directory".to_string())?;
+
+    if parent.exists() {
+        let canonical_parent = fs::canonicalize(parent).map_err(|e| {
+            format!(
+                "PathTraversalError: failed to canonicalize write parent: {}",
+                e
+            )
+        })?;
+        if !canonical_parent.starts_with(sandbox_root) {
+            return Err(
+                "PathTraversalError: write parent escapes canonical sandbox root".to_string(),
+            );
+        }
+    } else {
+        validate_nearest_existing_parent(parent, sandbox_root)?;
+    }
+
+    Ok(())
+}
+
+fn validate_nearest_existing_parent(parent: &Path, sandbox_root: &Path) -> Result<(), String> {
+    let mut ancestor = parent;
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().ok_or_else(|| {
+            "PathTraversalError: write parent has no existing ancestor".to_string()
+        })?;
+    }
+
+    let canonical_ancestor = fs::canonicalize(ancestor).map_err(|e| {
+        format!(
+            "PathTraversalError: failed to canonicalize write ancestor: {}",
+            e
+        )
+    })?;
+    if !canonical_ancestor.starts_with(sandbox_root) {
+        return Err(
+            "PathTraversalError: write parent ancestor escapes canonical sandbox root".to_string(),
+        );
+    }
+
+    Ok(())
 }
 
 // Compute simple FNV-1a non-cryptographic content digest to avoid dependencies
@@ -343,7 +405,7 @@ unsafe fn write_text_impl(
         }
     };
 
-    let resolved_path = match validate_path(path_str, &cap, true) {
+    let mut resolved_path = match validate_path(path_str, &cap, true) {
         Ok(p) => p,
         Err(e) => return parse_and_classify_validation_error(&e, path_str),
     };
@@ -359,6 +421,11 @@ unsafe fn write_text_impl(
             }
         }
     }
+
+    resolved_path = match validate_path(path_str, &cap, true) {
+        Ok(p) => p,
+        Err(e) => return parse_and_classify_validation_error(&e, path_str),
+    };
 
     match fs::write(&resolved_path, content) {
         Ok(_) => {
@@ -476,7 +543,7 @@ unsafe fn write_json_impl(
         }
     };
 
-    let resolved_path = match validate_path(path_str, &cap, true) {
+    let mut resolved_path = match validate_path(path_str, &cap, true) {
         Ok(p) => p,
         Err(e) => return parse_and_classify_validation_error(&e, path_str),
     };
@@ -514,6 +581,11 @@ unsafe fn write_json_impl(
             }
         }
     }
+
+    resolved_path = match validate_path(path_str, &cap, true) {
+        Ok(p) => p,
+        Err(e) => return parse_and_classify_validation_error(&e, path_str),
+    };
 
     match fs::write(&resolved_path, &content) {
         Ok(_) => {

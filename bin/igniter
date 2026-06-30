@@ -70,6 +70,12 @@ Operator environment:
   env template <app|bundle>   print a blank `export NAME=` skeleton (no .env read, no injection)
   env check <app|bundle>      GATE: exit non-zero if a required env var is unset/empty
 
+Stdlib help (delegate to igc; JSON is the stable agent contract — routing only, no second docs authority):
+  stdlib list [--category C] [--json]   list the implemented stdlib surface (→ igc stdlib list)
+  stdlib search QUERY... [--json]       ranked substring search over the surface (→ igc stdlib search)
+  stdlib show NAME_OR_ALIAS [--json]    show one entry by canonical name or alias (→ igc stdlib show)
+  explain RULE [--json]                 link a diagnostic (e.g. OOF-COL3) back to stdlib entries (→ igc explain)
+
   -h | --help           this help
 
 Safety: every verb routes to a named owner that enforces its authority — loopback/public-bind refusal and
@@ -577,6 +583,60 @@ cmd_package() {
   fi
   # exec preserves argv and the igc exit code verbatim.
   exec "$bin" "${igc_args[@]}" "$@"
+}
+
+# ── verbs: delegated stdlib help (LAB-IGNITER-CLI-CONTROL-CENTER-STDLIB-DELEGATION-P1) ────────────────
+# DELEGATION ONLY: `igc` owns the stdlib surface + JSON contract + digest. This front door never parses
+# stdlib-inventory.json, recomputes a digest, or becomes a second docs authority — it resolves `igc`,
+# routes argv, and `exec`s so argv + exit code pass through verbatim (mirrors cmd_package).
+stdlib_usage() {
+  cat <<'EOF'
+usage: igniter stdlib <list|search|show> ... [--json]
+       igniter explain RULE [--json]
+
+Query the implemented stdlib surface. ROUTING ONLY → delegates to `igc`; JSON output is the stable
+agent contract (bin/igniter never parses stdlib-inventory.json or recomputes the digest).
+
+  stdlib list [--category C] [--json]    → igc stdlib list      (kind: igniter_stdlib_list_result)
+  stdlib search QUERY... [--json]        → igc stdlib search    (kind: igniter_stdlib_search_result)
+  stdlib show NAME_OR_ALIAS [--json]     → igc stdlib show      (kind: igniter_stdlib_show_result)
+  explain RULE [--json]                  → igc explain          (kind: igniter_diagnostic_explain_result)
+
+Every result carries the current stdlib_surface_digest. Unknown `show` exits non-zero with
+{"ok":false,"reason":"not_found"} — exactly because igc does. Env: IGNITER_IGC_BIN=/path/to/igc.
+EOF
+}
+
+# Resolve igc and exec the given igc argv; fail closed with the same build/install/override hint as
+# cmd_package. `$1` is a human label for the missing-binary message; the rest is the igc argv.
+exec_igc_or_die() {
+  local label="$1"; shift
+  local bin
+  if ! bin="$(resolve_igc)" || [[ ! -x "$bin" ]]; then
+    echo "$PROG: igc (the $label authority) is not built/staged${bin:+ at: $bin}." >&2
+    echo "  → build it:   (cd lang/igniter-compiler && cargo build --release)   # → target/release/igniter_compiler" >&2
+    echo "  → or install: bin/igniter-install                                    # stages a co-located 'igc'" >&2
+    echo "  → or point:   IGNITER_IGC_BIN=/path/to/igc" >&2
+    exit 1
+  fi
+  exec "$bin" "$@"
+}
+
+cmd_stdlib() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
+    stdlib_usage
+    [[ $# -eq 0 ]] && exit 2 || exit 0
+  fi
+  # exec preserves the `igc stdlib <sub> …` argv and exit code verbatim.
+  exec_igc_or_die "stdlib surface" stdlib "$@"
+}
+
+cmd_explain() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -eq 0 ]]; then
+    stdlib_usage
+    [[ $# -eq 0 ]] && exit 2 || exit 0
+  fi
+  exec_igc_or_die "diagnostic explain" explain "$@"
 }
 
 app_usage() {
@@ -1110,6 +1170,8 @@ main() {
     app)       shift; cmd_app "$@" ;;
     agent)     shift; cmd_agent "$@" ;;
     env)       shift; cmd_env "$@" ;;
+    stdlib)    shift; cmd_stdlib "$@" ;;
+    explain)   shift; cmd_explain "$@" ;;
     *)
       echo "$PROG: unknown command '$sub'" >&2
       echo >&2

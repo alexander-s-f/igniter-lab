@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · .ig view → frame-ui (host bridge)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; gap:8px; }
+  #scene { width:720px; max-width:96vw; aspect-ratio:720/440; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#010409; }
+  #scene svg { display:block; width:100%; height:100%; }
+  textarea { width:380px; max-width:92vw; height:300px; background:#010409; color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:12px; font:12px/1.5 ui-monospace, Menlo, monospace; resize:vertical; }
+  textarea:focus { outline:none; border-color:var(--acc); }
+  label { color:var(--dim); font-size:12px; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 16px; font-size:12px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.7; }
+  code { color:var(--acc); }
+  a { color:#58a6ff; }
+  .pipe { color:var(--dim); font-size:12px; margin:8px 0 0; }
+  .pipe b { color:#e6edf3; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="col">
+      <label>the <code>.ig</code> view's typed output — its <code>Element</code> tree (editable)</label>
+      <textarea id="src" spellcheck="false"></textarea>
+      <p class="pipe"><b>.ig element-contracts</b> → Element tree (this JSON) → <b>frame-ui</b>: layout → solve → widgets →</p>
+    </div>
+    <div class="col">
+      <label>rendered live through the frame-ui <code>WidgetRenderHost</code> →</label>
+      <div id="scene">loading wasm…</div>
+    </div>
+    <div id="panel">
+      <h1>.ig view → frame-ui (host bridge)</h1>
+      <p class="sub">The left JSON is the type-verified output of <code>list_view_dynamic.ig</code> (which compiles <code>ok</code> on the real <code>igc</code>): a recursive <code>Element { tag, attrs{dir,main,flex,pad,gap}, text, intent, children }</code> tree, built by pure igniter element-contracts and a <code>map</code> over the leads. This page maps that descriptor → a <code>LayoutBox</code>, <code>solve</code>s it, and renders the canonical widgets through the SAME shared host as every hand-written screen. Edit the JSON to see the view reflow.</p>
+      <p class="hint">
+        This closes the loop end-to-end: a view authored as <b>pure igniter</b> (no separate dialect,
+        no Rust-returns-a-string) renders live, machine-free, through frame-ui. The descriptor IR is
+        exactly what the host already draws.<br>
+        Wiring the live <code>igc run</code> VM execution to PRODUCE this JSON (vs. type-verified
+        fixture) is a separate, passport-gated follow-on. See also <a href="./list.html">the
+        hand-written list</a> for comparison.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { render_ig_view } from "./igniter_frame.js";
+    const scene = document.getElementById("scene");
+    const src = document.getElementById("src");
+    await init();
+    function draw() {
+      scene.innerHTML = render_ig_view(src.value, 720, 440);
+    }
+    const tree = await (await fetch("./list_view.element.json")).text();
+    src.value = JSON.stringify(JSON.parse(tree), null, 2);
+    draw();
+    src.addEventListener("input", draw);
+  </script>
+</body>
+</html>

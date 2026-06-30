@@ -62,3 +62,453 @@ impl Default for WasmRuntime {
         Self::new()
     }
 }
+
+/// LAB-FRAME-LAYOUT-VOCAB-P2 — the declarative list/detail screen exposed to the browser. A thin
+/// wrapper over `ListScreenRuntime`: the whole screen is composed from `layout` boxes and `solve`d
+/// in Rust; the JS host only draws the SVG and forwards pointer coords. Click a row to select, the
+/// ＋ row to add (the list auto-flows), the detail button to toggle done.
+#[wasm_bindgen]
+pub struct WasmListScreen {
+    inner: crate::list_screen::ListScreenRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmListScreen {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmListScreen {
+        WasmListScreen {
+            inner: crate::list_screen::ListScreenRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmListScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-LAYOUT-VOCAB-P3 — the data-bound TABLE screen exposed to the browser. Composed on the
+/// `layout::table` primitive: columns auto-align across rows. Click a cell to select its row; the
+/// controls cycle the selected lead's stage, toggle its hot flag, or add a row (the table flows).
+#[wasm_bindgen]
+pub struct WasmTableScreen {
+    inner: crate::table_screen::TableScreenRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmTableScreen {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmTableScreen {
+        WasmTableScreen {
+            inner: crate::table_screen::TableScreenRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmTableScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-LAYOUT-VOCAB-P5 — the settings FORM exposed to the browser. Broadens the widget
+/// vocabulary (toggles, checkbox, segmented control, stepper, buttons) over the cross-aligned layout;
+/// click-driven, deterministic, machine-free.
+#[wasm_bindgen]
+pub struct WasmFormScreen {
+    inner: crate::form_screen::FormScreenRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmFormScreen {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmFormScreen {
+        WasmFormScreen {
+            inner: crate::form_screen::FormScreenRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmFormScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-LAYOUT-VOCAB-P6 — the keyboard TEXT-ENTRY contact form exposed to the browser. Click an
+/// input to focus it, then type; `Backspace` deletes, `Enter` submits. The page forwards `keydown`
+/// to `key`; pointer to `click`. Deterministic, machine-free.
+#[wasm_bindgen]
+pub struct WasmTextForm {
+    inner: crate::text_form_screen::TextFormRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmTextForm {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmTextForm {
+        WasmTextForm {
+            inner: crate::text_form_screen::TextFormRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    /// Route a browser key (e.g. `e.key`) into the focused field. Returns `true` iff state changed.
+    pub fn key(&mut self, k: &str) -> bool {
+        self.inner.key(k)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmTextForm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-LAYOUT-VOCAB-P7 — the scrollable list (scroll/overflow + keyboard nav + hover) exposed
+/// to the browser. The page forwards `wheel` → `scroll`, `pointermove` → `hover`, `keydown` → `key`,
+/// pointer → `click`. Hover/scroll are view-only (no frame-index bump); nav/select advance the frame.
+#[wasm_bindgen]
+pub struct WasmScrollList {
+    inner: crate::scroll_list_screen::ScrollListRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmScrollList {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmScrollList {
+        WasmScrollList {
+            inner: crate::scroll_list_screen::ScrollListRuntime::new(),
+        }
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn click(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.click(css_x, css_y)
+    }
+
+    pub fn hover(&mut self, css_x: f64, css_y: f64) -> bool {
+        self.inner.hover(css_x, css_y)
+    }
+
+    pub fn scroll(&mut self, css_x: f64, css_y: f64, dy: f64) -> bool {
+        self.inner.scroll(css_x, css_y, dy)
+    }
+
+    pub fn key(&mut self, k: &str, shift: bool) -> bool {
+        self.inner.key(k, shift)
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn lineage_json(&self) -> String {
+        self.inner.lineage_json()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmScrollList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-3D-GAME-P1 — a deterministic game loop with replay + time-travel. `advance()` plays a
+/// fixed timestep; `boom()` records an input; `seek(t)` time-travels to any tick (pure re-simulation).
+/// Integer-only, so replay is bit-identical.
+#[wasm_bindgen]
+pub struct WasmGame {
+    inner: crate::game_loop::Game,
+}
+
+#[wasm_bindgen]
+impl WasmGame {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmGame {
+        WasmGame {
+            inner: crate::game_loop::Game::new(),
+        }
+    }
+
+    pub fn advance(&mut self) {
+        self.inner.advance();
+    }
+    pub fn boom(&mut self) {
+        self.inner.boom();
+    }
+    pub fn seek(&mut self, t: u32) {
+        self.inner.seek(t as u64);
+    }
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+    pub fn frame_index(&self) -> u32 {
+        self.inner.tick() as u32
+    }
+    pub fn max_tick(&self) -> u32 {
+        self.inner.max_tick() as u32
+    }
+    pub fn boom_count(&self) -> u32 {
+        self.inner.boom_count()
+    }
+    pub fn render_digest(&self) -> String {
+        self.inner.digest()
+    }
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-3D-GAME-IG-P4 — render an `.ig` `Scene` (the VM's `View(world)` output, already projected
+/// 3D→2D) to SVG. The host's ONLY rendering job when both the game logic AND the view are `.ig`.
+#[wasm_bindgen]
+pub fn render_scene_json(scene_json: &str) -> String {
+    crate::game_loop::render_scene_json(scene_json)
+}
+
+/// LAB-FRAME-3D-GAME-IG-MESH-DESCRIPTOR-P7 — expand an `.ig`-authored `Mesh` descriptor (the VM's
+/// `ViewMesh(world)` output) into the GPU vertex buffer `[x,y,z, nx,ny,nz, r,g,b]`. The geometry is
+/// Igniter-authored (deterministic, replayable); the host only expands the fixed cube topology + the
+/// GPU rasterizes. Byte-identical to the Rust `game_mesh_f32` mirror (proven in `ig_vm_game_tests`).
+#[wasm_bindgen]
+pub fn mesh_from_ig_descriptor(descriptor_json: &str) -> Vec<f32> {
+    crate::game_loop::mesh_from_ig_descriptor(descriptor_json)
+}
+
+/// LAB-FRAME-3D-GAME-IG-P5 — a LIVE, clickable scene game in the browser. Step / project / hit-test /
+/// kick are the Rust MIRRORS of the `.ig` `Step` / `View` / `Reduce` contracts — proven bit-identical
+/// to them (`ig_vm_game_tests`), so this is the same game the VM runs in `examples/vm_game.rs`, just
+/// fast enough for live rAF. Click a body → it gets kicked (the `.ig` `Reduce` logic).
+#[wasm_bindgen]
+pub struct WasmSceneGame {
+    world: String,
+}
+
+#[wasm_bindgen]
+impl WasmSceneGame {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmSceneGame {
+        WasmSceneGame { world: crate::game_loop::initial_world_json() }
+    }
+
+    /// One fixed timestep (the play driver) — the `.ig` `Step` mirror.
+    pub fn advance(&mut self) {
+        self.world = crate::game_loop::step_world_json(&self.world, false);
+    }
+
+    /// One timestep WITH the boom impulse (all bodies) — the `.ig` `Step(world, boom=1)` mirror.
+    pub fn boom(&mut self) {
+        self.world = crate::game_loop::step_world_json(&self.world, true);
+    }
+
+    /// A click in frame coords: hit-test the projected scene; if it hits a body, KICK it (the `.ig`
+    /// `Reduce` mirror). Returns true iff a body was hit.
+    pub fn kick(&mut self, x: f64, y: f64) -> bool {
+        let scene = crate::game_loop::scene_json_of_world(&self.world);
+        match crate::game_loop::scene_hit(&scene, x as i64, y as i64) {
+            Some(id) => {
+                self.world = crate::game_loop::kick_world_json(&self.world, id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Render the current world as the projected 2D scene (the `.ig` `View` mirror → host render).
+    pub fn render_svg(&self) -> String {
+        crate::game_loop::render_scene_json(&crate::game_loop::scene_json_of_world(&self.world))
+    }
+
+    /// The filled-face mesh (`[x,y,z, nx,ny,nz, r,g,b]` per vertex, world units) for the GPU host —
+    /// deterministic integer geometry; the JS WebGL layer projects + z-tests + shades it on the GPU.
+    pub fn mesh(&self) -> Vec<f32> {
+        crate::game_loop::game_mesh_f32(&self.world)
+    }
+
+    pub fn reset(&mut self) {
+        self.world = crate::game_loop::initial_world_json();
+    }
+}
+
+impl Default for WasmSceneGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-3D-P1 — a deterministic, machine-free 3D scene (Ceiling B/C). The browser drives a
+/// fixed timestep: `tick()` once per animation frame, then `render_svg()`. Pure integer math (no f64),
+/// so replay is bit-identical.
+#[wasm_bindgen]
+pub struct WasmScene3 {
+    inner: crate::scene3d::SceneRuntime,
+}
+
+#[wasm_bindgen]
+impl WasmScene3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmScene3 {
+        WasmScene3 {
+            inner: crate::scene3d::SceneRuntime::new(),
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.inner.tick();
+    }
+
+    pub fn render_svg(&self) -> String {
+        self.inner.render_svg()
+    }
+
+    pub fn frame_index(&self) -> u32 {
+        self.inner.frame_index() as u32
+    }
+
+    pub fn render_digest(&self) -> String {
+        self.inner.render_digest()
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
+impl Default for WasmScene3 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// LAB-FRAME-DX-VIEW-D host bridge — render an `.ig`-authored `Element` tree (JSON) through the
+/// frame-ui pipeline (layout → solve → canonical widgets → shared host). Closes the loop: a view
+/// authored as pure igniter element-contracts renders live, machine-free, in the browser.
+#[wasm_bindgen]
+pub fn render_ig_view(element_json: &str, w: i32, h: i32) -> String {
+    crate::ig_bridge::render_ig_view(element_json, w as i64, h as i64)
+}
+
+/// LAB-FRAME-LAYOUT-VOCAB-P4 — author a layout as TEXT, see it solved live. Parses the layout DSL and
+/// returns an inspection SVG of the solved boxes; on a parse error returns an SVG card naming the
+/// 1-based line and message. Pure + total — safe to call on every keystroke from a text field.
+#[wasm_bindgen]
+pub fn layout_preview(src: &str, w: i32, h: i32) -> String {
+    match crate::layout::parse(src) {
+        Ok(tree) => crate::layout::preview_svg(&tree, w as i64, h as i64),
+        Err(e) => crate::layout::error_svg(&e, w as i64, h as i64),
+    }
+}

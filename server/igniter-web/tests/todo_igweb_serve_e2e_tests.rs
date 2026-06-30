@@ -39,7 +39,7 @@ use igniter_web::host_binding::{
 use igniter_web::host_config::{load_host_config, resolve_host_config};
 use igniter_web::machine_runner;
 use igniter_web::runner::build_loaded_app_from_dir;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -302,6 +302,7 @@ fn write_bridge_cfg(st: &WriteState) -> EffectBridgeConfig<'_> {
         receipts: &st.receipts,
         effect_clock: &st.eclock,
         effect_passport: &st.ep,
+        effect_passport_verifier: None,
         single_flight: &st.sf,
         capability_id: st.capability_id.clone(),
         operation: "write_record".into(),
@@ -503,7 +504,10 @@ fn e2e_read_empty_via_host_config_200_empty_list() {
             200,
             "empty rows → 200 [] (a list, not a not-found); raw={raw}"
         );
-        assert!(raw.contains("[]"), "body carries the empty array; raw={raw}");
+        assert!(
+            raw.contains("[]"),
+            "body carries the empty array; raw={raw}"
+        );
     });
 
     std::env::remove_var(&read_var);

@@ -102,6 +102,40 @@ Writes a bitemporal fact to a dynamic store.
 }
 ```
 
+### A2. Idempotent Durable Write (`write_fact_once`) — recommended
+
+The durable, idempotent write path (prefer this over `write_fact` for any ledger/shadow use). The server **stamps a canonical Blake3 `value_hash`** and **assigns a per-store monotonic `seq_id`** (the ordering authority), then dedups by `(store, id)`. Derive a **stable, domain-deterministic `id`** (e.g. `store:record_id:event_type:source_version`) so a retry re-sends the same id and collapses to a replay instead of a duplicate. **Never put wall-clock in the id** — it breaks idempotency.
+
+```json
+{
+  "op": "write_fact_once",
+  "durability": "durable",
+  "fact": {
+    "id": "availability:tech-7:slot.blocked:1782277159",
+    "store": "availability",
+    "key": "tech-7",
+    "value": { "slot": 540, "state": "blocked", "reason": "scheduled" },
+    "transaction_time": 1780387174.5,
+    "valid_time": 1782277200.0,
+    "schema_version": 1
+  }
+}
+```
+Response:
+```json
+{ "ok": true, "committed": true, "durability": "durable", "idempotent_replay": false, "seq_id": 42 }
+```
+- `idempotent_replay: true` — the same id + content was already written; **no duplicate**, the original `seq_id` is returned.
+- `error_code: "duplicate_fact_id_conflict"` — same id, *different* content (a real conflict; not retryable).
+- `durability`: `"accepted"` (default — OS page cache, survives process crash not power loss) or `"durable"` (blocks until a group-commit `fdatasync` covers the write). On an ephemeral (no-WAL) daemon, `durable` honestly downgrades to `"in_memory"`. A failed sync returns `committed:false, retryable:true` — never a false durable ack.
+
+### A3. Clock-Free Ordered Read (`facts_by_seq`)
+
+Reads facts in **server `seq_id` order** (the ordering authority), independent of wall-clock — correct under backfills, corrections, and replays. Use this for replay/audit instead of ordering by `transaction_time`.
+```json
+{ "op": "facts_by_seq", "store": "availability", "after_seq": 0, "until_seq": null }
+```
+
 ### B. Pointwise Temporal Lookup (`latest_for`)
 Queries the active state of a key at a specific `as_of` transaction timestamp (time-travel). Omitting `as_of` queries the present coordinate.
 ```json
@@ -246,7 +280,7 @@ role is **shadow side-ledger**, not replacement:
 ### Use Case B: Preventing Database Bloat & Compacting Logs (SparkCRM)
 A high-write webhook workload can create write amplification and index pressure. Use `SnapshotPack` to automatically roll up old facts and reclaim disk space:
 1.  **Register a Rollup Policy**: Group facts older than 3 days by ZIP code and vendor, aggregating average bid prices and counts.
-2.  **Compact disk space**: The background sweep automatically prunes cold facts from the in-memory index, compiles summaries, and compacts WAL files on disk by **50% or more**, keeping RAM clean.
+2.  **Compact disk space (safe manual)**: Compaction is **off by default and operator-triggered** (`--enable-compaction`; the unsafe 5s auto-sweep was removed — it silently lost concurrent acked writes). When triggered it runs under a **per-store stop-the-world gate** (drains in-flight writes, so no acked write is lost) and a **durable rename** (`fsync(tmp) → rename → fsync(dir) → swap`), pruning cold facts, compiling summaries, and shrinking the WAL while preserving `seq_id`.
 
 ### Use Case C: Out-of-Band Reactive Workflows (MobX/ROP)
 Execute complex business rules dynamically without GVL blocking inside your core app:
@@ -258,7 +292,7 @@ Execute complex business rules dynamically without GVL blocking inside your core
 ### Use Case D: Edge Swarms & Distributed Synchronization (RPi5 / ESP32)
 Deploy standalone lightweight TBackend binaries to independent IoT devices:
 1.  Configure the node peers list using the `--peers 192.168.1.50:7401,192.168.1.51:7401` flag.
-2.  Devices gossip, exchange state vectors, and replicate missing WAL timelines, maintaining causal consistency in offline-first topologies.
+2.  Devices gossip, exchange state vectors, and replicate missing WAL timelines. **Caveat (current):** gossip replication still pulls by client `transaction_time`, so under cross-node **clock skew it can silently drop writes** — the seq-watermark fix (`LAB-TBACKEND-MESH-SEQ-WATERMARK-P13`) is designed but **not yet wired**. Treat the multi-node mesh as **readiness-stage**, not production-convergent, until it lands.
 
 ### Use Case E: Secure Multi-Tenant Ledger Isolation (SparkCRM Migration)
 Securely isolate sensitive business ledgers and restrict client access on shared infrastructure:

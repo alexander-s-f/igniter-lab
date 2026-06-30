@@ -16,8 +16,8 @@
 
 use igniter_machine::backend::{InMemoryBackend, TBackend};
 use igniter_machine::capability::{
-    run_effect, CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest,
-    OutcomeKind, RunMode,
+    CapabilityExecutorRegistry, CapabilityPassport, EffectOutcome, EffectRequest, OutcomeKind,
+    RunMode, run_effect,
 };
 use igniter_machine::clock::{ClockProvider, FixedClock};
 use igniter_machine::coordination::{
@@ -36,7 +36,7 @@ use igniter_server::effect_host::MachineEffectHost;
 use igniter_server::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRequest};
 use igniter_web::runner::build_app_from_dir;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -259,6 +259,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: WRITE_CAP.into(),
         operation: "write_record".into(),
@@ -334,7 +335,10 @@ fn product_read_then_write_e2e() {
         // ── READ: found path → app-owned 200 carrying the rows ──
         let m = load_app_contracts();
         let plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-7", "after": ""}))
+            .dispatch(
+                "ListTodosByAccount",
+                json!({"account_id": "acct-7", "after": ""}),
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -367,11 +371,18 @@ fn product_read_then_write_e2e() {
         assert_eq!(found["__arm"], json!("RespondJson"));
         assert_eq!(found["status"], json!(200), "found rows → app 200");
         assert!(found["body"].to_string().contains("todo-1"));
-        assert_eq!(found["body"]["next"], json!(""), "not truncated → empty cursor");
+        assert_eq!(
+            found["body"]["next"],
+            json!(""),
+            "not truncated → empty cursor"
+        );
 
         // ── READ: empty path → 200 [] (a list, not a not-found) — P24 ──
         let empty_plan = m
-            .dispatch("ListTodosByAccount", json!({"account_id": "acct-none", "after": ""}))
+            .dispatch(
+                "ListTodosByAccount",
+                json!({"account_id": "acct-none", "after": ""}),
+            )
             .await
             .unwrap();
         let empty_adapter = Arc::new(FakePostgresAdapter::new()); // allowlisted source, no rows.
@@ -391,7 +402,11 @@ fn product_read_then_write_e2e() {
             "empty list → 200 envelope, not a not-found"
         );
         assert_eq!(empty_list["body"]["items"], json!([]), "empty items array");
-        assert_eq!(empty_list["body"]["next"], json!(""), "exhausted → empty cursor");
+        assert_eq!(
+            empty_list["body"]["next"],
+            json!(""),
+            "exhausted → empty cursor"
+        );
 
         // ── WRITE: keyed create EXECUTES through the machine effect host → committed receipt ──
         let (h, r) = prod(3).await;

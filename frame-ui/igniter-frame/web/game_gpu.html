@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · GPU host — filled, z-buffered 3D (WebGL)</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #gl { width:640px; max-width:96vw; aspect-ratio:640/480; border:1px solid var(--line); border-radius:12px; background:#05030c; cursor:pointer; display:block; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 16px; font-size:12px; }
+  .strip { display:flex; gap:8px; margin-top:10px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  .row { display:flex; gap:10px; padding:4px 0; } .k { color:var(--dim); min-width:120px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.7; } code { color:var(--acc); } a { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <canvas id="gl" width="640" height="480">WebGL canvas</canvas>
+      <div class="strip"><button id="pp">⏸ pause</button><button id="boom">💥 boom</button><button id="reset">reset</button></div>
+    </div>
+    <div id="panel">
+      <h1>GPU host — filled, z-buffered 3D</h1>
+      <p class="sub">The same deterministic game, rendered with a real GPU: six coloured cubes fall in a box, rasterized as <b>filled, depth-tested, lit triangles</b> via WebGL. <b>Click (or 💥)</b> for a boom impulse.</p>
+      <div class="card">
+        <div class="row"><span class="k">geometry</span><span>integer <code>.ig</code>/Rust physics → mesh</span></div>
+        <div class="row"><span class="k">rasterizer</span><span id="rend">WebGL — z-buffer + lighting</span></div>
+        <div class="row"><span class="k">triangles</span><span id="tris">—</span></div>
+      </div>
+      <p class="hint">
+        The split that keeps determinism: the <b>geometry</b> (body positions, the filled-face mesh) is
+        the machine-free integer game state — bit-identical, replayable; the <b>GPU</b> only does the
+        float projection, depth test, and shading (pure presentation). Same game as the
+        <a href="./game_live.html">SVG version</a>; here the render host is the GPU.<br>
+        Mesh emitted by Rust (<code>game_mesh_f32</code>); projected + lit by a WebGL shader.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmSceneGame } from "./igniter_frame.js";
+    const cv = document.getElementById("gl");
+    const gl = cv.getContext("webgl", { antialias: true, depth: true });
+    if (!gl) { document.getElementById("rend").textContent = "WebGL unavailable"; }
+
+    // ── minimal mat4 helpers ─────────────────────────────────────────────────────────────────────
+    const mul = (a, b) => { const o = new Float32Array(16); for (let r=0;r<4;r++) for (let c=0;c<4;c++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;} return o; };
+    function perspective(fovy, asp, n, f) { const t = 1/Math.tan(fovy/2); return new Float32Array([t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,(2*f*n)/(n-f),0]); }
+    function lookAt(ex,ey,ez, cx,cy,cz) {
+      let zx=ex-cx,zy=ey-cy,zz=ez-cz; let zl=Math.hypot(zx,zy,zz); zx/=zl;zy/=zl;zz/=zl;
+      let xx=zz*0-0*zy, xy=0*zx-zz*0, xz=0*zy-0*zx; // up=(0,1,0): x = up × z
+      xx=1*zz-0*zy; xy=0*zx-0*zz; xz=0*zy-1*zx; let xl=Math.hypot(xx,xy,xz)||1; xx/=xl;xy/=xl;xz/=xl;
+      const yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+      return new Float32Array([xx,yx,zx,0, xy,yy,zy,0, xz,yz,zz,0, -(xx*ex+xy*ey+xz*ez), -(yx*ex+yy*ey+yz*ez), -(zx*ex+zy*ey+zz*ez), 1]);
+    }
+
+    const vs = `attribute vec3 p; attribute vec3 n; attribute vec3 c; uniform mat4 mvp; uniform mat4 model;
+      varying vec3 vn; varying vec3 vc; void main(){ gl_Position = mvp*vec4(p,1.0); vn = (model*vec4(n,0.0)).xyz; vc=c; }`;
+    const fs = `precision mediump float; varying vec3 vn; varying vec3 vc;
+      void main(){ vec3 L = normalize(vec3(0.4,0.9,0.5)); float d = abs(dot(normalize(vn),L)); float s = 0.35 + 0.65*d; gl_FragColor = vec4(vc*s, 1.0); }`;
+    function sh(t, src){ const o=gl.createShader(t); gl.shaderSource(o,src); gl.compileShader(o); return o; }
+    const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    const aP = gl.getAttribLocation(prog,"p"), aN = gl.getAttribLocation(prog,"n"), aC = gl.getAttribLocation(prog,"c");
+    const uMVP = gl.getUniformLocation(prog,"mvp"), uModel = gl.getUniformLocation(prog,"model");
+    gl.enable(gl.DEPTH_TEST);
+    gl.clearColor(0.02, 0.01, 0.05, 1);
+
+    await init();
+    let g = new WasmSceneGame();
+    let playing = true, yaw = 0;
+    const I = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+
+    function drawMesh(mesh) {
+      const verts = mesh.length / 9;
+      document.getElementById("tris").textContent = (verts/3) + " (" + verts + " verts)";
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh, gl.DYNAMIC_DRAW);
+      const F = 4, stride = 9*F;
+      gl.enableVertexAttribArray(aP); gl.vertexAttribPointer(aP, 3, gl.FLOAT, false, stride, 0);
+      gl.enableVertexAttribArray(aN); gl.vertexAttribPointer(aN, 3, gl.FLOAT, false, stride, 3*F);
+      gl.enableVertexAttribArray(aC); gl.vertexAttribPointer(aC, 3, gl.FLOAT, false, stride, 6*F);
+      const proj = perspective(0.9, 640/480, 0.1, 100);
+      const ex = Math.sin(yaw)*13, ez = Math.cos(yaw)*13;
+      const view = lookAt(ex, 4.5, ez, 0, 0, 0);
+      gl.uniformMatrix4fv(uMVP, false, mul(proj, view));
+      gl.uniformMatrix4fv(uModel, false, I);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, verts);
+    }
+    function frame() {
+      if (playing) { g.advance(); yaw += 0.004; }
+      drawMesh(g.mesh());
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    cv.addEventListener("pointerdown", () => g.boom());
+    document.getElementById("boom").addEventListener("click", () => g.boom());
+    document.getElementById("pp").addEventListener("click", (e) => { playing = !playing; e.target.textContent = playing ? "⏸ pause" : "▶ play"; });
+    document.getElementById("reset").addEventListener("click", () => { g.reset(); });
+  </script>
+</body>
+</html>

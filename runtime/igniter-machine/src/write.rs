@@ -19,7 +19,8 @@
 
 use crate::backend::TBackend;
 use crate::capability::{
-    verify_passport, CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind,
+    next_receipt_seq, receipt_is_newer_or_equal, verify_passport, verify_passport_signed,
+    CapabilityExecutorRegistry, CapabilityPassport, EffectRequest, OutcomeKind, PassportVerifier,
     RunMode, RECEIPTS_STORE,
 };
 use crate::clock::ClockProvider;
@@ -196,10 +197,13 @@ async fn write_receipt(
         "state": state.as_str(),
         "result": result,
         "detail": detail,
+        // P4 per-process tie-breaker so the terminal receipt deterministically beats its own
+        // `prepared` even at an equal `transaction_time` (NOT the TBackend daemon seq_id).
+        "receipt_seq": next_receipt_seq(),
     });
     let fact = Fact {
         // include the state in the id so `prepared` and the terminal fact are distinct facts
-        // on the same (store, key) timeline; the latest by tx-time (terminal) wins the read.
+        // on the same (store, key) timeline; the latest by (tx-time, receipt_seq) wins the read.
         id: format!("write-receipt:{}:{}", rkey, state.as_str()),
         store: RECEIPTS_STORE.to_string(),
         key: rkey.to_string(),
@@ -235,9 +239,53 @@ pub async fn run_write_effect(
                 return Ok(WriteResult::refused(&format!(
                     "authority refused ({:?})",
                     reason
-                )))
+                )));
             }
         };
+    run_write_effect_with_authority_digest(registry, receipts, clock, authority_digest, req, mode)
+        .await
+}
+
+/// Signed passport variant for host data-plane paths. Authentication happens before the
+/// two-phase write receipt gate; untrusted/tampered passports write no receipt and reach no
+/// executor.
+pub async fn run_write_effect_signed(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    verifier: &PassportVerifier,
+    passport: &CapabilityPassport,
+    required_scope: &str,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
+    let authority_digest = match verify_passport_signed(
+        verifier,
+        passport,
+        &req.capability_id,
+        required_scope,
+        clock,
+    ) {
+        Ok(d) => d,
+        Err(reason) => {
+            return Ok(WriteResult::refused(&format!(
+                "authority refused ({:?})",
+                reason
+            )));
+        }
+    };
+    run_write_effect_with_authority_digest(registry, receipts, clock, authority_digest, req, mode)
+        .await
+}
+
+async fn run_write_effect_with_authority_digest(
+    registry: &CapabilityExecutorRegistry,
+    receipts: &Arc<dyn TBackend>,
+    clock: &Arc<dyn ClockProvider>,
+    authority_digest: String,
+    req: &WriteRequest,
+    mode: RunMode,
+) -> Result<WriteResult, EngineError> {
     if req.idempotency_key.is_empty() {
         return Ok(WriteResult::refused("missing idempotency_key"));
     }
@@ -249,8 +297,29 @@ pub async fn run_write_effect(
     let pdigest = payload_digest(&req.payload);
     let rkey = receipt_key(req);
 
-    // 2. Existing receipt? Resolve duplicates / replays / unresolved priors.
-    if let Some(fact) = receipts.read_as_of(RECEIPTS_STORE, &rkey, f64::MAX).await? {
+    // 2. Existing receipt? Resolve duplicates / replays / unresolved priors. Select the latest by
+    //    (transaction_time, receipt_seq) over ALL facts on this key — `read_as_of` alone returns the
+    //    max-by-tx and would fall to incidental push order when `prepared` and the terminal fact
+    //    share a `transaction_time` (P4). Folding by the shared tie-break makes the terminal win
+    //    deterministically.
+    let latest_receipt = {
+        let facts = receipts
+            .facts_for(RECEIPTS_STORE, &rkey, None, None)
+            .await?;
+        facts.into_iter().reduce(|cur, cand| {
+            if receipt_is_newer_or_equal(
+                cand.transaction_time,
+                &cand.value,
+                cur.transaction_time,
+                &cur.value,
+            ) {
+                cand
+            } else {
+                cur
+            }
+        })
+    };
+    if let Some(fact) = latest_receipt {
         let v = &fact.value;
         let stored_auth = v
             .get("authority_digest")

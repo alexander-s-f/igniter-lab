@@ -71,11 +71,21 @@ pub fn escape(s: &str) -> String {
 }
 
 /// Validate a URL value against the allowlist and return it escaped. Allowed: a relative reference (no
-/// scheme), or an `http`/`https` URL. Any other explicit scheme (`javascript:`, `data:`, `mailto:`, …)
-/// fails closed with [`RenderHtmlError::UnsafeUrl`]. Provided + tested for the first URL-bearing node;
-/// the v0 ViewArtifact vocabulary has none yet, so no URL is emitted today.
+/// scheme), or an `http`/`https` URL. Any other explicit scheme (`javascript:`, `data:`, `mailto:`, …),
+/// browser-strippable ASCII control character, or protocol-relative URL fails closed with
+/// [`RenderHtmlError::UnsafeUrl`].
 pub fn safe_url(url: &str) -> Result<String, RenderHtmlError> {
     let t = url.trim();
+    if t.chars().any(|c| c.is_ascii_control()) {
+        return Err(RenderHtmlError::UnsafeUrl(
+            "URL contains an ASCII control character".into(),
+        ));
+    }
+    if t.starts_with("//") {
+        return Err(RenderHtmlError::UnsafeUrl(
+            "protocol-relative URLs are not allowed".into(),
+        ));
+    }
     if let Some(colon) = t.find(':') {
         let before = &t[..colon];
         // a scheme is `alpha *( alpha | digit | + | - | . )` with no `/` before the `:`.
@@ -345,6 +355,29 @@ mod tests {
         ));
         assert!(matches!(
             safe_url("mailto:x@y.z"),
+            Err(RenderHtmlError::UnsafeUrl(_))
+        ));
+    }
+
+    #[test]
+    fn safe_url_rejects_control_character_scheme_bypasses() {
+        for url in [
+            "java\nscript:alert(1)",
+            "java\tscript:alert(1)",
+            "java\rscript:alert(1)",
+            "\u{0001}javascript:alert(1)",
+        ] {
+            assert!(
+                matches!(safe_url(url), Err(RenderHtmlError::UnsafeUrl(_))),
+                "{url:?} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn safe_url_rejects_protocol_relative_urls() {
+        assert!(matches!(
+            safe_url("//evil.example/x"),
             Err(RenderHtmlError::UnsafeUrl(_))
         ));
     }

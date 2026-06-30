@@ -6,7 +6,6 @@ use crate::pure_core::FactData;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
 
 // ── Rollup Domain Model ──────────────────────────────────────────────────────
 
@@ -99,18 +98,22 @@ fn run_rollup_and_compaction(
     policy: &RollupPolicy,
     kernel: &ServerKernel,
 ) -> Result<(usize, usize), String> {
-    // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: hard backstop. Compaction has no
-    // lock spanning read→build→swap (drops concurrent writes) and no fsync on
-    // the temp-WAL/rename (a crash can vanish history). Both callers below are
-    // already gated, but refuse here too so no future caller can run it
-    // implicitly on a ledger/shadow daemon.
-    if !kernel.compaction_unsafe {
+    // LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12.
+    // Backstop: never compact unless explicitly enabled (the caller also checks).
+    if !kernel.compaction_enabled {
         return Err(
-            "compaction disabled for ledger/shadow safety (no read→swap lock, no fsync); \
-             start daemon with --unsafe-compaction true to opt in"
+            "compaction disabled; start daemon with --enable-compaction true for safe manual compaction"
                 .to_string(),
         );
     }
+
+    // Stop-the-world for THIS store: take the per-store gate exclusively so no
+    // write can land on the engine we are about to read→build→swap. Held for the
+    // whole operation. Writers hold `gate.read()` (main.rs write paths); this
+    // blocks new ones and waits for in-flight ones to drain → B3 eliminated by
+    // construction. The guard lives in the kernel (stable across the engine swap).
+    let stw_guard = kernel.store_guard(&policy.source_store);
+    let _stw = stw_guard.gate.write();
 
     let source_engine = match kernel.get_or_create_engine(&policy.source_store) {
         Some(e) => e,
@@ -252,7 +255,7 @@ fn run_rollup_and_compaction(
             policy.id,
             uuid::Uuid::new_v4().to_string()[0..8].to_string()
         );
-        let summary_fact = FactData {
+        let mut summary_fact = FactData {
             id: uuid::Uuid::new_v4().to_string(),
             store: policy.target_store.clone(),
             key: summary_key,
@@ -263,12 +266,17 @@ fn run_rollup_and_compaction(
             valid_time: Some(now),
             schema_version: 1,
             producer: Some("SnapshotPack".to_string()),
+            // P9/P12: a rollup summary is a real fact in the target store — give it
+            // a server seq from the target's counter (assigned before the append).
+            seq_id: 0,
+            origin_node: None,
             derivation: Some(format!(
                 "Rollup from {} (Pruned {} raw facts)",
                 policy.source_store,
                 group_facts.len()
             )),
         };
+        summary_fact.seq_id = target_engine.log.assign_seq();
 
         if let Some(ref fb) = target_engine.wal {
             fb.write_fact_data(&summary_fact)
@@ -278,51 +286,62 @@ fn run_rollup_and_compaction(
         created_summaries += 1;
     }
 
-    // 4. Perform atomic Copy-On-Write index swap & WAL file compaction on the source store!
+    // 4. Build the replacement engine and publish it. We hold the stop-the-world
+    //    gate, so `warm_facts` is a complete, stable snapshot — no concurrent
+    //    write exists to be lost (B3). The seq high-water mark is carried across
+    //    so new inserts never reuse a pruned fact's seq (B5).
     let total_pruned = source_engine.log.size() - warm_facts.len();
+    let preserved_next_seq = source_engine.log.peek_next_seq();
+
+    // Seq-preserving rebuild: retained facts keep their seq_id; the counter is
+    // restored to the old high-water mark (>= max retained + 1).
+    let rebuild_log = || {
+        let new_log = Arc::new(crate::pure_core::ShardedFactLog::new());
+        new_log.load_replayed(warm_facts.clone());
+        new_log.advance_next_seq_to(preserved_next_seq);
+        new_log
+    };
 
     if let Some(ref dir) = kernel.data_dir {
         let temp_path = format!("{}/{}.wal.tmp", dir, policy.source_store);
         let real_path = format!("{}/{}.wal", dir, policy.source_store);
 
-        // Open temporary WAL and write warm facts only
+        // Write warm facts to a temp WAL, then make it durable BEFORE the rename
+        // (B4 fix part 1): fsync the temp file's data+size to the device.
         let temp_wal =
             crate::pure_core::FileBackend::new_pure(&temp_path).map_err(|e| e.to_string())?;
         for fact in &warm_facts {
             temp_wal.write_fact_data(fact).map_err(|e| e.to_string())?;
         }
-        temp_wal.flush_pure().map_err(|e| e.to_string())?;
-        drop(temp_wal); // Drop temp_wal so the file is closed
+        temp_wal.sync_all_pure().map_err(|e| e.to_string())?;
+        kernel
+            .compaction_file_fsyncs
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        drop(temp_wal); // close the temp file
 
-        // Atomically replace on disk
+        // Atomic replace, then fsync the directory so the rename itself is durable
+        // (B4 fix part 2). Order: fsync(tmp) -> rename -> fsync(dir) -> swap.
         std::fs::rename(&temp_path, &real_path).map_err(|e| e.to_string())?;
+        crate::pure_core::fsync_dir(dir).map_err(|e| e.to_string())?;
+        kernel
+            .compaction_dir_fsyncs
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 
-        // Open fresh compacted WAL
         let new_wal =
             crate::pure_core::FileBackend::new_pure(&real_path).map_err(|e| e.to_string())?;
 
-        // Rebuild sharded in-memory index log
-        let new_log = Arc::new(crate::pure_core::ShardedFactLog::new());
-        for fact in &warm_facts {
-            new_log.push(fact.clone());
-        }
-
-        // Swap the active Engine inside the registry under a write lock
+        // Only now (durable on disk) publish the new in-memory engine.
         let mut engines = kernel.engines.write();
         let new_engine = Arc::new(StoreEngine {
-            log: new_log,
+            log: rebuild_log(),
             wal: Some(Arc::new(new_wal)),
         });
         engines.insert(policy.source_store.clone(), new_engine);
     } else {
-        // Ephemeral in-memory mode: just swap memory index
-        let new_log = Arc::new(crate::pure_core::ShardedFactLog::new());
-        for fact in &warm_facts {
-            new_log.push(fact.clone());
-        }
+        // Ephemeral in-memory mode: just swap the (seq-preserving) memory index.
         let mut engines = kernel.engines.write();
         let new_engine = Arc::new(StoreEngine {
-            log: new_log,
+            log: rebuild_log(),
             wal: None,
         });
         engines.insert(policy.source_store.clone(), new_engine);
@@ -344,56 +363,16 @@ impl CompactorService {
 }
 
 impl BackgroundService for CompactorService {
-    fn start(&self, kernel: Arc<ServerKernel>) -> Result<(), String> {
-        // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: do not spawn the routine 5s
-        // sweep unless compaction is explicitly opted into. By default a
-        // ledger/shadow daemon never runs unsafe compaction in the background.
-        if !kernel.compaction_unsafe {
-            println!(
-                "[Compactor Service] Auto-compaction DISABLED (ledger-safe default). \
-                 Enable with --unsafe-compaction true. See LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6."
-            );
-            return Ok(());
-        }
-
-        let registry = self.registry.clone();
-
+    fn start(&self, _kernel: Arc<ServerKernel>) -> Result<(), String> {
+        // LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12: v0 safe compaction is
+        // MANUAL-only. The background 5s sweep is NOT spawned in any mode — a
+        // stop-the-world pause should be operator-chosen via `snapshot_trigger`,
+        // not fired automatically. (Auto-sweep can return as an opt-in once the
+        // v1 short-pause delta model lands and soaks.)
         println!(
-            "\x1b[33m[Compactor Service] WARNING: --unsafe-compaction enabled. Starting 5s sweep. \
-             Concurrent writes during a sweep may be lost (no read→swap lock) and a crash mid-rename \
-             may lose history (no fsync). Not for production/shadow ledgers.\x1b[0m"
+            "[Compactor Service] Background auto-compaction is DISABLED (manual `snapshot_trigger` \
+             only). Enable safe manual compaction with --enable-compaction true."
         );
-        thread::spawn(move || {
-            loop {
-                // Sleep for 5 seconds
-                thread::sleep(std::time::Duration::from_secs(5));
-
-                let policies: Vec<RollupPolicy> = {
-                    let r = registry.read();
-                    r.policies.values().cloned().collect()
-                };
-
-                for policy in policies {
-                    match run_rollup_and_compaction(&policy, &kernel) {
-                        Ok((pruned, summaries)) => {
-                            if pruned > 0 {
-                                println!(
-                                    "\x1b[32m[Compactor Service] Automatically rolled up policy {} (Pruned {} raw facts, created {} summaries)\x1b[0m",
-                                    policy.id, pruned, summaries
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[Compactor Error] Failed automatic sweep for policy {}: {}",
-                                policy.id, e
-                            );
-                        }
-                    }
-                }
-            }
-        });
-
         Ok(())
     }
 
@@ -493,13 +472,13 @@ impl ServerPack for SnapshotPack {
         // 3. Register "snapshot_trigger" Command Route
         let registry_c = self.registry.clone();
         command_reg.register("snapshot_trigger", Arc::new(move |req, kernel| {
-            // LAB-TBACKEND-COMPACTION-SAFETY-GATE-P6: explicit command refuses
-            // unless the operator opted into unsafe compaction.
-            if !kernel.compaction_unsafe {
+            // LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12: manual safe path.
+            // Gate: compaction must be explicitly enabled.
+            if !kernel.compaction_enabled {
                 return serde_json::json!({
                     "ok": false,
-                    "error": "compaction disabled for ledger/shadow safety (no read→swap lock, no fsync); start daemon with --unsafe-compaction true to opt in",
-                    "error_code": "compaction_disabled_unsafe",
+                    "error": "compaction disabled; start daemon with --enable-compaction true for safe manual compaction",
+                    "error_code": "compaction_disabled",
                     "compaction_enabled": false
                 });
             }
@@ -517,9 +496,36 @@ impl ServerPack for SnapshotPack {
                 }
             };
 
-            match run_rollup_and_compaction(&policy, kernel) {
+            // Busy refusal: only one compaction per source store at a time. CAS the
+            // per-store flag; if already compacting, refuse rather than double-work.
+            let guard = kernel.store_guard(&policy.source_store);
+            if guard
+                .compacting
+                .compare_exchange(
+                    false,
+                    true,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .is_err()
+            {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": format!("compaction already in progress for store '{}'", policy.source_store),
+                    "error_code": "compaction_in_progress",
+                    "retryable": true
+                });
+            }
+
+            // run_rollup_and_compaction takes the per-store stop-the-world gate.
+            let result = run_rollup_and_compaction(&policy, kernel);
+            guard
+                .compacting
+                .store(false, std::sync::atomic::Ordering::Release);
+
+            match result {
                 Ok((pruned, summaries)) => {
-                    serde_json::json!({ "ok": true, "pruned_facts": pruned, "created_summaries": summaries })
+                    serde_json::json!({ "ok": true, "pruned_facts": pruned, "created_summaries": summaries, "durable_rename": kernel.data_dir.is_some() })
                 }
                 Err(e) => {
                     serde_json::json!({ "ok": false, "error": e })

@@ -109,7 +109,7 @@ fn igniter_serve_refuses_public_bind() {
     assert!(!out.status.success(), "public bind must fail");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("loopback-only"),
+        stderr.contains("[BIND_REFUSED]") && stderr.contains("non_loopback_without_checklist"),
         "must refuse non-loopback bind: {stderr}"
     );
 }

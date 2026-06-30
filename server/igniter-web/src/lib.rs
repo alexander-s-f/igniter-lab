@@ -23,6 +23,10 @@ use std::sync::Arc;
 
 pub mod host_binding;
 pub mod host_config;
+/// LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36: report-only live-bind dry run.
+pub mod live_bind_check;
+/// LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39: human-gated lab proof.
+pub mod live_bind_proof;
 #[cfg(feature = "machine")]
 pub mod machine_runner;
 #[cfg(feature = "machine")]
@@ -636,31 +640,76 @@ pub mod runner {
         pub app_dir: PathBuf,
     }
 
+    /// LAB-IGNITER-WEB-LIVE-BIND-DRY-RUN-VERDICT-P36: options for the report-only
+    /// `live-bind-check` command. Evaluates the parsed `[host.live_bind]` checklist
+    /// against the server gate for `addr` without ever opening a listener.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunnerLiveBindCheckOptions {
+        pub host_config_path: PathBuf,
+        /// The bind address whose gate verdict to report. Defaults to a
+        /// non-loopback address (the public-bind question); `--addr` overrides.
+        pub addr: SocketAddr,
+    }
+
+    /// LAB-IGNITER-WEB-LIVE-BIND-HUMAN-GATED-PROOF-P39: options for the
+    /// human-gated lab proof. The command authorizes the same host-verified
+    /// checklist as P36/P37, but does not open a listener.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunnerLiveBindProofOptions {
+        pub host_config_path: PathBuf,
+        /// The non-loopback bind address whose lab proof authorization to
+        /// evaluate. Defaults to a non-loopback address; `--addr` overrides.
+        pub addr: SocketAddr,
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum RunnerCliCommand {
         Help(String),
         Run(RunnerCliOptions),
         Check(RunnerCheckOptions),
+        /// Report-only live-bind dry run (P36). Never binds a socket.
+        LiveBindCheck(RunnerLiveBindCheckOptions),
+        /// Human-gated live-bind lab proof (P39). Never binds a socket.
+        LiveBindProof(RunnerLiveBindProofOptions),
     }
 
     pub const DEFAULT_ADDR: &str = "127.0.0.1:0";
+    /// Default address evaluated by `live-bind-check`: a non-loopback address, so
+    /// the dry run answers the public-bind question by default.
+    pub const DEFAULT_LIVE_BIND_CHECK_ADDR: &str = "0.0.0.0:8080";
 
     pub fn usage() -> &'static str {
         "usage: igweb-serve run [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH] <app_dir>\n\
          usage: igweb-serve [--addr 127.0.0.1:PORT] [--max-requests N] [--host-config PATH] <app_dir>\n\
          usage: igweb-serve check <app_dir>\n\
+         usage: igweb-serve live-bind-check --host-config PATH [--addr HOST:PORT]\n\
+         usage: igweb-serve live-bind-proof --host-config PATH [--addr HOST:PORT]\n\
          \n\
          Commands:\n\
-           run     build the app and serve a bounded loopback listener\n\
-           check   build the app without opening a socket\n\
+           run              build the app and serve a bounded loopback listener\n\
+           check            build the app without opening a socket\n\
+           live-bind-check  report-only: would the server gate accept this host config\n\
+                            for a non-loopback bind? Never opens a socket (P36).\n\
+           live-bind-proof  human-gated lab proof for the P36/P37/P38 authority chain;\n\
+                            never opens a socket and requires IGNITER_LIVE_BIND_HUMAN_ACK.\n\
          \n\
          Options for run:\n\
            --addr HOST:PORT       loopback-only bind address (default 127.0.0.1:0)\n\
            --max-requests N       override [server].max_requests for this run\n\
            --host-config PATH     host.toml for machine-mode runner (resolves env vars before bind)\n\
          \n\
+         Options for live-bind-check:\n\
+           --host-config PATH     host.toml carrying the [host.live_bind] checklist (required)\n\
+           --addr HOST:PORT       bind address to evaluate (default 0.0.0.0:8080, non-loopback)\n\
+         \n\
+         Options for live-bind-proof:\n\
+           --host-config PATH     host.toml carrying the [host.live_bind] checklist (required)\n\
+           --addr HOST:PORT       non-loopback address to evaluate (default 0.0.0.0:8080)\n\
+           human gate             set IGNITER_LIVE_BIND_HUMAN_ACK=I_UNDERSTAND_IGNITER_LAB_LIVE_BIND_P39\n\
+         \n\
          Lab IgWeb runner. Loopback only; app routing lives in .igweb; effect binding stays host-side.\n\
-         --host-config requires --features machine. Not a stable CLI surface."
+         --host-config requires --features machine. live-bind-check/live-bind-proof never bind and\n\
+         grant no production bind authority (public bind stays closed). Not a stable CLI surface."
     }
 
     pub fn parse_cli_args<I, S>(args: I) -> Result<RunnerCliCommand, RunnerError>
@@ -673,9 +722,101 @@ pub mod runner {
             Some("-h" | "--help") => return Ok(RunnerCliCommand::Help(usage().to_string())),
             Some("check") => return parse_check_args(args.into_iter().skip(1)),
             Some("run") => return parse_run_args(args.into_iter().skip(1)),
+            Some("live-bind-check") => return parse_live_bind_check_args(args.into_iter().skip(1)),
+            Some("live-bind-proof") => return parse_live_bind_proof_args(args.into_iter().skip(1)),
             _ => {}
         }
         parse_run_args(args)
+    }
+
+    /// Parse `live-bind-check --host-config PATH [--addr HOST:PORT]` (P36).
+    /// `--host-config` is required; `--addr` defaults to a non-loopback address.
+    fn parse_live_bind_check_args<I>(args: I) -> Result<RunnerCliCommand, RunnerError>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut addr = parse_bind_addr(DEFAULT_LIVE_BIND_CHECK_ADDR)?;
+        let mut host_config_path = None;
+        let mut iter = args.into_iter();
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
+                "--addr" => {
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
+                    addr = parse_bind_addr(&value)?;
+                }
+                "--host-config" => {
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--host-config requires a value".into()))?;
+                    host_config_path = Some(PathBuf::from(value));
+                }
+                value if value.starts_with('-') => {
+                    return Err(RunnerError::Cli(format!("unknown option `{value}`")))
+                }
+                value => {
+                    return Err(RunnerError::Cli(format!(
+                        "live-bind-check takes no positional arguments (got `{value}`)"
+                    )))
+                }
+            }
+        }
+        let host_config_path = host_config_path.ok_or_else(|| {
+            RunnerError::Cli("live-bind-check requires --host-config PATH".into())
+        })?;
+        Ok(RunnerCliCommand::LiveBindCheck(
+            RunnerLiveBindCheckOptions {
+                host_config_path,
+                addr,
+            },
+        ))
+    }
+
+    /// Parse `live-bind-proof --host-config PATH [--addr HOST:PORT]` (P39).
+    /// `--host-config` is required; `--addr` defaults to a non-loopback address.
+    fn parse_live_bind_proof_args<I>(args: I) -> Result<RunnerCliCommand, RunnerError>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut addr = parse_bind_addr(DEFAULT_LIVE_BIND_CHECK_ADDR)?;
+        let mut host_config_path = None;
+        let mut iter = args.into_iter();
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "-h" | "--help" => return Ok(RunnerCliCommand::Help(usage().to_string())),
+                "--addr" => {
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
+                    addr = parse_bind_addr(&value)?;
+                }
+                "--host-config" => {
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| RunnerError::Cli("--host-config requires a value".into()))?;
+                    host_config_path = Some(PathBuf::from(value));
+                }
+                value if value.starts_with('-') => {
+                    return Err(RunnerError::Cli(format!("unknown option `{value}`")))
+                }
+                value => {
+                    return Err(RunnerError::Cli(format!(
+                        "live-bind-proof takes no positional arguments (got `{value}`)"
+                    )))
+                }
+            }
+        }
+        let host_config_path = host_config_path.ok_or_else(|| {
+            RunnerError::Cli("live-bind-proof requires --host-config PATH".into())
+        })?;
+        Ok(RunnerCliCommand::LiveBindProof(
+            RunnerLiveBindProofOptions {
+                host_config_path,
+                addr,
+            },
+        ))
     }
 
     fn parse_check_args<I>(args: I) -> Result<RunnerCliCommand, RunnerError>
@@ -703,7 +844,7 @@ pub mod runner {
     where
         I: IntoIterator<Item = String>,
     {
-        let mut addr = parse_loopback_addr(DEFAULT_ADDR)?;
+        let mut addr = parse_bind_addr(DEFAULT_ADDR)?;
         let mut max_requests = None;
         let mut app_dir = None;
         let mut host_config_path = None;
@@ -715,7 +856,7 @@ pub mod runner {
                     let value = iter
                         .next()
                         .ok_or_else(|| RunnerError::Cli("--addr requires a value".into()))?;
-                    addr = parse_loopback_addr(&value)?;
+                    addr = parse_bind_addr(&value)?;
                 }
                 "--max-requests" => {
                     let value = iter.next().ok_or_else(|| {
@@ -761,16 +902,9 @@ pub mod runner {
         }))
     }
 
-    fn parse_loopback_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
-        let addr = raw
-            .parse::<SocketAddr>()
-            .map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))?;
-        if !addr.ip().is_loopback() {
-            return Err(RunnerError::Cli(format!(
-                "--addr must be loopback-only, got `{raw}`"
-            )));
-        }
-        Ok(addr)
+    fn parse_bind_addr(raw: &str) -> Result<SocketAddr, RunnerError> {
+        raw.parse::<SocketAddr>()
+            .map_err(|_| RunnerError::Cli(format!("--addr expects HOST:PORT, got `{raw}`")))
     }
 
     /// Hand-rolled tiny `igweb.toml` parse (no toml crate; mirrors `project.rs::parse_source_roots_toml`).

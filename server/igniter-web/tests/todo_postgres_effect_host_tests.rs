@@ -25,7 +25,7 @@ use igniter_server::protocol::{ResponseBody, ServerApp, ServerDecision, ServerRe
 
 use igniter_web::runner::build_app_from_dir;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -184,6 +184,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: CAP.into(),
         operation: "write_record".into(),
@@ -442,8 +443,11 @@ fn app_decision_carries_no_capability_identity() {
 // (P45: the legacy string body was removed), so two different titles produce two different body digests.
 
 fn titled_create(account: &str, idem_key: &str, title: &str) -> ServerRequest {
-    let mut req =
-        ServerRequest::new("POST", &format!("/accounts/{account}/todos"), json!({ "title": title }));
+    let mut req = ServerRequest::new(
+        "POST",
+        &format!("/accounts/{account}/todos"),
+        json!({ "title": title }),
+    );
     req.headers
         .insert("authorization".to_string(), "Bearer vtok".to_string());
     req.idempotency_key = Some(idem_key.to_string());

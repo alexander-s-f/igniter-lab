@@ -1,13 +1,15 @@
 // src/pure_core.rs
 // FFI-free Pure Rust Bitemporal Ledger Core Engine
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
+use std::time::{Duration, Instant};
 
 const SHARD_COUNT: usize = 128;
 
@@ -31,6 +33,19 @@ pub struct FactData {
     pub schema_version: u32,
     pub producer: Option<String>,
     pub derivation: Option<String>,
+    // LAB-TBACKEND-SEQID-PER-STORE-P9: server-assigned, per-store, monotonic
+    // ordering authority. `transaction_time` stays client/app evidence. Assigned
+    // ONLY by the daemon on first insert (never on replay/conflict) and excluded
+    // from the canonical value hash. `#[serde(default)]` keeps pre-P9 WAL frames
+    // loadable (legacy `seq_id == 0`, backfilled by append order on replay); a
+    // non-zero `seq_id` marks a seq-authoritative frame.
+    #[serde(default)]
+    pub seq_id: u64,
+    // Reserved for the future mesh version-vector `{origin_node -> origin_seq}`
+    // (LAB-TBACKEND-SERVER-AUTHORITY-SEQID-READINESS-P8). Not populated here; kept
+    // additive so the mesh slice needs no second WAL-format change.
+    #[serde(default)]
+    pub origin_node: Option<String>,
 }
 
 // ── Canonical Server-Authoritative Content Hash ─────────────────────────────
@@ -112,12 +127,16 @@ struct ShardInner {
 pub struct ShardedFactLog {
     shards: Vec<RwLock<ShardInner>>,
     write_once_lock: Mutex<()>,
+    // LAB-TBACKEND-SEQID-PER-STORE-P9: next per-store seq to assign. 1-based, so
+    // an assigned seq is never 0 (which marks a legacy/unassigned fact). Restored
+    // to `max(replayed seq) + 1` on boot by `load_replayed`.
+    next_seq: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
 pub enum WriteOnceResult {
-    Inserted,
-    Replay,
+    Inserted { seq_id: u64 },
+    Replay { seq_id: u64 },
     Conflict { existing: FactData },
 }
 
@@ -133,7 +152,92 @@ impl ShardedFactLog {
         ShardedFactLog {
             shards,
             write_once_lock: Mutex::new(()),
+            next_seq: AtomicU64::new(1),
         }
+    }
+
+    /// Assign the next per-store `seq_id` (server ordering authority). Monotonic
+    /// and atomic across both write paths; gap-free on the success path (a write
+    /// whose WAL append fails consumes its seq — acceptable for an error path).
+    pub fn assign_seq(&self) -> u64 {
+        self.next_seq.fetch_add(1, AtomicOrdering::AcqRel)
+    }
+
+    /// The next seq this log would assign (the per-store high-water mark).
+    /// LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12: read off the OLD engine
+    /// before a compaction rebuild so the new engine never reuses a seq that a
+    /// pruned fact already consumed.
+    pub fn peek_next_seq(&self) -> u64 {
+        self.next_seq.load(AtomicOrdering::Acquire)
+    }
+
+    /// Raise the counter to at least `floor` (never lower it). Used after a
+    /// compaction rebuild: `load_replayed` sets the counter from the RETAINED
+    /// facts, but a pruned fact may have held a higher seq — preserving the old
+    /// high-water mark keeps seq globally unique per store across compaction.
+    pub fn advance_next_seq_to(&self, floor: u64) {
+        let mut cur = self.next_seq.load(AtomicOrdering::Acquire);
+        while cur < floor {
+            match self.next_seq.compare_exchange_weak(
+                cur,
+                floor,
+                AtomicOrdering::AcqRel,
+                AtomicOrdering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(observed) => cur = observed,
+            }
+        }
+    }
+
+    /// Load WAL-replayed facts at boot: backfill legacy (`seq_id == 0`) facts by
+    /// append order — placed ABOVE any real assigned seq — and set the counter to
+    /// `max(seq) + 1`. Legacy seq is therefore deterministic across restarts
+    /// (append order is stable) and never collides with a previously assigned seq.
+    /// The WAL file is not rewritten (no destructive migration).
+    pub fn load_replayed(&self, facts: Vec<FactData>) {
+        let max_assigned = facts.iter().map(|f| f.seq_id).max().unwrap_or(0);
+        let mut counter = max_assigned;
+        for mut fact in facts {
+            if fact.seq_id == 0 {
+                counter += 1;
+                fact.seq_id = counter;
+            }
+            self.push(fact);
+        }
+        self.next_seq.store(counter + 1, AtomicOrdering::Release);
+    }
+
+    /// Server-order ("by seq") read: every fact whose `seq_id` is in
+    /// `(after_seq, until_seq]`, sorted by `seq_id`. Clock-free — it never touches
+    /// `transaction_time`. Correct regardless of arrival order (scan + filter,
+    /// matching the P2 correctness-first stance for tt reads). Per-key timelines
+    /// are already seq-sorted on the serialized `write_fact_once` path, so a
+    /// `partition_point` O(log N) refinement is a safe later optimization.
+    pub fn facts_by_seq(
+        &self,
+        store: &str,
+        after_seq: u64,
+        until_seq: Option<u64>,
+    ) -> Vec<FactData> {
+        let mut results = Vec::new();
+        for shard_lock in &self.shards {
+            let shard = shard_lock.read();
+            for ((s, _), timeline) in &shard.by_key {
+                if s == store {
+                    results.extend(
+                        timeline
+                            .iter()
+                            .filter(|f| {
+                                f.seq_id > after_seq && until_seq.map_or(true, |u| f.seq_id <= u)
+                            })
+                            .cloned(),
+                    );
+                }
+            }
+        }
+        results.sort_by(|a, b| a.seq_id.cmp(&b.seq_id));
+        results
     }
 
     fn get_shard_index(&self, store: &str, key: &str) -> usize {
@@ -195,14 +299,24 @@ impl ShardedFactLog {
                 && existing.value_hash == data.value_hash
                 && existing.value == data.value
             {
-                return Ok(WriteOnceResult::Replay);
+                // Replay returns the ORIGINAL seq_id — never a new one. Identity is
+                // id + canonical hash + value; seq_id is not compared.
+                return Ok(WriteOnceResult::Replay {
+                    seq_id: existing.seq_id,
+                });
             }
             return Ok(WriteOnceResult::Conflict { existing });
         }
 
+        // First insert: assign the server seq_id BEFORE the WAL append so the
+        // durable frame carries it (and frame order == seq order on this path,
+        // since the whole insert runs under `write_once_lock`).
+        let mut data = data;
+        let seq_id = self.assign_seq();
+        data.seq_id = seq_id;
         before_append(&data)?;
         self.push(data);
-        Ok(WriteOnceResult::Inserted)
+        Ok(WriteOnceResult::Inserted { seq_id })
     }
 
     pub fn latest_for(&self, store: &str, key: &str, as_of: Option<f64>) -> Option<FactData> {
@@ -386,32 +500,203 @@ struct FileBackendInner {
     writer: BufWriter<File>,
 }
 
-pub struct FileBackend(Mutex<FileBackendInner>);
+// Group-commit coordinator for `durable` acks (LAB-TBACKEND-DURABLE-ACK-GROUP-COMMIT-P6).
+// One fdatasync amortized across all writers in a bounded window. The fsync runs
+// OUTSIDE the global `write_once_lock` and outside the append mutex (it uses a
+// dup'd fd, `sync_handle`), so durable writes do not serialize appends.
+struct CommitInner {
+    synced_seq: u64,     // highest write_seq known durable on the device
+    leader_active: bool, // exactly one writer drives each group fsync
+    generation: u64,     // bumps after every sync attempt (followers re-check)
+    last_err: Option<String>,
+    last_attempt_seq: u64, // write_seq the most recent (failed) attempt tried to cover
+}
+
+pub struct FileBackend {
+    inner: Mutex<FileBackendInner>,
+    // Separate fd (dup of the WAL file) used only for fdatasync, so syncing never
+    // contends the append `inner` mutex.
+    sync_handle: File,
+    // Monotonic count of appended frames this process lifetime; the durability barrier.
+    write_seq: AtomicU64,
+    // Test seam: number of fdatasync syscalls actually issued (proves the durable path ran).
+    sync_count: AtomicU64,
+    // Test seam: when armed, the next group fsync fails instead of calling the syscall.
+    sync_fault: AtomicBool,
+    commit: Mutex<CommitInner>,
+    commit_cond: Condvar,
+}
 
 impl FileBackend {
     pub fn new_pure(path: &str) -> Result<Self, std::io::Error> {
         let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(FileBackend(Mutex::new(FileBackendInner {
-            path: path.to_string(),
-            writer: BufWriter::new(file),
-        })))
+        let sync_handle = file.try_clone()?;
+        Ok(FileBackend {
+            inner: Mutex::new(FileBackendInner {
+                path: path.to_string(),
+                writer: BufWriter::new(file),
+            }),
+            sync_handle,
+            write_seq: AtomicU64::new(0),
+            sync_count: AtomicU64::new(0),
+            sync_fault: AtomicBool::new(false),
+            commit: Mutex::new(CommitInner {
+                synced_seq: 0,
+                leader_active: false,
+                generation: 0,
+                last_err: None,
+                last_attempt_seq: 0,
+            }),
+            commit_cond: Condvar::new(),
+        })
     }
 
     pub fn write_fact_data(&self, data: &FactData) -> Result<(), String> {
         let body = rmp_serde::to_vec_named(data).map_err(|e| e.to_string())?;
         let crc = crc32fast::hash(&body);
-        let mut inner = self.0.lock();
-        inner
-            .writer
-            .write_all(&(body.len() as u32).to_be_bytes())
-            .and_then(|_| inner.writer.write_all(&body))
-            .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
-            .and_then(|_| inner.writer.flush())
-            .map_err(|e| e.to_string())
+        {
+            let mut inner = self.inner.lock();
+            inner
+                .writer
+                .write_all(&(body.len() as u32).to_be_bytes())
+                .and_then(|_| inner.writer.write_all(&body))
+                .and_then(|_| inner.writer.write_all(&crc.to_be_bytes()))
+                .and_then(|_| inner.writer.flush())
+                .map_err(|e| e.to_string())?;
+        }
+        // The frame is now in the OS page cache (`accepted`). Publish the barrier
+        // so a `durable` caller can wait for an fdatasync that covers it.
+        self.write_seq.fetch_add(1, AtomicOrdering::AcqRel);
+        Ok(())
+    }
+
+    /// Current append barrier — the seq a `durable` caller waits to see synced.
+    pub fn current_seq(&self) -> u64 {
+        self.write_seq.load(AtomicOrdering::Acquire)
+    }
+
+    /// fdatasync syscalls actually issued (test seam for the group-commit proof).
+    pub fn sync_count(&self) -> u64 {
+        self.sync_count.load(AtomicOrdering::Acquire)
+    }
+
+    pub fn synced_seq(&self) -> u64 {
+        self.commit.lock().synced_seq
+    }
+
+    /// Test-only: arm/disarm an injected fdatasync failure.
+    pub fn arm_sync_fault(&self, on: bool) {
+        self.sync_fault.store(on, AtomicOrdering::Release);
+    }
+
+    /// Flush the BufWriter and `fsync` the file (data + metadata/size). Used by
+    /// safe compaction to make a freshly written temp WAL durable BEFORE the
+    /// rename (LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12, the B4 fix). Unlike
+    /// the group-commit `sync_data`, this uses `sync_all` because the temp file is
+    /// brand new — its size/metadata must also reach the device.
+    pub fn sync_all_pure(&self) -> std::io::Result<()> {
+        {
+            let mut inner = self.inner.lock();
+            inner.writer.flush()?;
+        }
+        self.sync_handle.sync_all()?;
+        self.sync_count.fetch_add(1, AtomicOrdering::AcqRel);
+        Ok(())
+    }
+
+    /// Block until an fdatasync covering `barrier` has succeeded (the `durable`
+    /// ack boundary). Coalesces concurrent durable writers: the first becomes the
+    /// leader, waits a bounded window (`interval_ms`, cut short when the pending
+    /// batch reaches `max_batch`), issues ONE fdatasync, and releases all
+    /// followers it covered. Returns Err (retryable upstream) if the sync that
+    /// would have covered `barrier` failed — never a silent downgrade.
+    pub fn commit_durable(
+        &self,
+        barrier: u64,
+        interval_ms: u64,
+        max_batch: u64,
+    ) -> Result<(), String> {
+        let mut g = self.commit.lock();
+        loop {
+            if g.synced_seq >= barrier {
+                return Ok(());
+            }
+            if !g.leader_active {
+                // Become leader and drive one fresh fdatasync attempt. `last_err`
+                // is attempt-scoped: cleared at the start so a retry after a
+                // disarmed/transient fault is never blocked by a stale error.
+                g.leader_active = true;
+                g.last_err = None;
+                drop(g);
+
+                // Batch window: let other durable writers arrive and append so one
+                // fsync covers them all. Cut short once the pending batch is large.
+                let deadline = Instant::now() + Duration::from_millis(interval_ms);
+                loop {
+                    let pending = self
+                        .write_seq
+                        .load(AtomicOrdering::Acquire)
+                        .saturating_sub(self.commit.lock().synced_seq);
+                    if pending >= max_batch.max(1) || Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_micros(200));
+                }
+
+                let seq_to_sync = self.write_seq.load(AtomicOrdering::Acquire);
+                let res = if self.sync_fault.load(AtomicOrdering::Acquire) {
+                    Err("injected fdatasync fault".to_string())
+                } else {
+                    self.sync_handle.sync_data().map_err(|e| e.to_string())
+                };
+
+                let mut g2 = self.commit.lock();
+                g2.last_attempt_seq = seq_to_sync;
+                match res {
+                    Ok(()) => {
+                        if g2.synced_seq < seq_to_sync {
+                            g2.synced_seq = seq_to_sync;
+                        }
+                        self.sync_count.fetch_add(1, AtomicOrdering::AcqRel);
+                        g2.last_err = None;
+                    }
+                    Err(e) => {
+                        g2.last_err = Some(e);
+                    }
+                }
+                g2.leader_active = false;
+                g2.generation = g2.generation.wrapping_add(1);
+                self.commit_cond.notify_all();
+
+                // Decide my outcome from THIS attempt.
+                if g2.synced_seq >= barrier {
+                    return Ok(());
+                }
+                if g2.last_err.is_some() && g2.last_attempt_seq >= barrier {
+                    return Err(g2.last_err.clone().unwrap());
+                }
+                // My barrier wasn't covered (a later append raised it); retry.
+                g = g2;
+                continue;
+            } else {
+                // Follower: wait for the in-flight attempt to complete, then judge
+                // by that attempt's result.
+                let gen = g.generation;
+                self.commit_cond
+                    .wait_for(&mut g, Duration::from_millis(interval_ms.max(1) * 4 + 50));
+                if g.synced_seq >= barrier {
+                    return Ok(());
+                }
+                if g.generation != gen && g.last_err.is_some() && g.last_attempt_seq >= barrier {
+                    return Err(g.last_err.clone().unwrap());
+                }
+                continue;
+            }
+        }
     }
 
     pub fn replay_pure(&self) -> Result<Vec<FactData>, std::io::Error> {
-        let path = self.0.lock().path.clone();
+        let path = self.inner.lock().path.clone();
         let mut file = File::open(&path)?;
         file.seek(SeekFrom::Start(0))?;
 
@@ -448,8 +733,17 @@ impl FileBackend {
     }
 
     pub fn flush_pure(&self) -> Result<(), std::io::Error> {
-        self.0.lock().writer.flush()
+        self.inner.lock().writer.flush()
     }
+}
+
+/// `fsync` a directory so a rename within it is durable
+/// (LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12, the B4 fix). After
+/// `rename(tmp, real)`, the directory entry change itself must be persisted, or a
+/// crash can leave `real` resolving to the old (now-unlinked) inode. `sync_all`
+/// on the file is insufficient — only a directory fsync persists the rename.
+pub fn fsync_dir(dir: &str) -> std::io::Result<()> {
+    File::open(dir)?.sync_all()
 }
 
 // ── Windowed-read correctness tests ─────────────────────────────────────────
@@ -476,6 +770,8 @@ mod tests {
             schema_version: 1,
             producer: None,
             derivation: None,
+            seq_id: 0,
+            origin_node: None,
         }
     }
 
@@ -649,6 +945,207 @@ mod tests {
         assert_eq!(
             all.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
             vec!["f100", "f200", "f300"]
+        );
+    }
+
+    // ── LAB-TBACKEND-SEQID-PER-STORE-P9 ─────────────────────────────────────
+
+    fn noop_append(_: &FactData) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[test]
+    fn seqid_assigned_monotonic_and_gap_free() {
+        let log = ShardedFactLog::new();
+        for (i, id) in ["a", "b", "c"].iter().enumerate() {
+            let r = log
+                .push_once(
+                    fact("s", "k", id, 100.0, serde_json::json!({"n": i})),
+                    noop_append,
+                )
+                .unwrap();
+            match r {
+                WriteOnceResult::Inserted { seq_id } => assert_eq!(seq_id, (i as u64) + 1),
+                other => panic!("expected Inserted, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn replay_returns_original_seq_and_does_not_increment() {
+        let log = ShardedFactLog::new();
+        // Insert -> seq 1.
+        let ins = log
+            .push_once(
+                fact("s", "k", "x", 100.0, serde_json::json!({"v": 1})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(ins, WriteOnceResult::Inserted { seq_id: 1 }));
+        // Replay the SAME content but as a client would send it (seq_id 0) ->
+        // returns the ORIGINAL seq, proving seq is excluded from identity.
+        let mut same = fact("s", "k", "x", 999.0, serde_json::json!({"v": 1}));
+        same.seq_id = 0;
+        let rep = log.push_once(same, noop_append).unwrap();
+        assert!(matches!(rep, WriteOnceResult::Replay { seq_id: 1 }));
+        // A new insert is seq 2 — the replay did NOT consume a seq.
+        let next = log
+            .push_once(
+                fact("s", "k", "y", 100.0, serde_json::json!({"v": 2})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(next, WriteOnceResult::Inserted { seq_id: 2 }));
+    }
+
+    #[test]
+    fn conflict_allocates_no_seq() {
+        let log = ShardedFactLog::new();
+        log.push_once(
+            fact("s", "k", "x", 100.0, serde_json::json!({"v": 1})),
+            noop_append,
+        )
+        .unwrap();
+        // Same id, different payload -> Conflict, no seq minted.
+        let c = log
+            .push_once(
+                fact("s", "k", "x", 100.0, serde_json::json!({"v": 2})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(c, WriteOnceResult::Conflict { .. }));
+        // Next insert is seq 2 — the conflict did not advance the counter past it.
+        let n = log
+            .push_once(
+                fact("s", "k", "z", 100.0, serde_json::json!({"v": 3})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 2 }));
+    }
+
+    #[test]
+    fn factdata_without_seqid_deserializes_to_zero() {
+        // A pre-P9 frame has no seq_id/origin_node keys. serde(default) loads them.
+        let legacy = serde_json::json!({
+            "id": "f1", "store": "s", "key": "k", "value": {"v": 1},
+            "transaction_time": 1.0, "schema_version": 1
+        });
+        let f: FactData = serde_json::from_value(legacy).unwrap();
+        assert_eq!(f.seq_id, 0);
+        assert_eq!(f.origin_node, None);
+    }
+
+    #[test]
+    fn load_replayed_backfills_legacy_by_append_order_and_recovers_counter() {
+        let log = ShardedFactLog::new();
+        // Three legacy facts (seq 0) replayed in file order.
+        let facts = vec![
+            fact("s", "k", "f1", 100.0, serde_json::json!({"v": 1})),
+            fact("s", "k", "f2", 100.0, serde_json::json!({"v": 2})),
+            fact("s", "k", "f3", 100.0, serde_json::json!({"v": 3})),
+        ];
+        log.load_replayed(facts);
+        let got = log.facts_by_seq("s", 0, None);
+        assert_eq!(
+            got.iter()
+                .map(|f| (f.id.as_str(), f.seq_id))
+                .collect::<Vec<_>>(),
+            vec![("f1", 1), ("f2", 2), ("f3", 3)]
+        );
+        // Counter continues above the backfilled max.
+        let n = log
+            .push_once(
+                fact("s", "k", "f4", 100.0, serde_json::json!({"v": 4})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 4 }));
+    }
+
+    #[test]
+    fn load_replayed_recovers_counter_from_assigned_seqs() {
+        let log = ShardedFactLog::new();
+        let mut f1 = fact("s", "k", "f1", 100.0, serde_json::json!({"v": 1}));
+        f1.seq_id = 7;
+        let mut f2 = fact("s", "k", "f2", 100.0, serde_json::json!({"v": 2}));
+        f2.seq_id = 8;
+        log.load_replayed(vec![f1, f2]);
+        // next_seq = max(7,8)+1 = 9.
+        let n = log
+            .push_once(
+                fact("s", "k", "f3", 100.0, serde_json::json!({"v": 3})),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 9 }));
+    }
+
+    #[test]
+    fn compaction_rebuild_preserves_seq_highwater() {
+        // LAB-TBACKEND-SAFE-COMPACTION-STOP-THE-WORLD-P12 (B5): rebuilding the
+        // engine from RETAINED facts must keep their seqs AND not reuse a pruned
+        // fact's seq. Simulate: original next_seq high-water = 6 (after seqs 1..5),
+        // prune seqs 1,2 (cold), retain 3,4,5 (warm).
+        let old_high_water = 6u64;
+        let mut warm = Vec::new();
+        for (i, id) in ["c", "d", "e"].iter().enumerate() {
+            let mut f = fact("s", "k", id, 100.0, serde_json::json!({ "n": i }));
+            f.seq_id = (i as u64) + 3; // 3, 4, 5
+            warm.push(f);
+        }
+
+        let new_log = ShardedFactLog::new();
+        new_log.load_replayed(warm); // sets next_seq = max(5)+1 = 6
+        new_log.advance_next_seq_to(old_high_water); // already 6 here; never lowers
+
+        // Retained facts keep their original seqs.
+        let retained: Vec<u64> = new_log
+            .facts_by_seq("s", 0, None)
+            .iter()
+            .map(|f| f.seq_id)
+            .collect();
+        assert_eq!(retained, vec![3, 4, 5]);
+
+        // A new insert continues ABOVE the high-water, never reusing 3/4/5.
+        let n = new_log
+            .push_once(
+                fact("s", "k", "f6", 100.0, serde_json::json!({ "v": 6 })),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(n, WriteOnceResult::Inserted { seq_id: 6 }));
+
+        // advance_next_seq_to never lowers the counter.
+        new_log.advance_next_seq_to(2);
+        let n2 = new_log
+            .push_once(
+                fact("s", "k", "f7", 100.0, serde_json::json!({ "v": 7 })),
+                noop_append,
+            )
+            .unwrap();
+        assert!(matches!(n2, WriteOnceResult::Inserted { seq_id: 7 }));
+    }
+
+    #[test]
+    fn facts_by_seq_window_is_clock_free() {
+        let log = ShardedFactLog::new();
+        // Assign seq 1..4 with DECREASING transaction_time — seq must ignore tt.
+        for (i, id) in ["a", "b", "c", "d"].iter().enumerate() {
+            log.push_once(
+                fact("s", "k", id, 1000.0 - i as f64, serde_json::json!({"n": i})),
+                noop_append,
+            )
+            .unwrap();
+        }
+        // (after_seq=1, until=3] -> seq 2,3.
+        let win = log.facts_by_seq("s", 1, Some(3));
+        assert_eq!(win.iter().map(|f| f.seq_id).collect::<Vec<_>>(), vec![2, 3]);
+        // after_seq only.
+        let tail = log.facts_by_seq("s", 2, None);
+        assert_eq!(
+            tail.iter().map(|f| f.seq_id).collect::<Vec<_>>(),
+            vec![3, 4]
         );
     }
 }

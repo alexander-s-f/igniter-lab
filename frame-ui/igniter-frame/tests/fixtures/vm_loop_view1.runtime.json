@@ -1,0 +1,66 @@
+{
+    "latency_us": 0,
+    "observations": [],
+    "result": {
+        "attrs": {
+            "dir": "col",
+            "flex": 0,
+            "gap": 8,
+            "main": 248,
+            "pad": 12
+        },
+        "children": [
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:0",
+                "selected": false,
+                "tag": "leaf",
+                "text": "Review Ada's lead"
+            },
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:1",
+                "selected": true,
+                "tag": "leaf",
+                "text": "Call Grace back"
+            },
+            {
+                "attrs": {
+                    "dir": "leaf",
+                    "flex": 0,
+                    "gap": 0,
+                    "main": 40,
+                    "pad": 0
+                },
+                "children": [],
+                "intent": "select",
+                "key": "lead:2",
+                "selected": false,
+                "tag": "leaf",
+                "text": "Send Linus the quote"
+            }
+        ],
+        "intent": "",
+        "key": "",
+        "selected": false,
+        "tag": "col",
+        "text": ""
+    },
+    "status": "success"
+}

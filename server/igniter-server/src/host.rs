@@ -19,12 +19,44 @@
 //!   execute it without changing the protocol.
 
 use crate::protocol::{
-    ResponseBody, ServerApp, ServerDecision, ServerRequest, ServerResponse, PROTOCOL_VERSION,
+    PROTOCOL_VERSION, ResponseBody, ServerApp, ServerDecision, ServerRequest, ServerResponse,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::time::Duration;
+
+pub const DEFAULT_MAX_HEADER_BYTES: usize = 16 * 1024;
+pub const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HardenedReadPolicy {
+    pub max_header_bytes: usize,
+    pub max_body_bytes: usize,
+    pub read_timeout: Duration,
+}
+
+impl Default for HardenedReadPolicy {
+    fn default() -> Self {
+        Self {
+            max_header_bytes: DEFAULT_MAX_HEADER_BYTES,
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            read_timeout: DEFAULT_READ_TIMEOUT,
+        }
+    }
+}
+
+impl HardenedReadPolicy {
+    pub fn new(max_body_bytes: usize, read_timeout: Duration) -> Self {
+        Self {
+            max_body_bytes,
+            read_timeout,
+            ..Self::default()
+        }
+    }
+}
 
 /// Execute an app decision into a response. Pure: no IO, no machine, no route knowledge.
 ///
@@ -74,7 +106,10 @@ fn observed(
 /// executes the decision, writes the HTTP/1.1 response. No background worker; returns when done.
 pub fn serve_once(listener: &TcpListener, app: &dyn ServerApp) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept()?;
-    let req = read_request(&mut stream)?;
+    let req = match read_request(&mut stream) {
+        Ok(req) => req,
+        Err(e) => return write_response(&mut stream, &read_error_response(&e)),
+    };
     let decision = app.call(req);
     let resp = execute(decision);
     write_response(&mut stream, &resp)
@@ -117,7 +152,13 @@ pub fn serve_once_reloadable_observed(
     let (mut stream, _) = listener.accept()?;
     let current = app.current(); // snapshot — request keeps this instance even if a swap follows.
     let identity = current.identity();
-    let req = read_request(&mut stream)?;
+    let req = match read_request(&mut stream) {
+        Ok(req) => req,
+        Err(e) => {
+            write_response(&mut stream, &read_error_response(&e))?;
+            return Ok(identity);
+        }
+    };
     let decision = current.call(req);
     let resp = execute(decision);
     write_response(&mut stream, &resp)?;
@@ -211,6 +252,14 @@ pub(crate) fn parse_request(buf: &[u8]) -> ServerRequest {
 }
 
 fn read_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
+    read_request_with_policy(stream, HardenedReadPolicy::default())
+}
+
+pub fn read_request_with_policy(
+    stream: &mut TcpStream,
+    policy: HardenedReadPolicy,
+) -> std::io::Result<ServerRequest> {
+    stream.set_read_timeout(Some(policy.read_timeout))?;
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];
     loop {
@@ -219,14 +268,27 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
             break;
         }
         buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > policy.max_header_bytes && find_subslice(&buf, b"\r\n\r\n").is_none() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "request headers too large",
+            ));
+        }
         if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            let need = pos + 4 + content_length(&buf[..pos]);
+            let body_len = content_length(&buf[..pos]);
+            if body_len > policy.max_body_bytes {
+                return Err(Error::new(ErrorKind::InvalidData, "payload too large"));
+            }
+            let need = pos + 4 + body_len;
             while buf.len() < need {
                 let n = stream.read(&mut tmp)?;
                 if n == 0 {
                     break;
                 }
                 buf.extend_from_slice(&tmp[..n]);
+                if buf.len() > need {
+                    buf.truncate(need);
+                }
             }
             break;
         }
@@ -234,12 +296,30 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<ServerRequest> {
     Ok(parse_request(&buf))
 }
 
+pub fn read_error_response(err: &std::io::Error) -> ServerResponse {
+    match err.kind() {
+        ErrorKind::TimedOut | ErrorKind::WouldBlock => {
+            ServerResponse::json(408, json!({ "error": "request timeout" }))
+        }
+        ErrorKind::InvalidData if err.to_string().contains("payload too large") => {
+            ServerResponse::json(413, json!({ "error": "payload too large" }))
+        }
+        ErrorKind::InvalidData if err.to_string().contains("headers too large") => {
+            ServerResponse::json(431, json!({ "error": "request headers too large" }))
+        }
+        _ => ServerResponse::json(400, json!({ "error": "bad request" })),
+    }
+}
+
 pub(crate) fn status_text(status: u16) -> &'static str {
     match status {
         200 => "OK",
         202 => "Accepted",
         400 => "Bad Request",
+        408 => "Request Timeout",
         404 => "Not Found",
+        413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         _ => "Status",
     }
@@ -309,8 +389,13 @@ mod tests {
     fn parse_request_splits_query_from_path() {
         // P47: the host strips `?query` off the path (so route regexes still anchor `…/todos$`) and
         // parses it into `query`. Before this, the query rode in `path` and broke route matching.
-        let req = parse_request(b"GET /accounts/7/todos?after=todo_abc&limit=2 HTTP/1.1\r\nHost: x\r\n\r\n");
-        assert_eq!(req.path, "/accounts/7/todos", "path is query-free for route matching");
+        let req = parse_request(
+            b"GET /accounts/7/todos?after=todo_abc&limit=2 HTTP/1.1\r\nHost: x\r\n\r\n",
+        );
+        assert_eq!(
+            req.path, "/accounts/7/todos",
+            "path is query-free for route matching"
+        );
         assert_eq!(req.query.get("after").map(String::as_str), Some("todo_abc"));
         assert_eq!(req.query.get("limit").map(String::as_str), Some("2"));
         // a query-free request still parses, with an empty query map.

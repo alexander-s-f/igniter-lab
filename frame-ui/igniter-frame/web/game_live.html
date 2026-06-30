@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>igniter-frame · interactive Igniter game — click a body to kick it</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --dim:#8b949e; --acc:#39d353; --line:#21262d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display:flex; gap:24px; flex-wrap:wrap; padding:24px; align-items:flex-start; }
+  #scene { width:640px; max-width:96vw; aspect-ratio:640/480; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#070510; cursor:crosshair; }
+  #scene svg { display:block; width:100%; height:100%; }
+  #panel { min-width:300px; flex:1; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 16px; font-size:12px; }
+  .strip { display:flex; gap:8px; margin-top:10px; }
+  button { font:inherit; color:var(--fg); background:#21262d; border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  .card { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:14px; }
+  .row { display:flex; gap:10px; padding:4px 0; } .k { color:var(--dim); min-width:130px; }
+  .hint { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.7; } code { color:var(--acc); } a { color:#58a6ff; }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div>
+      <div id="scene">loading…</div>
+      <div class="strip"><button id="pp">⏸ pause</button><button id="reset">reset</button></div>
+    </div>
+    <div id="panel">
+      <h1>Interactive Igniter game — click a body to kick it</h1>
+      <p class="sub">Six bodies fall under integer physics; <b>click one</b> and it gets kicked up. The whole game is the Igniter app on <code>igniter-vm</code> — <code>Step(world)</code> (physics), <code>View(world)→Scene</code> (3D→2D projection), <code>Reduce(world, id)</code> (the click→kick) — all `.ig` contracts. The host only ticks, renders the projected scene, and hit-tests the click into a body id.</p>
+      <div class="card">
+        <div class="row"><span class="k">logic</span><span><code>.ig Step</code> (igniter-vm)</span></div>
+        <div class="row"><span class="k">view</span><span><code>.ig View → Scene</code> (igniter-vm)</span></div>
+        <div class="row"><span class="k">interaction</span><span><code>.ig Reduce(world, id)</code> (igniter-vm)</span></div>
+      </div>
+      <p class="hint">
+        Running live here are the Rust <b>mirrors</b> of those three `.ig` contracts — proven
+        <b>bit-identical</b> to them (cross-checked every run in <code>examples/vm_game.rs</code>, which
+        drives the ACTUAL `.ig` on the VM). The browser uses the mirror only because the VM is native and
+        rAF needs ~60fps; the logic, projection, and kick are exactly what the VM computes.<br>
+        See the VM-frame playback <a href="./game_ig.html">game_ig</a> and the Rust loop <a href="./game.html">game</a>.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmSceneGame } from "./igniter_frame.js";
+    const scene = document.getElementById("scene");
+    await init();
+    let g = new WasmSceneGame();
+    let playing = true;
+    const at = (e) => { const r = scene.getBoundingClientRect(); return [(e.clientX - r.left) * (640 / r.width), (e.clientY - r.top) * (480 / r.height)]; };
+    function draw() { scene.innerHTML = g.render_svg(); }
+    let last = 0;
+    function loop(t) { if (playing && t - last > 16) { g.advance(); last = t; draw(); } requestAnimationFrame(loop); }
+    draw(); requestAnimationFrame(loop);
+    scene.addEventListener("pointerdown", (e) => { const [x, y] = at(e); g.kick(x, y); draw(); });
+    document.getElementById("pp").addEventListener("click", (e) => { playing = !playing; e.target.textContent = playing ? "⏸ pause" : "▶ play"; });
+    document.getElementById("reset").addEventListener("click", () => { g.reset(); draw(); });
+  </script>
+</body>
+</html>

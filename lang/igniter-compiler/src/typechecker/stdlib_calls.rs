@@ -15,7 +15,16 @@ use super::*;
 const NESTED_COLLECTION_OPS: &[&str] = &["filter_map", "reduce"];
 
 /// Collection HOFs that take a lambda — whose lambda body is scanned for a (still-unsupported) nested op.
-const LAMBDA_HOF_NAMES: &[&str] = &["map", "filter", "filter_map", "fold", "reduce"];
+const LAMBDA_HOF_NAMES: &[&str] = &[
+    "map",
+    "filter",
+    "filter_map",
+    "fold",
+    "reduce",
+    "find",
+    "any",
+    "all",
+];
 
 fn nested_op_base(name: &str) -> &str {
     name.rsplit('.').next().unwrap_or(name)
@@ -1516,7 +1525,167 @@ impl TypeChecker {
                     resolved_type = serde_json::Value::Object(col);
                 }
             }
-            "flat_map" | "and_then" => {
+            "flat_map" => {
+                is_resolved = true;
+
+                if args.len() != 2 {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL1".to_string(),
+                        message: format!("flat_map expects 2 args, got {}", args.len()),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let first_arg_type = if !typed_args.is_empty() {
+                    typed_args[0].resolved_type.clone()
+                } else {
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                };
+                let first_arg_name = self.type_name(&first_arg_type);
+                if first_arg_name != "Collection" && first_arg_name != "Unknown" {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL2".to_string(),
+                        message: format!(
+                            "flat_map expects Collection as first arg, got {first_arg_name}"
+                        ),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let mut lambda_return_type =
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                let mut had_lambda = false;
+                if args.len() >= 2 {
+                    if let Expr::Lambda { params, body } = &args[1] {
+                        had_lambda = true;
+                        let mut local_symbols = symbol_types.clone();
+                        let elem_ty = self.get_param(&first_arg_type, 0).unwrap_or_else(|| {
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        });
+                        for p in params {
+                            local_symbols.insert(p.clone(), elem_ty.clone());
+                        }
+                        lambda_return_type = match body.as_ref() {
+                            ExprOrBlock::Expr(e) => {
+                                let body_typed = self.infer_expr(
+                                    e,
+                                    &local_symbols,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                );
+                                body_typed.resolved_type
+                            }
+                            ExprOrBlock::Block(block) => {
+                                let mut last_type =
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                for stmt in &block.stmts {
+                                    match stmt {
+                                        Stmt::Let { name, expr } => {
+                                            local_symbols.insert(
+                                                name.clone(),
+                                                self.type_ir(&serde_json::Value::String(
+                                                    "Unknown".to_string(),
+                                                )),
+                                            );
+                                            let stmt_typed = self.infer_expr(
+                                                expr,
+                                                &local_symbols,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = stmt_typed.resolved_type;
+                                        }
+                                        Stmt::ExprStmt { expr } => {
+                                            let stmt_typed = self.infer_expr(
+                                                expr,
+                                                &local_symbols,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = stmt_typed.resolved_type;
+                                        }
+                                    }
+                                }
+                                if let Some(re) = &block.return_expr {
+                                    let re_typed = self.infer_expr(
+                                        re,
+                                        &local_symbols,
+                                        olap_env,
+                                        type_shapes,
+                                        type_errors,
+                                        type_warnings,
+                                        node_name,
+                                        functions,
+                                        contract_registry,
+                                        current_contract_name,
+                                    );
+                                    last_type = re_typed.resolved_type;
+                                }
+                                last_type
+                            }
+                        };
+                    }
+                }
+                if args.len() == 2 && !had_lambda {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL1".to_string(),
+                        message: "flat_map expects lambda as second arg".to_string(),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                }
+
+                let col_unknown = || {
+                    let mut col = serde_json::Map::new();
+                    col.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Collection".to_string()),
+                    );
+                    col.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![
+                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                        ]),
+                    );
+                    serde_json::Value::Object(col)
+                };
+
+                let body_name = self.type_name(&lambda_return_type);
+                if body_name == "Collection" {
+                    resolved_type = lambda_return_type;
+                } else if body_name == "Unknown" {
+                    resolved_type = col_unknown();
+                } else {
+                    type_errors.push(ClassifierDiagnostic {
+                        rule: "OOF-COL9".to_string(),
+                        message: format!("flat_map lambda must return Collection, got {body_name}"),
+                        node: node_name.to_string(),
+                        line: None,
+                    });
+                    resolved_type = col_unknown();
+                }
+            }
+            "and_then" => {
                 is_resolved = true;
                 let first_arg_type = if !typed_args.is_empty() {
                     typed_args[0].resolved_type.clone()
@@ -1932,53 +2101,164 @@ impl TypeChecker {
                 );
                 resolved_type = serde_json::Value::Object(opt);
             }
-            "find" => {
+            "find" | "any" | "all" => {
                 is_resolved = true;
-                if typed_args.len() != 2 {
+                let qualified = format!("stdlib.collection.{fn_name}");
+                if args.len() != 2 {
                     type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-TM1".to_string(),
-                        message: format!(
-                            "find expects exactly 2 arguments, got {}",
-                            typed_args.len()
-                        ),
+                        rule: "OOF-COL1".to_string(),
+                        message: format!("{}: expected 2 arguments, got {}", qualified, args.len()),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                let inner_ty = if !typed_args.is_empty() {
-                    self.get_param(&typed_args[0].resolved_type, 0)
-                        .unwrap_or_else(|| {
-                            self.type_ir(&serde_json::Value::String("Unknown".to_string()))
-                        })
+
+                let first_arg_type = if !typed_args.is_empty() {
+                    typed_args[0].resolved_type.clone()
                 } else {
                     self.type_ir(&serde_json::Value::String("Unknown".to_string()))
                 };
-                let mut opt = serde_json::Map::new();
-                opt.insert(
-                    "name".to_string(),
-                    serde_json::Value::String("Option".to_string()),
-                );
-                opt.insert(
-                    "params".to_string(),
-                    serde_json::Value::Array(vec![inner_ty]),
-                );
-                resolved_type = serde_json::Value::Object(opt);
-            }
-            "any" | "all" => {
-                is_resolved = true;
-                if typed_args.len() != 2 {
+                let first_arg_name = self.type_name(&first_arg_type);
+
+                if args.len() == 2 && first_arg_name != "Collection" && first_arg_name != "Unknown"
+                {
                     type_errors.push(ClassifierDiagnostic {
-                        rule: "OOF-TM1".to_string(),
+                        rule: "OOF-COL2".to_string(),
                         message: format!(
-                            "{} expects exactly 2 arguments, got {}",
-                            fn_name,
-                            typed_args.len()
+                            "{}: first argument must be Collection[T], got {}",
+                            qualified, first_arg_name
                         ),
                         node: node_name.to_string(),
                         line: None,
                     });
                 }
-                resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+
+                let elem_ty = if first_arg_name == "Collection" {
+                    self.get_param(&first_arg_type, 0).unwrap_or_else(|| {
+                        self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                    })
+                } else {
+                    self.type_ir(&serde_json::Value::String("Unknown".to_string()))
+                };
+
+                if args.len() == 2 {
+                    if let Expr::Lambda { params, body } = &args[1] {
+                        let mut local_symbols = symbol_types.clone();
+                        for p in params {
+                            local_symbols.insert(p.clone(), elem_ty.clone());
+                        }
+
+                        let body_type = match body.as_ref() {
+                            ExprOrBlock::Expr(e) => {
+                                self.infer_expr(
+                                    e,
+                                    &local_symbols,
+                                    olap_env,
+                                    type_shapes,
+                                    type_errors,
+                                    type_warnings,
+                                    node_name,
+                                    functions,
+                                    contract_registry,
+                                    current_contract_name,
+                                )
+                                .resolved_type
+                            }
+                            ExprOrBlock::Block(block) => {
+                                let mut last_type =
+                                    self.type_ir(&serde_json::Value::String("Unknown".to_string()));
+                                let mut local_syms = local_symbols.clone();
+                                for stmt in &block.stmts {
+                                    match stmt {
+                                        Stmt::Let { name, expr } => {
+                                            let t = self.infer_expr(
+                                                expr,
+                                                &local_syms,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            local_syms
+                                                .insert(name.clone(), t.resolved_type.clone());
+                                            last_type = t.resolved_type;
+                                        }
+                                        Stmt::ExprStmt { expr } => {
+                                            let t = self.infer_expr(
+                                                expr,
+                                                &local_syms,
+                                                olap_env,
+                                                type_shapes,
+                                                type_errors,
+                                                type_warnings,
+                                                node_name,
+                                                functions,
+                                                contract_registry,
+                                                current_contract_name,
+                                            );
+                                            last_type = t.resolved_type;
+                                        }
+                                    }
+                                }
+                                if let Some(re) = &block.return_expr {
+                                    last_type = self
+                                        .infer_expr(
+                                            re,
+                                            &local_syms,
+                                            olap_env,
+                                            type_shapes,
+                                            type_errors,
+                                            type_warnings,
+                                            node_name,
+                                            functions,
+                                            contract_registry,
+                                            current_contract_name,
+                                        )
+                                        .resolved_type;
+                                }
+                                last_type
+                            }
+                        };
+                        let pred_name = self.type_name(&body_type);
+                        if pred_name != "Bool" && pred_name != "Unknown" {
+                            type_errors.push(ClassifierDiagnostic {
+                                rule: "OOF-COL3".to_string(),
+                                message: format!(
+                                    "{}: predicate must return Bool, got {}",
+                                    qualified, pred_name
+                                ),
+                                node: node_name.to_string(),
+                                line: None,
+                            });
+                        }
+                    } else {
+                        type_errors.push(ClassifierDiagnostic {
+                            rule: "OOF-COL1".to_string(),
+                            message: format!("{}: second argument must be a lambda", qualified),
+                            node: node_name.to_string(),
+                            line: None,
+                        });
+                    }
+                }
+
+                if fn_name == "find" {
+                    let mut opt = serde_json::Map::new();
+                    opt.insert(
+                        "name".to_string(),
+                        serde_json::Value::String("Option".to_string()),
+                    );
+                    opt.insert(
+                        "params".to_string(),
+                        serde_json::Value::Array(vec![elem_ty]),
+                    );
+                    resolved_type = serde_json::Value::Object(opt);
+                } else {
+                    resolved_type = self.type_ir(&serde_json::Value::String("Bool".to_string()));
+                }
             }
             "try_catch" | "propagate" => {
                 // try_catch(res, handler) -> T
@@ -2578,6 +2858,53 @@ impl TypeChecker {
                                                     resolved_type = self.type_ir(out_type);
                                                 }
                                                 // Multi-output → resolved_type stays Unknown (deferred).
+
+                                                // P8 (LAB-IGNITER-COMPILER-CALL-CONTRACT-ARG-TYPING):
+                                                // structurally validate each supplied argument type against the
+                                                // callee's declared input type — the SAME IgType boundary as the
+                                                // P6 user-`def` signature check (`check_user_fn_call_signature`).
+                                                // Arity already matched above, so `input_types` lines up with the
+                                                // positional args (which start at typed_args[1]; [0] is the name).
+                                                // Unknown / Unknown-bearing on either side is skipped (deferred,
+                                                // never a false reject) exactly as P6 does.
+                                                for (i, expected_raw) in
+                                                    entry.input_types.iter().enumerate()
+                                                {
+                                                    let Some(actual_arg) = typed_args.get(i + 1)
+                                                    else {
+                                                        break;
+                                                    };
+                                                    let expected = self.type_ir(expected_raw);
+                                                    let actual = &actual_arg.resolved_type;
+                                                    if self.unknown_or_unknown_bearing(&expected)
+                                                        || self.unknown_or_unknown_bearing(actual)
+                                                    {
+                                                        continue;
+                                                    }
+                                                    if !self
+                                                        .structurally_assignable(actual, &expected)
+                                                    {
+                                                        let pname = entry
+                                                            .input_names
+                                                            .get(i)
+                                                            .cloned()
+                                                            .unwrap_or_else(|| {
+                                                                format!("#{}", i + 1)
+                                                            });
+                                                        type_errors.push(ClassifierDiagnostic {
+                                                            rule: "OOF-TY0".to_string(),
+                                                            message: format!(
+                                                                "call_contract: callee '{}' parameter '{}' expects {}, got {}",
+                                                                callee_name,
+                                                                pname,
+                                                                self.type_display(&expected),
+                                                                self.type_display(actual)
+                                                            ),
+                                                            node: node_name.to_string(),
+                                                            line: None,
+                                                        });
+                                                    }
+                                                }
                                             }
                                         }
                                     } // end if let Some(callee_name)

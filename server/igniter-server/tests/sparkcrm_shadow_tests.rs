@@ -17,14 +17,14 @@ use igniter_machine::machine::IgniterMachine;
 use igniter_machine::single_flight::SingleFlight;
 use igniter_machine::write::{FakeWriteExecutor, WriteBehavior};
 
-use igniter_server::effect_host::{serve_once_effect, MachineEffectHost};
+use igniter_server::effect_host::{MachineEffectHost, serve_once_effect};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // The SparkCRM-shaped app is a TEST FIXTURE (not part of the core server surface, P6).
 #[path = "fixtures/sparkcrm_app.rs"]
 mod sparkcrm_fixture;
-use sparkcrm_fixture::{payloads as fx, SparkCrmApp};
+use sparkcrm_fixture::{SparkCrmApp, payloads as fx};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -180,6 +180,7 @@ fn cfg(s: &EffectState) -> EffectBridgeConfig<'_> {
         receipts: &s.receipts,
         effect_clock: &s.eclock,
         effect_passport: &s.ep,
+        effect_passport_verifier: None,
         single_flight: &s.sf,
         capability_id: CAP.into(),
         operation: "register_lead".into(),
@@ -211,7 +212,11 @@ async fn webhook(
     let body_s = body.to_string();
     let req = format!(
         "POST {} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer vtok\r\nX-Auction-Id: {}\r\nX-Correlation-Id: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        path, auction_id, corr, body_s.len(), body_s
+        path,
+        auction_id,
+        corr,
+        body_s.len(),
+        body_s
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut resp = Vec::new();
@@ -373,7 +378,7 @@ fn test_after_limit_dedup_last_replays_fifth_attempt() {
                 webhook(addr, "/webhook/leads", "AUC-DUP", "auc-corr", &body)
             )
             .1
-             .1;
+            .1;
         }
         assert_eq!(st.exec.applied_count(), 5);
 

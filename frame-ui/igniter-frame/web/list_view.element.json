@@ -1,0 +1,120 @@
+{
+  "attrs": {
+    "dir": "row",
+    "flex": 0,
+    "gap": 0,
+    "main": 0,
+    "pad": 0
+  },
+  "children": [
+    {
+      "attrs": {
+        "dir": "col",
+        "flex": 0,
+        "gap": 8,
+        "main": 248,
+        "pad": 12
+      },
+      "children": [
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Review Ada's lead"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Call Grace back"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Send Linus the quote"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 40,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "add",
+          "tag": "button",
+          "text": "+ add item"
+        }
+      ],
+      "intent": "",
+      "tag": "col",
+      "text": ""
+    },
+    {
+      "attrs": {
+        "dir": "col",
+        "flex": 1,
+        "gap": 14,
+        "main": 1,
+        "pad": 18
+      },
+      "children": [
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 30,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "select",
+          "tag": "leaf",
+          "text": "Review Ada's lead"
+        },
+        {
+          "attrs": {
+            "dir": "leaf",
+            "flex": 0,
+            "gap": 0,
+            "main": 48,
+            "pad": 0
+          },
+          "children": [],
+          "intent": "toggle",
+          "tag": "button",
+          "text": "mark done"
+        }
+      ],
+      "intent": "",
+      "tag": "col",
+      "text": ""
+    }
+  ],
+  "intent": "",
+  "tag": "row",
+  "text": ""
+}

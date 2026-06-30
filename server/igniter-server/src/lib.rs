@@ -11,4 +11,5 @@ pub mod host;
 pub mod middleware;
 pub mod protocol;
 pub mod reload;
+pub mod serving_gate;
 pub mod serving_loop;
