@@ -139,6 +139,10 @@ fn agent_initialize_and_lists_only_safe_tools() {
         "app_bundle",
         "env_doctor",
         "env_check",
+        "stdlib_list",
+        "stdlib_search",
+        "stdlib_show",
+        "diagnostic_explain",
     ] {
         assert!(
             tools.contains(&want.to_string()),
@@ -155,6 +159,156 @@ fn agent_initialize_and_lists_only_safe_tools() {
             "no `{forbidden}`-like tool in v0: {tools:?}"
         );
     }
+}
+
+// ── stdlib/explain tools (LAB-IGNITER-MCP-STDLIB-SURFACE-P2): read-only CLI JSON delegation ────────────
+
+fn string_items(v: &Value) -> Vec<String> {
+    v.as_array()
+        .unwrap_or_else(|| panic!("expected array, got {v}"))
+        .iter()
+        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+        .collect()
+}
+
+#[test]
+fn agent_stdlib_tools_return_parsed_cli_json() {
+    let r = drive_agent(&[
+        r#"{"jsonrpc":"2.0","id":34,"method":"tools/call","params":{"name":"stdlib_show","arguments":{"name":"find"}}}"#,
+        r#"{"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"stdlib_search","arguments":{"query":"predicate"}}}"#,
+        r#"{"jsonrpc":"2.0","id":36,"method":"tools/call","params":{"name":"diagnostic_explain","arguments":{"rule":"OOF-COL3"}}}"#,
+        r#"{"jsonrpc":"2.0","id":37,"method":"tools/call","params":{"name":"stdlib_list","arguments":{"category":"collection"}}}"#,
+    ]);
+
+    let show = by_id(&r, 34);
+    let (show_human, show_err) = tool_text(show);
+    assert!(
+        !show_err && show_human.contains("exit_code: 0"),
+        "stdlib_show find succeeds with human text: {show_human}"
+    );
+    let show_env = envelope(show);
+    assert_eq!(show_env["tool"], "stdlib_show");
+    assert_eq!(show_env["parsed"]["kind"], "igniter_stdlib_show_result");
+    assert_eq!(
+        show_env["parsed"]["entry"]["canonical_name"], "stdlib.collection.find",
+        "show find resolves canonical entry: {show_env}"
+    );
+
+    let search_env = envelope(by_id(&r, 35));
+    assert_eq!(search_env["tool"], "stdlib_search");
+    assert_eq!(search_env["parsed"]["kind"], "igniter_stdlib_search_result");
+    let matches: Vec<String> = search_env["parsed"]["matches"]
+        .as_array()
+        .expect("search matches array")
+        .iter()
+        .filter_map(|m| m["canonical_name"].as_str().map(|s| s.to_string()))
+        .collect();
+    for want in [
+        "stdlib.collection.find",
+        "stdlib.collection.any",
+        "stdlib.collection.all",
+    ] {
+        assert!(
+            matches.contains(&want.to_string()),
+            "stdlib_search predicate must include {want}: {matches:?}"
+        );
+    }
+
+    let explain_env = envelope(by_id(&r, 36));
+    assert_eq!(explain_env["tool"], "diagnostic_explain");
+    assert_eq!(
+        explain_env["parsed"]["kind"],
+        "igniter_diagnostic_explain_result"
+    );
+    let entries = string_items(&explain_env["parsed"]["entries"]);
+    for want in [
+        "stdlib.collection.find",
+        "stdlib.collection.any",
+        "stdlib.collection.all",
+    ] {
+        assert!(
+            entries.contains(&want.to_string()),
+            "diagnostic_explain OOF-COL3 must include {want}: {entries:?}"
+        );
+    }
+
+    let list_env = envelope(by_id(&r, 37));
+    assert_eq!(list_env["tool"], "stdlib_list");
+    assert_eq!(list_env["parsed"]["kind"], "igniter_stdlib_list_result");
+    let entries = list_env["parsed"]["entries"]
+        .as_array()
+        .expect("stdlib list entries array");
+    assert!(
+        !entries.is_empty(),
+        "collection category has entries: {list_env}"
+    );
+    assert!(
+        entries.iter().all(|e| e["category"] == "collection"),
+        "stdlib_list category=collection returns only collection entries: {list_env}"
+    );
+}
+
+#[test]
+fn agent_stdlib_tools_map_errors_without_transport_failures() {
+    let r = drive_agent(&[
+        r#"{"jsonrpc":"2.0","id":38,"method":"tools/call","params":{"name":"stdlib_search","arguments":{"query":"   "}}}"#,
+        r#"{"jsonrpc":"2.0","id":39,"method":"tools/call","params":{"name":"stdlib_show","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"diagnostic_explain","arguments":{"rule":""}}}"#,
+        r#"{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"stdlib_show","arguments":{"name":"definitely.not.real"}}}"#,
+        r#"{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"diagnostic_explain","arguments":{"rule":"OOF-NOPE"}}}"#,
+    ]);
+
+    for (id, tool, arg) in [
+        (38, "stdlib_search", "query"),
+        (39, "stdlib_show", "name"),
+        (40, "diagnostic_explain", "rule"),
+    ] {
+        let resp = by_id(&r, id);
+        let (text, is_err) = tool_text(resp);
+        assert!(
+            is_err && text.contains("missing required argument"),
+            "id{id}: missing/blank {arg} is a clean tool error: {text}"
+        );
+        let env = envelope(resp);
+        assert_eq!(env["tool"], tool, "id{id}: envelope tool: {env}");
+        assert_eq!(env["ok"], false, "id{id}: ok:false: {env}");
+        assert!(
+            env["exit_code"].is_null(),
+            "id{id}: no command launched: {env}"
+        );
+        assert!(env["parsed"].is_null(), "id{id}: parsed:null: {env}");
+    }
+
+    let missing = by_id(&r, 41);
+    let (_text, is_err) = tool_text(missing);
+    assert!(is_err, "unknown stdlib show target is a tool error");
+    let missing_env = envelope(missing);
+    assert_eq!(missing_env["tool"], "stdlib_show");
+    assert_eq!(missing_env["ok"], false);
+    assert_eq!(missing_env["exit_code"], 1);
+    assert_eq!(
+        missing_env["parsed"]["reason"], "not_found",
+        "unknown stdlib target preserves parsed CLI JSON: {missing_env}"
+    );
+
+    let unused = by_id(&r, 42);
+    let (_text, is_err) = tool_text(unused);
+    assert!(
+        !is_err,
+        "unused diagnostic follows igc contract: successful empty explanation"
+    );
+    let unused_env = envelope(unused);
+    assert_eq!(unused_env["tool"], "diagnostic_explain");
+    assert_eq!(unused_env["ok"], true);
+    assert_eq!(unused_env["exit_code"], 0);
+    assert_eq!(unused_env["parsed"]["count"], 0);
+    assert!(
+        unused_env["parsed"]["entries"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false),
+        "unused diagnostic returns empty entries: {unused_env}"
+    );
 }
 
 #[test]
