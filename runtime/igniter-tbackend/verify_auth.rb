@@ -84,16 +84,49 @@ SEC_DIR   = File.join(DATA_DIR, "security")
 HANDOFF   = File.join(SEC_DIR, "BOOTSTRAP_ADMIN_TOKEN")
 LOG       = "auth_daemon.log"
 PORT      = 7409
+AUTH_OFF_DATA_DIR = "auth_off_data"
+AUTH_OFF_LOG      = "auth_off_daemon.log"
+AUTH_OFF_PORT     = 7410
 UNIX      = RUBY_PLATFORM !~ /mswin|mingw/
 FileUtils.rm_rf(DATA_DIR)
+FileUtils.rm_rf(AUTH_OFF_DATA_DIR)
 FileUtils.rm_f(LOG)
+FileUtils.rm_f(AUTH_OFF_LOG)
 FileUtils.mkdir_p(DATA_DIR)
+FileUtils.mkdir_p(AUTH_OFF_DATA_DIR)
 
 def spawn_daemon(mode)
   spawn(
     "./target/release/tbackend --host 127.0.0.1 --port #{PORT} --data-dir #{DATA_DIR} --pool-size 4 --auth-enabled true",
     %i[out err] => [LOG, mode]
   )
+end
+
+# 0. Auth disabled — should not create any bootstrap token or security state.
+puts "\n[Auth Disabled] Boot with auth off must not mint BOOTSTRAP_ADMIN_TOKEN..."
+auth_off_pid = spawn(
+  "./target/release/tbackend --host 127.0.0.1 --port #{AUTH_OFF_PORT} --data-dir #{AUTH_OFF_DATA_DIR} --pool-size 4 --auth-enabled false",
+  %i[out err] => [AUTH_OFF_LOG, "w"]
+)
+begin
+  sleep 1.0
+  auth_off_client = AuthTestClient.new("127.0.0.1", AUTH_OFF_PORT)
+  auth_off_ping = auth_off_client.send_req(op: "ping")
+  assert_equal(true, auth_off_ping[:ok], "auth-off daemon accepts ping without a token")
+  auth_off_client.close
+  assert(!File.exist?(File.join(AUTH_OFF_DATA_DIR, "security", "BOOTSTRAP_ADMIN_TOKEN")),
+         "auth-off daemon does not write BOOTSTRAP_ADMIN_TOKEN")
+  assert(!Dir.exist?(File.join(AUTH_OFF_DATA_DIR, "security")),
+         "auth-off daemon does not create security/ token state")
+ensure
+  begin
+    Process.kill("INT", auth_off_pid)
+    Process.wait(auth_off_pid)
+  rescue
+    # already stopped
+  end
+  FileUtils.rm_rf(AUTH_OFF_DATA_DIR)
+  FileUtils.rm_f(AUTH_OFF_LOG)
 end
 
 # 1. First persistent boot — should mint a RANDOM bootstrap admin token (no admin_default).

@@ -76,8 +76,9 @@ flag). For now, health-probe externally with the framed ping above, or an ECS/K8
   restarts).
 - **Logs:** stdout/stderr → CloudWatch Logs (the daemon already logs there).
 - **Config/secrets:** supply config via a mounted file or a template rendered from **SSM Parameter Store /
-  Secrets Manager** — **never bake secrets into the image**. (Auth is off by default; when enabled, the
-  bootstrap token + token store are runtime state under the volume, not image content.)
+  Secrets Manager** — **never bake secrets into the image**. Auth is off by default and does not create
+  bootstrap/token state; when auth is enabled, the bootstrap token + token store are runtime state under the
+  volume, not image content.
 - **Tags:** use **immutable** version tags (`tbackend:0.1.0-lab.1`, aligned with the release manifest
   convention) — **never `latest`** in task definitions or runbooks.
 - **Network:** keep it loopback / private-subnet; TLS/mTLS and auth hardening are separate follow-ups.

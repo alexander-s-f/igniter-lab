@@ -395,26 +395,29 @@ impl ServerPack for AuthPack {
     }
 
     fn install_into(&self, kernel: &mut ServerKernel) -> Result<(), String> {
-        // 1. Scan and preload tokens
-        if let Some(ref dir) = kernel.data_dir {
-            let loaded = load_persistent_tokens(dir);
-            self.registry.write().tokens.extend(loaded);
-        } else {
-            // P9 Ephemeral Mode (no --data-dir): in-memory dev/test admin only. NOT production auth —
-            // tokens cannot persist, so this uses a known dev constant CONFINED to the no-data-dir path
-            // (never written to disk, gone on restart). Real auth must run with --data-dir (P9 bootstrap).
-            let config = make_token_config(
-                "ephemeral_dev_admin",
-                "admin".to_string(),
-                vec!["*".to_string()],
-                false,
-                Some("ephemeral-dev".to_string()),
-            );
-            self.registry
-                .write()
-                .tokens
-                .insert(config.token_hash.clone(), config);
-            eprintln!("[Security] WARNING: auth enabled without --data-dir; using an in-memory dev admin token (not for production — run with --data-dir for persistent P9 token storage).");
+        // 1. Scan and preload tokens only when auth is enabled. Auth-off dev and
+        // Docker configs should not create `security/` or bootstrap handoff state.
+        if kernel.auth_enabled {
+            if let Some(ref dir) = kernel.data_dir {
+                let loaded = load_persistent_tokens(dir);
+                self.registry.write().tokens.extend(loaded);
+            } else {
+                // P9 Ephemeral Mode (no --data-dir): in-memory dev/test admin only. NOT production auth —
+                // tokens cannot persist, so this uses a known dev constant CONFINED to the no-data-dir path
+                // (never written to disk, gone on restart). Real auth must run with --data-dir (P9 bootstrap).
+                let config = make_token_config(
+                    "ephemeral_dev_admin",
+                    "admin".to_string(),
+                    vec!["*".to_string()],
+                    false,
+                    Some("ephemeral-dev".to_string()),
+                );
+                self.registry
+                    .write()
+                    .tokens
+                    .insert(config.token_hash.clone(), config);
+                eprintln!("[Security] WARNING: auth enabled without --data-dir; using an in-memory dev admin token (not for production — run with --data-dir for persistent P9 token storage).");
+            }
         }
 
         let command_reg = &mut *kernel.command_registry.write();
