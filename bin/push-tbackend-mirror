@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Push runtime/igniter-tbackend as a clean subtree mirror.
+#
+# This is a monorepo-owner helper. Keep it outside runtime/igniter-tbackend so it
+# does not appear inside the team-facing mirror repository.
+
+set -euo pipefail
+
+PREFIX="runtime/igniter-tbackend"
+REMOTE="${TBACKEND_REMOTE:-tbackend}"
+REMOTE_BRANCH="${TBACKEND_REMOTE_BRANCH:-main}"
+SPLIT_BRANCH="${TBACKEND_SPLIT_BRANCH:-tbackend-main}"
+
+usage() {
+  cat <<USAGE
+Usage: bin/push-tbackend-mirror
+
+Push the $PREFIX subtree to the '$REMOTE' remote branch '$REMOTE_BRANCH'.
+
+Expected setup:
+  git remote add tbackend ssh://git@git.int.avenlance.com:222/Igniter/igniter-tbackend.git
+
+Recommended flow:
+  git status
+  git add <files>
+  git commit -m "..."
+  git push origin main
+  bin/push-tbackend-mirror
+
+Environment overrides:
+  TBACKEND_REMOTE        default: tbackend
+  TBACKEND_REMOTE_BRANCH default: main
+  TBACKEND_SPLIT_BRANCH  default: tbackend-main
+USAGE
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if [[ ! -d "$PREFIX" ]]; then
+  echo "push-tbackend-mirror: ERROR: prefix not found: $PREFIX" >&2
+  exit 1
+fi
+
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "push-tbackend-mirror: ERROR: remote '$REMOTE' is not configured." >&2
+  echo "Run:" >&2
+  echo "  git remote add tbackend ssh://git@git.int.avenlance.com:222/Igniter/igniter-tbackend.git" >&2
+  exit 1
+fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "push-tbackend-mirror: ERROR: working tree is dirty; commit or stash first." >&2
+  git status --short >&2
+  exit 1
+fi
+
+echo "push-tbackend-mirror: splitting $PREFIX ..."
+git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+git subtree split --prefix="$PREFIX" -b "$SPLIT_BRANCH"
+
+cleanup() {
+  git branch -D "$SPLIT_BRANCH" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "push-tbackend-mirror: pushing $SPLIT_BRANCH -> $REMOTE/$REMOTE_BRANCH ..."
+git push "$REMOTE" "$SPLIT_BRANCH:$REMOTE_BRANCH"
+
+echo "push-tbackend-mirror: OK"
