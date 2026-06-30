@@ -2,7 +2,10 @@
 //! P18 host bridge (real capsule invoke + fake capability-IO effect → receipt), the host serializes
 //! the result into a plain `HostActionRecord` JSON, and the machine-free console renders that
 //! action/receipt lineage. The console consumes DATA only; this is a host-side (dev-dep) integration
-//! test — console/ui-kit never depend on the machine.
+//! test — console/ui-kit never depend on the machine IN PRODUCTION (this test lives here, in
+//! `igniter-console`, with `igniter_machine` as a TEST-ONLY dev-dependency, so the reverse is also
+//! true: `igniter-machine` carries zero frame-ui dependencies and is buildable in a pure-core
+//! checkout — LAB-IGNITER-MIRROR-MACHINE-DEVDEP-RECONCILE-P3).
 
 use igniter_console::Console;
 use igniter_machine::backend::{InMemoryBackend, TBackend};
@@ -27,8 +30,9 @@ const EFFECT_CAP: &str = "IO.FrameFixture";
 const ARTIFACT: &str = r#"{ "artifact":"view","layout":"workbench",
   "actions": { "record": { "contract":"Add", "input":{"a":"$form.a","b":"$form.b"},
     "effect": { "capability_id":"IO.FrameFixture","operation":"record","scope":"write" } } } }"#;
-const LEAD_REVIEW: &str =
-    include_str!("../../frame-ui/igniter-ui-kit/web/lead_review.view.json");
+// The identical fixture also lives at `../../igniter-ui-kit/web/lead_review.view.json`; using the
+// local copy keeps this test's only cross-crate edge the `igniter_machine` dev-dependency itself.
+const LEAD_REVIEW: &str = include_str!("../web/lead_review.view.json");
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

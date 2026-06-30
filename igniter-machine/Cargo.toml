@@ -54,12 +54,11 @@ required-features = ["repl"]
 name = "igniter-mcp"
 path = "src/bin/mcp.rs"
 
-# E2E proof only (LAB-FRAME-BINDING-CONSOLE-E2E-P20): the host-side test drives the binding bridge →
-# console (top-of-stack integration). console/ui-kit depend on igniter_frame WITHOUT the `machine`
-# feature, so there is no dependency cycle and they stay machine-free. This is a DEV dep only.
-[dev-dependencies]
-igniter_console = { path = "../frame-ui/igniter-console" }
-igniter_ui_kit = { path = "../frame-ui/igniter-ui-kit" }
+# No [dev-dependencies]: the frame-binding console E2E proof (LAB-FRAME-BINDING-CONSOLE-E2E-P20) moved
+# to frame-ui/igniter-console/tests/ (LAB-IGNITER-MIRROR-MACHINE-DEVDEP-RECONCILE-P3) — igniter_machine
+# carries zero frame-ui edges, so a pure-core mirror checkout (no frame-ui/ sibling) builds and tests
+# clean. frame_binding.rs / frame_binding_effect.rs are machine-internal bridge code with no frame-ui
+# Cargo dependency; their unit tests (frame_binding_tests.rs, frame_binding_effect_tests.rs) stay here.
 
 [profile.release]
 lto = true

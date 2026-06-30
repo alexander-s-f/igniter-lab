@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 const FIXTURE: &str =
-    "../frame-ui/igniter-view-engine/fixtures/storage_capability/storage_capability_exec.ig";
+    "tests/fixtures/storage_capability/storage_capability_exec.ig";
 // the declared capability type of ExecuteQuery's `storage` capability = the executor id
 const STORAGE_CAP: &str = "IO.StorageCapability";
 

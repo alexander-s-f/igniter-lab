@@ -20,3 +20,12 @@ wasm = ["dep:wasm-bindgen"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+# E2E proof only (LAB-FRAME-BINDING-CONSOLE-E2E-P20, relocated here by
+# LAB-IGNITER-MIRROR-MACHINE-DEVDEP-RECONCILE-P3): the host-side bridge → console integration test
+# drives a real `igniter_machine` bridge, then renders the result through this crate's OWN public
+# `Console` API. TEST-ONLY — console's production `[dependencies]` above stay machine-free, and
+# `igniter_machine` carries no reverse (frame-ui) dependency at all, so there is no cycle.
+[dev-dependencies]
+igniter_machine = { path = "../../igniter-machine" }
+tokio = { version = "1.0", features = ["full"] }

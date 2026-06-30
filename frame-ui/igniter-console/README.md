@@ -18,7 +18,11 @@ developer tooling:
 
 It invents no layout primitives: it reuses `igniter-frame`'s `Frame` / `ProjectedNode` / `hit_test`
 for its own chrome and **embeds the target's rendered SVG** in the viewer. No `igniter-machine` in
-the path.
+the path — **production** (`[dependencies]`) stays machine-free; one **dev-only** integration test
+(`tests/frame_binding_console_e2e_tests.rs`, relocated here from `igniter-machine` by
+`LAB-IGNITER-MIRROR-MACHINE-DEVDEP-RECONCILE-P3`) exercises a real `igniter_machine` bridge end to
+end and renders the result through this crate's own public `Console` API — so `igniter-machine`
+itself carries zero frame-ui dependencies and stays buildable in a pure-core mirror checkout.
 
 ## What it does
 
@@ -48,7 +52,8 @@ web/build.sh   # build wasm + glue + serve 127.0.0.1:8735
 # open http://127.0.0.1:8735/console.html — click the frame viewer to drive the app, click a chip to scrub
 ```
 
-`cargo test` runs 7 native tests (shell, viewer-forward, scrub, diff, lineage, typing, initial).
+`cargo test` runs 7 console-only native tests (shell, viewer-forward, scrub, diff, lineage, typing,
+initial) plus 3 dev-only `igniter_machine` E2E tests (`frame_binding_console_e2e_tests.rs`).
 
 ## Boundary / status
 

@@ -614,25 +614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "igniter_console"
-version = "0.1.0"
-dependencies = [
- "igniter_frame",
- "igniter_ui_kit",
- "serde_json",
-]
-
-[[package]]
-name = "igniter_frame"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "blake3",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "igniter_machine"
 version = "0.1.0"
 dependencies = [
@@ -643,9 +624,7 @@ dependencies = [
  "crossterm",
  "futures",
  "igniter_compiler",
- "igniter_console",
  "igniter_tbackend_playground",
- "igniter_ui_kit",
  "igniter_vm",
  "parking_lot",
  "ratatui",
@@ -680,16 +659,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
-]
-
-[[package]]
-name = "igniter_ui_kit"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "igniter_frame",
- "serde",
- "serde_json",
 ]
 
 [[package]]
