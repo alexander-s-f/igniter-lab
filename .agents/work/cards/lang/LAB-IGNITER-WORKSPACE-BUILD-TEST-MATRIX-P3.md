@@ -1,6 +1,6 @@
 # LAB-IGNITER-WORKSPACE-BUILD-TEST-MATRIX-P3 — `igniter workspace build/test` bounded core checks
 
-Status: OPEN
+Status: DONE
 Lane: distribution / command center / workspace Dev lane
 Type: implementation
 Delegation code: OPUS-IGNITER-WORKSPACE-BUILD-TEST-MATRIX-P3
@@ -145,17 +145,60 @@ Also verify a fresh mirror/sibling checkout if this card changes matrix semantic
 
 ## Acceptance
 
-- [ ] `igniter workspace build` exists and runs core crate build checks.
-- [ ] `igniter workspace test` exists and runs a bounded core matrix.
-- [ ] `--quick` exists if full matrix is too slow for default development loops.
-- [ ] `--json` exists and is machine-readable.
-- [ ] Missing `igniter-lang` sibling fails clearly before compiler/machine checks.
-- [ ] Machine pure-core lane is included or explicitly justified if gated.
-- [ ] Known flake handling is explicit, not swept under the rug.
-- [ ] No root workspace created.
-- [ ] No `Cargo.toml` rewrites.
-- [ ] `git diff --check` clean.
+- [x] `igniter workspace build` exists and runs core crate build checks.
+- [x] `igniter workspace test` exists and runs a bounded core matrix.
+- [x] `--quick` exists if full matrix is too slow for default development loops.
+- [x] `--json` exists and is machine-readable.
+- [x] Missing `igniter-lang` sibling fails clearly before compiler/machine checks.
+- [x] Machine pure-core lane is included or explicitly justified if gated.
+- [x] Known flake handling is explicit, not swept under the rug.
+- [x] No root workspace created.
+- [x] No `Cargo.toml` rewrites.
+- [x] `git diff --check` clean.
 
 ## Closing report
 
-Fill when complete.
+**Date:** 2026-07-01. Changes staged (not committed). No mirrors pushed, no root workspace, no `Cargo.toml`
+touched.
+
+**Implemented** in `bin/igniter`: `workspace build` + `workspace test [--quick]` via `ws_matrix` + `ws_step`
++ `_ws_matrix_render`, wired into `cmd_workspace` and both usages. Package-LOCAL cargo per crate (each crate's
+own `Cargo.toml`; no root workspace). Reuses the P2 diagnostic-record schema — `--json` emits
+`[{scope:"workspace",check,severity,detail,suggest}]` (ok/warn/fail/info). `ws_step` captures cargo output
+and, on failure only, echoes the tail to STDERR so `--json` on STDOUT stays a clean array. Exit 1 on any
+matrix failure, 2 on usage.
+
+**Matrix (verified live, all package-local):**
+- `build` → `cargo build` each of stdlib/vm/tbackend/compiler + `igniter-machine` with `--no-default-features`
+  (the pure-core build). → **6/6 ok, exit 0.**
+- `test` (full) → stdlib + tbackend tests, then a **`cargo build --release --bin tbackend`** prep (vm's
+  `reactive_tests` spawns that daemon — the matrix encodes the real graph so vm is honest-green), then vm +
+  compiler tests, then the **machine PURE-CORE lane** `cargo test --no-default-features --no-fail-fast` (the
+  mirror/core autonomy proof). → **all steps ok, exit 0.**
+- `test --quick` → `cargo metadata --no-deps` per crate (fast resolve/manifest) + a pure-core **compile** of
+  machine. Does NOT skip the pure-core lane — narrows it to a compile check. → **7 records, 0 fail, exit 0.**
+
+**Sibling preflight (acceptance):** the canon `igniter-lang` inventory is checked first; when absent the
+compiler + machine steps are emitted as `fail` ("skipped: canon sibling absent") **without running cargo**,
+and the run exits 1 — verified by renaming the inventory away (`[fail] igniter-lang sibling` + `[fail]
+compile igniter-machine (pure-core) skipped` → exit 1; restored). Leaf crates (stdlib/vm/tbackend) don't need
+canon and still run.
+
+**Known-flake handling (not swept under the rug):** the machine default-feature suite has one known flaky
+test, `wire_atomic_gate_tests::plain_run_write_effect_doubles_under_forced_interleave` (forced-interleave
+concurrency; 3/3 green in isolation, only flaps under full parallel scheduling — documented in P3
+devdep-reconcile). The workspace matrix runs the machine **pure-core** lane (`--no-default-features`), where
+it did **not** manifest across the full runs here; the matrix uses `--no-fail-fast` so a real failure would
+surface every case rather than stop early. No suite is marked green by default — exit code is the cargo truth.
+
+**Verification (this box):** `workspace build --json` / `test --quick --json` / `test --quick` → exit 0;
+full `workspace test` → all ok, exit 0; arg rejections (`build --quick`, `test <positional>`, `build extra`)
+→ exit 2; missing-sibling → exit 1. New wrapper tests in `server/igniter-web/tests/igniter_workspace_tests.rs`
+(now **9/9**, P2+P3): help documents build/test + `--quick` + pure-core, `build` rejects `--quick`, `test`
+rejects a positional. The heavy matrix itself is verified by direct invocation (not nested inside `cargo
+test`). Regression: `igniter_doctor_tests` → 6/6. `git diff --check` clean; no trailing whitespace.
+
+**Pressure noted for P4:** the doctor record schema carries no per-command duration or overall exit-code
+field — fine for v0 (exit code is the process's), but a unified JSON/MCP contract (P4) should add an envelope
+with overall status + timing so CI/agents get one machine-readable summary instead of scanning records.
+`workspace sync` was intentionally NOT implemented (out of this card's read-plus-build scope).

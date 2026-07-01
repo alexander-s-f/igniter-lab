@@ -52,7 +52,9 @@ Workspace (Dev — develop Igniter itself):
   workspace status      read-only report: flattened core layout, igniter-lang sibling, mirror helpers,
                         igniter-lab branch/dirty, best-effort mirror remote HEADs
   workspace doctor      the same checks as diagnostic records; exits non-zero on a required-local layout fail
-                        (both take [--json]; read-only — no clone/fetch/pull/push/build/test)
+  workspace build       cargo-build each core crate package-local (no root workspace); exits 1 on failure
+  workspace test [--quick]  bounded core matrix (stdlib/compiler/vm/tbackend + machine pure-core lane)
+                        (all take [--json]; status/doctor read-only, build/test run package-local cargo)
 
 Diagnostics & toolchain:
   doctor                local, non-mutating environment report (binaries, repo, igniter-lang sibling, rustc)
@@ -395,19 +397,28 @@ EOF
 # Both reuse the doctor record machinery (doc_emit / doc_render_{text,json}), so `--json` shares one schema.
 workspace_usage() {
   cat <<'EOF'
-usage: igniter workspace <status | doctor> [--json]
+usage: igniter workspace <status | doctor | build | test> [--json] [--quick]
 
-The Dev lane: read-only diagnosis of an igniter-lab SOURCE checkout (the flattened core crates + the canon
-igniter-lang sibling + the mirror push helpers). It clones/fetches/pulls/pushes/builds NOTHING and mutates
-nothing — it only reports. (Pushing mirrors stays in bin/push-*-mirror; build/test is a later card.)
+The Dev lane over an igniter-lab SOURCE checkout (the flattened core crates + the canon igniter-lang sibling
++ the mirror push helpers). status/doctor are read-only; build/test run package-local cargo per crate. It
+clones/fetches/pulls/pushes NOTHING, creates NO root workspace, and pushes NO mirrors (that stays bin/push-*).
 
-  status [--json]   compact read-only report: core layout, Cargo.toml presence, igniter-lang sibling,
-                    mirror helper presence, igniter-lab branch/dirty, and best-effort mirror remote HEADs
-  doctor [--json]   the same checks as diagnostic records; exits NON-ZERO if a required LOCAL layout check
-                    fails (missing core crate / Cargo.toml / igniter-lang sibling). Remote lookups are soft.
+  status [--json]        read-only report: core layout, Cargo.toml presence, igniter-lang sibling, mirror
+                         helper presence, igniter-lab branch/dirty, best-effort mirror remote HEADs
+  doctor [--json]        the same checks as records; exits NON-ZERO on a required LOCAL layout fail
+  build  [--json]        `cargo build` each core crate package-local (machine built --no-default-features);
+                         exits 1 on any build failure
+  test   [--json] [--quick]
+                         bounded core matrix: stdlib/compiler/vm/tbackend tests + machine PURE-CORE lane
+                         (`--no-default-features --no-fail-fast`, the mirror/core autonomy proof). --quick =
+                         `cargo metadata` per crate + a pure-core compile (fast; runs no suites). Exits 1 on fail.
 
-  --json            emit the doctor record schema: [{scope,check,severity,detail,suggest}] (severity ∈ ok/warn/fail/info)
-  -h | --help       this help
+  --json                 emit the doctor record schema: [{scope,check,severity,detail,suggest}] (ok/warn/fail/info)
+  --quick                (test only) fast metadata + pure-core compile instead of the full suites
+  -h | --help            this help
+
+A missing igniter-lang sibling fails CLEARLY before the compiler/machine steps (they include_str! the canon
+inventory at build time). Known-flaky tests are reported, never hidden.
 
 Network is SOFT: a mirror remote HEAD lookup that fails (offline / no SSH) is a `warn`, never fatal, and
 never prompts for credentials. Set IGNITER_WORKSPACE_NO_REMOTE=1 to skip remote lookups entirely (CI/offline).
@@ -521,12 +532,124 @@ ws_run() {
   exit 0
 }
 
+# ── workspace build / test (Dev lane — bounded core matrix; LAB-IGNITER-WORKSPACE-BUILD-TEST-MATRIX-P3) ─
+# Package-LOCAL cargo per core crate — NO root workspace, NO Cargo.toml change, NO mirror push/fetch.
+WS_MATRIX_FAIL=0
+
+# Run a package-local cargo command; record ok/fail as a workspace record. cargo noise is captured and,
+# on failure only, its tail is echoed to STDERR so `--json` on STDOUT stays a clean record array.
+ws_step() { # $1 record-label  $2 crate-dir (rel)  $3.. command…
+  local label="$1" dir="$2"; shift 2
+  local out
+  if out="$(cd "$REPO_ROOT/$dir" 2>/dev/null && "$@" 2>&1)"; then
+    doc_emit workspace "$label" ok "$* ✓ (in $dir)" ""
+  else
+    doc_emit workspace "$label" fail "$* FAILED in $dir" "cd $dir && $*"
+    WS_MATRIX_FAIL=1
+    { echo "── workspace: $label — last lines ──"; printf '%s\n' "$out" | tail -12; } >&2
+  fi
+}
+
+_ws_matrix_render() { # $1 which  $2 json
+  if [[ "$2" -eq 1 ]]; then
+    doc_render_json
+  else
+    echo "igniter workspace $1 — bounded core matrix (package-local; no root workspace)"
+    echo "  repo_root: $REPO_ROOT"
+    doc_render_text
+  fi
+}
+
+# $1 = build | test. Reuses the P2 diagnostic record schema; exits 1 on any matrix failure.
+ws_matrix() {
+  local which="$1"; shift
+  local json=0 quick=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)  json=1;  shift ;;
+      --quick) quick=1; shift ;;
+      -h|--help) workspace_usage; exit 0 ;;
+      -*) echo "$PROG: workspace $which: unknown option '$1'" >&2; exit 2 ;;
+      *)  echo "$PROG: workspace $which takes no positional args (got '$1')" >&2; exit 2 ;;
+    esac
+  done
+  if [[ "$which" == "build" && "$quick" -eq 1 ]]; then
+    echo "$PROG: workspace build has no --quick (use 'workspace test --quick')" >&2; exit 2
+  fi
+
+  DOC_RECORDS=(); WS_MATRIX_FAIL=0
+
+  # source-checkout guard (build/test only make sense on the crate tree)
+  if [[ ! -f "$REPO_ROOT/igniter-compiler/Cargo.toml" ]]; then
+    doc_emit workspace mode fail "not an igniter-lab source checkout (no core crate tree at $REPO_ROOT)" "run workspace build/test from a source checkout"
+    _ws_matrix_render "$which" "$json"; exit 1
+  fi
+
+  # canon sibling preflight — igc + machine include_str! the canon inventory at BUILD time, so a missing
+  # sibling must fail CLEARLY here, before (and instead of) the compiler/machine cargo steps.
+  local lang_ok=1
+  if [[ -f "$LANG_INVENTORY" ]]; then
+    doc_emit workspace "igniter-lang sibling" ok "canon inventory present" ""
+  else
+    lang_ok=0; WS_MATRIX_FAIL=1
+    doc_emit workspace "igniter-lang sibling" fail "absent at $LANG_SIBLING" "check out igniter-lang beside igniter-lab BEFORE compiler/machine checks"
+  fi
+
+  if [[ "$which" == "build" ]]; then
+    # `cargo build` per crate, package-local. leaves + vm first (no canon needed), then canon-dependent.
+    ws_step "build igniter-stdlib"   igniter-stdlib   cargo build --quiet
+    ws_step "build igniter-vm"       igniter-vm       cargo build --quiet
+    ws_step "build igniter-tbackend" igniter-tbackend cargo build --quiet
+    if [[ "$lang_ok" -eq 1 ]]; then
+      ws_step "build igniter-compiler"            igniter-compiler cargo build --quiet
+      ws_step "build igniter-machine (pure-core)" igniter-machine  cargo build --quiet --no-default-features
+    else
+      doc_emit workspace "build igniter-compiler"            fail "skipped: canon sibling absent" "check out igniter-lang"
+      doc_emit workspace "build igniter-machine (pure-core)" fail "skipped: canon sibling absent" "check out igniter-lang"
+    fi
+
+  elif [[ "$quick" -eq 1 ]]; then
+    # --quick: manifest/resolve check per crate (no compile) + a pure-core COMPILE for machine. Fast; does
+    # NOT skip the pure-core lane — it just narrows it to a compile check (full 'test' runs the suite).
+    local c
+    for c in igniter-stdlib igniter-compiler igniter-vm igniter-tbackend igniter-machine; do
+      ws_step "meta $c" "$c" cargo metadata --no-deps --format-version 1
+    done
+    if [[ "$lang_ok" -eq 1 ]]; then
+      ws_step "compile igniter-machine (pure-core)" igniter-machine cargo build --quiet --no-default-features
+    else
+      doc_emit workspace "compile igniter-machine (pure-core)" fail "skipped: canon sibling absent" "check out igniter-lang"
+    fi
+
+  else
+    # full bounded matrix. vm's reactive integration test spawns the tbackend RELEASE daemon, so build it
+    # first (encoding the real core graph). machine runs the PURE-CORE lane — the mirror/core autonomy proof.
+    ws_step "test igniter-stdlib"   igniter-stdlib   cargo test --quiet
+    ws_step "test igniter-tbackend" igniter-tbackend cargo test --quiet
+    ws_step "prep tbackend daemon"  igniter-tbackend cargo build --quiet --release --bin tbackend
+    ws_step "test igniter-vm"       igniter-vm       cargo test --quiet
+    if [[ "$lang_ok" -eq 1 ]]; then
+      ws_step "test igniter-compiler"            igniter-compiler cargo test --quiet
+      ws_step "test igniter-machine (pure-core)" igniter-machine  cargo test --quiet --no-default-features --no-fail-fast
+    else
+      doc_emit workspace "test igniter-compiler"            fail "skipped: canon sibling absent" "check out igniter-lang"
+      doc_emit workspace "test igniter-machine (pure-core)" fail "skipped: canon sibling absent" "check out igniter-lang"
+    fi
+  fi
+
+  _ws_matrix_render "$which" "$json"
+  [[ "$WS_MATRIX_FAIL" -eq 1 ]] && exit 1
+  exit 0
+}
+
 cmd_workspace() {
   local sub="${1:-}"
   case "$sub" in
     ""|-h|--help) workspace_usage; exit 0 ;;
     status) shift; ws_run status "$@" ;;
     doctor) shift; ws_run doctor "$@" ;;
+    build)  shift; ws_matrix build "$@" ;;
+    test)   shift; ws_matrix test  "$@" ;;
     *) echo "$PROG: workspace: unknown subcommand '$sub'" >&2; echo >&2; workspace_usage >&2; exit 2 ;;
   esac
 }

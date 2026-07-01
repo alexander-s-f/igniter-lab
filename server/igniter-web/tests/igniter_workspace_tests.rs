@@ -148,3 +148,34 @@ fn workspace_unknown_subcommand_is_usage_error() {
     let out = ws(&["frobnicate"]);
     assert_eq!(out.status.code(), Some(2), "unknown workspace subcommand exits 2: {out:?}");
 }
+
+// ── build/test matrix arg surface (LAB-IGNITER-WORKSPACE-BUILD-TEST-MATRIX-P3) ──────────────────────
+// The bounded core matrix itself (cargo build/test per crate + the machine pure-core lane) is verified by
+// direct invocation, not here: running the real matrix from inside `cargo test` would nest heavy compiles.
+// These tests cover the fast arg/usage surface that guards it (exit before any cargo runs).
+
+/// `workspace --help` also documents the build/test matrix verbs.
+#[test]
+fn workspace_help_documents_build_and_test() {
+    let out = ws(&["--help"]);
+    assert!(out.status.success());
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("build") && s.contains("test"), "help names build + test:\n{s}");
+    assert!(s.contains("pure-core") || s.contains("no-default-features"),
+        "help mentions the machine pure-core lane:\n{s}");
+    assert!(s.contains("--quick"), "help documents --quick:\n{s}");
+}
+
+/// `workspace build --quick` is a usage error (--quick is a `test` flag) — exits 2 before any cargo.
+#[test]
+fn workspace_build_rejects_quick() {
+    let out = ws(&["build", "--quick"]);
+    assert_eq!(out.status.code(), Some(2), "build has no --quick: {out:?}");
+}
+
+/// `workspace test <positional>` is a usage error — exits 2 before any cargo.
+#[test]
+fn workspace_test_rejects_positional_arg() {
+    let out = ws(&["test", "some-target"]);
+    assert_eq!(out.status.code(), Some(2), "test takes no positional args: {out:?}");
+}
