@@ -48,6 +48,12 @@ App lifecycle:
   serve --check <app_dir> | check <app_dir>
                         dry build/verify the app and exit; opens NO socket (→ igweb-serve check)
 
+Workspace (Dev — develop Igniter itself):
+  workspace status      read-only report: flattened core layout, igniter-lang sibling, mirror helpers,
+                        igniter-lab branch/dirty, best-effort mirror remote HEADs
+  workspace doctor      the same checks as diagnostic records; exits non-zero on a required-local layout fail
+                        (both take [--json]; read-only — no clone/fetch/pull/push/build/test)
+
 Diagnostics & toolchain:
   doctor                local, non-mutating environment report (binaries, repo, igniter-lang sibling, rustc)
   toolchain list        show the v0 tool fleet and whether each binary is built in the repo
@@ -381,6 +387,148 @@ EOF
     echo "  next: 'igniter serve <app_dir>' to run; 'igniter check <app_dir>' to dry-build."
   fi
   exit 0   # v0: always a report (--strict deferred)
+}
+
+# ── workspace (Dev lane — read-only; LAB-IGNITER-WORKSPACE-STATUS-DOCTOR-P2) ─────────────────────────
+# `status`/`doctor` DIAGNOSE the contributor source checkout (flattened core + canon sibling + mirror
+# helpers). Read-only: no clone/fetch/pull/push/build/test, no filesystem mutation, no secret/env value.
+# Both reuse the doctor record machinery (doc_emit / doc_render_{text,json}), so `--json` shares one schema.
+workspace_usage() {
+  cat <<'EOF'
+usage: igniter workspace <status | doctor> [--json]
+
+The Dev lane: read-only diagnosis of an igniter-lab SOURCE checkout (the flattened core crates + the canon
+igniter-lang sibling + the mirror push helpers). It clones/fetches/pulls/pushes/builds NOTHING and mutates
+nothing — it only reports. (Pushing mirrors stays in bin/push-*-mirror; build/test is a later card.)
+
+  status [--json]   compact read-only report: core layout, Cargo.toml presence, igniter-lang sibling,
+                    mirror helper presence, igniter-lab branch/dirty, and best-effort mirror remote HEADs
+  doctor [--json]   the same checks as diagnostic records; exits NON-ZERO if a required LOCAL layout check
+                    fails (missing core crate / Cargo.toml / igniter-lang sibling). Remote lookups are soft.
+
+  --json            emit the doctor record schema: [{scope,check,severity,detail,suggest}] (severity ∈ ok/warn/fail/info)
+  -h | --help       this help
+
+Network is SOFT: a mirror remote HEAD lookup that fails (offline / no SSH) is a `warn`, never fatal, and
+never prompts for credentials. Set IGNITER_WORKSPACE_NO_REMOTE=1 to skip remote lookups entirely (CI/offline).
+Exit: status → 0 (unless usage); doctor → 0, or 1 on a required-local fail; usage → 2.
+EOF
+}
+
+WS_LOCAL_FAIL=0
+ws_fail_local() { WS_LOCAL_FAIL=1; }
+
+# Emit workspace diagnostic records into DOC_RECORDS. $1 = 1 to include (soft) mirror remote HEAD lookups.
+ws_collect() {
+  local with_remote="${1:-0}"
+  local mode
+  if [[ -f "$REPO_ROOT/igniter-compiler/Cargo.toml" ]]; then mode="source-checkout"; else mode="installed-prefix"; fi
+  doc_emit workspace mode info "$mode (root: $REPO_ROOT)" ""
+  if [[ "$mode" != "source-checkout" ]]; then
+    doc_emit workspace scope info "workspace targets an igniter-lab SOURCE checkout; nothing to diagnose in an installed prefix" "run from a source checkout (or its bin/igniter) to use the Dev lane"
+    return 0
+  fi
+
+  # 1+2+3: the five flattened core crates + their Cargo.toml
+  local c
+  for c in igniter-stdlib igniter-compiler igniter-vm igniter-machine igniter-tbackend; do
+    if [[ -d "$REPO_ROOT/$c" ]]; then
+      if [[ -f "$REPO_ROOT/$c/Cargo.toml" ]]; then doc_emit workspace "crate:$c" ok "$c/ + Cargo.toml present" ""
+      else doc_emit workspace "crate:$c" fail "$c/ present but Cargo.toml missing" "restore $c/Cargo.toml"; ws_fail_local; fi
+    else
+      doc_emit workspace "crate:$c" fail "core crate dir absent: $c/" "flattened core expects $c/ at the repo root (LAB-IGNITER-MONOREPO-FLATTEN-CORE-P2)"; ws_fail_local
+    fi
+  done
+
+  # 4: canon sibling (a BUILD prerequisite — igc include_str!s the inventory)
+  if [[ -f "$LANG_INVENTORY" ]]; then doc_emit workspace "igniter-lang sibling" ok "../igniter-lang/docs/spec/stdlib-inventory.json present" ""
+  else doc_emit workspace "igniter-lang sibling" fail "absent at $LANG_SIBLING" "check out igniter-lang beside igniter-lab (igc reads the canon stdlib inventory at build time)"; ws_fail_local; fi
+
+  # 5: the five core mirror push helpers (acts-as-tbackend is a Ruby adapter, not a core crate)
+  local h
+  for h in push-igniter-stdlib-mirror push-igniter-compiler-mirror push-igniter-vm-mirror push-igniter-machine-mirror push-tbackend-mirror; do
+    if [[ -x "$SCRIPT_DIR/$h" ]]; then doc_emit workspace "mirror-helper:$h" ok "bin/$h present + executable" ""
+    else doc_emit workspace "mirror-helper:$h" warn "absent or not executable: bin/$h" "restore the mirror push helper (optional for local dev)"; fi
+  done
+
+  # 6: igniter-lab branch + dirty (read-only)
+  if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    local branch
+    branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    doc_emit workspace "git branch" info "igniter-lab on '$branch'" ""
+    if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)" ]]; then
+      doc_emit workspace "git tree" info "dirty (uncommitted changes present)" "commit or stash before pushing mirrors"
+    else
+      doc_emit workspace "git tree" ok "clean" ""
+    fi
+  else
+    doc_emit workspace git warn "repo root is not a git work tree" ""
+  fi
+
+  # 7: best-effort mirror remote HEADs — SOFT (no fetch/pull, no credential prompt, bounded). remote NAME
+  #    'tbackend' maps to Igniter/igniter-tbackend; the other four match their crate names.
+  if [[ "$with_remote" -eq 1 ]]; then
+    local r head
+    for r in igniter-stdlib igniter-compiler igniter-vm igniter-machine tbackend; do
+      if git -C "$REPO_ROOT" remote get-url "$r" >/dev/null 2>&1; then
+        if head="$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=5' \
+                    git -C "$REPO_ROOT" ls-remote --heads "$r" main 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')" \
+           && [[ -n "$head" ]]; then
+          doc_emit workspace "mirror-head:$r" ok "main @ $head" ""
+        else
+          doc_emit workspace "mirror-head:$r" warn "unreachable (offline / no SSH) — not fatal" "network/SSH is optional; local dev does not need remote heads"
+        fi
+      else
+        doc_emit workspace "mirror-remote:$r" warn "no git remote '$r' configured" "optional: git remote add $r ssh://…/Igniter/$r.git"
+      fi
+    done
+  fi
+  return 0
+}
+
+# Shared runner for `workspace status` and `workspace doctor` ($1). Both read-only; both accept --json.
+ws_run() {
+  local which="$1"; shift
+  local json=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) json=1; shift ;;
+      -h|--help) workspace_usage; exit 0 ;;
+      -*) echo "$PROG: workspace $which: unknown option '$1'" >&2; exit 2 ;;
+      *)  echo "$PROG: workspace $which takes no positional args (got '$1')" >&2; exit 2 ;;
+    esac
+  done
+  DOC_RECORDS=()
+  WS_LOCAL_FAIL=0
+  # Remote HEAD lookups are best-effort; set IGNITER_WORKSPACE_NO_REMOTE=1 to skip them entirely (CI /
+  # offline / hermetic tests) — the local layout diagnosis is unchanged and still gates doctor's exit.
+  local want_remote=1
+  [[ -n "${IGNITER_WORKSPACE_NO_REMOTE:-}" ]] && want_remote=0
+  ws_collect "$want_remote"
+  if [[ "$json" -eq 1 ]]; then
+    doc_render_json
+  else
+    if [[ "$which" == "status" ]]; then
+      echo "igniter workspace status — read-only (flattened core + canon sibling + mirrors)"
+    else
+      echo "igniter workspace doctor — read-only local diagnosis (required-local fail ⇒ exit 1)"
+    fi
+    echo "  repo_root: $REPO_ROOT"
+    doc_render_text
+  fi
+  # status is always a report; doctor gates on a required-LOCAL layout failure (remotes stay soft/warn).
+  if [[ "$which" == "doctor" && "$WS_LOCAL_FAIL" -eq 1 ]]; then exit 1; fi
+  exit 0
+}
+
+cmd_workspace() {
+  local sub="${1:-}"
+  case "$sub" in
+    ""|-h|--help) workspace_usage; exit 0 ;;
+    status) shift; ws_run status "$@" ;;
+    doctor) shift; ws_run doctor "$@" ;;
+    *) echo "$PROG: workspace: unknown subcommand '$sub'" >&2; echo >&2; workspace_usage >&2; exit 2 ;;
+  esac
 }
 
 # Shared fleet report used by `doctor` and `toolchain list`. $1 = indent.
@@ -1165,6 +1313,7 @@ main() {
     serve)     shift; cmd_serve "$@" ;;
     check)     shift; cmd_check "$@" ;;
     doctor)    shift; cmd_doctor "$@" ;;
+    workspace) shift; cmd_workspace "$@" ;;
     toolchain) shift; cmd_toolchain "$@" ;;
     package)   shift; cmd_package "$@" ;;
     app)       shift; cmd_app "$@" ;;
