@@ -17,6 +17,10 @@ application database. It is not asking to replace that database on day one. For
 now the existing app stays authoritative; TBackend records history, lineage, and
 point-in-time evidence beside it.
 
+> **On the team? Start with [`docs/tbackend-onboarding.md`](docs/tbackend-onboarding.md)** — how to read
+> TBackend as a *reference fact-contract* and design our ledgers toward it (minimize the delta), not just
+> how to run it.
+
 ## Start Here
 
 ```bash
@@ -54,7 +58,8 @@ PY
 | macOS developer | `packaging/README-quickstart.md` |
 | devops / AWS evaluation | `docs/docker.md` |
 | Linux host ops | `docs/deployment.md` |
-| team intro | `docs/tbackend-team-quickstart.md` |
+| team — start here | `docs/tbackend-onboarding.md` (reference framing + reading path) |
+| team — 10-min hands-on | `docs/tbackend-team-quickstart.md` |
 | worked domain example | `docs/example-usecase.md` + `examples/availability_ledger.py` |
 
 ## Layout
