@@ -7,6 +7,25 @@ Delegation code: OPUS-TBACKEND-SPARK-LEADSIGNAL-SHADOW-CANARY-P6
 Date: 2026-07-01
 Skill: idd-agent-protocol
 
+## Dependency decision — PAUSED pending package/repository decision (2026-07-01)
+
+Verify-first resolved everything except **how SparkCRM loads `acts-as-tbackend`** (verify-first item 5).
+A sibling-path Gemfile dep is **prod-unsafe** (breaks any checkout/CI without the `igniter-workspace`
+sibling; SparkCRM's `path:` convention is in-repo `vendor/*` only). The safe direction is to consume
+`acts-as-tbackend` as a normal versioned gem; the open decision is **which registry/repo is canonical**
+(Forgejo private package registry vs GitHub canonical repo/package, with Forgejo as mirror).
+
+**Prepared (this card):** gemspec made private-registry-ready for the current Forgejo candidate
+(`allowed_push_host` = the Forgejo registry, blocks an accidental rubygems.org push; source URIs),
+`gem build` green, unit suite 12/0, and a publish runbook
+`runtime/acts-as-tbackend/RELEASE.md` (Forgejo push + SparkCRM `source` block + bundler auth). If GitHub
+becomes canonical, update `allowed_push_host`/URIs before publishing.
+
+**Blocked on:** packaging decision + publish credentials. Once `acts-as-tbackend 0.2.0` is published to the
+chosen registry and SparkCRM can `bundle install` it as a normal versioned gem, P6 resumes: the guarded,
+sampled, explicit hook in `BulkLeadSignalIngestor` (verify-first below already confirmed the hook point,
+the `now`-based version stamp, and the allowlist).
+
 ## Context
 
 P3 proved Spark-shaped **batch** evidence:
@@ -298,4 +317,3 @@ If P6 succeeds:
 - `LAB-TBACKEND-SPARK-LEADSIGNAL-SHADOW-CANARY-P7` — dev/staging soak + operational runbook, or
 - `LAB-TBACKEND-SPARK-SHADOW-HEALTH-P7` — health/parity reporter hardening, or
 - `LAB-TBACKEND-STORE-NAME-VALIDATION-P*` — daemon-side dotted-store validation/error cleanup.
-
