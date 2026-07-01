@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Push runtime/acts-as-tbackend to the canonical public GitHub repository.
+
+set -euo pipefail
+
+export ACTS_AS_TBACKEND_REMOTE="${ACTS_AS_TBACKEND_REMOTE:-acts-as-tbackend-github}"
+export ACTS_AS_TBACKEND_REMOTE_BRANCH="${ACTS_AS_TBACKEND_REMOTE_BRANCH:-main}"
+
+exec "$(dirname "$0")/push-acts-as-tbackend-mirror" "$@"

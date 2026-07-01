@@ -7,22 +7,20 @@ Delegation code: OPUS-TBACKEND-SPARK-LEADSIGNAL-SHADOW-CANARY-P6
 Date: 2026-07-01
 Skill: idd-agent-protocol
 
-## Dependency decision — PAUSED pending package/repository decision (2026-07-01)
+## Dependency decision — PAUSED pending public repo + gem publish (2026-07-01)
 
 Verify-first resolved everything except **how SparkCRM loads `acts-as-tbackend`** (verify-first item 5).
 A sibling-path Gemfile dep is **prod-unsafe** (breaks any checkout/CI without the `igniter-workspace`
-sibling; SparkCRM's `path:` convention is in-repo `vendor/*` only). The safe direction is to consume
-`acts-as-tbackend` as a normal versioned gem; the open decision is **which registry/repo is canonical**
-(Forgejo private package registry vs GitHub canonical repo/package, with Forgejo as mirror).
+sibling; SparkCRM's `path:` convention is in-repo `vendor/*` only). The dependency decision is now:
+**public GitHub repo is canonical, RubyGems carries the versioned gem, Forgejo is at most a read-only
+internal mirror.**
 
-**Prepared (this card):** gemspec made private-registry-ready for the current Forgejo candidate
-(`allowed_push_host` = the Forgejo registry, blocks an accidental rubygems.org push; source URIs),
-`gem build` green, unit suite 12/0, and a publish runbook
-`runtime/acts-as-tbackend/RELEASE.md` (Forgejo push + SparkCRM `source` block + bundler auth). If GitHub
-becomes canonical, update `allowed_push_host`/URIs before publishing.
+**Prepared (this card):** gemspec made GitHub/RubyGems-ready (`allowed_push_host` = rubygems.org,
+homepage/source = GitHub), `gem build` green, unit suite 12/0, and a publish runbook
+`runtime/acts-as-tbackend/RELEASE.md`.
 
-**Blocked on:** packaging decision + publish credentials. Once `acts-as-tbackend 0.2.0` is published to the
-chosen registry and SparkCRM can `bundle install` it as a normal versioned gem, P6 resumes: the guarded,
+**Blocked on:** creating/pushing the standalone public GitHub repo and publishing `acts-as-tbackend 0.2.0`
+to RubyGems. Once SparkCRM can `bundle install` it as a normal versioned gem, P6 resumes: the guarded,
 sampled, explicit hook in `BulkLeadSignalIngestor` (verify-first below already confirmed the hook point,
 the `now`-based version stamp, and the allowlist).
 
