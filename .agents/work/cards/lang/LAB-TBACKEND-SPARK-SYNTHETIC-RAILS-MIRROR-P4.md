@@ -1,6 +1,6 @@
 # LAB-TBACKEND-SPARK-SYNTHETIC-RAILS-MIRROR-P4 — synthetic Rails mirror for Spark-shaped facts
 
-Status: OPEN
+Status: CLOSED
 Lane: tbackend / acts-as-tbackend / Spark-shaped business pressure
 Type: implementation + measurement + report
 Delegation code: OPUS-TBACKEND-SPARK-SYNTHETIC-RAILS-MIRROR-P4
@@ -177,6 +177,48 @@ If `updated_at_us` is not stable enough in the chosen harness, use a persisted v
   - daemon-down behavior;
   - idempotency behavior;
   - any remaining blockers before a real Spark shadow canary.
+
+## Closing Report
+
+**CLOSED 2026-07-01.** Full evidence in `docs/spark-synthetic-rails-mirror-proof.md`. First live exercise of
+the P1 extension callback path against real ActiveRecord + a live daemon.
+
+```text
+Verify-first: callback surface = extension.rb (acts_as_tbackend macro -> after_commit -> Mirror.mirror! ->
+  write_fact_once_safe); id = store:record_id:event_type:updated_at_us (stable, retry-safe); daemon-down soft
+  (after_commit post-commit + soft result); underscore store name (spark_lead_signals). All 4 confirmed — no blocker.
+
+Harness: SQLite :memory: ActiveRecord (AR 8.1.3, sqlite3 2.9.4) + SyntheticLeadSignal model with
+  acts_as_tbackend store: spark_lead_signals, only: [8 safe columns]; live loopback tbackend (temp data-dir).
+
+Result — ALL 8 checks pass (60 records, exit 0):
+- create -> 60 facts (one per record); create status committed/idempotent_replay
+- aggregate parity: TBackend count-by-vendor == AR baseline (20/20/20)
+- update -> 2 versions under same key (facts_for = 2); latest_for bid 999.99 == AR bid 999.99
+- idempotent re-mirror -> idempotent_replay, fact count 2->2 (no dup)
+- daemon-down: AR create still persists (true); mirror returns soft "unavailable", no exception into AR path
+
+Commands: ruby -Ilib scripts/synthetic_rails_mirror_proof.rb --records 60 (exit 0, ALL CHECKS PASSED);
+  unit suite 12 runs/37 assertions/0 fail (green); ruby -c OK; gem build 0.2.0 OK (removed);
+  daemon: ./target/release/tbackend --host 127.0.0.1 --port <auto> --data-dir <tmp> --durability accepted.
+Cleanup: proof auto-removes temp; final check NO daemons, NO temp dirs. git diff --check clean.
+
+daemon-down behavior: AR write survives, mirror soft-classified (unavailable) — non-fatal, observable.
+idempotency: same (record,event,updated_at) -> idempotent_replay, no duplicate fact.
+
+Remaining blockers before a real Spark shadow canary: NONE hard. Notes: (1) Mirror key = "store:record_id"
+(not "lead_signal:<id>" as the card suggested) — works; make key builder configurable if a store-free key is
+wanted (small follow-up). (2) fact id includes event_type (create/update distinct facts; repeat=replay).
+
+Decision: READY. Next: LAB-TBACKEND-SPARK-SHADOW-CANARY-READINESS-P5 (design the first bounded, single-model,
+observe-only SparkCRM shadow boundary — enabled? guard, soft-fail, no app-write coupling).
+```
+
+### Changed (all under `runtime/acts-as-tbackend/`)
+- `scripts/synthetic_rails_mirror_proof.rb` (new) — self-asserting lifecycle proof.
+- `docs/spark-synthetic-rails-mirror-proof.md` (new) — evidence packet.
+
+Scope kept: synthetic data only, no SparkCRM writes/reads-of-rows, no daemon source changes, no production.
 
 ## Non-Goals
 
