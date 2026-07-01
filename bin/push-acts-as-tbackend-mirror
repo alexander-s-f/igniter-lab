@@ -18,7 +18,7 @@ Usage: bin/push-acts-as-tbackend-mirror
 Push the $PREFIX subtree to the '$REMOTE' remote branch '$REMOTE_BRANCH'.
 
 Expected setup:
-  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/afokin/acts-as-tbackend.git
+  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/Igniter/acts-as-tbackend.git
 
 Recommended flow:
   git status
@@ -50,7 +50,7 @@ fi
 if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
   echo "push-acts-as-tbackend-mirror: ERROR: remote '$REMOTE' is not configured." >&2
   echo "Run:" >&2
-  echo "  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/afokin/acts-as-tbackend.git" >&2
+  echo "  git remote add acts-as-tbackend ssh://git@git.int.avenlance.com:222/Igniter/acts-as-tbackend.git" >&2
   exit 1
 fi
 
