@@ -1,6 +1,6 @@
 # LAB-TBACKEND-SPARK-SHADOW-CANARY-READINESS-P5 — first bounded SparkCRM shadow boundary
 
-Status: OPEN
+Status: CLOSED
 Lane: tbackend / SparkCRM shadow evidence / business pressure
 Type: readiness + architecture decision + canary plan
 Delegation code: OPUS-TBACKEND-SPARK-SHADOW-CANARY-READINESS-P5
@@ -193,6 +193,55 @@ The packet must pick one recommendation and name the next implementation card.
   - next implementation card ID;
   - exact remaining blockers, if any.
 
+## Closing Report
+
+**CLOSED 2026-07-01.** Readiness packet: `runtime/acts-as-tbackend/docs/spark-shadow-canary-readiness.md`.
+
+```text
+Recommendation: A — a bounded, explicit, sampled LeadSignal shadow mirror in the ingestor, dev-first,
+disabled by default, observe-only.
+
+Load-bearing finding (drove the recommendation): LeadSignal is written via LeadSignal.insert_all
+(BulkLeadSignalIngestor) — insert_all BYPASSES ActiveRecord callbacks, so the P4 after_commit macro would
+silently miss every real lead signal. The canary must use an EXPLICIT Mirror.mirror! on the ingestor's
+inserted_rows (the extension already supports app-owned explicit mirroring), not the macro.
+
+First canary boundary (full spec in the packet):
+- model/event: LeadSignal, on ingest (inserted_rows post-insert_all)
+- trigger: explicit Mirror.mirror! per row (NOT the macro) + a sample gate (id % SAMPLE_MOD) — bounded slice
+- store: spark_lead_signals (underscore); key spark_lead_signals:<id>; id ...:ingest:<updated_at_us>
+- valid_time = signal_at; transaction_time = server-stamped
+- version stamp: P6 must provide updated_at_us explicitly. Current Spark insert_all returning does not include
+  updated_at; either add it to returning or build a DTO from inserted payload/result using the same now value.
+- allowlist = P3 sanitized set; NEVER did/upi/request_id/trace_id/full data/PII
+- failure: post-commit soft-fail (connector soft status); never blocks the Spark write; daemon-down = no-op
+- config: disabled by default — ActsAsTbackend.enabled? (ENV TBACKEND_ENABLED off) + canary flag
+  (TBACKEND_CANARY_LEADSIGNAL / System::AppSetting) + sample-mod; one-flag rollback
+- observability: health reporter (get_outbox_health style) + parity readback (TBackend agg vs LeadSignal AR)
+
+Rejected candidates:
+- OutboxEvent — 0 rows in the dev DB (unprovable in dev today); per-row create IS macro-compatible → revisit
+  on a populated staging.
+- Availability/scheduling — already covered by the home-lab spark-availability-ledger-lab shadow reference;
+  widens scope.
+- "no code" — this card is that readiness step; the packet + next card are its output.
+
+Explicit boundaries in the packet: SparkCRM stays source of truth; TBackend side-evidence only; NOT
+production authority; structural PII/payload exclusion.
+
+Next implementation card: LAB-TBACKEND-SPARK-LEADSIGNAL-SHADOW-CANARY-P6 (smallest slice — sampled
+inserted_rows via explicit soft hook behind the triple guard + health/parity readback + one-flag rollback;
+SparkCRM code changes begin there).
+
+Remaining blockers before a PRODUCTION shadow canary (out of scope here): staging soak on real traffic;
+connector token/auth wired to a real (non-open-loopback) daemon; durable/recoverable daemon + backup-restore
+runbook; network/loopback security gate.
+
+Verified: git diff --check clean; no SparkCRM code changes; no daemon/connector source changes.
+Curator addendum: live Spark `insert_all returning:` currently omits `updated_at`, so P6 must carry an explicit
+version stamp instead of letting Mirror fall back to wall-clock.
+```
+
 ## Non-Goals
 
 - Implement SparkCRM integration.
@@ -211,4 +260,3 @@ Depending on the readiness decision:
 - `LAB-TBACKEND-SPARK-SHADOW-CONFIG-AND-OBSERVABILITY-P6`
 
 Prefer the smallest implementation card that can prove one real Spark path in dev/staging without making TBackend authoritative.
-
